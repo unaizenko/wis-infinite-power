@@ -1163,6 +1163,7 @@
   }
 
   function trainingPowerDecayMultiplier() {
+    if (baseConversionGain() <= 1) return 1;
     const jDecades = Math.log10(1 + Math.max(0, state.joules) / TRAINING_J_DECAY_SCALE);
     return Math.pow(1 + jDecades / TRAINING_J_DECAY_LOG_DIVISOR, -TRAINING_J_DECAY_POWER);
   }
