@@ -64,9 +64,20 @@ button { font: inherit; }
 .brand-title { display: flex; align-items: baseline; gap: 10px; }
 .app-header strong { font-size: 20px; letter-spacing: .04em; }
 .app-header span { color: var(--muted); font-size: 14px; }
+.app-header .game-version {
+  padding: 3px 7px;
+  color: var(--muted);
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10px;
+  letter-spacing: .03em;
+}
 .app-header p { margin: 0; color: var(--muted); font-size: 13px; }
 .app-header b { color: var(--text); }
 .header-actions { display: flex; align-items: center; gap: 14px; }
+.scale-progress { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.scale-progress small { color: var(--muted); font-size: 10px; }
 
 /* DEBUG SPEED CONTROL: START（与另外两处同名区块一起删除可彻底清理） */
 .debug-speed-button {
@@ -255,6 +266,33 @@ button { font: inherit; }
 }
 .action-control > span, .purchase-control > span { color: var(--muted); font-size: 12px; }
 .action-control > small, .purchase-control > small { color: var(--muted); font-size: 11px; }
+.exploration-count-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.exploration-count-control input {
+  width: 82px;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  text-align: right;
+}
+.challenge-active-state {
+  margin: 20px 0 10px;
+  padding: 12px 16px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-weight: 700;
+}
 
 .item-row.purchased { background: var(--subtle); }
 .item-row.purchased .primary-button { background: transparent; color: var(--accent); border-color: var(--border); }
@@ -277,6 +315,28 @@ button { font: inherit; }
 .achievement.completed { background: var(--accent-soft); }
 .achievement.completed .achievement-state { color: #fff; background: var(--accent); }
 .achievement.completed > strong { color: var(--accent); }
+
+.statistics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+.statistics-card {
+  min-height: 112px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.statistics-card span { color: var(--muted); font-size: 12px; }
+.statistics-card strong { overflow-wrap: anywhere; font-size: 24px; }
+.statistics-card small { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.statistics-time-card { grid-column: 1 / -1; }
 
 .cultivation-status {
   margin-top: 20px;
@@ -409,14 +469,43 @@ button { font: inherit; }
 
 @media (max-width: 720px) {
   .app { width: 100%; min-height: 100vh; margin: 0; border: 0; }
-  .app-header { padding: 0 16px; }
-  .app-header p { display: none; }
+  .app-header {
+    height: auto;
+    min-height: 64px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .brand-title { min-width: 0; flex-wrap: wrap; gap: 6px; }
+  .app-header strong { font-size: 18px; }
+  .app-header span { font-size: 12px; }
+  .header-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .scale-progress { min-width: 0; align-items: flex-start; gap: 2px; }
+  .app-header p,
+  .scale-progress small {
+    max-width: 100%;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .app-header p { display: block; font-size: 11px; }
+  .scale-progress small { font-size: 9px; }
+  .debug-speed-button { min-width: 66px; height: 30px; padding: 0 8px; font-size: 11px; }
+  .settings-button { width: 32px; height: 32px; font-size: 17px; }
   .app-body { display: block; }
   .sidebar { padding: 14px 16px; }
   .resource-panel { min-height: 0; display: block; padding: 14px 16px; }
   .resource-panel .section-label { margin-bottom: 10px; }
-  .resource-items { grid-template-columns: 1fr 1fr; }
-  .resource-row { display: block; padding: 3px 12px; }
+  .resource-items { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+  .resource-row { display: block; padding: 4px 8px; }
   .resource-row:first-child { padding-left: 0; border-left: 0; }
   .resource-value { display: flex; margin-top: 3px; gap: 5px; }
   .resource-value strong { font-size: 18px; }
@@ -433,8 +522,24 @@ button { font: inherit; }
   .achievement-state { flex-basis: auto; padding: 6px 10px; }
   .achievement-toolbar { align-items: stretch; flex-direction: column; }
   .achievement-toolbar .secondary-button { width: 100%; }
+  .statistics-grid { grid-template-columns: 1fr; }
+  .statistics-time-card { grid-column: auto; }
   .cultivation-grid { grid-template-columns: 1fr; }
   .settings-row { align-items: flex-start; }
+}
+
+@media (max-width: 420px) {
+  .app-header { padding: 9px 10px; }
+  .brand-title { gap: 5px; }
+  .app-header .game-version { padding: 2px 5px; font-size: 9px; }
+  .header-actions { gap: 6px; }
+  .scale-progress small { display: none; }
+  .debug-speed-button { min-width: 60px; padding: 0 6px; }
+  .resource-value strong { font-size: 16px; }
+  .settings-row { flex-direction: column; align-items: stretch; gap: 12px; }
+  .settings-row > button,
+  .theme-options { width: 100%; }
+  .theme-options label { flex: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
