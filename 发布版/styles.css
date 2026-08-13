@@ -238,24 +238,6 @@ button { font: inherit; }
 }
 .action-control > span, .purchase-control > span { color: var(--muted); font-size: 12px; }
 .action-control > small, .purchase-control > small { color: var(--muted); font-size: 11px; }
-.exploration-count-control {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 11px;
-}
-.exploration-count-control input {
-  width: 82px;
-  padding: 6px 8px;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font: inherit;
-  text-align: right;
-}
 .challenge-active-state {
   margin: 20px 0 10px;
   padding: 12px 16px;

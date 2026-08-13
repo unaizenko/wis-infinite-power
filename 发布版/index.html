@@ -154,15 +154,11 @@
               <article class="item-row" id="exploration-action" hidden>
                 <div class="item-content">
                   <h2>探寻</h2>
-                  <p>消耗当前10%战力；投入越多，获得的法力与宝物判定越多，但大规模探寻会逐渐衰减。</p>
+                  <p>消耗当前10%战力；投入越多，获得的原始探寻量、法力与宝物判定越多，所需战力按探寻规模动态增长。</p>
                 </div>
                 <div class="action-control">
-                  <span id="exploration-preview">1M 战力 → 100 法力</span>
+                  <span id="exploration-preview">单次探寻至少消耗 1M 战力</span>
                   <small id="exploration-cost">消耗当前10%战力，至少消耗1M</small>
-                  <label class="exploration-count-control" id="exploration-count-control" hidden>
-                    探寻次数
-                    <input id="exploration-count" type="number" min="1" max="10000" step="1" value="1" inputmode="numeric" />
-                  </label>
                   <button id="exploration-button" class="primary-button" type="button" disabled>探寻</button>
                 </div>
               </article>
@@ -358,7 +354,7 @@
                   </article>
 
                   <article class="item-row" id="killing-intent-upgrade" data-sort-cost="300000000">
-                    <div class="item-content"><h2>杀气</h2><p>每秒获得相当于当前集中实际获取战力0.05%的J。</p></div>
+                    <div class="item-content"><h2>杀气</h2><p>每秒获得相当于当前集中实际获取战力0.00005%的J。</p></div>
                     <div class="purchase-control"><span id="killing-intent-preview">可提供 +0 J/秒</span><small>消耗 300M 战力</small><button id="buy-killing-intent" class="primary-button" type="button">升级</button></div>
                   </article>
                 </div>
@@ -880,7 +876,7 @@
                       <article class="item-row" id="flying-escape-ability" data-sort-cost="100000000">
                         <div class="item-content">
                           <h2>飞遁</h2>
-                          <p>使普通探寻来源×10，并允许设置批量探寻次数；批量次数仅提供操作便利，不额外改变每次探寻公式。</p>
+                          <p>使普通探寻来源×10。</p>
                         </div>
                         <div class="purchase-control">
                           <span id="flying-escape-preview">可使普通探寻来源 ×10</span>

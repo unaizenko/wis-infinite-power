@@ -85,7 +85,7 @@
   const EXPLORATION_BASE_MANA = 50;
   const EXPLORATION_MINIMUM_POWER_COST = 1e6;
   const EXPLORATION_STANDARD_POWER_COST = 1e7;
-  const EXPLORATION_AMOUNT_DECAY = 0.2;
+  const EXPLORATION_COST_EXPONENT_SCALE = 0.08;
   const TRAINING_J_DECAY_SCALE = 1e6;
   const TRAINING_J_DECAY_LOG_DIVISOR = 9;
   const TRAINING_J_DECAY_POWER = 3;
@@ -230,7 +230,6 @@
     minorTechniqueUnlocked: false,
     flyingEscapeUnlocked: false,
     longevity800Level: 0,
-    explorationCount: 1,
     explorationProgress: 0,
     manaLiquefactionUnlocked: false,
     longevityLevel: 0,
@@ -518,7 +517,6 @@
       minorTechniqueUnlocked: source.minorTechniqueUnlocked === true,
       flyingEscapeUnlocked: source.flyingEscapeUnlocked === true,
       longevity800Level: Math.max(0, Math.min(4, Math.floor(Number(source.longevity800Level) || 0))),
-      explorationCount: Math.max(1, Math.min(10000, Math.floor(Number(source.explorationCount) || 1))),
       explorationProgress: Math.max(0, Number(source.explorationProgress) || 0),
       manaLiquefactionUnlocked: source.manaLiquefactionUnlocked === true,
       longevityLevel: Math.max(0, Math.min(2, Math.floor(Number(source.longevityLevel) || 0))),
@@ -1486,7 +1484,7 @@
 
   function rawKillingIntentPotentialJBonus() {
     return state.focusPurchased
-      ? actualFocusPowerPerSecond() * 0.0005 * superSpeedThinkingMultiplier()
+      ? actualFocusPowerPerSecond() * 5e-7 * superSpeedThinkingMultiplier()
       : 0;
   }
 
@@ -1900,18 +1898,29 @@
   }
 
   function rawExplorationAmountForCost(powerCost) {
-    return Math.max(0, Number(powerCost) || 0) / EXPLORATION_STANDARD_POWER_COST;
-  }
+    const cost = Math.max(0, Number(powerCost) || 0);
+    if (cost <= 0) return 0;
+    if (!Number.isFinite(cost)) return Infinity;
 
-  function effectiveExplorationAmount(rawAmount) {
-    const amount = Math.max(0, Number(rawAmount) || 0);
-    if (amount <= 1) return amount;
-    const exponent = 1 / (1 + EXPLORATION_AMOUNT_DECAY * Math.sqrt(Math.log10(amount)));
-    return Math.pow(amount, exponent);
+    const targetLogCost = Math.log10(cost);
+    let lowerLogAmount = -323;
+    let upperLogAmount = 308;
+    for (let iteration = 0; iteration < 80; iteration += 1) {
+      const middleLogAmount = (lowerLogAmount + upperLogAmount) / 2;
+      const amount = Math.pow(10, middleLogAmount);
+      const logOnePlusAmount = middleLogAmount > 16
+        ? middleLogAmount
+        : Math.log10(1 + amount);
+      const exponent = 1 + EXPLORATION_COST_EXPONENT_SCALE * Math.sqrt(logOnePlusAmount);
+      const middleLogCost = Math.log10(EXPLORATION_STANDARD_POWER_COST) + middleLogAmount * exponent;
+      if (middleLogCost < targetLogCost) lowerLogAmount = middleLogAmount;
+      else upperLogAmount = middleLogAmount;
+    }
+    return Math.pow(10, (lowerLogAmount + upperLogAmount) / 2);
   }
 
   function explorationAmountForCost(powerCost) {
-    return effectiveExplorationAmount(rawExplorationAmountForCost(powerCost)) * divineSenseMultiplier();
+    return rawExplorationAmountForCost(powerCost) * divineSenseMultiplier();
   }
 
   function divineSenseMultiplier() {
@@ -1920,77 +1929,6 @@
 
   function explorationBaseMana(powerCost = explorationPowerCost()) {
     return EXPLORATION_BASE_MANA * explorationAmountForCost(powerCost);
-  }
-
-  function explorationBatchPreview(requestedCount) {
-    const requested = Math.max(1, Math.min(10000, Math.floor(Number(requestedCount) || 1)));
-    if (explorationPowerCost() < EXPLORATION_MINIMUM_POWER_COST) return { attempts: 0, powerCost: 0, explorationAmount: 0 };
-    let simulatedPower = Math.max(0, state.power);
-    let powerCost = 0;
-    let explorationAmount = 0;
-    let attempts = 0;
-    while (attempts < requested) {
-      const currentCost = simulatedPower * 0.1;
-      if (currentCost < EXPLORATION_MINIMUM_POWER_COST) break;
-      simulatedPower -= currentCost;
-      powerCost += currentCost;
-      explorationAmount += explorationAmountForCost(currentCost);
-      attempts += 1;
-    }
-    return { attempts, powerCost, explorationAmount };
-  }
-
-  function explorationBatchManaPreview(requestedCount) {
-    const batch = explorationBatchPreview(requestedCount);
-    let simulatedPower = Math.max(0, state.power);
-    let simulatedMana = Math.max(0, state.mana);
-    let powerCost = 0;
-    let manaGain = 0;
-    let explorationAmount = 0;
-    let attempts = 0;
-    let tribulationCount = state.minorTribulationExplorationCount;
-    let tribulationAmountSum = state.minorTribulationExplorationAmountSum;
-    let tribulationTriggered = state.minorTribulationTriggered;
-    let tribulationInitialExponent = state.minorTribulationInitialManaExponent;
-    let tribulationRecoveryRemaining = state.minorTribulationRecoveryRemaining;
-
-    while (attempts < batch.attempts) {
-      const currentCost = simulatedPower * 0.1;
-      if (currentCost < EXPLORATION_MINIMUM_POWER_COST) break;
-      const currentTribulationExponent = minorTribulationExplorationManaExponent(
-        tribulationTriggered,
-        tribulationInitialExponent,
-        tribulationRecoveryRemaining,
-        state.advancedRealmLevel
-      );
-      const currentGain = explorationPotentialManaGain(currentCost, simulatedMana, currentTribulationExponent);
-      if (currentGain < 1) break;
-      const currentExplorationAmount = explorationAmountForCost(currentCost);
-      simulatedPower -= currentCost;
-      simulatedMana += currentGain;
-      powerCost += currentCost;
-      manaGain += currentGain;
-      explorationAmount += currentExplorationAmount;
-      if (state.advancedRealmLevel >= 2) {
-        tribulationCount += 1;
-        tribulationAmountSum += currentExplorationAmount;
-        if (tribulationCount >= MINOR_TRIBULATION_TRIGGER_ATTEMPTS) {
-          const averageExplorationAmount = tribulationAmountSum / MINOR_TRIBULATION_TRIGGER_ATTEMPTS;
-          const calculatedInitialExponent = Math.max(
-            minorTribulationExplorationMinimumExponent(),
-            minorTribulationExplorationBaseExponent() - 0.02 * Math.log10(1 + averageExplorationAmount)
-          );
-          tribulationCount = 0;
-          tribulationAmountSum = 0;
-          tribulationTriggered = true;
-          tribulationInitialExponent = Math.min(currentTribulationExponent, calculatedInitialExponent);
-          tribulationRecoveryRemaining = MINOR_TRIBULATION_RECOVERY_SECONDS;
-        }
-      }
-      attempts += 1;
-    }
-
-    return { attempts, powerCost, manaGain, explorationAmount };
   }
 
   function rollMysteriousGreenBottleAttempts(attempts) {
@@ -3023,40 +2961,18 @@
   }
 
   function explore() {
-    if (!state.goldenCoreUnlocked || explorationPowerCost() < EXPLORATION_MINIMUM_POWER_COST) return;
-    const requestedCount = state.flyingEscapeUnlocked ? state.explorationCount : 1;
-    const batch = explorationBatchPreview(requestedCount);
-    if (batch.attempts < 1) return;
+    const powerCost = explorationPowerCost();
+    if (!state.goldenCoreUnlocked || powerCost < EXPLORATION_MINIMUM_POWER_COST) return;
+    const gained = explorationPotentialManaGain(powerCost);
+    if (gained < 1) return;
     const previousAchievements = achievementStates();
-    const rewards = { attempts: 0, tianNiPearl: 0, greenBottle: 0, fuBao: 0, naturalTreasure: 0, xuTianDing: 0, wanYaoFan: 0, seizeFoundation: false };
-    let completedAttempts = 0;
-    let tribulationTriggered = false;
+    state.power -= powerCost;
+    state.mana += gained;
+    state.lifetimeTotalMana += gained;
 
-    while (completedAttempts < batch.attempts) {
-      const powerCost = explorationPowerCost();
-      if (powerCost < EXPLORATION_MINIMUM_POWER_COST) break;
-      const gained = explorationPotentialManaGain(powerCost);
-      if (gained < 1) break;
-
-      state.power -= powerCost;
-      state.mana += gained;
-      state.lifetimeTotalMana += gained;
-
-      const explorationAmount = explorationAmountForCost(powerCost);
-      const currentRewards = processExplorationJudgements(addExplorationProgress(explorationAmount));
-      rewards.attempts += currentRewards.attempts;
-      rewards.tianNiPearl += currentRewards.tianNiPearl;
-      rewards.greenBottle += currentRewards.greenBottle;
-      rewards.fuBao += currentRewards.fuBao;
-      rewards.naturalTreasure += currentRewards.naturalTreasure;
-      rewards.xuTianDing += currentRewards.xuTianDing;
-      rewards.wanYaoFan += currentRewards.wanYaoFan;
-      rewards.seizeFoundation = rewards.seizeFoundation || currentRewards.seizeFoundation;
-      tribulationTriggered = registerSuccessfulExploration(explorationAmount) || tribulationTriggered;
-      completedAttempts += 1;
-    }
-
-    if (completedAttempts < 1) return;
+    const explorationAmount = explorationAmountForCost(powerCost);
+    const rewards = processExplorationJudgements(addExplorationProgress(explorationAmount));
+    const tribulationTriggered = registerSuccessfulExploration(explorationAmount);
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
@@ -3371,9 +3287,13 @@
     const nextLongevity800Cost = longevity800Cost();
     const nextMindDivisionCost = mindDivisionCost();
     const nextHeavenlyTreasureCost = heavenlyTreasureCost();
-    const explorationCount = state.flyingEscapeUnlocked ? state.explorationCount : 1;
-    const explorationBatch = explorationBatchManaPreview(explorationCount);
-    const explorationBatchMana = explorationBatch.manaGain;
+    const currentExplorationPowerCost = explorationPowerCost();
+    const currentRawExplorationAmount = rawExplorationAmountForCost(currentExplorationPowerCost);
+    const currentExplorationAmount = explorationAmountForCost(currentExplorationPowerCost);
+    const currentExplorationMana = explorationManaGain();
+    const canExplore = state.goldenCoreUnlocked
+      && currentExplorationPowerCost >= EXPLORATION_MINIMUM_POWER_COST
+      && currentExplorationMana >= 1;
     const pearlCount = tianNiPearlCount();
     const greenBottleCount = mysteriousGreenBottleCount();
     const currentFuBaoCount = fuBaoCount();
@@ -3439,7 +3359,7 @@
     byId("intuition-preview").textContent = `${state.intuitionPurchased ? "当前" : "可提供"}集中倍率 ×${intuitionPotential.toFixed(2)}`;
     byId("sonic-movement-preview").textContent = `${state.sonicMovementPurchased ? "当前" : "可提供"}跑步倍率 ×${(state.sonicMovementPurchased ? sonicMovementMultiplier() : 3.8).toFixed(2)}`;
     byId("carbon-limit-preview").textContent = `${state.carbonLimitPurchased ? "当前" : "可提供"}健身倍率 +${carbonLimitPotential.toFixed(2)}`;
-    byId("killing-intent-preview").textContent = `${state.killingIntentPurchased ? "当前" : "可提供"} +${format(killingIntentPotentialJBonus())} J/秒（战力获取的 ${(state.focusPurchased ? focusPercent() : 0).toFixed(2)}%，已计算来源软上限）`;
+    byId("killing-intent-preview").textContent = `${state.killingIntentPurchased ? "当前" : "可提供"} +${format(killingIntentPotentialJBonus())} J/秒（集中实际获取战力的0.00005%，已计超速思维倍率）`;
     byId("rock-strike-preview").textContent = `${state.rockStrikePurchased ? "当前" : "可使"}打岩来源 ×2；等级上限 +20`;
     byId("high-speed-metabolism-preview").textContent = `${state.highSpeedMetabolismPurchased ? "当前" : "可使"}锻炼来源 ×1.75`;
     byId("endurance-enhancement-preview").textContent = `${state.enduranceEnhancementPurchased ? "当前" : "可使"}健身倍率 ×2；等级上限 +20`;
@@ -3470,14 +3390,11 @@
     byId("next-mana-j").textContent = `下一法力所需：${format(nextManaJ, 0)} J`;
     byId("breathing-button").disabled = manaGain < 1;
     byId("exploration-action").hidden = !state.goldenCoreUnlocked;
-    byId("exploration-preview").textContent = explorationBatch.attempts > 0
-      ? `${formatCost(explorationBatch.powerCost)} 战力 → 约 ${format(explorationBatchMana)} 法力（未计批次中新宝物；有效探寻量 ${format(explorationBatch.explorationAmount)}，${explorationBatch.attempts}次）`
+    byId("exploration-preview").textContent = canExplore
+      ? `${formatCost(currentExplorationPowerCost)} 战力 → 约 ${format(currentExplorationMana)} 法力（原始探寻量 ${format(currentRawExplorationAmount)}；有效探寻量 ${format(currentExplorationAmount)}）`
       : "单次探寻至少消耗 1M 战力";
     byId("exploration-cost").textContent = `消耗当前10%战力，至少消耗1M；累计有效探寻量 ${format(state.explorationProgress)} / 1`;
-    byId("exploration-button").disabled = !state.goldenCoreUnlocked || explorationBatch.attempts < 1;
-    byId("exploration-count-control").hidden = !state.flyingEscapeUnlocked;
-    const explorationCountInput = byId("exploration-count");
-    if (document.activeElement !== explorationCountInput) explorationCountInput.value = String(state.explorationCount);
+    byId("exploration-button").disabled = !canExplore;
 
     const cultivationSelected = state.cultivationSystem === "仙道";
     const cultivationCard = document.querySelector('[data-cultivation-card="仙道"]');
@@ -3594,8 +3511,8 @@
       byId(`${nextRealm.slug}-bottleneck-point`).textContent = `拐点：${format(requirement, 0)} 法力`;
     });
     byId("flying-escape-preview").textContent = state.flyingEscapeUnlocked
-      ? "当前普通探寻来源 ×10，可设置批量次数"
-      : "可使普通探寻来源 ×10，并解锁批量设置";
+      ? "当前普通探寻来源 ×10"
+      : "可使普通探寻来源 ×10";
     byId("longevity-800-ability").classList.toggle("purchased", state.longevity800Level >= 4);
     byId("longevity-800-level").textContent = `当前 ${state.longevity800Level} / 4 级（健身上限 +${state.longevity800Level * 10}，本能力健身倍率 ×${additiveLevelMultiplier(state.longevity800Level, 8).toFixed(2)}）`;
     byId("longevity-800-cost").textContent = state.longevity800Level >= 4 ? "已达到等级上限" : `消耗 ${formatCost(nextLongevity800Cost)} 法力`;
@@ -3908,11 +3825,6 @@
   bindHoldButton("unlock-spirit-refining-art", () => unlockVoidRefinementAbility("spiritRefiningArtUnlocked", SPIRIT_REFINING_ART_COST));
   byId("scatter-rebuild").addEventListener("click", scatterAndRebuild);
   byId("reincarnate").addEventListener("click", reincarnate);
-  byId("exploration-count").addEventListener("change", (event) => {
-    state.explorationCount = Math.max(1, Math.min(10000, Math.floor(Number(event.target.value) || 1)));
-    saveState();
-    render();
-  });
   byId("toggle-innate-deficiency").addEventListener("click", () => {
     if (state.activeChallenge === "innateDeficiency") exitChallenge();
     else startChallenge("innateDeficiency");
