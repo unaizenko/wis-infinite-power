@@ -13,7 +13,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.3.7</small>
+          <small id="game-version" class="game-version">v0.1.3.8</small>
         </div>
         <div class="header-actions">
           <div class="scale-progress">
@@ -49,13 +49,6 @@
             </div>
           </div>
         </div>
-        <!-- DEBUG RESOURCE BREAKDOWN: START（删除本区块即可安全停用资源来源显示） -->
-        <div class="resource-debug-breakdown" aria-label="资源获取来源调试信息">
-          <p><b>J来源</b><span id="debug-j-sources">正在计算……</span></p>
-          <p><b>战力来源</b><span id="debug-power-sources">正在计算……</span></p>
-          <p id="debug-mana-source-row" hidden><b>法力来源</b><span id="debug-mana-sources">正在计算……</span></p>
-        </div>
-        <!-- DEBUG RESOURCE BREAKDOWN: END -->
       </section>
 
       <div class="app-body">
@@ -365,7 +358,7 @@
                   </article>
 
                   <article class="item-row" id="killing-intent-upgrade" data-sort-cost="300000000">
-                    <div class="item-content"><h2>杀气</h2><p>根据当前战力获取获得J，比例为集中百分比的1%，并受量级软上限影响。</p></div>
+                    <div class="item-content"><h2>杀气</h2><p>每秒获得相当于当前集中实际获取战力0.05%的J。</p></div>
                     <div class="purchase-control"><span id="killing-intent-preview">可提供 +0 J/秒</span><small>消耗 300M 战力</small><button id="buy-killing-intent" class="primary-button" type="button">升级</button></div>
                   </article>
                 </div>

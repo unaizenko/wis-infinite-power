@@ -2,7 +2,7 @@
   "use strict";
 
   const SAVE_KEY = "wis-infinite-power-save-v2";
-  const GAME_VERSION = "0.1.3.7";
+  const GAME_VERSION = "0.1.3.8";
   const GYM_COST = 20;
   const EXERCISE_COST = 50;
   const TRANSCENDENT_COST = 500;
@@ -82,7 +82,7 @@
   const MANA_SOLIDIFICATION_COST = 16000;
   const TECHNIQUE_COST = 1200;
   const MAGIC_TREASURE_COST = 30000;
-  const EXPLORATION_BASE_MANA = 1000;
+  const EXPLORATION_BASE_MANA = 50;
   const EXPLORATION_MINIMUM_POWER_COST = 1e6;
   const EXPLORATION_STANDARD_POWER_COST = 1e7;
   const EXPLORATION_AMOUNT_DECAY = 0.2;
@@ -1486,7 +1486,7 @@
 
   function rawKillingIntentPotentialJBonus() {
     return state.focusPurchased
-      ? automaticPowerPerSecond() * focusPercent() * 0.01 * superSpeedThinkingMultiplier()
+      ? actualFocusPowerPerSecond() * 0.0005 * superSpeedThinkingMultiplier()
       : 0;
   }
 
@@ -1494,15 +1494,8 @@
     return state.superSpeedThinkingPurchased ? 5 : 1;
   }
 
-  function killingIntentSoftcapMultiplier() {
-    return resourceSoftcapMultiplier(rawKillingIntentPotentialJBonus());
-  }
-
   function killingIntentPotentialJBonus() {
-    return calculateSourceGain({
-      base: rawKillingIntentPotentialJBonus(),
-      softcaps: [(gain) => applyResourceSoftcap(gain, gain)]
-    });
+    return calculateSourceGain({ base: rawKillingIntentPotentialJBonus() });
   }
 
   function focusPercent() {
@@ -3334,61 +3327,6 @@
     renderChallenge("powerless", "powerless");
   }
 
-  // DEBUG RESOURCE BREAKDOWN: START（删除本区块即可移除资源来源计算）
-  window.renderResourceDebug = () => {
-    const jBase = 1;
-    const jFitness = fitnessJBonus();
-    const jAchievement = achievementJBonus();
-    const jMana = manaJBonus();
-    const jKillingIntent = killingIntentJBonus();
-    const currentJGroups = jMultiplierGroups();
-    const jSourceSum = jBase + jFitness + jAchievement + jMana + jKillingIntent;
-    const jRaw = jSourceSum * multiplyEffectGroups(currentJGroups);
-    const jRegionExponent = jGainExponent();
-    const jAfterExponent = applyGainExponent(jRaw, jRegionExponent);
-    const jActual = applyResourceSoftcap(jAfterExponent, state.joules);
-
-    const jDebug = byId("debug-j-sources");
-    if (jDebug) {
-      jDebug.textContent = `来源层：基础 ${format(jBase)}；健身 ${format(jFitness)}（基础 ${format(state.runningLevel * 2)}，原乘区与加法 ×${(longevityFitnessMultiplier() + carbonLimitFitnessBonus() + fitnessMembershipCardFitnessBonus()).toFixed(2)}、寿与天齐 ×${equalHeavenLongevityFitnessMultiplier().toFixed(0)}、八灵尺 ×${baLingChiFitnessMultiplier().toFixed(3)}，金刚不坏与挑战奖励合计 ^${fitnessSourceExponent().toFixed(2)}）；成就 ${format(jAchievement)}；法力 ${format(jMana)}（法力液化 ×${manaLiquefactionManaJMultiplier().toFixed(2)}，已激活转世指数 ^${reincarnationManaJExponent().toFixed(2)}，炼神术 ^${spiritRefiningArtExponent().toFixed(2)}）；杀气 ${format(jKillingIntent)}（当前战力获取 ${format(automaticPowerPerSecond())}/秒，集中比例的1%，超速思维 ×${superSpeedThinkingMultiplier().toFixed(0)}，来源软上限 ×${formatSoftcapMultiplier(killingIntentSoftcapMultiplier())}）。来源汇总 ${format(jSourceSum)}/秒；J区域乘区：${formatMultiplierGroups(currentJGroups)}；区域指数仅含挑战限制 ^${jRegionExponent.toFixed(2)}：${format(jRaw)}/秒 → ${format(jAfterExponent)}/秒；区域软上限 ×${formatSoftcapMultiplier(resourceSoftcapMultiplier(state.joules))}（触发：${activeSoftcapStages(state.joules)}；境界解除：${removedSoftcapStages()}）：最终 ${format(jActual)}/秒`;
-    }
-
-    const focusSource = focusPowerPerSecond();
-    const rockSource = rockPowerPerSecond();
-    const ghostBrainSource = ghostBrainPowerSource();
-    const magicTreasureSource = magicTreasurePowerSource();
-    const brahmaDemonArtSource = brahmaDemonArtPowerSource();
-    const powerRaw = focusSource + rockSource + ghostBrainSource + magicTreasureSource + brahmaDemonArtSource;
-    const powerExponent = powerGainExponent();
-    const currentSuperpowerExponent = superpowerExponent();
-    const tribulationExponent = minorTribulationPowerExponent();
-    const powerChallengeExponent = activeChallengeLimitExponent("powerless");
-    const powerRegionMultiplied = powerRaw * powerMultiplier();
-    const powerAfterExponent = applyGainExponent(powerRegionMultiplied, powerExponent);
-    const powerActual = applyResourceSoftcap(powerAfterExponent, state.power);
-    const currentPowerGroups = powerMultiplierGroups();
-    const powerDebug = byId("debug-power-sources");
-    if (powerDebug) {
-      powerDebug.textContent = `来源层：锻炼 ${format(trainingPowerSource())}/次（J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}、高速代谢 ×${highSpeedMetabolismMultiplier().toFixed(2)}、无力奖励 ^${trainingSourceExponent().toFixed(2)}，仅手动结算）；集中 ${format(focusSource)}/秒（锻炼基础、J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}、比例 ${(focusPercent() * 100).toFixed(1)}%、直感 ×${intuitionFocusMultiplier().toFixed(2)}、动态专注 ×${dynamicFocusMultiplier().toFixed(2)}、入微 ^${subtleFocusExponent().toFixed(2)}、来源软上限 ×${focusDecayMultiplier().toFixed(3)}）；打岩 ${format(rockSource)}/秒（岩击 ×${rockStrikeMultiplier().toFixed(0)}、崩山 ^${mountainCollapseExponent().toFixed(3)}）；鬼脑独立来源 ${format(ghostBrainSource)}/秒（精神领域 ×${mentalDomainMultiplier().toFixed(0)}、裂天 ×${skySplitMultiplier().toFixed(2)}）；法宝独立来源 ${format(magicTreasureSource)}/秒（御物 ×${materialControlMultiplier().toFixed(0)}、万妖幡 ×${wanYaoFanMultiplier().toFixed(3)}）；梵圣真魔功 ${format(brahmaDemonArtSource)}/秒（健身最终来源10%，真灵变 ×${trueSpiritTransformationMultiplier().toFixed(2)}）。自动来源汇总 ${format(powerRaw)}/秒；战力区域乘区：${formatMultiplierGroups(currentPowerGroups)}；区域指数：异能 ^${currentSuperpowerExponent.toFixed(2)}、挑战限制 ^${powerChallengeExponent.toFixed(2)}、小天劫 ^${tribulationExponent.toFixed(3)}，合计 ^${powerExponent.toFixed(3)}：${format(powerRegionMultiplied)}/秒 → ${format(powerAfterExponent)}/秒；区域软上限 ×${formatSoftcapMultiplier(resourceSoftcapMultiplier(state.power))}（集中在此承受第二次；触发：${activeSoftcapStages(state.power)}；境界解除：${removedSoftcapStages()}）：最终 ${format(powerActual)}/秒`;
-    }
-
-    const manaMultiplier = manaGainMultiplier();
-    const breathingBase = baseBreathingManaGain();
-    const breathingActual = breathingManaGain();
-    const explorationNormalSource = state.goldenCoreUnlocked ? explorationBaseMana() * flyingEscapeMultiplier() * mysteriousGreenBottleMultiplier() : 0;
-    const explorationFuBao = state.goldenCoreUnlocked ? fuBaoExplorationManaBonus(explorationPowerCost()) : 0;
-    const explorationSourceSum = explorationNormalSource + explorationFuBao;
-    const explorationTribulationExponent = minorTribulationExplorationManaExponent();
-    const explorationActual = state.goldenCoreUnlocked ? explorationPotentialManaGain() : 0;
-    const manaDebug = byId("debug-mana-sources");
-    const manaDebugRow = byId("debug-mana-source-row");
-    if (manaDebugRow) manaDebugRow.hidden = !state.qiRefiningUnlocked;
-    if (manaDebug) {
-      manaDebug.textContent = `来源层：吐纳基础 ${format(breathingBase)}（自身法力衰减 ×${breathingManaDecayMultiplier().toFixed(2)}、操控灵气 ×${auraControlMultiplier().toFixed(2)}、炼虚为气 ^${voidRefiningToQiExponent().toFixed(2)}），区域计算后 ${format(breathingActual)}/次；周天来源按完整吐纳来源的 ${(circulationPercent() * 100).toFixed(0)}%，区域计算后 ${format(circulationManaPerSecond())}/秒${hasAchievement("refineTheVoid") ? `；炼化虚空独立基础来源1，自动法力合计 ${format(automaticManaPerSecond())}/秒` : ""}；原始探寻量 ${format(rawExplorationAmountForCost(explorationPowerCost()))} → 有效探寻量 ${format(explorationAmountForCost(explorationPowerCost()))}（神识 ×${divineSenseMultiplier().toFixed(2)}），普通探寻来源 ${format(explorationNormalSource)}（飞遁 ×${flyingEscapeMultiplier().toFixed(0)}、神秘绿瓶 ×${mysteriousGreenBottleMultiplier().toFixed(2)}）、符宝来源 ${format(explorationFuBao)}，汇总 ${format(explorationSourceSum)}，区域结算后再乘飞升灵界 ×${spiritWorldAscensionExplorationMultiplier().toFixed(0)}、小天劫 ^${explorationTribulationExponent.toFixed(3)}：${format(explorationActual)}/次；累计有效探寻量 ${format(state.explorationProgress)} / 1；法力区域乘区：${formatMultiplierGroups(manaMultiplierGroups())}`;
-    }
-  };
-  // DEBUG RESOURCE BREAKDOWN: END
-
   function render() {
     recordCurrentAchievements();
     updateLifetimeStatistics();
@@ -3781,8 +3719,6 @@
     byId("statistics-real-time").textContent = formatElapsedTime(state.totalElapsedSeconds);
     byId("statistics-game-time").textContent = formatGameCalendar(state.totalElapsedSeconds);
     renderChallenges();
-    // DEBUG RESOURCE BREAKDOWN: 删除HTML区块或本函数区块后均会安全回退。
-    window.renderResourceDebug?.();
     renderCultivationPage();
 
     updateNavigation();
