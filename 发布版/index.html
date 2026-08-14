@@ -13,7 +13,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.3.8</small>
+          <small id="game-version" class="game-version">v0.1.3.10</small>
         </div>
         <div class="header-actions">
           <div class="scale-progress">
@@ -85,14 +85,14 @@
                 <p class="section-label">量级论</p>
                 <h1>行动</h1>
               </div>
-              <p>J 会自动增长，通过锻炼将全部 J 转化为整数战力。</p>
+              <p>J 会自动增长；锻炼会消耗全部 J，并将其转化为战力。</p>
             </div>
 
             <div class="item-list">
               <article class="item-row">
                 <div class="item-content">
                   <h2>锻炼</h2>
-                  <p>消耗J获得战力。</p>
+                  <p>消耗全部 J 获得战力。</p>
                 </div>
                 <div class="action-control">
                   <span id="conversion-preview">至少需要 10 J</span>
@@ -104,10 +104,10 @@
               <article class="item-row" id="running-action" hidden>
                 <div class="item-content">
                   <h2>健身</h2>
-                  <p>每级自动获取2J。</p>
+                  <p>每级提供 +2 J/秒的健身基础来源。</p>
                 </div>
                 <div class="purchase-control">
-                  <span id="running-level">当前 0 级</span>
+                  <span id="running-level">当前：0级</span>
                   <small id="running-rate">当前实际 +0 J/秒</small>
                   <small id="running-cost">消耗 4 战力</small>
                   <button id="buy-running" class="primary-button" type="button">升级</button>
@@ -120,8 +120,8 @@
                   <p>自动获取战力。</p>
                 </div>
                 <div class="purchase-control">
-                  <span id="rock-level">当前 0 / 10 级</span>
-                  <small id="rock-rate">来源层 +0；单独区域结算 0 战力/秒</small>
+                  <span id="rock-level">当前：0/10级</span>
+                  <small id="rock-rate">基础来源：+0 战力/秒；当前实际：+0 战力/秒</small>
                   <small id="rock-cost">消耗 2k 战力</small>
                   <button id="buy-rock" class="primary-button" type="button">升级</button>
                 </div>
@@ -130,7 +130,7 @@
               <article class="item-row" id="ghost-back-action" hidden>
                 <div class="item-content">
                   <h2>鬼背</h2>
-                  <p>激活时降低J获取，提升战力获取倍率。</p>
+                  <p>激活时降低 J 获取，提升战力获取倍率。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="ghost-back-state">当前未激活</span>
@@ -142,7 +142,7 @@
               <article class="item-row" id="breathing-action" hidden>
                 <div class="item-content">
                   <h2>吐纳</h2>
-                  <p>将全部J转化为法力。</p>
+                  <p>将全部 J转化为法力。</p>
                 </div>
                 <div class="action-control">
                   <span id="breathing-preview">至少需要 3,000 J</span>
@@ -154,11 +154,11 @@
               <article class="item-row" id="exploration-action" hidden>
                 <div class="item-content">
                   <h2>探寻</h2>
-                  <p>消耗当前10%战力；投入越多，获得的原始探寻量、法力与宝物判定越多，所需战力按探寻规模动态增长。</p>
+                  <p>消耗当前 10% 战力；投入越多，获得的原始探寻量、法力与宝物判定越多，所需战力按探寻规模动态增长。</p>
                 </div>
                 <div class="action-control">
                   <span id="exploration-preview">单次探寻至少消耗 1M 战力</span>
-                  <small id="exploration-cost">消耗当前10%战力，至少消耗1M</small>
+                  <small id="exploration-cost">消耗当前 10% 战力，至少消耗 1M</small>
                   <button id="exploration-button" class="primary-button" type="button" disabled>探寻</button>
                 </div>
               </article>
@@ -179,287 +179,52 @@
                 <summary>
                   <span><b>量级 · 普通人</b><small>跑步、运动</small></span>
                 </summary>
-                <div class="item-list" data-sort-by-cost>
-              <article class="item-row" id="gym-upgrade" data-sort-cost="20">
-                <div class="item-content">
-                  <h2>跑步</h2>
-                  <p>根据当前战力提升J获取倍率。</p>
-                </div>
-                <div class="purchase-control">
-                  <span id="gym-preview">当前 ×1.000</span>
-                  <small>消耗 20 战力</small>
-                  <button id="buy-gym" class="primary-button" type="button">升级</button>
-                </div>
-              </article>
-
-              <article class="item-row" id="exercise-upgrade" data-sort-cost="50">
-                <div class="item-content">
-                  <h2>运动</h2>
-                  <p>根据当前J提升J获取倍率。</p>
-                </div>
-                <div class="purchase-control">
-                  <span id="exercise-preview">购买后随J变动</span>
-                  <small>消耗 50 战力</small>
-                  <button id="buy-exercise" class="primary-button" type="button">升级</button>
-                </div>
-              </article>
-                </div>
+                <div class="item-list" id="normal-upgrade-list" data-sort-by-cost></div>
               </details>
 
               <details class="upgrade-group" id="brick-upgrades" open hidden>
                 <summary>
                   <span><b>量级 · 爆砖</b><small>集中、超凡之力、呼吸法、极限运动</small></span>
                 </summary>
-                <div class="item-list" data-sort-by-cost>
-              <article class="item-row" id="focus-upgrade" data-sort-cost="150">
-                <div class="item-content">
-                  <h2>集中</h2>
-                  <p>每秒获取当前锻炼基础来源的 2%。</p>
-                </div>
-                <div class="purchase-control">
-                  <span id="focus-preview">来源层 +0；单独区域结算 0 战力/秒</span>
-                  <small>消耗 150 战力</small>
-                  <button id="buy-focus" class="primary-button" type="button">升级</button>
-                </div>
-              </article>
-
-              <article class="item-row" id="transcendent-upgrade" data-sort-cost="500">
-                <div class="item-content">
-                  <h2>超凡之力</h2>
-                  <p>根据当前战力，加成战力获取倍率。</p>
-                </div>
-                <div class="purchase-control">
-                  <span id="transcendent-preview">购买后随战力变动</span>
-                  <small>消耗 500 战力</small>
-                  <button id="buy-transcendent" class="primary-button" type="button">升级</button>
-                </div>
-              </article>
-
-              <article class="item-row" id="breathing-method-upgrade" data-sort-cost="750">
-                <div class="item-content">
-                  <h2>呼吸法</h2>
-                  <p>使跑步倍率×1.5。</p>
-                </div>
-                <div class="purchase-control">
-                  <span id="breathing-method-preview">可提供跑步倍率 ×1.50</span>
-                  <small>消耗 750 战力</small>
-                  <button id="buy-breathing-method" class="primary-button" type="button">升级</button>
-                </div>
-              </article>
-
-              <article class="item-row" id="extreme-exercise-upgrade" data-sort-cost="1000">
-                <div class="item-content">
-                  <h2>极限运动</h2>
-                  <p>使运动倍率×1.5。</p>
-                </div>
-                <div class="purchase-control">
-                  <span id="extreme-exercise-preview">可提供 ×1.50</span>
-                  <small>消耗 1k 战力</small>
-                  <button id="buy-extreme-exercise" class="primary-button" type="button">升级</button>
-                </div>
-              </article>
-                </div>
+                <div class="item-list" id="brick-upgrade-list" data-sort-by-cost></div>
               </details>
 
               <details class="upgrade-group" id="wall-upgrades" open hidden>
                 <summary>
                   <span><b>量级 · 爆墙</b><small>天生神力、击水、鬼脑、精神力量、生命力量</small></span>
                 </summary>
-                <div class="item-list" data-sort-by-cost>
-                  <article class="item-row" id="water-upgrade" data-sort-cost="20000">
-                    <div class="item-content">
-                      <h2>击水</h2>
-                      <p>根据最高战力，增加J获取。</p>
-                    </div>
-                    <div class="purchase-control">
-                      <span id="water-preview">可提供J获取倍率 ×1.00</span>
-                      <small>消耗 20k 战力</small>
-                      <button id="buy-water" class="primary-button" type="button">升级</button>
-                    </div>
-                  </article>
-
-                  <article class="item-row" id="ghost-brain-upgrade" data-sort-cost="50000">
-                    <div class="item-content">
-                      <h2>鬼脑</h2>
-                      <p>根据最高战力，形成独立自动战力来源。</p>
-                    </div>
-                    <div class="purchase-control">
-                      <span id="ghost-brain-preview">可提供独立来源 +0；单独区域结算 0 战力/秒</span>
-                      <small>消耗 50k 战力</small>
-                      <button id="buy-ghost-brain" class="primary-button" type="button">升级</button>
-                    </div>
-                  </article>
-
-                  <article class="item-row" id="natural-strength-upgrade" data-sort-cost="10000">
-                    <div class="item-content">
-                      <h2>天生神力</h2>
-                      <p>根据当前J，增加战力获取倍率。</p>
-                    </div>
-                    <div class="purchase-control">
-                      <span id="natural-strength-preview">可提供 ×1.00</span>
-                      <small>消耗 10k 战力</small>
-                      <button id="buy-natural-strength" class="primary-button" type="button">升级</button>
-                    </div>
-                  </article>
-
-                  <article class="item-row" id="mental-power-upgrade" data-sort-cost="100000">
-                    <div class="item-content">
-                      <h2>精神力量</h2>
-                      <p>使集中每秒获取的锻炼战力比例提高1个百分点。</p>
-                    </div>
-                    <div class="purchase-control">
-                      <span id="mental-power-preview">可使集中比例 +1个百分点</span>
-                      <small>消耗 100k 战力</small>
-                      <button id="buy-mental-power" class="primary-button" type="button">升级</button>
-                    </div>
-                  </article>
-
-                  <article class="item-row" id="life-power-upgrade" data-sort-cost="200000">
-                    <div class="item-content">
-                      <h2>生命力量</h2>
-                      <p>使健身倍率×1.5。</p>
-                    </div>
-                    <div class="purchase-control">
-                      <span id="life-power-preview">可提供健身倍率 ×1.50</span>
-                      <small>消耗 200k 战力</small>
-                      <button id="buy-life-power" class="primary-button" type="button">升级</button>
-                    </div>
-                  </article>
-                </div>
+<div class="item-list" id="wall-upgrade-list" data-sort-by-cost></div>
               </details>
 
               <details class="upgrade-group" id="house-upgrades" open hidden>
                 <summary>
                   <span><b>量级 · 爆屋</b><small>我流、直感、音速移动、碳基界限、杀气</small></span>
                 </summary>
-                <div class="item-list" data-sort-by-cost>
-                  <article class="item-row" id="my-style-upgrade" data-sort-cost="20000000">
-                    <div class="item-content"><h2>我流</h2><p>根据当前J，提升健身倍率。</p></div>
-                    <div class="purchase-control"><span id="my-style-preview">可提供健身倍率 ×1.00</span><small>消耗 20M 战力</small><button id="buy-my-style" class="primary-button" type="button">升级</button></div>
-                  </article>
-
-                  <article class="item-row" id="intuition-upgrade" data-sort-cost="50000000">
-                    <div class="item-content"><h2>直感</h2><p>根据当前战力，提升集中倍率。</p></div>
-                    <div class="purchase-control"><span id="intuition-preview">可提供集中倍率 ×1.00</span><small>消耗 50M 战力</small><button id="buy-intuition" class="primary-button" type="button">升级</button></div>
-                  </article>
-
-                  <article class="item-row" id="sonic-movement-upgrade" data-sort-cost="100000000">
-                    <div class="item-content"><h2>音速移动</h2><p>使跑步倍率×3.8。</p></div>
-                    <div class="purchase-control"><span id="sonic-movement-preview">可提供跑步倍率 ×3.80</span><small>消耗 100M 战力</small><button id="buy-sonic-movement" class="primary-button" type="button">升级</button></div>
-                  </article>
-
-                  <article class="item-row" id="carbon-limit-upgrade" data-sort-cost="150000000">
-                    <div class="item-content"><h2>碳基界限</h2><p>根据当前J，提升健身倍率。</p></div>
-                    <div class="purchase-control"><span id="carbon-limit-preview">可提供健身倍率 +0</span><small>消耗 150M 战力</small><button id="buy-carbon-limit" class="primary-button" type="button">升级</button></div>
-                  </article>
-
-                  <article class="item-row" id="killing-intent-upgrade" data-sort-cost="300000000">
-                    <div class="item-content"><h2>杀气</h2><p>每秒获得相当于当前集中实际获取战力0.00005%的J。</p></div>
-                    <div class="purchase-control"><span id="killing-intent-preview">可提供 +0 J/秒</span><small>消耗 300M 战力</small><button id="buy-killing-intent" class="primary-button" type="button">升级</button></div>
-                  </article>
-                </div>
+<div class="item-list" id="house-upgrade-list" data-sort-by-cost></div>
               </details>
 
               <details class="upgrade-group" id="building-upgrades" open hidden>
                 <summary>
                   <span><b>量级 · 爆楼</b><small>岩击、高速代谢、耐力强化、子弹时间、动态专注</small></span>
                 </summary>
-                <div class="item-list" data-sort-by-cost>
-                  <article class="item-row" id="rock-strike-upgrade" data-sort-cost="600000000">
-                    <div class="item-content"><h2>岩击</h2><p>使打岩来源×2，并提升20级打岩等级上限。</p></div>
-                    <div class="purchase-control"><span id="rock-strike-preview">可使打岩来源 ×2；等级上限 +20</span><small>消耗 600M 战力</small><button id="buy-rock-strike" class="primary-button" type="button">升级</button></div>
-                  </article>
-
-                  <article class="item-row" id="high-speed-metabolism-upgrade" data-sort-cost="1500000000">
-                    <div class="item-content"><h2>高速代谢</h2><p>使手动锻炼来源×1.75。</p></div>
-                    <div class="purchase-control"><span id="high-speed-metabolism-preview">可使锻炼来源 ×1.75</span><small>消耗 1.50e9 战力</small><button id="buy-high-speed-metabolism" class="primary-button" type="button">升级</button></div>
-                  </article>
-
-                  <article class="item-row" id="endurance-enhancement-upgrade" data-sort-cost="4000000000">
-                    <div class="item-content"><h2>耐力强化</h2><p>使健身倍率×2，并提升20级健身等级上限。</p></div>
-                    <div class="purchase-control"><span id="endurance-enhancement-preview">可使健身倍率 ×2；等级上限 +20</span><small>消耗 4.00e9 战力</small><button id="buy-endurance-enhancement" class="primary-button" type="button">升级</button></div>
-                  </article>
-
-                  <article class="item-row" id="bullet-time-upgrade" data-sort-cost="10000000000">
-                    <div class="item-content"><h2>子弹时间</h2><p>使战力区域倍率+0.5，即提供独立×1.5乘区。</p></div>
-                    <div class="purchase-control"><span id="bullet-time-preview">可使战力倍率 +0.5（×1.5）</span><small>消耗 1.00e10 战力</small><button id="buy-bullet-time" class="primary-button" type="button">升级</button></div>
-                  </article>
-
-                  <article class="item-row" id="dynamic-focus-upgrade" data-sort-cost="20000000000">
-                    <div class="item-content"><h2>动态专注</h2><p>使集中来源倍率×1.5。</p></div>
-                    <div class="purchase-control"><span id="dynamic-focus-preview">可使集中倍率 ×1.5</span><small>消耗 2.00e10 战力</small><button id="buy-dynamic-focus" class="primary-button" type="button">升级</button></div>
-                  </article>
-                </div>
+<div class="item-list" id="building-upgrade-list" data-sort-by-cost></div>
               </details>
 
               <details class="upgrade-group" id="street-upgrades" open hidden>
                 <summary>
                   <span><b>量级 · 爆街</b><small>超感知、金刚不坏、再生、异能、超速思维、崩山</small></span>
                 </summary>
-                <div class="item-list" data-sort-by-cost>
-                  <article class="item-row" id="super-perception-upgrade" data-sort-cost="50000000000">
-                    <div class="item-content"><h2>超感知</h2><p>使直感的动态提升效果×1.5。</p></div>
-                    <div class="purchase-control"><span id="super-perception-preview">可强化直感效果 ×1.5</span><small>消耗 5e10 战力</small><button id="buy-super-perception" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="invulnerable-upgrade" data-sort-cost="80000000000">
-                    <div class="item-content"><h2>金刚不坏</h2><p>使健身来源变为原数值的1.15次方。</p></div>
-                    <div class="purchase-control"><span id="invulnerable-preview">可使健身来源 ^1.15</span><small>消耗 8e10 战力</small><button id="buy-invulnerable" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="regeneration-upgrade" data-sort-cost="150000000000">
-                    <div class="item-content"><h2>再生</h2><p>使健身倍率×5。</p></div>
-                    <div class="purchase-control"><span id="regeneration-preview">可提供健身倍率 ×5</span><small>消耗 1.5e11 战力</small><button id="buy-regeneration" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="superpower-upgrade" data-sort-cost="300000000000">
-                    <div class="item-content"><h2>异能</h2><p>使战力区域变为原数值的1.05次方。</p></div>
-                    <div class="purchase-control"><span id="superpower-preview">可使战力区域 ^1.05</span><small>消耗 3e11 战力</small><button id="buy-superpower" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="super-speed-thinking-upgrade" data-sort-cost="500000000000">
-                    <div class="item-content"><h2>超速思维</h2><p>使杀气倍率×5。</p></div>
-                    <div class="purchase-control"><span id="super-speed-thinking-preview">可使杀气倍率 ×5</span><small>消耗 5e11 战力</small><button id="buy-super-speed-thinking" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="mountain-collapse-upgrade" data-sort-cost="800000000000">
-                    <div class="item-content"><h2>崩山</h2><p>使打岩来源变为原数值的1.1次方，并提升20级打岩等级上限。</p></div>
-                    <div class="purchase-control"><span id="mountain-collapse-preview">可使打岩来源 ^1.10；等级上限 +20</span><small>消耗 8e11 战力</small><button id="buy-mountain-collapse" class="primary-button" type="button">升级</button></div>
-                  </article>
-                </div>
+<div class="item-list" id="street-upgrade-list" data-sort-by-cost></div>
               </details>
 
               <details class="upgrade-group" id="city-upgrades" open hidden>
                 <summary><span><b>量级 · 爆城</b><small>思维分割、超速再生、精神领域、裂地、神速、异能进化、入微、裂天</small></span></summary>
-                <div class="item-list" data-sort-by-cost>
-                  <article class="item-row" id="mind-division-upgrade" data-sort-cost="5000000000000000">
-                    <div class="item-content"><h2>思维分割</h2><p>可升3级，每级使集中比例+0.5个百分点，并自然联动杀气。</p></div>
-                    <div class="purchase-control"><span id="mind-division-preview">当前 0 / 3 级</span><small id="mind-division-cost">消耗 5e15 战力</small><button id="buy-mind-division" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="hyper-regeneration-upgrade" data-sort-cost="100000000000000000">
-                    <div class="item-content"><h2>超速再生</h2><p>将再生倍率由×5提升至×15，并增加20级健身上限。</p></div>
-                    <div class="purchase-control"><span id="hyper-regeneration-preview">可使再生 ×15；健身上限 +20</span><small>消耗 1e17 战力</small><button id="buy-hyper-regeneration" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="mental-domain-upgrade" data-sort-cost="300000000000000000">
-                    <div class="item-content"><h2>精神领域</h2><p>使鬼脑独立战力来源×5。</p></div>
-                    <div class="purchase-control"><span id="mental-domain-preview">可使鬼脑倍率 ×5</span><small>消耗 3e17 战力</small><button id="buy-mental-domain" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="earth-split-upgrade" data-sort-cost="800000000000000000">
-                    <div class="item-content"><h2>裂地</h2><p>崩山指数根据当前打岩等级提高，并增加20级打岩上限。</p></div>
-                    <div class="purchase-control"><span id="earth-split-preview">可提供动态崩山指数；打岩上限 +20</span><small>消耗 8e17 战力</small><button id="buy-earth-split" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="godspeed-upgrade" data-sort-cost="1200000000000000000">
-                    <div class="item-content"><h2>神速</h2><p>根据当前战力，使音速移动的×3.8倍率提升为×3.8^x。</p></div>
-                    <div class="purchase-control"><span id="godspeed-preview">可使音速移动倍率 ^1.015</span><small>消耗 1.2e18 战力</small><button id="buy-godspeed" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="superpower-evolution-upgrade" data-sort-cost="2000000000000000000">
-                    <div class="item-content"><h2>异能进化</h2><p>将异能的战力区域指数由^1.05提高至^1.06。</p></div>
-                    <div class="purchase-control"><span id="superpower-evolution-preview">可使异能指数 ^1.06</span><small>消耗 2e18 战力</small><button id="buy-superpower-evolution" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="subtle-upgrade" data-sort-cost="4000000000000000000">
-                    <div class="item-content"><h2>入微</h2><p>使集中来源在来源软上限前提高至^1.05。</p></div>
-                    <div class="purchase-control"><span id="subtle-preview">可使集中来源 ^1.05</span><small>消耗 4e18 战力</small><button id="buy-subtle" class="primary-button" type="button">升级</button></div>
-                  </article>
-                  <article class="item-row" id="sky-split-upgrade" data-sort-cost="8000000000000000000">
-                    <div class="item-content"><h2>裂天</h2><p>根据当前战力持续提高鬼脑倍率。</p></div>
-                    <div class="purchase-control"><span id="sky-split-preview">可提供鬼脑倍率 ×1.00</span><small>消耗 8e18 战力</small><button id="buy-sky-split" class="primary-button" type="button">升级</button></div>
-                  </article>
-                </div>
+<div class="item-list" id="city-upgrade-list" data-sort-by-cost></div>
+              </details>
+
+              <details class="upgrade-group" id="country-upgrades" open hidden>
+                <summary><span><b>量级 · 爆国</b><small>生体量化、灭国、杀意实质、能量循环、崩岳、生物能源</small></span></summary>
+                <div class="item-list" id="country-upgrade-list" data-sort-by-cost></div>
               </details>
             </div>
           </section>
@@ -515,93 +280,7 @@
                     <summary>
                       <span><b>境界</b><small>炼气至道祖</small></span>
                     </summary>
-                    <div class="item-list">
-                  <article class="item-row" id="qi-refining-stage">
-                    <div class="item-content">
-                      <h2>炼气</h2>
-                      <p>解锁资源·法力（法力可获取J）与行动·吐纳，并使健身效果×5，更容易变强。</p>
-                    </div>
-                    <div class="purchase-control">
-                      <span>开启仙道修炼</span>
-                      <small>消耗 10k 战力</small>
-                      <button id="unlock-qi-refining" class="primary-button" type="button">解锁</button>
-                    </div>
-                  </article>
-
-                  <article class="item-row" id="foundation-stage" hidden>
-                    <div class="item-content">
-                      <h2>筑基</h2>
-                      <p>突破筑基境界；吐纳更难获得法力，但更容易变强。</p>
-                    </div>
-                    <div class="purchase-control">
-                      <span>进入筑基境界</span>
-                      <small id="foundation-cost">消耗 220 法力</small>
-                      <button id="unlock-foundation" class="primary-button" type="button">解锁</button>
-                    </div>
-                  </article>
-
-                  <article class="item-row" id="golden-core-stage" hidden>
-                    <div class="item-content">
-                      <h2>结丹</h2>
-                      <p>凝聚金丹，吐纳更难获得法力，但更容易变强。</p>
-                    </div>
-                    <div class="purchase-control">
-                      <span>进入结丹境界</span>
-                      <small id="golden-core-cost">消耗 9.68k 法力</small>
-                      <button id="unlock-golden-core" class="primary-button" type="button">解锁</button>
-                    </div>
-                  </article>
-
-                  <article class="item-row" id="nascent-soul-stage" hidden>
-                    <div class="item-content"><h2>元婴</h2><p>突破元婴境界，更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入元婴境界</span><small id="nascent-soul-cost"></small><button id="unlock-nascent-soul" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="spirit-transformation-stage" hidden>
-                    <div class="item-content"><h2>化神</h2><p>突破化神境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入化神境界</span><small id="spirit-transformation-cost"></small><button id="unlock-spirit-transformation" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="void-refinement-stage" hidden>
-                    <div class="item-content"><h2>炼虚</h2><p>突破炼虚境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入炼虚境界</span><small id="void-refinement-cost"></small><button id="unlock-void-refinement" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="body-integration-stage" hidden>
-                    <div class="item-content"><h2>合体</h2><p>突破合体境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入合体境界</span><small id="body-integration-cost"></small><button id="unlock-body-integration" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="mahayana-stage" hidden>
-                    <div class="item-content"><h2>大乘</h2><p>突破大乘境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入大乘境界</span><small id="mahayana-cost"></small><button id="unlock-mahayana" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="true-immortal-stage" hidden>
-                    <div class="item-content"><h2>真仙</h2><p>突破真仙境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入真仙境界</span><small id="true-immortal-cost"></small><button id="unlock-true-immortal" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="golden-immortal-stage" hidden>
-                    <div class="item-content"><h2>金仙</h2><p>突破金仙境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入金仙境界</span><small id="golden-immortal-cost"></small><button id="unlock-golden-immortal" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="taiyi-stage" hidden>
-                    <div class="item-content"><h2>太乙</h2><p>突破太乙境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入太乙境界</span><small id="taiyi-cost"></small><button id="unlock-taiyi" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="daluo-stage" hidden>
-                    <div class="item-content"><h2>大罗</h2><p>突破大罗境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入大罗境界</span><small id="daluo-cost"></small><button id="unlock-daluo" class="primary-button" type="button">解锁</button></div>
-                  </article>
-
-                  <article class="item-row" id="dao-ancestor-stage" hidden>
-                    <div class="item-content"><h2>道祖</h2><p>突破道祖境界；吐纳更难获得法力，但更容易变强。</p></div>
-                    <div class="purchase-control"><span>进入道祖境界</span><small id="dao-ancestor-cost"></small><button id="unlock-dao-ancestor" class="primary-button" type="button">解锁</button></div>
-                  </article>
-                    </div>
+<div class="item-list" id="realm-card-list"></div>
                   </details>
                 </div>
               </section>
@@ -612,342 +291,42 @@
                     <summary>
                       <span><b>灵根</b><small>永久保留，不因转世重修而重置</small></span>
                     </summary>
-                    <div class="item-list">
-                      <article class="item-row purchased" id="low-grade-root-ability">
-                        <div class="item-content"><h2>下品灵根</h2><p>法力倍率×1.1；筑基、结丹、元婴的境界要求分别叠加×1.1。</p></div>
-                        <div class="purchase-control"><span id="low-grade-root-preview">法力倍率 ×1.10</span><small id="low-grade-root-requirement">前三层境界要求累计叠加</small><button id="low-grade-root-state" class="primary-button" type="button" disabled>已生效</button></div>
-                      </article>
-                      <article class="item-row purchased" id="medium-grade-root-ability" hidden>
-                        <div class="item-content"><h2>中品灵根</h2><p>法力倍率×1.15；筑基、结丹、元婴的境界要求分别叠加×1.05。</p></div>
-                        <div class="purchase-control"><span id="medium-grade-root-preview">法力倍率 ×1.15</span><small id="medium-grade-root-requirement">前三层境界要求累计叠加</small><button id="medium-grade-root-state" class="primary-button" type="button" disabled>已生效</button></div>
-                      </article>
-                      <article class="item-row purchased" id="high-grade-root-ability" hidden>
-                        <div class="item-content"><h2>上品灵根</h2><p>法力倍率×1.5；境界要求倍率×1，不再提高突破需求。</p></div>
-                        <div class="purchase-control"><span id="high-grade-root-preview">法力倍率 ×1.50</span><small id="high-grade-root-requirement">前三层境界要求累计 ×1.000</small><button id="high-grade-root-state" class="primary-button" type="button" disabled>永久生效</button></div>
-                      </article>
-                      <article class="item-row purchased" id="earth-root-ability" hidden>
-                        <div class="item-content"><h2>地灵根</h2><p>法力倍率×1.8；筑基、结丹、元婴的境界要求分别叠加×0.9。</p></div>
-                        <div class="purchase-control"><span id="earth-root-preview">法力倍率 ×1.80</span><small id="earth-root-requirement">元婴及以后累计 ×0.729</small><button id="earth-root-state" class="primary-button" type="button" disabled>永久生效</button></div>
-                      </article>
-                      <article class="item-row purchased" id="heaven-root-ability" hidden>
-                        <div class="item-content"><h2>天灵根</h2><p>法力倍率×2.4；筑基、结丹、元婴的境界要求分别叠加×0.75。</p></div>
-                        <div class="purchase-control"><span id="heaven-root-preview">法力倍率 ×2.40</span><small id="heaven-root-requirement">元婴及以后累计 ×0.422</small><button id="heaven-root-state" class="primary-button" type="button" disabled>永久生效</button></div>
-                      </article>
-                    </div>
+<div class="item-list" id="root-ability-list"></div>
                   </details>
 
                   <details class="upgrade-group" id="qi-abilities" open hidden>
                     <summary>
                       <span><b>炼气</b><small>筑基瓶颈、炼气法术、仙道贵生</small></span>
                     </summary>
-                    <div class="item-list" data-sort-by-cost>
-                      <article class="item-row purchased" id="qi-bottleneck-ability" data-sort-cost="0">
-                        <div class="item-content">
-                          <h2>筑基瓶颈</h2>
-                          <p>法力越接近当前筑基实际需求，法力获取倍率下降越快；突破筑基后解除。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="qi-bottleneck-preview">当前法力倍率 ×1.00</span>
-                          <small id="foundation-bottleneck-point">拐点：220 法力</small>
-                          <button id="qi-bottleneck-state" class="primary-button" type="button" disabled>已生效</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="qi-spell-ability" data-sort-cost="20">
-                        <div class="item-content">
-                          <h2>炼气法术</h2>
-                          <p>每级提供×1.08战力倍率。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="qi-spell-level">当前 0 / 3 级（本能力战力倍率 ×1.00）</span>
-                          <small id="qi-spell-cost">消耗 20 法力</small>
-                          <button id="buy-qi-spell" class="primary-button" type="button">升级</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="immortal-life-ability" data-sort-cost="80">
-                        <div class="item-content">
-                          <h2>仙道贵生</h2>
-                          <p>舍弃部分战力获取，换取更高的法力获取。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="immortal-life-preview">可提供 战力 ×0.95；法力 ×1.10</span>
-                          <small id="immortal-life-cost">消耗 80 法力</small>
-                          <button id="unlock-immortal-life" class="primary-button" type="button">解锁</button>
-                        </div>
-                      </article>
-                    </div>
+<div class="item-list" id="qi-ability-list" data-sort-by-cost></div>
                   </details>
 
                   <details class="upgrade-group" id="foundation-abilities" open hidden>
                     <summary>
                       <span><b>筑基</b><small>结丹瓶颈、延年益寿200载、筑基法术、周天、法力液化、功法</small></span>
                     </summary>
-                    <div class="item-list" data-sort-by-cost>
-                      <article class="item-row purchased" id="foundation-bottleneck-ability" data-sort-cost="0">
-                        <div class="item-content">
-                          <h2>结丹瓶颈</h2>
-                          <p>法力越接近当前结丹实际需求，法力获取倍率下降越快；突破结丹后解除。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="foundation-bottleneck-preview">当前法力倍率 ×1.00</span>
-                          <small id="golden-core-bottleneck-point">拐点：8,000 法力</small>
-                          <button id="foundation-bottleneck-state" class="primary-button" type="button" disabled>已生效</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="technique-ability" data-sort-cost="1200">
-                        <div class="item-content">
-                          <h2>功法</h2>
-                          <p>提升全部法力获取倍率与战力获取倍率。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="technique-preview">可提供 法力 ×1.25；战力 ×1.15</span>
-                          <small>消耗 1.2k 法力</small>
-                          <button id="unlock-technique" class="primary-button" type="button">解锁</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="circulation-stage" data-sort-cost="400">
-                        <div class="item-content">
-                          <h2>周天</h2>
-                          <p>每秒自动获得当前吐纳法力的6%；功法小成后提高至8%。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="circulation-preview">可提供 +0 法力/秒</span>
-                          <small>消耗 400 法力</small>
-                          <button id="unlock-circulation" class="primary-button" type="button">解锁</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="mana-liquefaction-ability" data-sort-cost="800">
-                        <div class="item-content">
-                          <h2>法力液化</h2>
-                          <p>降低法力获取倍率，提升法力的J获取。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="mana-liquefaction-preview">可提供 法力 ×0.80；法力增加J ×1.50</span>
-                          <small id="mana-liquefaction-cost">消耗 800 法力</small>
-                          <button id="unlock-mana-liquefaction" class="primary-button" type="button">解锁</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="longevity-ability" data-sort-cost="200" hidden>
-                        <div class="item-content">
-                          <h2>延年益寿200载</h2>
-                          <p>每级提升10级健身等级上限，并使健身效果×2。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="longevity-level">当前 0 / 2 级</span>
-                          <small id="longevity-cost">消耗 200 法力</small>
-                          <button id="buy-longevity" class="primary-button" type="button">升级</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="foundation-spell-ability" data-sort-cost="300">
-                        <div class="item-content">
-                          <h2>筑基法术</h2>
-                          <p>每级提供×1.5战力倍率。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="foundation-spell-level">当前 0 / 3 级（本能力战力倍率 ×1.00）</span>
-                          <small id="foundation-spell-cost">消耗 300 法力</small>
-                          <button id="buy-foundation-spell" class="primary-button" type="button">升级</button>
-                        </div>
-                      </article>
-                    </div>
+<div class="item-list" id="foundation-ability-list" data-sort-by-cost></div>
                   </details>
 
                   <details class="upgrade-group" id="golden-core-abilities" open hidden>
                     <summary>
                       <span><b>结丹</b><small>元婴瓶颈、延年益寿400载、法力固化、功法小成、法宝、天材地宝、散功重修</small></span>
                     </summary>
-                    <div class="item-list" data-sort-by-cost>
-                      <article class="item-row purchased" id="golden-core-bottleneck-ability" data-sort-cost="0">
-                        <div class="item-content">
-                          <h2>元婴瓶颈</h2>
-                          <p>法力越接近当前元婴实际需求，法力获取倍率下降越快；突破元婴后解除。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="golden-core-bottleneck-preview">当前法力倍率 ×1.00</span>
-                          <small id="nascent-soul-bottleneck-point">拐点：当前元婴实际需求</small>
-                          <button id="golden-core-bottleneck-state" class="primary-button" type="button" disabled>已生效</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="natural-treasure-ability" data-sort-cost="9007199254739991">
-                        <div class="item-content">
-                          <h2>天材地宝</h2>
-                          <p>每累计1有效探寻量进行一次升级判定，每级提高法力倍率。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="natural-treasure-level">当前 0 / 10 级（法力倍率 ×1.00）</span>
-                          <small id="natural-treasure-chance">每1有效探寻量升级概率 10.00%</small>
-                          <small>判定：每累计1有效探寻量进行一次</small>
-                          <button id="natural-treasure-state" class="primary-button" type="button" disabled>仅可通过探寻升级</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="golden-core-longevity-ability" data-sort-cost="10000">
-                        <div class="item-content">
-                          <h2>延年益寿400载</h2>
-                          <p>每级提升10级健身等级上限，并使健身效果×4。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="golden-core-longevity-level">当前 0 / 2 级</span>
-                          <small id="golden-core-longevity-cost">消耗 10k 法力</small>
-                          <button id="buy-golden-core-longevity" class="primary-button" type="button">升级</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="mana-solidification-ability" data-sort-cost="16000">
-                        <div class="item-content">
-                          <h2>法力固化</h2>
-                          <p>降低法力获取倍率，提升战力获取倍率。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="mana-solidification-preview">可提供 法力 ×0.90；战力 ×1.15</span>
-                          <small id="mana-solidification-cost">消耗 16k 法力</small>
-                          <button id="unlock-mana-solidification" class="primary-button" type="button">解锁</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="minor-technique-ability" data-sort-cost="20000">
-                        <div class="item-content">
-                          <h2>功法小成</h2>
-                          <p>将周天比例由6%提高至8%。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="minor-technique-preview">可使周天比例 6% → 8%</span>
-                          <small>消耗 20k 法力</small>
-                          <button id="unlock-minor-technique" class="primary-button" type="button">解锁</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="magic-treasure-ability" data-sort-cost="30000">
-                        <div class="item-content">
-                          <h2>法宝</h2>
-                          <p>根据当前法力，形成独立自动战力来源。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="magic-treasure-preview">可提供战力获取 +0</span>
-                          <small>消耗 30k 法力</small>
-                          <button id="unlock-magic-treasure" class="primary-button" type="button">解锁</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="scatter-rebuild-ability" data-sort-cost="9007199254739992">
-                        <div class="item-content">
-                          <h2>散功重修</h2>
-                          <p id="scatter-rebuild-description">第一次保留普通人强化；重置资源、量级与境界，但保留仙道能力。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="scatter-rebuild-level">当前 0 / 3 次</span>
-                          <small id="scatter-rebuild-preview">结丹需求 ×1；元婴需求 ×1；法力获取 ×1</small>
-                          <small>消耗：不消耗法力，重置当前轮次进度</small>
-                          <button id="scatter-rebuild" class="primary-button" type="button">散功重修</button>
-                        </div>
-                      </article>
-                    </div>
+<div class="item-list" id="golden-core-ability-list" data-sort-by-cost></div>
                   </details>
 
                   <details class="upgrade-group" id="nascent-soul-abilities" open hidden>
                     <summary>
-                      <span><b>元婴</b><small>化神瓶颈、御物、飞遁、寿800、神识、大修士、转世重修</small></span>
+                      <span><b>元婴</b><small>化神瓶颈、御物、飞遁、延年益寿800载、神识、大修士、第二元婴、转世重修</small></span>
                     </summary>
-                    <div class="item-list" data-sort-by-cost>
-                      <article class="item-row purchased" id="nascent-soul-bottleneck-ability" data-sort-cost="0">
-                        <div class="item-content">
-                          <h2>化神瓶颈</h2>
-                          <p>法力越接近当前化神实际需求，法力获取倍率下降越快；突破化神后解除。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="nascent-soul-bottleneck-preview">当前法力倍率 ×1.00</span>
-                          <small id="spirit-transformation-bottleneck-point">拐点：当前化神实际需求</small>
-                          <button id="nascent-soul-bottleneck-state" class="primary-button" type="button" disabled>已生效</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="material-control-ability" data-sort-cost="50000000">
-                        <div class="item-content"><h2>御物</h2><p>使法宝独立战力来源×5。</p></div>
-                        <div class="purchase-control"><span id="material-control-preview">可使法宝倍率 ×5</span><small>消耗 50M 法力</small><button id="unlock-material-control" class="primary-button" type="button">解锁</button></div>
-                      </article>
-
-                      <article class="item-row" id="flying-escape-ability" data-sort-cost="100000000">
-                        <div class="item-content">
-                          <h2>飞遁</h2>
-                          <p>使普通探寻来源×10。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="flying-escape-preview">可使普通探寻来源 ×10</span>
-                          <small>消耗 100M 法力</small>
-                          <button id="unlock-flying-escape" class="primary-button" type="button">解锁</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="longevity-800-ability" data-sort-cost="100000000">
-                        <div class="item-content">
-                          <h2>寿800</h2>
-                          <p>每级提升10级健身上限，并使健身效果×8；本能力各级效果加算，最多4级。</p>
-                        </div>
-                        <div class="purchase-control">
-                          <span id="longevity-800-level">当前 0 / 4 级</span>
-                          <small id="longevity-800-cost">消耗 100M 法力</small>
-                          <button id="buy-longevity-800" class="primary-button" type="button">升级</button>
-                        </div>
-                      </article>
-
-                      <article class="item-row" id="divine-sense-ability" data-sort-cost="250000000">
-                        <div class="item-content"><h2>神识</h2><p>使每次获得的有效探寻量×1.25。</p></div>
-                        <div class="purchase-control"><span id="divine-sense-preview">可使有效探寻量 ×1.25</span><small>消耗 250M 法力</small><button id="unlock-divine-sense" class="primary-button" type="button">解锁</button></div>
-                      </article>
-
-                      <article class="item-row" id="great-cultivator-ability" data-sort-cost="500000000">
-                        <div class="item-content"><h2>大修士</h2><p>每个当前已解锁仙道境界提供×1.5战力倍率，本能力内部加算。</p></div>
-                        <div class="purchase-control"><span id="great-cultivator-preview">可根据当前境界提供战力倍率</span><small>消耗 500M 法力</small><button id="unlock-great-cultivator" class="primary-button" type="button">解锁</button></div>
-                      </article>
-
-                      <article class="item-row" id="reincarnation-ability" data-sort-cost="9007199254739993">
-                        <div class="item-content"><h2>转世重修</h2><p id="reincarnation-description">提升永久灵根并重置本轮绝大多数进度；需要确认，自动升级不会执行。</p></div>
-                        <div class="purchase-control"><span id="reincarnation-level">当前 0 / 3 次</span><small id="reincarnation-preview">下一次：上品灵根；重返元婴后法力获取J ^1.05</small><small>消耗：不消耗法力，重置当前轮次进度</small><button id="reincarnate" class="primary-button" type="button">转世重修</button></div>
-                      </article>
-                    </div>
+<div class="item-list" id="nascent-soul-ability-list" data-sort-by-cost></div>
                   </details>
 
                   <div id="advanced-realm-ability-groups"></div>
 
                   <details class="upgrade-group" id="spirit-transformation-abilities" open hidden>
-                    <summary><span><b>化神</b><small>炼虚瓶颈、飞升灵界、操控灵气、寿与天齐、小天劫、五行俱全、通天灵宝</small></span></summary>
-                    <div class="item-list" data-sort-by-cost>
-                      <article class="item-row purchased" id="spirit-transformation-bottleneck-ability" data-sort-cost="0">
-                        <div class="item-content"><h2>炼虚瓶颈</h2><p>法力越接近当前炼虚实际需求，法力获取倍率下降越快；突破炼虚后解除。</p></div>
-                        <div class="purchase-control"><span id="spirit-transformation-bottleneck-preview">当前法力倍率 ×1.00</span><small id="void-refinement-bottleneck-point">拐点：当前炼虚实际需求</small><button id="spirit-transformation-bottleneck-state" class="primary-button" type="button" disabled>已生效</button></div>
-                      </article>
-                      <article class="item-row" id="spirit-world-ascension-ability" data-sort-cost="1000000000000">
-                        <div class="item-content"><h2>飞升灵界</h2><p>使探寻最终法力收益×10，并使天材地宝等级上限+10。</p></div>
-                        <div class="purchase-control"><span id="spirit-world-ascension-preview">可使探寻法力 ×10；天材地宝上限 20</span><small>消耗 1e12 法力</small><button id="unlock-spirit-world-ascension" class="primary-button" type="button">解锁</button></div>
-                      </article>
-                      <article class="item-row" id="aura-control-ability" data-sort-cost="3000000000000">
-                        <div class="item-content"><h2>操控灵气</h2><p>根据当前战力提高吐纳法力倍率，周天通过吐纳来源间接受益。</p></div>
-                        <div class="purchase-control"><span id="aura-control-preview">可提供吐纳倍率 ×1.00</span><small>消耗 3e12 法力</small><button id="unlock-aura-control" class="primary-button" type="button">解锁</button></div>
-                      </article>
-                      <article class="item-row" id="equal-heaven-longevity-ability" data-sort-cost="8000000000000">
-                        <div class="item-content"><h2>寿与天齐</h2><p>健身等级上限+10，并提供独立健身倍率×8。</p></div>
-                        <div class="purchase-control"><span id="equal-heaven-longevity-preview">可使健身 ×8；等级上限 +10</span><small>消耗 8e12 法力</small><button id="unlock-equal-heaven-longevity" class="primary-button" type="button">解锁</button></div>
-                      </article>
-                      <article class="item-row purchased" id="minor-tribulation-ability" data-sort-cost="0">
-                        <div class="item-content"><h2>小天劫</h2><p>化神自带，探寻法力基础指数为^0.95，战力区域指数常驻^0.995。每150次成功探寻触发；按本周期平均有效探寻量进一步降低探寻指数，120秒内恢复至^0.95。连续触发只会维持或加重惩罚。</p></div>
-                        <div class="purchase-control"><span id="minor-tribulation-preview">探寻计数 0 / 150；本周期平均有效探寻量 0</span><small id="minor-tribulation-recovery">战力 ^0.995；探寻法力 ^0.950</small><button class="primary-button" type="button" disabled>化神自带</button></div>
-                      </article>
-                      <article class="item-row" id="five-elements-ability" data-sort-cost="10000000000000">
-                        <div class="item-content"><h2>五行俱全</h2><p>使周天比例增加5个百分点。</p></div>
-                        <div class="purchase-control"><span id="five-elements-preview">可使周天比例 +5个百分点</span><small>消耗 1e13 法力</small><button id="unlock-five-elements" class="primary-button" type="button">解锁</button></div>
-                      </article>
-                      <article class="item-row" id="heavenly-treasure-ability" data-sort-cost="5000000000000">
-                        <div class="item-content"><h2>通天灵宝</h2><p>可升3级，依次解锁永久烙印：虚天鼎、八灵尺、万妖幡。</p></div>
-                        <div class="purchase-control"><span id="heavenly-treasure-level">当前 0 / 3 级</span><small id="heavenly-treasure-cost">消耗 5e12 法力</small><button id="buy-heavenly-treasure" class="primary-button" type="button">升级</button></div>
-                      </article>
-                    </div>
+                    <summary><span><b>化神</b><small>炼虚瓶颈、飞升灵界、操控灵气、寿与天齐、小天劫、五行俱全、灵气充沛、通天灵宝</small></span></summary>
+<div class="item-list" id="spirit-transformation-ability-list" data-sort-by-cost></div>
                   </details>
                 </div>
               </section>
@@ -963,36 +342,36 @@
             <div class="item-list">
               <article class="item-row" id="tian-ni-pearl-treasure">
                 <div class="item-content">
-                  <h2>天逆珠</h2>
-                  <p>获得法力时可能获得，提升法力倍率。</p>
+                  <h2>仙道·天逆珠</h2>
+                  <p>主动吐纳成功时判定一次；周天实际获取法力时每秒判定一次；探寻每累计 1 有效探寻量判定一次。每枚提升法力获取倍率。</p>
                 </div>
                 <div class="purchase-control">
-                  <span id="tian-ni-pearl-count">已获得 0 次</span>
-                  <small id="tian-ni-pearl-chance">当前概率 1.00%</small>
-                  <small id="tian-ni-pearl-effect">法力倍率 ×1.00</small>
+                  <span id="tian-ni-pearl-count">数量：0</span>
+                  <small id="tian-ni-pearl-chance">单次判定概率 1.00%</small>
+                  <small id="tian-ni-pearl-effect">法力获取倍率 ×1.00</small>
                 </div>
               </article>
 
               <article class="item-row" id="mysterious-green-bottle-treasure" hidden>
                 <div class="item-content">
-                  <h2>神秘绿瓶</h2>
-                  <p>每累计1有效探寻量可能获得，提升普通探寻法力。</p>
+                  <h2>仙道·神秘绿瓶</h2>
+                  <p>每累计 1 有效探寻量可能获得，提升普通探寻法力。</p>
                 </div>
                 <div class="purchase-control">
-                  <span id="mysterious-green-bottle-count">已获得 0 次</span>
-                  <small id="mysterious-green-bottle-chance">当前概率 2.00%</small>
-                  <small id="mysterious-green-bottle-effect">探寻法力倍率 ×1.00</small>
+                  <span id="mysterious-green-bottle-count">数量：0</span>
+                  <small id="mysterious-green-bottle-chance">每 1 有效探寻量概率 2.00%</small>
+                  <small id="mysterious-green-bottle-effect">探寻法力获取倍率 ×1.00</small>
                 </div>
               </article>
 
               <article class="item-row" id="fu-bao-treasure" hidden>
                 <div class="item-content">
-                  <h2>符宝</h2>
-                  <p>每累计1有效探寻量可能获得；每枚额外提供探寻基础法力的0.2%。</p>
+                  <h2>仙道·符宝</h2>
+                  <p>每累计 1 有效探寻量可能获得；每枚额外提供探寻基础法力的0.2%。</p>
                 </div>
                 <div class="purchase-control">
-                  <span id="fu-bao-count">已获得 0 次</span>
-                  <small id="fu-bao-chance">当前概率 2.00%</small>
+                  <span id="fu-bao-count">数量：0</span>
+                  <small id="fu-bao-chance">每 1 有效探寻量概率 2.00%</small>
                   <small id="fu-bao-effect">额外法力为探寻基础法力的 0.00%</small>
                 </div>
               </article>
@@ -1000,28 +379,28 @@
               <article class="item-row" id="fitness-membership-card-treasure" hidden>
                 <div class="item-content">
                   <h2>健身房会员卡</h2>
-                  <p>每秒通过健身获得J时可能获得；每枚使健身倍率加法+0.002。</p>
+                  <p>每秒通过健身获得 J时可能获得；每枚使健身倍率加法+0.002。</p>
                 </div>
                 <div class="purchase-control">
-                  <span id="fitness-membership-card-count">已获得 0 次</span>
+                  <span id="fitness-membership-card-count">数量：0</span>
                   <small id="fitness-membership-card-chance">当前每秒概率 0.50%</small>
                   <small id="fitness-membership-card-effect">健身倍率加法 +0.000</small>
                 </div>
               </article>
 
               <article class="item-row" id="xu-tian-ding-treasure" hidden>
-                <div class="item-content"><h2>虚天鼎</h2><p>每累计1有效探寻量可能获得；每枚使天材地宝倍率提高0.5%。</p></div>
-                <div class="purchase-control"><span id="xu-tian-ding-count">已获得 0 次</span><small id="xu-tian-ding-chance">当前概率 0.02%</small><small id="xu-tian-ding-effect">天材地宝倍率 ×1.000</small></div>
+                <div class="item-content"><h2>仙道·虚天鼎</h2><p>每累计 1 有效探寻量可能获得；每枚使天材地宝倍率提高0.5%。</p></div>
+                <div class="purchase-control"><span id="xu-tian-ding-count">数量：0</span><small id="xu-tian-ding-chance">每 1 有效探寻量概率 0.02%</small><small id="xu-tian-ding-effect">天材地宝倍率 ×1.000</small></div>
               </article>
 
               <article class="item-row" id="ba-ling-chi-treasure" hidden>
-                <div class="item-content"><h2>八灵尺</h2><p>主动吐纳或周天实际获取法力时可能获得；每枚使健身倍率提高0.2%。</p></div>
-                <div class="purchase-control"><span id="ba-ling-chi-count">已获得 0 次</span><small id="ba-ling-chi-chance">当前概率 0.20%</small><small id="ba-ling-chi-effect">健身倍率 ×1.000</small></div>
+                <div class="item-content"><h2>仙道·八灵尺</h2><p>主动吐纳或周天实际获取法力时可能获得；每枚使健身倍率提高0.2%。</p></div>
+                <div class="purchase-control"><span id="ba-ling-chi-count">数量：0</span><small id="ba-ling-chi-chance">吐纳/周天判定概率 0.20%</small><small id="ba-ling-chi-effect">健身倍率 ×1.000</small></div>
               </article>
 
               <article class="item-row" id="wan-yao-fan-treasure" hidden>
-                <div class="item-content"><h2>万妖幡</h2><p>每累计1有效探寻量可能获得；每枚使法宝独立来源倍率提高0.3%。</p></div>
-                <div class="purchase-control"><span id="wan-yao-fan-count">已获得 0 次</span><small id="wan-yao-fan-chance">当前概率 0.01%</small><small id="wan-yao-fan-effect">法宝倍率 ×1.000</small></div>
+                <div class="item-content"><h2>仙道·万妖幡</h2><p>每累计 1 有效探寻量可能获得；每枚使法宝独立来源倍率提高0.3%。</p></div>
+                <div class="purchase-control"><span id="wan-yao-fan-count">数量：0</span><small id="wan-yao-fan-chance">每 1 有效探寻量概率 0.01%</small><small id="wan-yao-fan-effect">法宝来源倍率 ×1.000</small></div>
               </article>
             </div>
           </section>
@@ -1039,12 +418,12 @@
             <div class="item-list">
               <article class="item-row" id="innate-deficiency-challenge">
                 <div class="item-content">
-                  <h2>先天不足</h2>
-                  <p>挑战中削弱J获取；达到爆墙即完成本次挑战。</p>
+                  <h2>福</h2>
+                  <p>挑战中削弱J 获取；达到爆墙即完成本次挑战。</p>
                 </div>
                 <div class="purchase-control">
-                  <span id="innate-deficiency-progress">完成 0 / 3 次</span>
-                  <small id="innate-deficiency-limit">下次限制：J获取 ^0.85</small>
+                  <span id="innate-deficiency-progress">完成：0/3次</span>
+                  <small id="innate-deficiency-limit">下次限制：J 获取 ^0.85</small>
                   <small>要求：达到爆墙</small>
                   <small id="innate-deficiency-reward">当前奖励：健身来源 ^1.00</small>
                   <button id="toggle-innate-deficiency" class="primary-button" type="button">开启挑战</button>
@@ -1053,15 +432,42 @@
 
               <article class="item-row" id="powerless-challenge">
                 <div class="item-content">
-                  <h2>无力</h2>
+                  <h2>禄</h2>
                   <p>挑战中削弱战力获取；达到爆屋即完成本次挑战。</p>
                 </div>
                 <div class="purchase-control">
-                  <span id="powerless-progress">完成 0 / 5 次</span>
+                  <span id="powerless-progress">完成：0/3次</span>
                   <small id="powerless-limit">下次限制：战力获取 ^0.85</small>
                   <small>要求：达到爆屋</small>
                   <small id="powerless-reward">当前奖励：锻炼来源 ^1.00</small>
                   <button id="toggle-powerless" class="primary-button" type="button">开启挑战</button>
+                </div>
+              </article>
+
+              <article class="item-row" id="longevity-challenge" hidden>
+                <div class="item-content">
+                  <h2>寿</h2>
+                  <p>挑战时间越久，J与战力获取指数越低；45分钟后降至本次下限，达到爆楼即完成。</p>
+                </div>
+                <div class="purchase-control">
+                  <span id="longevity-progress">完成：0/3次</span>
+                  <small id="longevity-limit">下次限制：J与战力获取指数在45分钟内降至 ^0.80</small>
+                  <small>要求：达到爆楼</small>
+                  <small id="longevity-reward">当前奖励：J与战力获取 ×1</small>
+                  <button id="toggle-longevity" class="primary-button" type="button">开启挑战</button>
+                </div>
+              </article>
+
+              <article class="item-row" id="five-misfortunes-challenge" hidden>
+                <div class="item-content">
+                  <h2>五弊</h2>
+                  <p>挑战中无法选择体系；三次分别要求达到爆屋、爆楼、爆街。</p>
+                </div>
+                <div class="purchase-control">
+                  <span id="five-misfortunes-progress">完成：0/3次</span>
+                  <small id="five-misfortunes-limit">本次无法选择体系；要求达到爆屋</small>
+                  <small id="five-misfortunes-reward">当前奖励：选择体系前J与战力获取 ^1.00</small>
+                  <button id="toggle-five-misfortunes" class="primary-button" type="button">开启挑战</button>
                 </div>
               </article>
             </div>
@@ -1177,6 +583,26 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" role="status" aria-live="polite"></div>
+    <script src="js/core/namespace.js"></script>
+    <script src="js/core/config.js"></script>
+    <script src="js/core/registry.js"></script>
+    <script src="js/core/formulas.js"></script>
+    <script src="js/core/runtime.js"></script>
+    <script src="js/core/state.js"></script>
+    <script src="js/core/save.js"></script>
+    <script src="js/core/resources.js"></script>
+    <script src="js/core/effects.js"></script>
+    <script src="js/core/sources.js"></script>
+    <script src="js/core/reset.js"></script>
+    <script src="js/power/scale-logic.js"></script>
+    <script src="js/power/scale.js"></script>
+    <script src="js/cultivation/immortal-logic.js"></script>
+    <script src="js/cultivation/immortal.js"></script>
+    <script src="js/meta/achievements.js"></script>
+    <script src="js/meta/treasures.js"></script>
+    <script src="js/meta/challenges.js"></script>
+    <script src="js/ui/cards.js"></script>
+    <script src="js/ui/app.js"></script>
     <script src="game.js"></script>
   </body>
 </html>
