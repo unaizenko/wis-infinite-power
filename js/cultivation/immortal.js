@@ -66,6 +66,7 @@
       { id: "naturalTreasureMana", name: "天材地宝", group: "宝物", target: "mana", layer: "regionMultiplier", value: (1 + state.naturalTreasureLevel * 0.1) * (1 + (state.meta.treasures.xuTianDing || 0) * 0.005) },
       { id: "tianNiPearlMana", name: "仙道·天逆珠", group: "宝物", target: "mana", layer: "regionMultiplier", value: 1 + (state.meta.treasures.tianNiPearl || 0) * 0.005 },
       { id: "perfectedTechnique", name: "功法大成", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.perfectedTechniqueUnlocked ? 1.5 : 1 },
+      { id: "dualInfantUnity", name: "双婴合一", group: "仙道", target: "circulation", layer: "sourceExponent", value: state.dualInfantUnityUnlocked ? 1.08 : 1 },
       { id: "heavenEarthAura", name: "天地元气", group: "仙道", target: "breathingJCurve", layer: "sourceAdditive", value: state.heavenEarthAuraUnlocked ? 0.25 : 0 },
       { id: "divineAbilityMastery", name: "神通通神", group: "仙道", target: "mana", layer: "regionMultiplier", value: state.divineAbilityMasteryUnlocked ? 2.5 : 1 },
       { id: "auraIntoBody", name: "元气入体", group: "仙道", target: "fitness", layer: "sourceMultiplier", value: state.auraIntoBodyUnlocked ? 20 : 1 },
@@ -73,7 +74,12 @@
       { id: "externalIncarnation", name: "身外化身", group: "仙道", target: "brahmaDemonArt", layer: "sourceMultiplier", value: state.externalIncarnationUnlocked ? 5 : 1 },
       { id: "demonRealmJourneyExploration", name: "魔界之游", group: "仙道", target: "exploration", layer: "sourceMultiplier", value: state.demonRealmJourneyUnlocked ? 5 : 1 },
       { id: "demonRealmJourneyTreasure", name: "魔界之游", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", value: state.demonRealmJourneyUnlocked ? 3 : 1 },
-      { id: "returnToOrigin", name: "返本归元", group: "仙道", target: "joules", layer: "regionExponent", value: state.returnToOriginUnlocked ? 1.02 : 1 }
+      { id: "returnToOrigin", name: "返本归元", group: "仙道", target: "joules", layer: "regionExponent", value: state.returnToOriginUnlocked ? 1.02 : 1 },
+      { id: "perfectedTechniqueCompletion", name: "功法圆满", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.perfectedTechniqueCompletionUnlocked ? 1.5 : 1 },
+      { id: "descendRealm", name: "降界", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", value: state.descendRealmUnlocked ? Math.min(10, 1 + 0.75 * Math.log10(1 + Math.max(0, state.power) / 8.368e22)) : 1 },
+      { id: "nascentSoulCompletion", name: "元婴大成", group: "仙道", target: "circulation", layer: "sourceExponent", value: state.nascentSoulCompletionUnlocked ? 1.08 : 1 },
+      { id: "goldenSealScript", name: "金篆文", group: "仙道", target: "mana", layer: "regionMultiplier", value: state.goldenSealScriptUnlocked ? 8 : 1 },
+      { id: "mysticHeavenSpiritSlayingSword", name: "仙道·玄天斩灵剑", group: "宝物", target: "magicTreasure", layer: "sourceExponent", value: WIS.Cultivation.ImmortalLogic.mysticHeavenSpiritSlayingSwordExponent() }
     ];
   }
 
@@ -83,8 +89,14 @@
   let baLingChiRollAccumulator = 0;
 
   function update(state, elapsedSeconds) {
-    const rates = { manaPerSecond: WIS.Cultivation.ImmortalLogic.getManaPerSecond() };
-    const mana = Math.max(0, Number(rates.manaPerSecond) || 0) * elapsedSeconds;
+    const passiveTreasureManaPerSecond = WIS.Cultivation.ImmortalLogic.automaticBaseManaPerSecond();
+    const automaticExploration = WIS.Cultivation.ImmortalLogic.automaticExplorationManaGain(elapsedSeconds);
+    const mana = Math.max(0, Number(passiveTreasureManaPerSecond) || 0) * elapsedSeconds + automaticExploration.mana;
+    const rates = {
+      manaPerSecond: elapsedSeconds > 0 ? mana / elapsedSeconds : 0,
+      passiveTreasureManaPerSecond,
+      automaticExplorationManaPerSecond: elapsedSeconds > 0 ? automaticExploration.mana / elapsedSeconds : 0
+    };
     WIS.Core.Resources.addSystem("immortal", "mana", mana);
     state.lifetimeTotalMana += mana;
     return { mana, rates };

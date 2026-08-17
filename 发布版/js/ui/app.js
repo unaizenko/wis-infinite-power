@@ -22,9 +22,14 @@
   const MIND_DIVISION_COSTS = POWER_COSTS.mindDivision, HYPER_REGENERATION_COST = POWER_COSTS.hyperRegeneration, MENTAL_DOMAIN_COST = POWER_COSTS.mentalDomain;
   const EARTH_SPLIT_COST = POWER_COSTS.earthSplit, GODSPEED_COST = POWER_COSTS.godspeed, SUPERPOWER_EVOLUTION_COST = POWER_COSTS.superpowerEvolution;
   const SUBTLE_COST = POWER_COSTS.subtle, SKY_SPLIT_COST = POWER_COSTS.skySplit, ROCK_BASE_COST = POWER_COSTS.rockBase;
-  const BIOLOGICAL_QUANTIFICATION_COST = POWER_COSTS.biologicalQuantification, DESTROY_COUNTRY_COST = POWER_COSTS.destroyCountry;
+  const BIOLOGICAL_QUANTIFICATION_COST = POWER_COSTS.biologicalQuantification, GHOST_MAN_TRANSFORMATION_COST = POWER_COSTS.ghostManTransformation;
+  const DESTROY_COUNTRY_COST = POWER_COSTS.destroyCountry, HUMAN_GHOST_TRANSFORMATION_COST = POWER_COSTS.humanGhostTransformation;
   const KILLING_INTENT_SUBSTANCE_COST = POWER_COSTS.killingIntentSubstance, ENERGY_CYCLE_COST = POWER_COSTS.energyCycle;
   const MOUNTAIN_SHATTER_COST = POWER_COSTS.mountainShatter, BIOENERGY_COST = POWER_COSTS.bioenergy;
+  const ELEMENTALIZATION_COST = POWER_COSTS.elementalization, KILLING_INTENT_PERCEPTION_COST = POWER_COSTS.killingIntentPerception;
+  const KILLING_INTENT_WAVE_COST = POWER_COSTS.killingIntentWave, ULTIMATE_INTENT_COST = POWER_COSTS.ultimateIntent;
+  const BRAIN_DOMAIN_DEVELOPMENT_COST = POWER_COSTS.brainDomainDevelopment, CONTINENT_SPLIT_COST = POWER_COSTS.continentSplit;
+  const CONTINENT_COLLAPSE_COST = POWER_COSTS.continentCollapse;
   const ROCK_BASE_LEVEL_CAP = CONFIG.rockBaseLevelCap;
   const QI_REFINING_COST = IMMORTAL_COSTS.qiRefining, FOUNDATION_BASE_COST = IMMORTAL_COSTS.foundation, GOLDEN_CORE_BASE_COST = IMMORTAL_COSTS.goldenCore;
   const ADVANCED_REALMS = CONFIG.realms;
@@ -37,9 +42,16 @@
   const SECOND_NASCENT_SOUL_COST = IMMORTAL_COSTS.secondNascentSoul, ABUNDANT_AURA_COST = IMMORTAL_COSTS.abundantAura;
   const SILVER_TADPOLE_SCRIPT_COST = IMMORTAL_COSTS.silverTadpoleScript, IMMORTAL_REALM_DIVINE_ABILITY_COST = IMMORTAL_COSTS.immortalRealmDivineAbility;
   const PERFECTED_TECHNIQUE_COST = IMMORTAL_COSTS.perfectedTechnique, HEAVEN_EARTH_AURA_COST = IMMORTAL_COSTS.heavenEarthAura;
-  const DIVINE_ABILITY_MASTERY_COST = IMMORTAL_COSTS.divineAbilityMastery, AURA_INTO_BODY_COST = IMMORTAL_COSTS.auraIntoBody;
+  const DIVINE_ABILITY_MASTERY_COST = IMMORTAL_COSTS.divineAbilityMastery, DUAL_INFANT_UNITY_COST = IMMORTAL_COSTS.dualInfantUnity;
+  const AURA_INTO_BODY_COST = IMMORTAL_COSTS.auraIntoBody;
   const EXTERNAL_INCARNATION_COST = IMMORTAL_COSTS.externalIncarnation, DEMON_REALM_JOURNEY_COST = IMMORTAL_COSTS.demonRealmJourney;
   const RETURN_TO_ORIGIN_COST = IMMORTAL_COSTS.returnToOrigin;
+  const NATAL_MAGIC_TREASURE_COST = IMMORTAL_COSTS.natalMagicTreasure;
+  const PERFECTED_TECHNIQUE_COMPLETION_COST = IMMORTAL_COSTS.perfectedTechniqueCompletion;
+  const ROAM_SPIRIT_WORLD_COST = IMMORTAL_COSTS.roamSpiritWorld, DESCEND_REALM_COST = IMMORTAL_COSTS.descendRealm;
+  const MYSTIC_HEAVENLY_TREASURE_COSTS = IMMORTAL_COSTS.mysticHeavenlyTreasure;
+  const NASCENT_SOUL_COMPLETION_COST = IMMORTAL_COSTS.nascentSoulCompletion;
+  const SPIRIT_TRAVEL_VOID_COST = IMMORTAL_COSTS.spiritTravelVoid, GOLDEN_SEAL_SCRIPT_COST = IMMORTAL_COSTS.goldenSealScript;
   const MINOR_TRIBULATION_BASE_TRIGGER_LOAD = CONFIG.minorTribulationBaseTriggerLoad;
   const LONGEVITY_800_COSTS = IMMORTAL_COSTS.longevity800, MANA_LIQUEFACTION_COST = IMMORTAL_COSTS.manaLiquefaction;
   const QI_SPELL_COSTS = IMMORTAL_COSTS.qiSpell, FOUNDATION_SPELL_COSTS = IMMORTAL_COSTS.foundationSpell, LONGEVITY_COSTS = IMMORTAL_COSTS.longevity;
@@ -64,22 +76,22 @@
     fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent,
     currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent,
     trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier,
-    automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, longevityFitnessMultiplier,
+    automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier,
     lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier,
     myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus,
     regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount,
-    fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus,
+    fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel,
     waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap,
     baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier,
     conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier,
-    skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource,
+    skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent,
     ghostBrainActualPowerPerSecond, joulesForNextBasePower,
     focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, dynamicFocusMultiplier,
     focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus,
-    rawKillingIntentPotentialJBonus, superSpeedThinkingMultiplier, killingIntentPotentialJBonus,
+    rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus,
     focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost,
     rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent,
-    automaticPowerPerSecond, finalPowerGainFromSources, mindDivisionCost,
+    automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost,
     manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus,
     train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod,
     buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower,
@@ -90,7 +102,7 @@
   } = Scale;
   const Immortal = WIS.Cultivation.ImmortalLogic;
   const {
-    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, manaLiquefactionManaJMultiplier, manaJBonus, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, magicTreasurePotentialPowerBonus, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationMultiplier, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, baseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, tianNiPearlCount, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticManaPerSecond, circulationManaSource, circulationManaPerSecond, circulationPercent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, grantThreeDeficienciesResetReward, explore, scatterAndRebuild, reincarnate
+    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, manaLiquefactionManaJMultiplier, manaJBonus, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationMultiplier, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, baseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaPerSecond, circulationManaSource, circulationManaPerSecond, circulationPercent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, unlockMahayanaAbility, grantThreeDeficienciesResetReward, explore, scatterAndRebuild, reincarnate
   } = Immortal;
 
     let activePage = "actions";
@@ -287,7 +299,7 @@
       const nextRealm = ADVANCED_REALMS[index + 1];
       const voidRefinementAbilities = realm.key === "voidRefinement" ? `
             <article class="item-row purchased" id="enhanced-minor-tribulation-ability" data-sort-cost="0">
-              <div class="item-content"><h2>强化小天劫</h2><p>炼虚自带。沿用当前小天劫负荷门槛；探寻法力常驻指数降至0.92，战力区域常驻指数降至0.99，触发后的最低探寻指数为0.75。</p></div>
+              <div class="item-content"><h2>强化小天劫</h2><p>炼虚自带。沿用当前小天劫负荷门槛；探寻法力基础指数降至0.92，战力区域常驻指数降至0.99。触发时仅削弱本次探寻，最低指数为0.80。</p></div>
               <div class="purchase-control"><span id="enhanced-minor-tribulation-preview">等待炼虚</span><button class="primary-button" type="button" disabled>炼虚自带</button></div>
             </article>
             <article class="item-row" id="brahma-demon-art-ability" data-sort-cost="100000000000000">
@@ -318,14 +330,24 @@
             <article class="item-row" id="perfected-technique-ability" data-sort-cost="${PERFECTED_TECHNIQUE_COST}"><div class="item-content"><h2>功法大成</h2><p>使周天最终比例 ×1.5。</p></div><div class="purchase-control"><span id="perfected-technique-preview">解锁后：周天比例 ×1.5</span><small>消耗 ${formatCost(PERFECTED_TECHNIQUE_COST)} 法力</small><button id="unlock-perfected-technique" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="heaven-earth-aura-ability" data-sort-cost="${HEAVEN_EARTH_AURA_COST}"><div class="item-content"><h2>天地元气</h2><p>使吐纳 J 曲线指数 +0.25，周天间接受益。</p></div><div class="purchase-control"><span id="heaven-earth-aura-preview">解锁后：吐纳 J 曲线指数 +0.25</span><small>消耗 ${formatCost(HEAVEN_EARTH_AURA_COST)} 法力</small><button id="unlock-heaven-earth-aura" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="divine-ability-mastery-ability" data-sort-cost="${DIVINE_ABILITY_MASTERY_COST}"><div class="item-content"><h2>神通通神</h2><p>使全部法力获取倍率 ×2.5。</p></div><div class="purchase-control"><span id="divine-ability-mastery-preview">解锁后：全部法力 ×2.5</span><small>消耗 ${formatCost(DIVINE_ABILITY_MASTERY_COST)} 法力</small><button id="unlock-divine-ability-mastery" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="dual-infant-unity-ability" data-sort-cost="${DUAL_INFANT_UNITY_COST}"><div class="item-content"><h2>双婴合一</h2><p>使周天法力来源 ^1.08，不影响其他法力来源。</p></div><div class="purchase-control"><span id="dual-infant-unity-preview">解锁后：周天法力来源 ^1.08</span><small>消耗 ${formatCost(DUAL_INFANT_UNITY_COST)} 法力</small><button id="unlock-dual-infant-unity" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="aura-into-body-ability" data-sort-cost="${AURA_INTO_BODY_COST}"><div class="item-content"><h2>元气入体</h2><p>使健身 J 来源 ×20，并提高40级健身上限。</p></div><div class="purchase-control"><span id="aura-into-body-preview">解锁后：健身 J ×20；健身上限 +40</span><small>消耗 ${formatCost(AURA_INTO_BODY_COST)} 法力</small><button id="unlock-aura-into-body" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="external-incarnation-ability" data-sort-cost="${EXTERNAL_INCARNATION_COST}"><div class="item-content"><h2>身外化身</h2><p>使梵圣真魔功的独立战力来源 ×5。</p></div><div class="purchase-control"><span id="external-incarnation-preview">解锁后：梵圣真魔功 ×5</span><small>消耗 ${formatCost(EXTERNAL_INCARNATION_COST)} 法力</small><button id="unlock-external-incarnation" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="demon-realm-journey-ability" data-sort-cost="${DEMON_REALM_JOURNEY_COST}"><div class="item-content"><h2>魔界之游</h2><p>使普通探寻法力来源 ×5，并使仙道宝物基础获得概率 ×3。</p></div><div class="purchase-control"><span id="demon-realm-journey-preview">解锁后：普通探寻 ×5；仙道宝物概率 ×3</span><small>消耗 ${formatCost(DEMON_REALM_JOURNEY_COST)} 法力</small><button id="unlock-demon-realm-journey" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="return-to-origin-ability" data-sort-cost="${RETURN_TO_ORIGIN_COST}"><div class="item-content"><h2>返本归元</h2><p>使 J 区域结果 ^1.02。</p></div><div class="purchase-control"><span id="return-to-origin-preview">解锁后：J 区域 ^1.02</span><small>消耗 ${formatCost(RETURN_TO_ORIGIN_COST)} 法力</small><button id="unlock-return-to-origin" class="primary-button" type="button">解锁</button></div></article>` : "";
+      const mahayanaAbilities = realm.key === "mahayana" ? `
+            <article class="item-row" id="natal-magic-treasure-ability" data-sort-cost="${NATAL_MAGIC_TREASURE_COST}"><div class="item-content"><h2>本命法宝</h2><p>将法宝的法力曲线指数由0.65提高至0.80。</p></div><div class="purchase-control"><span id="natal-magic-treasure-preview">解锁后：法宝法力指数 0.65 → 0.80</span><small>消耗 ${formatCost(NATAL_MAGIC_TREASURE_COST)} 法力</small><button id="unlock-natal-magic-treasure" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="perfected-technique-completion-ability" data-sort-cost="${PERFECTED_TECHNIQUE_COMPLETION_COST}"><div class="item-content"><h2>功法圆满</h2><p>使周天最终比例 ×1.5。</p></div><div class="purchase-control"><span id="perfected-technique-completion-preview">解锁后：周天比例 ×1.5</span><small>消耗 ${formatCost(PERFECTED_TECHNIQUE_COMPLETION_COST)} 法力</small><button id="unlock-perfected-technique-completion" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="roam-spirit-world-ability" data-sort-cost="${ROAM_SPIRIT_WORLD_COST}"><div class="item-content"><h2>纵横灵界</h2><p>每秒获得当前一次完整探寻收益的0.05%，包括法力、有效探寻量与宝物判定，不消耗战力。</p></div><div class="purchase-control"><span id="roam-spirit-world-preview">解锁后：每2000秒等效完成1次当前探寻</span><small>消耗 ${formatCost(ROAM_SPIRIT_WORLD_COST)} 法力</small><button id="unlock-roam-spirit-world" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="descend-realm-ability" data-sort-cost="${DESCEND_REALM_COST}"><div class="item-content"><h2>降界</h2><p>根据当前战力提高仙道宝物获得概率，最高 ×10。</p></div><div class="purchase-control"><span id="descend-realm-preview">解锁后：仙道宝物概率随战力提高</span><small>消耗 ${formatCost(DESCEND_REALM_COST)} 法力</small><button id="unlock-descend-realm" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="mystic-heavenly-treasure-ability" data-sort-cost="${MYSTIC_HEAVENLY_TREASURE_COSTS[0]}"><div class="item-content"><h2>玄天灵宝</h2><p>可升3级，依次解锁永久烙印：仙道·幻天镜、仙道·玄天圣树、仙道·玄天斩灵剑。</p></div><div class="purchase-control"><span id="mystic-heavenly-treasure-level">当前：0/3级</span><small id="mystic-heavenly-treasure-cost">消耗 ${formatCost(MYSTIC_HEAVENLY_TREASURE_COSTS[0])} 法力</small><button id="buy-mystic-heavenly-treasure" class="primary-button" type="button">升级</button></div></article>
+            <article class="item-row" id="nascent-soul-completion-ability" data-sort-cost="${NASCENT_SOUL_COMPLETION_COST}"><div class="item-content"><h2>元婴大成</h2><p>使周天法力来源额外 ^1.08，与双婴合一相乘后为 ^1.1664。</p></div><div class="purchase-control"><span id="nascent-soul-completion-preview">解锁后：周天法力来源 ^1.08</span><small>消耗 ${formatCost(NASCENT_SOUL_COMPLETION_COST)} 法力</small><button id="unlock-nascent-soul-completion" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="spirit-travel-void-ability" data-sort-cost="${SPIRIT_TRAVEL_VOID_COST}"><div class="item-content"><h2>神游太虚</h2><p>将强化小天劫负荷门槛由1500提高至150000；幻天镜会继续翻倍门槛。</p></div><div class="purchase-control"><span id="spirit-travel-void-preview">解锁后：强化小天劫门槛 1500 → 150000</span><small>消耗 ${formatCost(SPIRIT_TRAVEL_VOID_COST)} 法力</small><button id="unlock-spirit-travel-void" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="golden-seal-script-ability" data-sort-cost="${GOLDEN_SEAL_SCRIPT_COST}"><div class="item-content"><h2>金篆文</h2><p>使法力区域获取倍率 ×8。</p></div><div class="purchase-control"><span id="golden-seal-script-preview">解锁后：法力区域 ×8</span><small>消耗 ${formatCost(GOLDEN_SEAL_SCRIPT_COST)} 法力</small><button id="unlock-golden-seal-script" class="primary-button" type="button">解锁</button></div></article>` : "";
       return `
         <details class="upgrade-group" id="${realm.slug}-abilities" open hidden>
           <summary>
-            <span><b>${realm.name}</b><small>${realm.key === "voidRefinement" ? `${nextRealm.name}瓶颈、强化小天劫、梵圣真魔功、真灵变、银蝌文、炼虚为气、仙界神通、炼神术` : realm.key === "bodyIntegration" ? `${nextRealm.name}瓶颈、功法大成、天地元气、神通通神、元气入体、身外化身、魔界之游、返本归元` : `${nextRealm.name}瓶颈`}</small></span>
+            <span><b>${realm.name}</b><small>${realm.key === "voidRefinement" ? `${nextRealm.name}瓶颈、强化小天劫、梵圣真魔功、真灵变、银蝌文、炼虚为气、仙界神通、炼神术` : realm.key === "bodyIntegration" ? `${nextRealm.name}瓶颈、功法大成、天地元气、神通通神、双婴合一、元气入体、身外化身、魔界之游、返本归元` : realm.key === "mahayana" ? `${nextRealm.name}瓶颈、本命法宝、功法圆满、纵横灵界、降界、玄天灵宝、元婴大成、神游太虚、金篆文` : `${nextRealm.name}瓶颈`}</small></span>
           </summary>
           <div class="item-list" data-sort-by-cost>
             <article class="item-row purchased" id="${realm.slug}-bottleneck-ability" data-sort-cost="0">
@@ -341,6 +363,7 @@
             </article>
             ${voidRefinementAbilities}
             ${bodyIntegrationAbilities}
+            ${mahayanaAbilities}
           </div>
         </details>
       `;
@@ -432,6 +455,7 @@
     renderChallenge("fiveMisfortunes", "five-misfortunes");
   }
 
+
   function render() {
     recordCurrentAchievements();
     updateLifetimeStatistics();
@@ -476,6 +500,7 @@
     const nextLongevity800Cost = longevity800Cost();
     const nextMindDivisionCost = mindDivisionCost();
     const nextHeavenlyTreasureCost = heavenlyTreasureCost();
+    const nextMysticHeavenlyTreasureCost = mysticHeavenlyTreasureCost();
     const currentExplorationPowerCost = explorationPowerCost();
     const currentRawExplorationAmount = rawExplorationAmountForCost(currentExplorationPowerCost);
     const currentExplorationAmount = explorationAmountForCost(currentExplorationPowerCost);
@@ -490,6 +515,9 @@
     const currentXuTianDingCount = xuTianDingCount();
     const currentBaLingChiCount = baLingChiCount();
     const currentWanYaoFanCount = wanYaoFanCount();
+    const currentPhantomHeavenMirrorCount = phantomHeavenMirrorCount();
+    const currentMysticHeavenSacredTreeCount = mysticHeavenSacredTreeCount();
+    const currentMysticHeavenSpiritSlayingSwordCount = mysticHeavenSpiritSlayingSwordCount();
 
     byId("game-version").textContent = `v${GAME_VERSION}`;
     byId("joules").textContent = format(state.joules);
@@ -517,7 +545,9 @@
     byId("focus-preview").textContent = `基础来源：+${format(focusPowerPerSecond())} 战力/秒；当前实际：+${format(focusEffectivePotential)} 战力/秒（来源动态幂软上限 ^${focusSoftcapExponent().toFixed(3)}）`;
     byId("breathing-method-preview").textContent = `${state.breathingMethodPurchased ? "当前：" : "解锁后："}跑步倍率 ×1.5`;
     byId("extreme-exercise-preview").textContent = `${state.extremeExercisePurchased ? "当前：" : "解锁后："}运动倍率 ×1.5`;
-    byId("running-level").textContent = `当前：${state.runningLevel}/${fitnessCap}级`;
+    byId("running-level").textContent = effectiveFitnessLevel() !== state.runningLevel
+      ? `当前：实际 ${state.runningLevel}/${fitnessCap}级；生效 ${effectiveFitnessLevel()}级`
+      : `当前：${state.runningLevel}/${fitnessCap}级`;
     byId("running-rate").textContent = `当前实际：+${format(fitnessEffectivePotential)} J/秒`;
     byId("running-cost").textContent = `消耗 ${formatCost(nextRunningCost)} 战力`;
     byId("buy-running").textContent = state.runningLevel >= fitnessCap ? "已达上限" : "升级";
@@ -530,12 +560,13 @@
     byId("street-upgrades").hidden = state.highestScaleIndex < 5;
     byId("city-upgrades").hidden = state.highestScaleIndex < 6;
     byId("country-upgrades").hidden = state.highestScaleIndex < 7;
+    byId("continent-upgrades").hidden = state.highestScaleIndex < 8;
     byId("rock-action").hidden = !state.wallUnlocked;
     byId("ghost-back-action").hidden = state.highestScaleIndex < 3;
     byId("ghost-back-action").classList.toggle("purchased", state.ghostBackActive);
     byId("ghost-back-state").textContent = state.ghostBackActive ? "当前已激活" : "当前未激活";
     byId("toggle-ghost-back").textContent = state.ghostBackActive ? "关闭" : "激活";
-    byId("rock-level").textContent = hasAchievement("scale7")
+    byId("rock-level").textContent = effectiveRockLevel() !== state.rockLevel
       ? `当前：实际 ${state.rockLevel}/${rockCap}级；生效 ${effectiveRockLevel()}级`
       : `当前：${state.rockLevel}/${rockCap}级`;
     byId("rock-rate").textContent = `基础来源：+${format(rockRawPotential)} 战力/秒；当前实际：+${format(rockEffectivePotential)} 战力/秒`;
@@ -551,13 +582,22 @@
     byId("intuition-preview").textContent = `${state.intuitionPurchased ? "当前：" : "解锁后："}集中倍率 ×${intuitionPotential.toFixed(2)}`;
     byId("sonic-movement-preview").textContent = `${state.sonicMovementPurchased ? "当前：" : "解锁后："}跑步倍率 ×${(state.sonicMovementPurchased ? sonicMovementMultiplier() : 3.8).toFixed(2)}`;
     byId("carbon-limit-preview").textContent = `${state.carbonLimitPurchased ? "当前：" : "解锁后："}健身倍率加法 +${carbonLimitPotential.toFixed(2)}`;
-    byId("killing-intent-preview").textContent = `${state.killingIntentPurchased ? "当前：" : "解锁后："} +${format(killingIntentPotentialJBonus())} J/秒（集中实际获取战力的0.00005%，已计超速思维倍率）`;
+    byId("killing-intent-preview").textContent = `${state.killingIntentPurchased ? "当前：" : "解锁后："} +${format(killingIntentPotentialJBonus())} J/秒（集中实际获取战力的${(killingIntentExtractionRatio() * 100).toFixed(5)}%，已计来源倍率与指数）`;
     byId("biological-quantification-preview").textContent = `${state.biologicalQuantificationPurchased ? "当前：" : "解锁后："}健身 J ×12；健身上限 +30`;
+    byId("ghost-man-transformation-preview").textContent = `${state.ghostManTransformationPurchased ? "当前：" : "解锁后："}打岩生效等级 ${state.ghostManTransformationPurchased ? effectiveRockLevel() : `${effectiveRockLevel()} + 健身实际 ${state.runningLevel}`}`;
     byId("destroy-country-preview").textContent = `${state.destroyCountryPurchased ? "当前：" : "解锁后："}打岩 ×1e4；打岩上限 +50`;
+    byId("human-ghost-transformation-preview").textContent = `${state.humanGhostTransformationPurchased ? "当前：" : "解锁后："}健身生效等级 ${state.humanGhostTransformationPurchased ? effectiveFitnessLevel() : `${state.runningLevel} + 打岩实际 ${state.rockLevel}`}`;
     byId("killing-intent-substance-preview").textContent = `${state.killingIntentSubstancePurchased ? "当前：" : "解锁后："}杀气提取比例 ×5`;
     byId("energy-cycle-preview").textContent = `${state.energyCyclePurchased ? "当前：" : "解锁后："}鬼脑来源 ×12`;
     byId("mountain-shatter-preview").textContent = `${state.mountainShatterPurchased ? "当前：" : "解锁后："}战力区域 ^1.015`;
     byId("bioenergy-preview").textContent = `${state.bioenergyPurchased ? "当前：" : "解锁后："}J 区域 ×3`;
+    byId("elementalization-preview").textContent = `${state.elementalizationPurchased ? "当前：" : "解锁后："}独立 J 来源 +${format(state.elementalizationPurchased ? elementalizationJSource() : 1e12 * Math.pow(Math.max(0, fitnessJBonus()) / 1e12, 1.4))}/秒`;
+    byId("killing-intent-perception-preview").textContent = `${state.killingIntentPerceptionPurchased ? "当前：" : "解锁后："}杀气提取比例 ${(state.killingIntentPerceptionPurchased ? killingIntentExtractionRatio() : 5e-4) * 100}%`;
+    byId("killing-intent-wave-preview").textContent = `${state.killingIntentWavePurchased ? "当前：" : "解锁后："}杀气来源 ^${Math.min(1.1, 1 + 0.01 * continentPowerMagnitude()).toFixed(3)}`;
+    byId("ultimate-intent-preview").textContent = `${state.ultimateIntentPurchased ? "当前：" : "解锁后："}独立战力来源 +${format(state.ultimateIntentPurchased ? ultimateIntentPowerSource() : 1e12 * Math.pow(Math.max(0, focusPowerPerSecond()) / 1e12, 1.4))}/秒`;
+    byId("brain-domain-development-preview").textContent = `${state.brainDomainDevelopmentPurchased ? "当前：" : "解锁后："}鬼脑来源 ^${Math.min(1.3, 1 + 0.1 * continentPowerMagnitude()).toFixed(3)}`;
+    byId("continent-split-preview").textContent = `${state.continentSplitPurchased ? "当前：" : "解锁后："}打岩生效等级 +${format(Math.pow(state.rockLevel, 1.8))}`;
+    byId("continent-collapse-preview").textContent = `${state.continentCollapsePurchased ? "当前：" : "解锁后："}打岩来源 ^${Math.min(1.5, 1 + 0.18 * continentPowerMagnitude()).toFixed(3)}`;
     byId("rock-strike-preview").textContent = `${state.rockStrikePurchased ? "当前：" : "解锁后："}打岩来源 ×2；等级上限 +20`;
     byId("high-speed-metabolism-preview").textContent = `${state.highSpeedMetabolismPurchased ? "当前：" : "解锁后："}锻炼来源 ×1.75`;
     byId("endurance-enhancement-preview").textContent = `${state.enduranceEnhancementPurchased ? "当前：" : "解锁后："}健身倍率 ×2；等级上限 +20`;
@@ -762,14 +802,11 @@
       : 0.8 + (state.manaLiquefactionUnlocked ? 0.4 : 0) + (state.manaSolidificationUnlocked ? 0.6 : 0));
     byId("abundant-aura-preview").textContent = `${state.abundantAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${abundantAuraPotentialExponent.toFixed(1)}`;
     const currentTribulationManaExponent = minorTribulationExplorationManaExponent();
+    const nextTribulationPreview = minorTribulationPreviewForExploration(currentExplorationAmount);
     byId("minor-tribulation-preview").textContent = `小天劫负荷 ${format(state.minorTribulationExplorationLoad)}/${format(minorTribulationTriggerLoad())}；下次探寻约 +${format(currentExplorationAmount)}`;
-    byId("minor-tribulation-recovery").textContent = state.minorTribulationRecoveryRemaining > 0
-      ? `战力 ^${minorTribulationPowerExponent().toFixed(3)}；探寻法力 ^${currentTribulationManaExponent.toFixed(3)}（初始 ^${state.minorTribulationInitialManaExponent.toFixed(3)}，负荷强度 ${format(state.minorTribulationLastLoadFactor)}；剩余 ${state.minorTribulationRecoveryRemaining.toFixed(1)} 秒）`
-      : state.minorTribulationTriggered
-        ? `战力 ^${minorTribulationPowerExponent().toFixed(3)}；探寻法力 ^${currentTribulationManaExponent.toFixed(3)}（已恢复；上次负荷强度 ${format(state.minorTribulationLastLoadFactor)}）`
-        : `战力 ^${minorTribulationPowerExponent().toFixed(3)}；探寻法力 ^${currentTribulationManaExponent.toFixed(3)}（常驻基础指数，尚未触发）`;
+    byId("minor-tribulation-recovery").textContent = `战力 ^${minorTribulationPowerExponent().toFixed(3)}；下次探寻法力 ^${nextTribulationPreview.manaExponent.toFixed(3)}（${nextTribulationPreview.triggered ? `本次触发，负荷强度 ${format(nextTribulationPreview.loadFactor)}` : `未触发，基础指数 ^${currentTribulationManaExponent.toFixed(3)}`}）`;
     byId("enhanced-minor-tribulation-preview").textContent = state.advancedRealmLevel >= 3
-      ? `当前：战力区域 ^${minorTribulationPowerExponent().toFixed(3)}；探寻法力指数 ${currentTribulationManaExponent.toFixed(3)}，区间 0.750～0.920`
+      ? `当前：战力区域 ^${minorTribulationPowerExponent().toFixed(3)}；探寻基础指数 ${currentTribulationManaExponent.toFixed(3)}，触发区间 0.800～0.920，仅作用于本次探寻`
       : "等待炼虚";
     const brahmaDemonArtSource = state.brahmaDemonArtUnlocked ? brahmaDemonArtPowerSource(fitnessJBonus()) : fitnessJBonus() * 3;
     byId("brahma-demon-art-preview").textContent = `${state.brahmaDemonArtUnlocked ? "当前：" : "解锁后："}基础来源 +${format(brahmaDemonArtSource)} 战力/秒；当前实际：+${format(finalPowerGainFromSources([brahmaDemonArtSource]))} 战力/秒`;
@@ -787,10 +824,24 @@
     byId("perfected-technique-preview").textContent = `${state.perfectedTechniqueUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`;
     byId("heaven-earth-aura-preview").textContent = `${state.heavenEarthAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${breathingJCurveExponent().toFixed(2)}`;
     byId("divine-ability-mastery-preview").textContent = `${state.divineAbilityMasteryUnlocked ? "当前：" : "解锁后："}全部法力 ×2.5`;
+    byId("dual-infant-unity-preview").textContent = `${state.dualInfantUnityUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08`;
     byId("aura-into-body-preview").textContent = `${state.auraIntoBodyUnlocked ? "当前：" : "解锁后："}健身 J ×20；健身上限 +40`;
     byId("external-incarnation-preview").textContent = `${state.externalIncarnationUnlocked ? "当前：" : "解锁后："}梵圣真魔功 ×5`;
     byId("demon-realm-journey-preview").textContent = `${state.demonRealmJourneyUnlocked ? "当前：" : "解锁后："}普通探寻 ×5；仙道宝物概率 ×3`;
     byId("return-to-origin-preview").textContent = `${state.returnToOriginUnlocked ? "当前：" : "解锁后："}J 区域 ^1.02`;
+    byId("natal-magic-treasure-preview").textContent = `${state.natalMagicTreasureUnlocked ? "当前：" : "解锁后："}法宝法力指数 ${magicTreasureManaExponent().toFixed(2)}`;
+    byId("perfected-technique-completion-preview").textContent = `${state.perfectedTechniqueCompletionUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`;
+    byId("roam-spirit-world-preview").textContent = `${state.roamSpiritWorldUnlocked ? "当前：" : "解锁后："}自动探寻 +${format(automaticExplorationManaPerSecond())} 法力/秒、+${format(automaticExplorationAmountPerSecond())} 有效探寻量/秒`;
+    const descendRealmMultiplier = Math.min(10, 1 + 0.75 * Math.log10(1 + Math.max(0, state.power) / 8.368e22));
+    byId("descend-realm-preview").textContent = `${state.descendRealmUnlocked ? "当前：" : "解锁后："}仙道宝物概率 ×${descendRealmMultiplier.toFixed(3)}`;
+    byId("nascent-soul-completion-preview").textContent = `${state.nascentSoulCompletionUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08${state.dualInfantUnityUnlocked || state.nascentSoulCompletionUnlocked ? `（当前合计 ^${(1.08 * (state.dualInfantUnityUnlocked ? 1.08 : 1)).toFixed(4)}）` : ""}`;
+    byId("spirit-travel-void-preview").textContent = `${state.spiritTravelVoidUnlocked ? "当前：" : "解锁后："}强化小天劫门槛 ${format(state.spiritTravelVoidUnlocked ? minorTribulationTriggerLoad() : 150000)}`;
+    byId("golden-seal-script-preview").textContent = `${state.goldenSealScriptUnlocked ? "当前：" : "解锁后："}法力区域 ×8`;
+    byId("mystic-heavenly-treasure-ability").classList.toggle("purchased", state.mysticHeavenlyTreasureLevel >= 3);
+    byId("mystic-heavenly-treasure-level").textContent = `当前：${state.mysticHeavenlyTreasureLevel}/3级；已解锁：${["无", "仙道·幻天镜", "仙道·幻天镜、仙道·玄天圣树", "仙道·幻天镜、仙道·玄天圣树、仙道·玄天斩灵剑"][state.mysticHeavenlyTreasureLevel]}`;
+    byId("mystic-heavenly-treasure-cost").textContent = state.mysticHeavenlyTreasureLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextMysticHeavenlyTreasureCost)} 法力`;
+    byId("buy-mystic-heavenly-treasure").textContent = state.mysticHeavenlyTreasureLevel >= 3 ? "已达上限" : "升级";
+    byId("buy-mystic-heavenly-treasure").disabled = state.mysticHeavenlyTreasureLevel >= 3 || state.advancedRealmLevel < 5 || state.mana < nextMysticHeavenlyTreasureCost;
     byId("heavenly-treasure-ability").classList.toggle("purchased", state.heavenlyTreasureLevel >= 3);
     byId("heavenly-treasure-level").textContent = `当前：${state.heavenlyTreasureLevel}/3级；已解锁：${["无", "仙道·虚天鼎", "仙道·虚天鼎、仙道·八灵尺", "仙道·虚天鼎、仙道·八灵尺、仙道·万妖幡"][state.heavenlyTreasureLevel]}`;
     byId("heavenly-treasure-cost").textContent = state.heavenlyTreasureLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextHeavenlyTreasureCost)} 法力`;
@@ -848,6 +899,18 @@
     byId("wan-yao-fan-count").textContent = `数量：${format(currentWanYaoFanCount, 0)}`;
     byId("wan-yao-fan-chance").textContent = `每 1 有效探寻量概率 ${formatProbability(wanYaoFanChance())}`;
     byId("wan-yao-fan-effect").textContent = `法宝来源倍率 ×${wanYaoFanMultiplier().toFixed(3)}`;
+    byId("phantom-heaven-mirror-treasure").hidden = state.mysticHeavenlyTreasureLevel < 1 && currentPhantomHeavenMirrorCount <= 0;
+    byId("phantom-heaven-mirror-count").textContent = `数量：${format(currentPhantomHeavenMirrorCount, 0)}`;
+    byId("phantom-heaven-mirror-chance").textContent = `每 1 有效探寻量概率 ${formatProbability(phantomHeavenMirrorChance())}`;
+    byId("phantom-heaven-mirror-effect").textContent = `天劫负荷门槛 ×${format(Math.pow(2, currentPhantomHeavenMirrorCount), 0)}`;
+    byId("mystic-heaven-sacred-tree-treasure").hidden = state.mysticHeavenlyTreasureLevel < 2 && currentMysticHeavenSacredTreeCount <= 0;
+    byId("mystic-heaven-sacred-tree-count").textContent = `数量：${format(currentMysticHeavenSacredTreeCount, 0)}`;
+    byId("mystic-heaven-sacred-tree-chance").textContent = `每 1 有效探寻量概率 ${formatProbability(mysticHeavenSacredTreeChance())}`;
+    byId("mystic-heaven-sacred-tree-effect").textContent = `天材地宝上限 +${format(currentMysticHeavenSacredTreeCount * 5, 0)}`;
+    byId("mystic-heaven-spirit-slaying-sword-treasure").hidden = state.mysticHeavenlyTreasureLevel < 3 && currentMysticHeavenSpiritSlayingSwordCount <= 0;
+    byId("mystic-heaven-spirit-slaying-sword-count").textContent = `数量：${format(currentMysticHeavenSpiritSlayingSwordCount, 0)}`;
+    byId("mystic-heaven-spirit-slaying-sword-chance").textContent = `每 1 有效探寻量概率 ${formatProbability(mysticHeavenSpiritSlayingSwordChance())}`;
+    byId("mystic-heaven-spirit-slaying-sword-effect").textContent = `法宝来源 ^${mysticHeavenSpiritSlayingSwordExponent().toFixed(3)}`;
     byId("statistics-highest-j").textContent = format(state.lifetimeHighestJ);
     byId("statistics-highest-power").textContent = format(state.lifetimeHighestPower);
     byId("statistics-highest-scale").textContent = SCALE_THRESHOLDS[state.lifetimeHighestScaleIndex].name;
@@ -898,11 +961,20 @@
     updateOneTimeUpgrade("subtle-upgrade", "buy-subtle", state.subtlePurchased, state.highestScaleIndex >= 6 && state.focusPurchased && state.power >= SUBTLE_COST);
     updateOneTimeUpgrade("sky-split-upgrade", "buy-sky-split", state.skySplitPurchased, state.highestScaleIndex >= 6 && state.mentalDomainPurchased && state.power >= SKY_SPLIT_COST);
     updateOneTimeUpgrade("biological-quantification-upgrade", "buy-biological-quantification", state.biologicalQuantificationPurchased, state.highestScaleIndex >= 7 && state.power >= BIOLOGICAL_QUANTIFICATION_COST);
+    updateOneTimeUpgrade("ghost-man-transformation-upgrade", "buy-ghost-man-transformation", state.ghostManTransformationPurchased, state.highestScaleIndex >= 7 && state.power >= GHOST_MAN_TRANSFORMATION_COST);
     updateOneTimeUpgrade("destroy-country-upgrade", "buy-destroy-country", state.destroyCountryPurchased, state.highestScaleIndex >= 7 && state.power >= DESTROY_COUNTRY_COST);
+    updateOneTimeUpgrade("human-ghost-transformation-upgrade", "buy-human-ghost-transformation", state.humanGhostTransformationPurchased, state.highestScaleIndex >= 7 && state.power >= HUMAN_GHOST_TRANSFORMATION_COST);
     updateOneTimeUpgrade("killing-intent-substance-upgrade", "buy-killing-intent-substance", state.killingIntentSubstancePurchased, state.highestScaleIndex >= 7 && state.power >= KILLING_INTENT_SUBSTANCE_COST);
     updateOneTimeUpgrade("energy-cycle-upgrade", "buy-energy-cycle", state.energyCyclePurchased, state.highestScaleIndex >= 7 && state.power >= ENERGY_CYCLE_COST);
     updateOneTimeUpgrade("mountain-shatter-upgrade", "buy-mountain-shatter", state.mountainShatterPurchased, state.highestScaleIndex >= 7 && state.power >= MOUNTAIN_SHATTER_COST);
     updateOneTimeUpgrade("bioenergy-upgrade", "buy-bioenergy", state.bioenergyPurchased, state.highestScaleIndex >= 7 && state.power >= BIOENERGY_COST);
+    updateOneTimeUpgrade("elementalization-upgrade", "buy-elementalization", state.elementalizationPurchased, state.highestScaleIndex >= 8 && state.power >= ELEMENTALIZATION_COST);
+    updateOneTimeUpgrade("killing-intent-perception-upgrade", "buy-killing-intent-perception", state.killingIntentPerceptionPurchased, state.highestScaleIndex >= 8 && state.power >= KILLING_INTENT_PERCEPTION_COST);
+    updateOneTimeUpgrade("killing-intent-wave-upgrade", "buy-killing-intent-wave", state.killingIntentWavePurchased, state.highestScaleIndex >= 8 && state.power >= KILLING_INTENT_WAVE_COST);
+    updateOneTimeUpgrade("ultimate-intent-upgrade", "buy-ultimate-intent", state.ultimateIntentPurchased, state.highestScaleIndex >= 8 && state.power >= ULTIMATE_INTENT_COST);
+    updateOneTimeUpgrade("brain-domain-development-upgrade", "buy-brain-domain-development", state.brainDomainDevelopmentPurchased, state.highestScaleIndex >= 8 && state.power >= BRAIN_DOMAIN_DEVELOPMENT_COST);
+    updateOneTimeUpgrade("continent-split-upgrade", "buy-continent-split", state.continentSplitPurchased, state.highestScaleIndex >= 8 && state.power >= CONTINENT_SPLIT_COST);
+    updateOneTimeUpgrade("continent-collapse-upgrade", "buy-continent-collapse", state.continentCollapsePurchased, state.highestScaleIndex >= 8 && state.power >= CONTINENT_COLLAPSE_COST);
     updateOneTimeUnlock("qi-refining-stage", "unlock-qi-refining", state.qiRefiningUnlocked, immortalSelected && state.power >= QI_REFINING_COST);
     updateOneTimeUnlock("immortal-life-ability", "unlock-immortal-life", state.immortalLifeUnlocked, state.qiRefiningUnlocked && state.mana >= IMMORTAL_LIFE_COST);
     updateOneTimeUnlock("foundation-stage", "unlock-foundation", state.foundationUnlocked, state.qiRefiningUnlocked && state.mana >= nextFoundationCost);
@@ -941,10 +1013,18 @@
     updateOneTimeUnlock("perfected-technique-ability", "unlock-perfected-technique", state.perfectedTechniqueUnlocked, state.advancedRealmLevel >= 4 && state.mana >= PERFECTED_TECHNIQUE_COST);
     updateOneTimeUnlock("heaven-earth-aura-ability", "unlock-heaven-earth-aura", state.heavenEarthAuraUnlocked, state.advancedRealmLevel >= 4 && state.mana >= HEAVEN_EARTH_AURA_COST);
     updateOneTimeUnlock("divine-ability-mastery-ability", "unlock-divine-ability-mastery", state.divineAbilityMasteryUnlocked, state.advancedRealmLevel >= 4 && state.mana >= DIVINE_ABILITY_MASTERY_COST);
+    updateOneTimeUnlock("dual-infant-unity-ability", "unlock-dual-infant-unity", state.dualInfantUnityUnlocked, state.advancedRealmLevel >= 4 && state.mana >= DUAL_INFANT_UNITY_COST);
     updateOneTimeUnlock("aura-into-body-ability", "unlock-aura-into-body", state.auraIntoBodyUnlocked, state.advancedRealmLevel >= 4 && state.mana >= AURA_INTO_BODY_COST);
     updateOneTimeUnlock("external-incarnation-ability", "unlock-external-incarnation", state.externalIncarnationUnlocked, state.advancedRealmLevel >= 4 && state.mana >= EXTERNAL_INCARNATION_COST);
     updateOneTimeUnlock("demon-realm-journey-ability", "unlock-demon-realm-journey", state.demonRealmJourneyUnlocked, state.advancedRealmLevel >= 4 && state.mana >= DEMON_REALM_JOURNEY_COST);
     updateOneTimeUnlock("return-to-origin-ability", "unlock-return-to-origin", state.returnToOriginUnlocked, state.advancedRealmLevel >= 4 && state.mana >= RETURN_TO_ORIGIN_COST);
+    updateOneTimeUnlock("natal-magic-treasure-ability", "unlock-natal-magic-treasure", state.natalMagicTreasureUnlocked, state.advancedRealmLevel >= 5 && state.mana >= NATAL_MAGIC_TREASURE_COST);
+    updateOneTimeUnlock("perfected-technique-completion-ability", "unlock-perfected-technique-completion", state.perfectedTechniqueCompletionUnlocked, state.advancedRealmLevel >= 5 && state.mana >= PERFECTED_TECHNIQUE_COMPLETION_COST);
+    updateOneTimeUnlock("roam-spirit-world-ability", "unlock-roam-spirit-world", state.roamSpiritWorldUnlocked, state.advancedRealmLevel >= 5 && state.mana >= ROAM_SPIRIT_WORLD_COST);
+    updateOneTimeUnlock("descend-realm-ability", "unlock-descend-realm", state.descendRealmUnlocked, state.advancedRealmLevel >= 5 && state.mana >= DESCEND_REALM_COST);
+    updateOneTimeUnlock("nascent-soul-completion-ability", "unlock-nascent-soul-completion", state.nascentSoulCompletionUnlocked, state.advancedRealmLevel >= 5 && state.mana >= NASCENT_SOUL_COMPLETION_COST);
+    updateOneTimeUnlock("spirit-travel-void-ability", "unlock-spirit-travel-void", state.spiritTravelVoidUnlocked, state.advancedRealmLevel >= 5 && state.mana >= SPIRIT_TRAVEL_VOID_COST);
+    updateOneTimeUnlock("golden-seal-script-ability", "unlock-golden-seal-script", state.goldenSealScriptUnlocked, state.advancedRealmLevel >= 5 && state.mana >= GOLDEN_SEAL_SCRIPT_COST);
     sortCostGroups();
     renderAchievements();
   }
@@ -1057,11 +1137,20 @@
     bindManualScaleUpgrade("buy-subtle", "subtlePurchased", () => WIS.Power.Scale.buyUpgrade("subtle"));
     bindManualScaleUpgrade("buy-sky-split", "skySplitPurchased", () => WIS.Power.Scale.buyUpgrade("skySplit"));
     bindManualScaleUpgrade("buy-biological-quantification", "biologicalQuantificationPurchased", () => WIS.Power.Scale.buyUpgrade("biologicalQuantification"));
+    bindManualScaleUpgrade("buy-ghost-man-transformation", "ghostManTransformationPurchased", () => WIS.Power.Scale.buyUpgrade("ghostManTransformation"));
     bindManualScaleUpgrade("buy-destroy-country", "destroyCountryPurchased", () => WIS.Power.Scale.buyUpgrade("destroyCountry"));
+    bindManualScaleUpgrade("buy-human-ghost-transformation", "humanGhostTransformationPurchased", () => WIS.Power.Scale.buyUpgrade("humanGhostTransformation"));
     bindManualScaleUpgrade("buy-killing-intent-substance", "killingIntentSubstancePurchased", () => WIS.Power.Scale.buyUpgrade("killingIntentSubstance"));
     bindManualScaleUpgrade("buy-energy-cycle", "energyCyclePurchased", () => WIS.Power.Scale.buyUpgrade("energyCycle"));
     bindManualScaleUpgrade("buy-mountain-shatter", "mountainShatterPurchased", () => WIS.Power.Scale.buyUpgrade("mountainShatter"));
     bindManualScaleUpgrade("buy-bioenergy", "bioenergyPurchased", () => WIS.Power.Scale.buyUpgrade("bioenergy"));
+    bindManualScaleUpgrade("buy-elementalization", "elementalizationPurchased", () => WIS.Power.Scale.buyUpgrade("elementalization"));
+    bindManualScaleUpgrade("buy-killing-intent-perception", "killingIntentPerceptionPurchased", () => WIS.Power.Scale.buyUpgrade("killingIntentPerception"));
+    bindManualScaleUpgrade("buy-killing-intent-wave", "killingIntentWavePurchased", () => WIS.Power.Scale.buyUpgrade("killingIntentWave"));
+    bindManualScaleUpgrade("buy-ultimate-intent", "ultimateIntentPurchased", () => WIS.Power.Scale.buyUpgrade("ultimateIntent"));
+    bindManualScaleUpgrade("buy-brain-domain-development", "brainDomainDevelopmentPurchased", () => WIS.Power.Scale.buyUpgrade("brainDomainDevelopment"));
+    bindManualScaleUpgrade("buy-continent-split", "continentSplitPurchased", () => WIS.Power.Scale.buyUpgrade("continentSplit"));
+    bindManualScaleUpgrade("buy-continent-collapse", "continentCollapsePurchased", () => WIS.Power.Scale.buyUpgrade("continentCollapse"));
     byId("toggle-ghost-back").addEventListener("click", toggleGhostBack);
     bindManualRealmBreakthrough("unlock-qi-refining", unlockQiRefining);
     bindHoldButton("breathing-button", breathe);
@@ -1103,10 +1192,19 @@
     bindManualImmortalAbility("unlock-perfected-technique", "perfectedTechniqueUnlocked", () => WIS.Cultivation.Immortal.buyAbility("perfectedTechnique"));
     bindManualImmortalAbility("unlock-heaven-earth-aura", "heavenEarthAuraUnlocked", () => WIS.Cultivation.Immortal.buyAbility("heavenEarthAura"));
     bindManualImmortalAbility("unlock-divine-ability-mastery", "divineAbilityMasteryUnlocked", () => WIS.Cultivation.Immortal.buyAbility("divineAbilityMastery"));
+    bindManualImmortalAbility("unlock-dual-infant-unity", "dualInfantUnityUnlocked", () => WIS.Cultivation.Immortal.buyAbility("dualInfantUnity"));
     bindManualImmortalAbility("unlock-aura-into-body", "auraIntoBodyUnlocked", () => WIS.Cultivation.Immortal.buyAbility("auraIntoBody"));
     bindManualImmortalAbility("unlock-external-incarnation", "externalIncarnationUnlocked", () => WIS.Cultivation.Immortal.buyAbility("externalIncarnation"));
     bindManualImmortalAbility("unlock-demon-realm-journey", "demonRealmJourneyUnlocked", () => WIS.Cultivation.Immortal.buyAbility("demonRealmJourney"));
     bindManualImmortalAbility("unlock-return-to-origin", "returnToOriginUnlocked", () => WIS.Cultivation.Immortal.buyAbility("returnToOrigin"));
+    bindManualImmortalAbility("unlock-natal-magic-treasure", "natalMagicTreasureUnlocked", () => WIS.Cultivation.Immortal.buyAbility("natalMagicTreasure"));
+    bindManualImmortalAbility("unlock-perfected-technique-completion", "perfectedTechniqueCompletionUnlocked", () => WIS.Cultivation.Immortal.buyAbility("perfectedTechniqueCompletion"));
+    bindManualImmortalAbility("unlock-roam-spirit-world", "roamSpiritWorldUnlocked", () => WIS.Cultivation.Immortal.buyAbility("roamSpiritWorld"));
+    bindManualImmortalAbility("unlock-descend-realm", "descendRealmUnlocked", () => WIS.Cultivation.Immortal.buyAbility("descendRealm"));
+    bindManualImmortalAbility("buy-mystic-heavenly-treasure", "mysticHeavenlyTreasureLevel", () => WIS.Cultivation.Immortal.buyAbility("mysticHeavenlyTreasure"));
+    bindManualImmortalAbility("unlock-nascent-soul-completion", "nascentSoulCompletionUnlocked", () => WIS.Cultivation.Immortal.buyAbility("nascentSoulCompletion"));
+    bindManualImmortalAbility("unlock-spirit-travel-void", "spiritTravelVoidUnlocked", () => WIS.Cultivation.Immortal.buyAbility("spiritTravelVoid"));
+    bindManualImmortalAbility("unlock-golden-seal-script", "goldenSealScriptUnlocked", () => WIS.Cultivation.Immortal.buyAbility("goldenSealScript"));
     byId("scatter-rebuild").addEventListener("click", scatterAndRebuild);
     byId("reincarnate").addEventListener("click", reincarnate);
     byId("toggle-innate-deficiency").addEventListener("click", () => {
@@ -1164,6 +1262,7 @@
       importInput.value = "";
     });
     byId("reset-game").addEventListener("click", resetGame);
+
 
     }
 

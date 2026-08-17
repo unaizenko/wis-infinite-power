@@ -13,8 +13,12 @@
       mountainCollapse: 8e11, mindDivision: Object.freeze([5e15, 1.5e16, 5e16]),
       hyperRegeneration: 1e17, mentalDomain: 3e17, earthSplit: 8e17,
       godspeed: 1.2e18, superpowerEvolution: 2e18, subtle: 4e18, skySplit: 8e18,
-      biologicalQuantification: 3e20, destroyCountry: 8e20, killingIntentSubstance: 1.2e21,
+      biologicalQuantification: 3e20, ghostManTransformation: 6e20, destroyCountry: 8e20,
+      humanGhostTransformation: 1e21, killingIntentSubstance: 1.2e21,
       energyCycle: 1.5e21, mountainShatter: 2.5e21, bioenergy: 3e21,
+      elementalization: 2e23, killingIntentPerception: 4e23, killingIntentWave: 8e23,
+      ultimateIntent: 1.5e24, brainDomainDevelopment: 3e24, continentSplit: 5e24,
+      continentCollapse: 8e24,
       rockBase: 2000
     }),
     immortal: Object.freeze({
@@ -31,9 +35,14 @@
       qiSpell: Object.freeze([20, 40, 80]), foundationSpell: Object.freeze([300, 900, 2700]),
       longevity: Object.freeze([200, 600]), goldenCoreLongevity: Object.freeze([10000, 40000]),
       manaSolidification: 16000, technique: 1200, magicTreasure: 30000,
-      perfectedTechnique: 2e16, heavenEarthAura: 5e16, divineAbilityMastery: 2e17,
-      auraIntoBody: 5e17, externalIncarnation: 1e18, demonRealmJourney: 1.5e18,
-      returnToOrigin: 2e18
+      perfectedTechnique: 1e16, heavenEarthAura: 3e16, divineAbilityMastery: 1e17,
+      dualInfantUnity: 1.5e17, auraIntoBody: 2.5e17, externalIncarnation: 5e17,
+      demonRealmJourney: 7.5e17, returnToOrigin: 1e18,
+      natalMagicTreasure: 1e19, perfectedTechniqueCompletion: 2e19,
+      roamSpiritWorld: 5e19, descendRealm: 8e19,
+      mysticHeavenlyTreasure: Object.freeze([1e20, 2e20, 4e20]),
+      nascentSoulCompletion: 1.5e20, spiritTravelVoid: 2.5e20,
+      goldenSealScript: 5e20
     })
   });
 
@@ -94,10 +103,10 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.3.10", saveVersion: 39,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.3.11", saveVersion: 39,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
-    minorTribulationRecoverySeconds: 120, offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
+    offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
     exploration: Object.freeze({ baseMana: 50, minimumPowerCost: 1e6, standardPowerCost: 1e7, costExponentScale: 0.08 }),
     training: Object.freeze({ decayScale: 1e6, decayLogDivisor: 9, decayPower: 3 })
   });

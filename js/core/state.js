@@ -19,9 +19,14 @@
     mindDivisionLevel: 0, hyperRegenerationPurchased: false, superpowerEvolutionPurchased: false,
     earthSplitPurchased: false, godspeedPurchased: false, subtlePurchased: false,
     mentalDomainPurchased: false, skySplitPurchased: false, ghostBackActive: false,
-    biologicalQuantificationPurchased: false, destroyCountryPurchased: false,
+    biologicalQuantificationPurchased: false, ghostManTransformationPurchased: false,
+    destroyCountryPurchased: false, humanGhostTransformationPurchased: false,
     killingIntentSubstancePurchased: false, energyCyclePurchased: false,
     mountainShatterPurchased: false, bioenergyPurchased: false,
+    elementalizationPurchased: false, killingIntentPerceptionPurchased: false,
+    killingIntentWavePurchased: false, ultimateIntentPurchased: false,
+    brainDomainDevelopmentPurchased: false, continentSplitPurchased: false,
+    continentCollapsePurchased: false,
     cultivationSystem: null, mana: 0, qiRefiningUnlocked: false, immortalLifeUnlocked: false,
     qiSpellLevel: 0, foundationUnlocked: false, goldenCoreUnlocked: false, advancedRealmLevel: 0,
     circulationUnlocked: false, minorTechniqueUnlocked: false, flyingEscapeUnlocked: false,
@@ -37,9 +42,13 @@
     trueSpiritTransformationLevel: 0, silverTadpoleScriptUnlocked: false,
     voidRefiningToQiUnlocked: false, immortalRealmDivineAbilityUnlocked: false,
     spiritRefiningArtUnlocked: false, perfectedTechniqueUnlocked: false,
-    heavenEarthAuraUnlocked: false, divineAbilityMasteryUnlocked: false,
+    heavenEarthAuraUnlocked: false, divineAbilityMasteryUnlocked: false, dualInfantUnityUnlocked: false,
     auraIntoBodyUnlocked: false, externalIncarnationUnlocked: false,
     demonRealmJourneyUnlocked: false, returnToOriginUnlocked: false,
+    natalMagicTreasureUnlocked: false, perfectedTechniqueCompletionUnlocked: false,
+    roamSpiritWorldUnlocked: false, descendRealmUnlocked: false,
+    mysticHeavenlyTreasureLevel: 0, nascentSoulCompletionUnlocked: false,
+    spiritTravelVoidUnlocked: false, goldenSealScriptUnlocked: false,
     minorTribulationExplorationLoad: 0,
     minorTribulationRecoveryRemaining: 0, minorTribulationTriggered: false,
     minorTribulationInitialManaExponent: 0.95, minorTribulationLastLoadFactor: 0,
@@ -53,7 +62,7 @@
       symbolicPowerMilestones: { graham64: false, tree3: false },
       challengeCompletions: { innateDeficiency: 0, powerless: 0, longevity: 0, fiveMisfortunes: 0 },
       unlockedAchievements: {},
-      treasureImprints: { tianNiPearl: 0, mysteriousGreenBottle: 0, fuBao: 0, fitnessMembershipCard: 0, xuTianDing: 0, baLingChi: 0, wanYaoFan: 0 },
+      treasureImprints: { tianNiPearl: 0, mysteriousGreenBottle: 0, fuBao: 0, fitnessMembershipCard: 0, xuTianDing: 0, baLingChi: 0, wanYaoFan: 0, phantomHeavenMirror: 0, mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0 },
       lastUpdateAt: Date.now()
     };
   }
@@ -142,6 +151,21 @@
       ? 0
       : Math.max(0, Math.min(3, Math.floor(Number(source.reincarnationLevel) || 0)));
     const joules = Math.max(0, Number(source.joules) || 0);
+    const treasureImprints = {
+      tianNiPearl: Math.max(0, Math.floor(Number(source.treasureImprints?.tianNiPearl) || 0)),
+      mysteriousGreenBottle: Math.max(0, Math.floor(Number(source.treasureImprints?.mysteriousGreenBottle) || 0)),
+      fuBao: Math.max(0, Math.floor(Number(source.treasureImprints?.fuBao) || 0)),
+      fitnessMembershipCard: Math.max(0, Math.floor(Number(source.treasureImprints?.fitnessMembershipCard) || 0)),
+      xuTianDing: Math.max(0, Math.floor(Number(source.treasureImprints?.xuTianDing) || 0)),
+      baLingChi: Math.max(0, Math.floor(Number(source.treasureImprints?.baLingChi) || 0)),
+      wanYaoFan: Math.max(0, Math.floor(Number(source.treasureImprints?.wanYaoFan) || 0)),
+      phantomHeavenMirror: Math.max(0, Math.floor(Number(source.treasureImprints?.phantomHeavenMirror) || 0)),
+      mysticHeavenSacredTree: Math.max(0, Math.floor(Number(source.treasureImprints?.mysticHeavenSacredTree) || 0)),
+      mysticHeavenSpiritSlayingSword: Math.max(0, Math.floor(Number(source.treasureImprints?.mysticHeavenSpiritSlayingSword) || 0))
+    };
+    const imprintedHeavenlyTreasureLevel = treasureImprints.wanYaoFan > 0
+      ? 3
+      : treasureImprints.baLingChi > 0 ? 2 : treasureImprints.xuTianDing > 0 ? 1 : 0;
     const lifetimeHighestScaleIndex = Math.max(
       highestScaleIndex,
       Math.min(config.scales.length - 1, Math.floor(Number(source.lifetimeHighestScaleIndex) || 0))
@@ -212,11 +236,20 @@
       mentalDomainPurchased: source.mentalDomainPurchased === true,
       skySplitPurchased: source.skySplitPurchased === true,
       biologicalQuantificationPurchased: source.biologicalQuantificationPurchased === true,
+      ghostManTransformationPurchased: source.ghostManTransformationPurchased === true,
       destroyCountryPurchased: source.destroyCountryPurchased === true,
+      humanGhostTransformationPurchased: source.humanGhostTransformationPurchased === true,
       killingIntentSubstancePurchased: source.killingIntentSubstancePurchased === true,
       energyCyclePurchased: source.energyCyclePurchased === true,
       mountainShatterPurchased: source.mountainShatterPurchased === true,
       bioenergyPurchased: source.bioenergyPurchased === true,
+      elementalizationPurchased: source.elementalizationPurchased === true,
+      killingIntentPerceptionPurchased: source.killingIntentPerceptionPurchased === true,
+      killingIntentWavePurchased: source.killingIntentWavePurchased === true,
+      ultimateIntentPurchased: source.ultimateIntentPurchased === true,
+      brainDomainDevelopmentPurchased: source.brainDomainDevelopmentPurchased === true,
+      continentSplitPurchased: source.continentSplitPurchased === true,
+      continentCollapsePurchased: source.continentCollapsePurchased === true,
       ghostBackActive: highestScaleIndex >= 3 && source.ghostBackActive === true,
       cultivationSystem,
       mana,
@@ -256,14 +289,17 @@
       greatCultivatorUnlocked: source.greatCultivatorUnlocked === true,
       secondNascentSoulUnlocked: source.secondNascentSoulUnlocked === true,
       naturalTreasureLevel: Math.max(0, Math.min(
-        source.spiritWorldAscensionUnlocked === true ? 20 : 10,
+        (source.spiritWorldAscensionUnlocked === true ? 20 : 10) + treasureImprints.mysticHeavenSacredTree * 5,
         Math.floor(Number(source.naturalTreasureLevel) || 0)
       )),
       spiritWorldAscensionUnlocked: source.spiritWorldAscensionUnlocked === true,
       auraControlUnlocked: source.auraControlUnlocked === true,
       equalHeavenLongevityUnlocked: source.equalHeavenLongevityUnlocked === true,
       fiveElementsUnlocked: source.fiveElementsUnlocked === true,
-      heavenlyTreasureLevel: Math.max(0, Math.min(3, Math.floor(Number(source.heavenlyTreasureLevel) || 0))),
+      heavenlyTreasureLevel: Math.max(
+        imprintedHeavenlyTreasureLevel,
+        Math.max(0, Math.min(3, Math.floor(Number(source.heavenlyTreasureLevel) || 0)))
+      ),
       abundantAuraUnlocked: source.abundantAuraUnlocked === true,
       brahmaDemonArtUnlocked: source.brahmaDemonArtUnlocked === true,
       trueSpiritTransformationLevel: Math.max(0, Math.min(5, Math.floor(
@@ -276,18 +312,23 @@
       perfectedTechniqueUnlocked: source.perfectedTechniqueUnlocked === true,
       heavenEarthAuraUnlocked: source.heavenEarthAuraUnlocked === true,
       divineAbilityMasteryUnlocked: source.divineAbilityMasteryUnlocked === true,
+      dualInfantUnityUnlocked: source.dualInfantUnityUnlocked === true,
       auraIntoBodyUnlocked: source.auraIntoBodyUnlocked === true,
       externalIncarnationUnlocked: source.externalIncarnationUnlocked === true,
       demonRealmJourneyUnlocked: source.demonRealmJourneyUnlocked === true,
       returnToOriginUnlocked: source.returnToOriginUnlocked === true,
+      natalMagicTreasureUnlocked: source.natalMagicTreasureUnlocked === true,
+      perfectedTechniqueCompletionUnlocked: source.perfectedTechniqueCompletionUnlocked === true,
+      roamSpiritWorldUnlocked: source.roamSpiritWorldUnlocked === true,
+      descendRealmUnlocked: source.descendRealmUnlocked === true,
+      mysticHeavenlyTreasureLevel: Math.max(0, Math.min(3, Math.floor(Number(source.mysticHeavenlyTreasureLevel) || 0))),
+      nascentSoulCompletionUnlocked: source.nascentSoulCompletionUnlocked === true,
+      spiritTravelVoidUnlocked: source.spiritTravelVoidUnlocked === true,
+      goldenSealScriptUnlocked: source.goldenSealScriptUnlocked === true,
       minorTribulationExplorationLoad: Math.max(0, savedMinorTribulationExplorationLoad || 0),
-      minorTribulationRecoveryRemaining: Math.max(0, Math.min(
-        config.minorTribulationRecoverySeconds,
-        Number(source.minorTribulationRecoveryRemaining) || 0
-      )),
-      minorTribulationTriggered: source.minorTribulationTriggered === true ||
-        Number(source.minorTribulationRecoveryRemaining) > 0,
-      minorTribulationInitialManaExponent: Math.max(0.75, Math.min(
+      minorTribulationRecoveryRemaining: 0,
+      minorTribulationTriggered: false,
+      minorTribulationInitialManaExponent: Math.max(0.8, Math.min(
         0.95,
         Number(source.minorTribulationInitialManaExponent) || 0.95
       )),
@@ -314,15 +355,7 @@
         Math.max(0, Math.min(challenge.maxCompletions, Math.floor(Number(source.challengeCompletions?.[key]) || 0)))
       ])),
       unlockedAchievements,
-      treasureImprints: {
-        tianNiPearl: Math.max(0, Math.floor(Number(source.treasureImprints?.tianNiPearl) || 0)),
-        mysteriousGreenBottle: Math.max(0, Math.floor(Number(source.treasureImprints?.mysteriousGreenBottle) || 0)),
-        fuBao: Math.max(0, Math.floor(Number(source.treasureImprints?.fuBao) || 0)),
-        fitnessMembershipCard: Math.max(0, Math.floor(Number(source.treasureImprints?.fitnessMembershipCard) || 0)),
-        xuTianDing: Math.max(0, Math.floor(Number(source.treasureImprints?.xuTianDing) || 0)),
-        baLingChi: Math.max(0, Math.floor(Number(source.treasureImprints?.baLingChi) || 0)),
-        wanYaoFan: Math.max(0, Math.floor(Number(source.treasureImprints?.wanYaoFan) || 0))
-      },
+      treasureImprints,
       hideUnlockedAchievements: source.hideUnlockedAchievements === true,
       theme: source.theme === "dark" ? "dark" : "light",
       lastUpdateAt: Number.isFinite(Number(source.lastUpdateAt)) && Number(source.lastUpdateAt) > 0
@@ -347,8 +380,11 @@
       "superpowerPurchased", "superSpeedThinkingPurchased", "mountainCollapsePurchased", "mindDivisionLevel",
       "hyperRegenerationPurchased", "superpowerEvolutionPurchased", "earthSplitPurchased", "godspeedPurchased",
       "subtlePurchased", "mentalDomainPurchased", "skySplitPurchased", "biologicalQuantificationPurchased",
-      "destroyCountryPurchased", "killingIntentSubstancePurchased", "energyCyclePurchased",
-      "mountainShatterPurchased", "bioenergyPurchased"
+      "ghostManTransformationPurchased", "destroyCountryPurchased", "humanGhostTransformationPurchased",
+      "killingIntentSubstancePurchased", "energyCyclePurchased",
+      "mountainShatterPurchased", "bioenergyPurchased", "elementalizationPurchased",
+      "killingIntentPerceptionPurchased", "killingIntentWavePurchased", "ultimateIntentPurchased",
+      "brainDomainDevelopmentPurchased", "continentSplitPurchased", "continentCollapsePurchased"
     ],
     "cultivation.systems.immortal.resources": ["mana"],
     "cultivation.systems.immortal.progress": [
@@ -365,8 +401,11 @@
       "fiveElementsUnlocked", "heavenlyTreasureLevel", "abundantAuraUnlocked", "brahmaDemonArtUnlocked",
       "trueSpiritTransformationLevel", "silverTadpoleScriptUnlocked", "voidRefiningToQiUnlocked",
       "immortalRealmDivineAbilityUnlocked", "spiritRefiningArtUnlocked", "perfectedTechniqueUnlocked",
-      "heavenEarthAuraUnlocked", "divineAbilityMasteryUnlocked", "auraIntoBodyUnlocked",
-      "externalIncarnationUnlocked", "demonRealmJourneyUnlocked", "returnToOriginUnlocked"
+      "heavenEarthAuraUnlocked", "divineAbilityMasteryUnlocked", "dualInfantUnityUnlocked", "auraIntoBodyUnlocked",
+      "externalIncarnationUnlocked", "demonRealmJourneyUnlocked", "returnToOriginUnlocked",
+      "natalMagicTreasureUnlocked", "perfectedTechniqueCompletionUnlocked", "roamSpiritWorldUnlocked",
+      "descendRealmUnlocked", "mysticHeavenlyTreasureLevel", "nascentSoulCompletionUnlocked",
+      "spiritTravelVoidUnlocked", "goldenSealScriptUnlocked"
     ],
     "cultivation.systems.immortal.persistent": [
       "scatterRebuildLevel", "scatterRetentionLevel", "reincarnationLevel", "permanentRootLevel",
@@ -397,8 +436,11 @@
     "superpowerPurchased", "superSpeedThinkingPurchased", "mountainCollapsePurchased", "mindDivisionLevel",
     "hyperRegenerationPurchased", "mentalDomainPurchased", "earthSplitPurchased", "godspeedPurchased",
     "superpowerEvolutionPurchased", "subtlePurchased", "skySplitPurchased", "biologicalQuantificationPurchased",
-    "destroyCountryPurchased", "killingIntentSubstancePurchased", "energyCyclePurchased",
-    "mountainShatterPurchased", "bioenergyPurchased"
+    "ghostManTransformationPurchased", "destroyCountryPurchased", "humanGhostTransformationPurchased",
+    "killingIntentSubstancePurchased", "energyCyclePurchased",
+    "mountainShatterPurchased", "bioenergyPurchased", "elementalizationPurchased",
+    "killingIntentPerceptionPurchased", "killingIntentWavePurchased", "ultimateIntentPurchased",
+    "brainDomainDevelopmentPurchased", "continentSplitPurchased", "continentCollapsePurchased"
   ]);
   const trackedImmortalAbilityKeys = Object.freeze([
     "qiSpellLevel", "immortalLifeUnlocked", "longevityLevel", "foundationSpellLevel", "circulationUnlocked",
@@ -409,8 +451,11 @@
     "abundantAuraUnlocked", "heavenlyTreasureLevel", "brahmaDemonArtUnlocked",
     "trueSpiritTransformationLevel", "silverTadpoleScriptUnlocked", "voidRefiningToQiUnlocked",
     "immortalRealmDivineAbilityUnlocked", "spiritRefiningArtUnlocked", "perfectedTechniqueUnlocked",
-    "heavenEarthAuraUnlocked", "divineAbilityMasteryUnlocked", "auraIntoBodyUnlocked",
-    "externalIncarnationUnlocked", "demonRealmJourneyUnlocked", "returnToOriginUnlocked"
+    "heavenEarthAuraUnlocked", "divineAbilityMasteryUnlocked", "dualInfantUnityUnlocked", "auraIntoBodyUnlocked",
+    "externalIncarnationUnlocked", "demonRealmJourneyUnlocked", "returnToOriginUnlocked",
+    "natalMagicTreasureUnlocked", "perfectedTechniqueCompletionUnlocked", "roamSpiritWorldUnlocked",
+    "descendRealmUnlocked", "mysticHeavenlyTreasureLevel", "nascentSoulCompletionUnlocked",
+    "spiritTravelVoidUnlocked", "goldenSealScriptUnlocked"
   ]);
 
   function clone(value) {

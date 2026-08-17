@@ -2,7 +2,7 @@
   "use strict";
 
   WIS.Meta.Treasures = Object.freeze({
-    keys: Object.freeze(["tianNiPearl", "mysteriousGreenBottle", "fuBao", "fitnessMembershipCard", "xuTianDing", "baLingChi", "wanYaoFan"]),
+    keys: Object.freeze(["tianNiPearl", "mysteriousGreenBottle", "fuBao", "fitnessMembershipCard", "xuTianDing", "baLingChi", "wanYaoFan", "phantomHeavenMirror", "mysticHeavenSacredTree", "mysticHeavenSpiritSlayingSword"]),
     count(state, key) {
       return Math.max(0, Math.floor(Number(state.meta.treasures?.[key]) || 0));
     },

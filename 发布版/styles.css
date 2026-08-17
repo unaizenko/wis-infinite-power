@@ -79,6 +79,7 @@ button { font: inherit; }
 .scale-progress { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .scale-progress small { color: var(--muted); font-size: 10px; }
 
+
 .settings-button {
   width: 36px;
   height: 36px;
@@ -127,6 +128,7 @@ button { font: inherit; }
 .resource-value { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; }
 .resource-value strong { font-size: 24px; overflow-wrap: anywhere; }
 .resource-value small { color: var(--accent); font-size: 12px; font-weight: 700; white-space: nowrap; }
+
 
 .navigation { display: grid; gap: 4px; }
 .nav-item {

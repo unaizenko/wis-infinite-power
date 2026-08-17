@@ -67,7 +67,8 @@
       { id: "killingIntentSubstance", name: "杀意实质", group: "量级论", target: "killingIntent", layer: "sourceMultiplier", value: state.killingIntentSubstancePurchased ? 5 : 1 },
       { id: "energyCycle", name: "能量循环", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", value: state.energyCyclePurchased ? 12 : 1 },
       { id: "mountainShatter", name: "崩岳", group: "量级论", target: "power", layer: "regionExponent", value: state.mountainShatterPurchased ? 1.015 : 1 },
-      { id: "bioenergy", name: "生物能源", group: "量级论", target: "joules", layer: "regionMultiplier", value: state.bioenergyPurchased ? 3 : 1 }
+      { id: "bioenergy", name: "生物能源", group: "量级论", target: "joules", layer: "regionMultiplier", value: state.bioenergyPurchased ? 3 : 1 },
+      { id: "continentCollapse", name: "大陆崩溃", group: "量级论", target: "rock", layer: "sourceExponent", value: state.continentCollapsePurchased ? Math.min(1.5, 1 + 0.18 * Math.log10(1 + Math.max(0, state.power) / 8.368e22)) : 1 }
     ];
   }
 

@@ -23,7 +23,8 @@
   const {
     autoBreakthroughImmortalRealms, autoUpgradeImmortalAbilities, breathe, chooseCultivation,
     baLingChiCount, cultivationRealmLevel, explore, grantThreeDeficienciesResetReward,
-    minorTribulationPowerExponent, tianNiPearlCount
+    minorTribulationPowerExponent, tianNiPearlCount, phantomHeavenMirrorCount,
+    mysticHeavenSacredTreeCount, mysticHeavenSpiritSlayingSwordCount
   } = Immortal;
   WIS.Core.Runtime.bind({ state: () => state, setState: (nextState) => { state = nextState; } });
   const {
@@ -201,24 +202,20 @@
   }
 
   function advanceGameStep(elapsedSeconds, silentTreasureRolls) {
-    const immortalActive = state.cultivation.active === "immortal";
     if (state.activeChallenge === "longevity") {
       state.activeChallengeElapsedSeconds = Math.min(
         CHALLENGE_DEFINITIONS.longevity.timeToLimitSeconds,
         state.activeChallengeElapsedSeconds + elapsedSeconds
       );
     }
-    if (immortalActive) {
-      state.minorTribulationRecoveryRemaining = Math.max(
-        0,
-        state.minorTribulationRecoveryRemaining - elapsedSeconds
-      );
-    }
     const activePowerSystem = WIS.Core.Registries.getActivePower(state);
     const activeCultivationSystem = WIS.Core.Registries.getActiveCultivation(state);
     activePowerSystem?.update(state, elapsedSeconds);
     const cultivationUpdate = activeCultivationSystem?.update(state, elapsedSeconds);
-    const passiveManaRate = Math.max(0, Number(cultivationUpdate?.rates?.manaPerSecond) || 0);
+    const passiveManaRate = Math.max(0, Number(
+      cultivationUpdate?.rates?.passiveTreasureManaPerSecond
+      ?? cultivationUpdate?.rates?.manaPerSecond
+    ) || 0);
     const gainedPearls = Math.max(0, Number(activeCultivationSystem
       ?.rollPassiveManaTreasure?.(elapsedSeconds, passiveManaRate, silentTreasureRolls)) || 0);
     activePowerSystem?.rollPassiveTreasure?.(state, elapsedSeconds, silentTreasureRolls);
@@ -261,7 +258,10 @@
       mana: state.mana,
       pearls: tianNiPearlCount(),
       fitnessCards: fitnessMembershipCardCount(),
-      baLingChi: baLingChiCount()
+      baLingChi: baLingChiCount(),
+      phantomHeavenMirror: phantomHeavenMirrorCount(),
+      mysticHeavenSacredTree: mysticHeavenSacredTreeCount(),
+      mysticHeavenSpiritSlayingSword: mysticHeavenSpiritSlayingSwordCount()
     };
     advanceGame(safeElapsed, { offline: true });
     recordCurrentAchievements();
@@ -277,6 +277,12 @@
     if (fitnessCardGain > 0) gains.push(`${format(fitnessCardGain, 0)}张健身房会员卡`);
     const baLingChiGain = baLingChiCount() - before.baLingChi;
     if (baLingChiGain > 0) gains.push(`${format(baLingChiGain, 0)}柄仙道·八灵尺`);
+    const phantomHeavenMirrorGain = phantomHeavenMirrorCount() - before.phantomHeavenMirror;
+    if (phantomHeavenMirrorGain > 0) gains.push(`${format(phantomHeavenMirrorGain, 0)}面仙道·幻天镜`);
+    const mysticHeavenSacredTreeGain = mysticHeavenSacredTreeCount() - before.mysticHeavenSacredTree;
+    if (mysticHeavenSacredTreeGain > 0) gains.push(`${format(mysticHeavenSacredTreeGain, 0)}株仙道·玄天圣树`);
+    const mysticHeavenSpiritSlayingSwordGain = mysticHeavenSpiritSlayingSwordCount() - before.mysticHeavenSpiritSlayingSword;
+    if (mysticHeavenSpiritSlayingSwordGain > 0) gains.push(`${format(mysticHeavenSpiritSlayingSwordGain, 0)}柄仙道·玄天斩灵剑`);
     return gains.length > 0
       ? `离线 ${formatElapsedTime(safeElapsed)}，获得 ${gains.join("、")}`
       : `离线 ${formatElapsedTime(safeElapsed)}，当前没有可自动获取的资源`;
