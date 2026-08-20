@@ -25,6 +25,10 @@
   const KILLING_INTENT_WAVE_COST = POWER_COSTS.killingIntentWave, ULTIMATE_INTENT_COST = POWER_COSTS.ultimateIntent;
   const BRAIN_DOMAIN_DEVELOPMENT_COST = POWER_COSTS.brainDomainDevelopment, CONTINENT_SPLIT_COST = POWER_COSTS.continentSplit;
   const CONTINENT_COLLAPSE_COST = POWER_COSTS.continentCollapse;
+  const WAVE_EYE_COST = POWER_COSTS.waveEye, ELEMENTAL_AWAKENING_COST = POWER_COSTS.elementalAwakening;
+  const MOONFALL_COST = POWER_COSTS.moonfall, FLOW_STATE_COST = POWER_COSTS.flowState;
+  const SELFHOOD_COST = POWER_COSTS.selfhood, FREEDOM_COST = POWER_COSTS.freedom;
+  const CHICXULUB_METEORITE_COST = POWER_COSTS.chicxulubMeteorite;
   const ROCK_BASE_LEVEL_CAP = CONFIG.rockBaseLevelCap;
   const TRAINING_J_DECAY_SCALE = CONFIG.training.decayScale, TRAINING_J_DECAY_LOG_DIVISOR = CONFIG.training.decayLogDivisor, TRAINING_J_DECAY_POWER = CONFIG.training.decayPower;
   const SCATTER_RETAINED_UPGRADE_TIERS = CONFIG.scatterRetainedUpgradeTiers;
@@ -48,6 +52,7 @@
   const achievementStates = (...args) => runtime.call("achievementStates", ...args);
   const notifyNewAchievements = (...args) => runtime.call("notifyNewAchievements", ...args);
   const minorTribulationPowerExponent = (...args) => runtime.call("minorTribulationPowerExponent", ...args);
+  const celestialDeclineExponent = (...args) => runtime.call("celestialDeclineExponent", ...args);
   const hasAchievement = (key) => WIS.Meta.Achievements.has(state, key);
   const upgradesUnlocked = () => hasAchievement("powerOne");
 
@@ -106,6 +111,58 @@
     if (!silent && gained > 0) {
       saveState();
       showNotice(`获得宝物烙印：健身房会员卡 +${gained}`);
+    }
+    return gained;
+  }
+
+  function superLollipopCount() {
+    return state.treasureImprints?.superLollipop || 0;
+  }
+
+  function superLollipopChance() {
+    return 0.01 / Math.sqrt(1 + superLollipopCount() / 10);
+  }
+
+  function superLollipopTrainingMultiplier() {
+    return 1 + superLollipopCount() * 0.05;
+  }
+
+  function rollSuperLollipopAttempts(attempts, silent = false) {
+    const gained = rollDynamicAttempts(
+      attempts,
+      () => hasAchievement("scale8"),
+      superLollipopChance,
+      () => { WIS.Meta.Treasures.add(state, "superLollipop"); }
+    );
+    if (!silent && gained > 0) showNotice(`获得永久宝物：超级棒棒糖 +${gained}`);
+    return gained;
+  }
+
+  function skyCrystalCount() {
+    return state.treasureImprints?.skyCrystal || 0;
+  }
+
+  function skyCrystalChance() {
+    return Math.min(1,
+      0.005 * (1 + Math.log10(1 + effectiveRockLevel() / 1000)) /
+        Math.sqrt(1 + skyCrystalCount() / 10)
+    );
+  }
+
+  function skyCrystalRockMultiplier() {
+    return 1 + skyCrystalCount() * 0.05;
+  }
+
+  function rollSkyCrystalAttempts(attempts, silent = false) {
+    const gained = rollDynamicAttempts(
+      attempts,
+      () => hasAchievement("scale9") && rockPowerPerSecond() > 0,
+      skyCrystalChance,
+      () => { WIS.Meta.Treasures.add(state, "skyCrystal"); }
+    );
+    if (!silent && gained > 0) {
+      saveState();
+      showNotice(`获得永久宝物：天晶 +${gained}`);
     }
     return gained;
   }
@@ -245,15 +302,19 @@
 
   function elementalizationJSource() {
     if (!state.elementalizationPurchased) return 0;
-    return 1e12 * Math.pow(Math.max(0, fitnessJBonus()) / 1e12, 1.4);
+    const base = 1e12 * Math.pow(Math.max(0, fitnessJBonus()) / 1e12, 1.4);
+    return calculateSourceGain({
+      base,
+      exponents: WIS.Core.Effects.values("elementalization", "sourceExponent", state)
+    });
   }
 
   function finalJPerSecondFromSources(sourceGains) {
-    return calculateRegionGain(sourceGains, {
+    const regionGain = calculateRegionGain(sourceGains, {
       multipliers: [jMultiplier()],
-      exponents: [jGainExponent()],
-      softcaps: [(gain) => applyResourceSoftcap(gain, state.joules)]
+      exponents: [jGainExponent()]
     });
+    return applyResourceSoftcap(applyGainExponent(regionGain, celestialDeclineExponent()), state.joules);
   }
 
   function longevityFitnessMultiplier() {
@@ -379,7 +440,7 @@
   }
 
   function conversionGain() {
-    return finalPowerGainFromSources([trainingPowerSource()]);
+    return finalPowerGainFromSources([challengeAdjustedPowerSource(trainingPowerSource(), "training")]);
   }
 
   function ghostBrainPotentialPowerBonus() {
@@ -464,7 +525,7 @@
   }
 
   function actualFocusPowerPerSecond() {
-    return finalPowerGainFromSources([focusPowerPerSecond()]);
+    return finalPowerGainFromSources([challengeAdjustedPowerSource(focusPowerPerSecond(), "focus")]);
   }
 
   function killingIntentJBonus() {
@@ -494,7 +555,7 @@
   function killingIntentPotentialJBonus() {
     return calculateSourceGain({
       base: rawKillingIntentPotentialJBonus(),
-      exponents: [killingIntentWaveExponent()]
+      exponents: [killingIntentWaveExponent(), ...WIS.Core.Effects.values("killingIntent", "sourceExponent", state)]
     });
   }
 
@@ -543,26 +604,53 @@
   }
 
   function automaticPowerPerSecond() {
+    const registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessJBonus() })
+      .map((source) => challengeAdjustedPowerSource(source.value, source.id));
     return finalPowerGainFromSources([
-      focusPowerPerSecond(),
-      rockPowerPerSecond(),
-      ghostBrainPowerSource(),
-      ultimateIntentPowerSource(),
-      ...WIS.Core.Sources.values("power", state, { fitnessJBonus: fitnessJBonus() })
+      challengeAdjustedPowerSource(focusPowerPerSecond(), "focus"),
+      challengeAdjustedPowerSource(rockPowerPerSecond(), "rock"),
+      challengeAdjustedPowerSource(ghostBrainPowerSource(), "ghostBrain"),
+      challengeAdjustedPowerSource(ultimateIntentPowerSource(), "ultimateIntent"),
+      ...registeredSources
     ]);
+  }
+
+  function flowUltimateIntentMultiplier() {
+    const focusSource = Math.max(0, focusPowerPerSecond());
+    return Math.min(1e7, Math.pow(1 + Math.log10(1 + focusSource / 1e12), 14));
   }
 
   function ultimateIntentPowerSource() {
     if (!state.ultimateIntentPurchased) return 0;
-    return 1e12 * Math.pow(Math.max(0, focusPowerPerSecond()) / 1e12, 1.4);
+    const base = 1e12 * Math.pow(Math.max(0, focusPowerPerSecond()) / 1e12, 1.4);
+    return calculateSourceGain({
+      base,
+      multipliers: WIS.Core.Effects.values("ultimateIntent", "sourceMultiplier", state),
+      exponents: WIS.Core.Effects.values("ultimateIntent", "sourceExponent", state)
+    });
+  }
+
+  function activePowerSourceChallengeMultiplier(sourceId) {
+    const challengeKey = state.activeChallenge;
+    if (challengeKey !== "completeRealm" && challengeKey !== "moonless") return 1;
+    if (challengeKey === "completeRealm" && sourceId === "ultimateIntent") return 1;
+    if (challengeKey === "moonless" && sourceId === "rock") return 1;
+    const challenge = CHALLENGE_DEFINITIONS[challengeKey];
+    return challenge.sourceMultipliers?.[
+      Math.min(challengeCompletionCount(challengeKey), challenge.sourceMultipliers.length - 1)
+    ] ?? 1;
+  }
+
+  function challengeAdjustedPowerSource(source, sourceId) {
+    return Math.max(0, Number(source) || 0) * activePowerSourceChallengeMultiplier(sourceId);
   }
 
   function finalPowerGainFromSources(sourceGains) {
-    return calculateRegionGain(sourceGains, {
+    const regionGain = calculateRegionGain(sourceGains, {
       multipliers: [powerMultiplier()],
-      exponents: [powerGainExponent()],
-      softcaps: [(gain) => applyResourceSoftcap(gain, state.power)]
+      exponents: [powerGainExponent()]
     });
+    return applyResourceSoftcap(applyGainExponent(regionGain, celestialDeclineExponent()), state.power);
   }
 
   function mindDivisionCost() {
@@ -578,7 +666,10 @@
   }
 
   function autoUpgradeEnhancements() {
-    if (state.powerSystem.active !== "scale" || !hasAchievement("scale6")) return 0;
+    if (state.powerSystem.active !== "scale") return 0;
+    const upgradeAutomationActive = state.scaleUpgradeAutomationEnabled && hasAchievement("scale6");
+    const actionAutomationActive = state.scaleActionAutomationEnabled && hasAchievement("trueScale7");
+    if (!upgradeAutomationActive && !actionAutomationActive) return 0;
     const candidates = [
       { historyKey: "gymPurchased", cost: () => GYM_COST, available: () => upgradesUnlocked() && !state.gymPurchased, apply: () => { state.gymPurchased = true; } },
       { historyKey: "exercisePurchased", cost: () => EXERCISE_COST, available: () => upgradesUnlocked() && !state.exercisePurchased, apply: () => { state.exercisePurchased = true; } },
@@ -630,14 +721,21 @@
       { historyKey: "brainDomainDevelopmentPurchased", cost: () => BRAIN_DOMAIN_DEVELOPMENT_COST, available: () => state.highestScaleIndex >= 8 && !state.brainDomainDevelopmentPurchased, apply: () => { state.brainDomainDevelopmentPurchased = true; } },
       { historyKey: "continentSplitPurchased", cost: () => CONTINENT_SPLIT_COST, available: () => state.highestScaleIndex >= 8 && !state.continentSplitPurchased, apply: () => { state.continentSplitPurchased = true; } },
       { historyKey: "continentCollapsePurchased", cost: () => CONTINENT_COLLAPSE_COST, available: () => state.highestScaleIndex >= 8 && !state.continentCollapsePurchased, apply: () => { state.continentCollapsePurchased = true; } },
+      { historyKey: "waveEyePurchased", cost: () => WAVE_EYE_COST, available: () => state.highestScaleIndex >= 9 && !state.waveEyePurchased, apply: () => { state.waveEyePurchased = true; } },
+      { historyKey: "elementalAwakeningPurchased", cost: () => ELEMENTAL_AWAKENING_COST, available: () => state.highestScaleIndex >= 9 && !state.elementalAwakeningPurchased, apply: () => { state.elementalAwakeningPurchased = true; } },
+      { historyKey: "moonfallPurchased", cost: () => MOONFALL_COST, available: () => state.highestScaleIndex >= 9 && !state.moonfallPurchased, apply: () => { state.moonfallPurchased = true; } },
+      { historyKey: "flowStatePurchased", cost: () => FLOW_STATE_COST, available: () => state.highestScaleIndex >= 9 && !state.flowStatePurchased, apply: () => { state.flowStatePurchased = true; } },
+      { historyKey: "selfhoodPurchased", cost: () => SELFHOOD_COST, available: () => state.highestScaleIndex >= 9 && !state.selfhoodPurchased, apply: () => { state.selfhoodPurchased = true; } },
+      { historyKey: "freedomPurchased", cost: () => FREEDOM_COST, available: () => state.highestScaleIndex >= 9 && !state.freedomPurchased, apply: () => { state.freedomPurchased = true; } },
+      { historyKey: "chicxulubMeteoritePurchased", cost: () => CHICXULUB_METEORITE_COST, available: () => state.highestScaleIndex >= 9 && !state.chicxulubMeteoritePurchased, apply: () => { state.chicxulubMeteoritePurchased = true; } },
       // 行动候选放在强化候选之后；稳定排序保证相同消耗时强化优先。
-      { cost: runningCost, available: () => hasAchievement("trueScale7") && upgradesUnlocked() && state.runningLevel < fitnessLevelCap(), apply: () => { state.runningLevel += 1; } },
-      { cost: rockCost, available: () => hasAchievement("trueScale7") && state.wallUnlocked && state.rockLevel < rockLevelCap(), apply: () => { state.rockLevel += 1; } }
+      { cost: runningCost, available: () => actionAutomationActive && upgradesUnlocked() && state.runningLevel < fitnessLevelCap(), apply: () => { state.runningLevel += 1; rollSuperLollipopAttempts(1, true); } },
+      { cost: rockCost, available: () => actionAutomationActive && state.wallUnlocked && state.rockLevel < rockLevelCap(), apply: () => { state.rockLevel += 1; } }
     ];
     candidates.forEach((candidate) => {
       if (!candidate.historyKey) return;
       const available = candidate.available;
-      candidate.available = () => hasManuallyUpgradedScale(candidate.historyKey) && available();
+      candidate.available = () => upgradeAutomationActive && hasManuallyUpgradedScale(candidate.historyKey) && available();
     });
     let purchases = 0;
     const maximumPurchases = candidates.length + MIND_DIVISION_COSTS.length + fitnessLevelCap() + rockLevelCap();
@@ -674,6 +772,7 @@
     if (!upgradesUnlocked() || state.runningLevel >= fitnessLevelCap() || state.power < cost) return;
     WIS.Core.Resources.spend("power", cost);
     state.runningLevel += 1;
+    rollSuperLollipopAttempts(1);
     saveState();
     render();
   }
@@ -963,6 +1062,13 @@
   function buyBrainDomainDevelopment() { return buyPowerOneTime("brainDomainDevelopmentPurchased", BRAIN_DOMAIN_DEVELOPMENT_COST, true, 8); }
   function buyContinentSplit() { return buyPowerOneTime("continentSplitPurchased", CONTINENT_SPLIT_COST, true, 8); }
   function buyContinentCollapse() { return buyPowerOneTime("continentCollapsePurchased", CONTINENT_COLLAPSE_COST, true, 8); }
+  function buyWaveEye() { return buyPowerOneTime("waveEyePurchased", WAVE_EYE_COST, true, 9); }
+  function buyElementalAwakening() { return buyPowerOneTime("elementalAwakeningPurchased", ELEMENTAL_AWAKENING_COST, true, 9); }
+  function buyMoonfall() { return buyPowerOneTime("moonfallPurchased", MOONFALL_COST, true, 9); }
+  function buyFlowState() { return buyPowerOneTime("flowStatePurchased", FLOW_STATE_COST, true, 9); }
+  function buySelfhood() { return buyPowerOneTime("selfhoodPurchased", SELFHOOD_COST, true, 9); }
+  function buyFreedom() { return buyPowerOneTime("freedomPurchased", FREEDOM_COST, true, 9); }
+  function buyChicxulubMeteorite() { return buyPowerOneTime("chicxulubMeteoritePurchased", CHICXULUB_METEORITE_COST, true, 9); }
 
   function toggleGhostBack() {
     if (state.highestScaleIndex < 3) return;
@@ -1027,13 +1133,19 @@
     elementalization: "buyElementalization", killingIntentPerception: "buyKillingIntentPerception",
     killingIntentWave: "buyKillingIntentWave", ultimateIntent: "buyUltimateIntent",
     brainDomainDevelopment: "buyBrainDomainDevelopment", continentSplit: "buyContinentSplit",
-    continentCollapse: "buyContinentCollapse"
+    continentCollapse: "buyContinentCollapse", waveEye: "buyWaveEye", elementalAwakening: "buyElementalAwakening",
+    moonfall: "buyMoonfall", flowState: "buyFlowState", selfhood: "buySelfhood", freedom: "buyFreedom",
+    chicxulubMeteorite: "buyChicxulubMeteorite"
   });
   function performAction(id, ...args) { const name = actions[id]; return name ? api[name](...args) : false; }
   function buyUpgrade(id, ...args) { const name = upgrades[id]; return name ? api[name](...args) : false; }
   function getActionIds() { return Object.keys(actions); }
   function getUpgradeIds() { return Object.keys(upgrades); }
   const api = Object.freeze({
+    superLollipopCount, superLollipopChance, superLollipopTrainingMultiplier, rollSuperLollipopAttempts,
+    skyCrystalCount, skyCrystalChance, skyCrystalRockMultiplier, rollSkyCrystalAttempts,
+    flowUltimateIntentMultiplier, activePowerSourceChallengeMultiplier, challengeAdjustedPowerSource,
+    buyWaveEye, buyElementalAwakening, buyMoonfall, buyFlowState, buySelfhood, buyFreedom, buyChicxulubMeteorite,
     gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplier, godspeedExponent, godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress, rollFitnessMembershipCardAttempts, exercisePotentialMultiplier, exerciseMultiplier, transcendentPotentialMultiplier, transcendentMultiplier, extremeExerciseEffectMultiplier, naturalStrengthPotentialMultiplier, powerMultiplierGroups, powerMultiplier, challengeCompletionCount, challengeRewardExponent, challengeRewardMultiplier, longevityChallengeRewardMultiplier, fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent, currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent, trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier, automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier, lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier, myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus, regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount, fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel, waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap, baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier, conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier, skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent, ghostBrainActualPowerPerSecond, joulesForNextBasePower, focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, applyFocusLateSoftcap, dynamicFocusMultiplier, focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus, rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus, focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost, rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent, automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost, manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus, train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod, buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower, buyLifePower, buyMyStyle, buyIntuition, buySonicMovement, buyCarbonLimit, buyKillingIntent, buyRockStrike, buyHighSpeedMetabolism, buyEnduranceEnhancement, buyBulletTime, buyDynamicFocus, buySuperPerception, buyInvulnerable, buyRegeneration, buySuperpower, buySuperSpeedThinking, buyMountainCollapse, buyMindDivision, buyPowerOneTime, buyHyperRegeneration, buyMentalDomain, buyEarthSplit, buyGodspeed, buySuperpowerEvolution, buySubtle, buySkySplit, buyBiologicalQuantification, buyGhostManTransformation, buyDestroyCountry, buyHumanGhostTransformation, buyKillingIntentSubstance, buyEnergyCycle, buyMountainShatter, buyBioenergy, buyElementalization, buyKillingIntentPerception, buyKillingIntentWave, buyUltimateIntent, buyBrainDomainDevelopment, buyContinentSplit, buyContinentCollapse, toggleGhostBack,
     getJPerSecond: automaticJPerSecond,
     getPowerPerSecond: automaticPowerPerSecond,

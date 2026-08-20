@@ -30,6 +30,10 @@
   const KILLING_INTENT_WAVE_COST = POWER_COSTS.killingIntentWave, ULTIMATE_INTENT_COST = POWER_COSTS.ultimateIntent;
   const BRAIN_DOMAIN_DEVELOPMENT_COST = POWER_COSTS.brainDomainDevelopment, CONTINENT_SPLIT_COST = POWER_COSTS.continentSplit;
   const CONTINENT_COLLAPSE_COST = POWER_COSTS.continentCollapse;
+  const WAVE_EYE_COST = POWER_COSTS.waveEye, ELEMENTAL_AWAKENING_COST = POWER_COSTS.elementalAwakening;
+  const MOONFALL_COST = POWER_COSTS.moonfall, FLOW_STATE_COST = POWER_COSTS.flowState;
+  const SELFHOOD_COST = POWER_COSTS.selfhood, FREEDOM_COST = POWER_COSTS.freedom;
+  const CHICXULUB_METEORITE_COST = POWER_COSTS.chicxulubMeteorite;
   const ROCK_BASE_LEVEL_CAP = CONFIG.rockBaseLevelCap;
   const QI_REFINING_COST = IMMORTAL_COSTS.qiRefining, FOUNDATION_BASE_COST = IMMORTAL_COSTS.foundation, GOLDEN_CORE_BASE_COST = IMMORTAL_COSTS.goldenCore;
   const ADVANCED_REALMS = CONFIG.realms;
@@ -52,6 +56,10 @@
   const MYSTIC_HEAVENLY_TREASURE_COSTS = IMMORTAL_COSTS.mysticHeavenlyTreasure;
   const NASCENT_SOUL_COMPLETION_COST = IMMORTAL_COSTS.nascentSoulCompletion;
   const SPIRIT_TRAVEL_VOID_COST = IMMORTAL_COSTS.spiritTravelVoid, GOLDEN_SEAL_SCRIPT_COST = IMMORTAL_COSTS.goldenSealScript;
+  const IMMORTAL_SPIRIT_POWER_COST = IMMORTAL_COSTS.immortalSpiritPower;
+  const UNDYING_PRIMORDIAL_SPIRIT_COST = IMMORTAL_COSTS.undyingPrimordialSpirit;
+  const IMMORTAL_APERTURE_CAP = IMMORTAL_COSTS.immortalApertureCap;
+  const XUAN_IMMORTAL_BODY_COST = IMMORTAL_COSTS.xuanImmortalBody, LAW_COST = IMMORTAL_COSTS.law;
   const MINOR_TRIBULATION_BASE_TRIGGER_LOAD = CONFIG.minorTribulationBaseTriggerLoad;
   const LONGEVITY_800_COSTS = IMMORTAL_COSTS.longevity800, MANA_LIQUEFACTION_COST = IMMORTAL_COSTS.manaLiquefaction;
   const QI_SPELL_COSTS = IMMORTAL_COSTS.qiSpell, FOUNDATION_SPELL_COSTS = IMMORTAL_COSTS.foundationSpell, LONGEVITY_COSTS = IMMORTAL_COSTS.longevity;
@@ -91,7 +99,9 @@
     rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus,
     focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost,
     rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent,
-    automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost,
+    automaticPowerPerSecond, flowUltimateIntentMultiplier, challengeAdjustedPowerSource, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost,
+    superLollipopCount, superLollipopChance, superLollipopTrainingMultiplier,
+    skyCrystalCount, skyCrystalChance, skyCrystalRockMultiplier,
     manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus,
     train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod,
     buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower,
@@ -102,7 +112,8 @@
   } = Scale;
   const Immortal = WIS.Cultivation.ImmortalLogic;
   const {
-    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, manaLiquefactionManaJMultiplier, manaJBonus, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationMultiplier, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, baseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaPerSecond, circulationManaSource, circulationManaPerSecond, circulationPercent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, unlockMahayanaAbility, grantThreeDeficienciesResetReward, explore, scatterAndRebuild, reincarnate
+    celestialDeclineActive, celestialDeclineExponent, immortalApertureCost,
+    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, manaLiquefactionManaJMultiplier, manaJBonus, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationMultiplier, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, baseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaPerSecond, circulationManaSource, circulationManaPerSecond, circulationPercent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, unlockMahayanaAbility, grantThreeDeficienciesResetReward, explore, scatterAndRebuild, reincarnate
   } = Immortal;
 
     let activePage = "actions";
@@ -336,7 +347,7 @@
             <article class="item-row" id="demon-realm-journey-ability" data-sort-cost="${DEMON_REALM_JOURNEY_COST}"><div class="item-content"><h2>魔界之游</h2><p>使普通探寻法力来源 ×5，并使仙道宝物基础获得概率 ×3。</p></div><div class="purchase-control"><span id="demon-realm-journey-preview">解锁后：普通探寻 ×5；仙道宝物概率 ×3</span><small>消耗 ${formatCost(DEMON_REALM_JOURNEY_COST)} 法力</small><button id="unlock-demon-realm-journey" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="return-to-origin-ability" data-sort-cost="${RETURN_TO_ORIGIN_COST}"><div class="item-content"><h2>返本归元</h2><p>使 J 区域结果 ^1.02。</p></div><div class="purchase-control"><span id="return-to-origin-preview">解锁后：J 区域 ^1.02</span><small>消耗 ${formatCost(RETURN_TO_ORIGIN_COST)} 法力</small><button id="unlock-return-to-origin" class="primary-button" type="button">解锁</button></div></article>` : "";
       const mahayanaAbilities = realm.key === "mahayana" ? `
-            <article class="item-row" id="natal-magic-treasure-ability" data-sort-cost="${NATAL_MAGIC_TREASURE_COST}"><div class="item-content"><h2>本命法宝</h2><p>将法宝的法力曲线指数由0.65提高至0.80。</p></div><div class="purchase-control"><span id="natal-magic-treasure-preview">解锁后：法宝法力指数 0.65 → 0.80</span><small>消耗 ${formatCost(NATAL_MAGIC_TREASURE_COST)} 法力</small><button id="unlock-natal-magic-treasure" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="natal-magic-treasure-ability" data-sort-cost="${NATAL_MAGIC_TREASURE_COST}"><div class="item-content"><h2>本命法宝</h2><p>将法宝的前期法力曲线指数由0.65提高至0.80；超过1e24法力后边际指数为0.72。</p></div><div class="purchase-control"><span id="natal-magic-treasure-preview">解锁后：前期指数 0.65 → 0.80；1e24后边际 ^0.72</span><small>消耗 ${formatCost(NATAL_MAGIC_TREASURE_COST)} 法力</small><button id="unlock-natal-magic-treasure" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="perfected-technique-completion-ability" data-sort-cost="${PERFECTED_TECHNIQUE_COMPLETION_COST}"><div class="item-content"><h2>功法圆满</h2><p>使周天最终比例 ×1.5。</p></div><div class="purchase-control"><span id="perfected-technique-completion-preview">解锁后：周天比例 ×1.5</span><small>消耗 ${formatCost(PERFECTED_TECHNIQUE_COMPLETION_COST)} 法力</small><button id="unlock-perfected-technique-completion" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="roam-spirit-world-ability" data-sort-cost="${ROAM_SPIRIT_WORLD_COST}"><div class="item-content"><h2>纵横灵界</h2><p>每秒获得当前一次完整探寻收益的0.05%，包括法力、有效探寻量与宝物判定，不消耗战力。</p></div><div class="purchase-control"><span id="roam-spirit-world-preview">解锁后：每2000秒等效完成1次当前探寻</span><small>消耗 ${formatCost(ROAM_SPIRIT_WORLD_COST)} 法力</small><button id="unlock-roam-spirit-world" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="descend-realm-ability" data-sort-cost="${DESCEND_REALM_COST}"><div class="item-content"><h2>降界</h2><p>根据当前战力提高仙道宝物获得概率，最高 ×10。</p></div><div class="purchase-control"><span id="descend-realm-preview">解锁后：仙道宝物概率随战力提高</span><small>消耗 ${formatCost(DESCEND_REALM_COST)} 法力</small><button id="unlock-descend-realm" class="primary-button" type="button">解锁</button></div></article>
@@ -344,16 +355,23 @@
             <article class="item-row" id="nascent-soul-completion-ability" data-sort-cost="${NASCENT_SOUL_COMPLETION_COST}"><div class="item-content"><h2>元婴大成</h2><p>使周天法力来源额外 ^1.08，与双婴合一相乘后为 ^1.1664。</p></div><div class="purchase-control"><span id="nascent-soul-completion-preview">解锁后：周天法力来源 ^1.08</span><small>消耗 ${formatCost(NASCENT_SOUL_COMPLETION_COST)} 法力</small><button id="unlock-nascent-soul-completion" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="spirit-travel-void-ability" data-sort-cost="${SPIRIT_TRAVEL_VOID_COST}"><div class="item-content"><h2>神游太虚</h2><p>将强化小天劫负荷门槛由1500提高至150000；幻天镜会继续翻倍门槛。</p></div><div class="purchase-control"><span id="spirit-travel-void-preview">解锁后：强化小天劫门槛 1500 → 150000</span><small>消耗 ${formatCost(SPIRIT_TRAVEL_VOID_COST)} 法力</small><button id="unlock-spirit-travel-void" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="golden-seal-script-ability" data-sort-cost="${GOLDEN_SEAL_SCRIPT_COST}"><div class="item-content"><h2>金篆文</h2><p>使法力区域获取倍率 ×8。</p></div><div class="purchase-control"><span id="golden-seal-script-preview">解锁后：法力区域 ×8</span><small>消耗 ${formatCost(GOLDEN_SEAL_SCRIPT_COST)} 法力</small><button id="unlock-golden-seal-script" class="primary-button" type="button">解锁</button></div></article>` : "";
+      const trueImmortalAbilities = realm.key === "trueImmortal" ? `
+            <article class="item-row purchased" id="ascend-immortal-world-ability" data-sort-cost="0"><div class="item-content"><h2>飞升仙界</h2><p>真仙自带。小天劫完全失效并清空负荷；仙道宝物获取概率 ×3。</p></div><div class="purchase-control"><span id="ascend-immortal-world-preview">等待真仙</span><button class="primary-button" type="button" disabled>真仙自带</button></div></article>
+            <article class="item-row" id="immortal-spirit-power-ability" data-sort-cost="${IMMORTAL_SPIRIT_POWER_COST}"><div class="item-content"><h2>仙灵力</h2><p>将法力转化 J 的基础曲线指数由0.80提高至0.83。</p></div><div class="purchase-control"><span id="immortal-spirit-power-preview">解锁后：法力 J 基础指数 0.80 → 0.83</span><small>消耗 ${formatCost(IMMORTAL_SPIRIT_POWER_COST)} 法力</small><button id="unlock-immortal-spirit-power" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="undying-primordial-spirit-ability" data-sort-cost="${UNDYING_PRIMORDIAL_SPIRIT_COST}"><div class="item-content"><h2>不灭元神</h2><p>使周天法力来源额外 ^1.03。</p></div><div class="purchase-control"><span id="undying-primordial-spirit-preview">解锁后：周天法力来源 ^1.03</span><small>消耗 ${formatCost(UNDYING_PRIMORDIAL_SPIRIT_COST)} 法力</small><button id="unlock-undying-primordial-spirit" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="immortal-aperture-ability" data-sort-cost="${IMMORTAL_COSTS.immortalApertureBase}"><div class="item-content"><h2>仙窍</h2><p>可升36级；每级吐纳来源 ×1.20，每6级周天来源额外 ×2。</p></div><div class="purchase-control"><span id="immortal-aperture-level">当前：0/36级</span><small id="immortal-aperture-cost">消耗 ${formatCost(IMMORTAL_COSTS.immortalApertureBase)} 法力</small><button id="buy-immortal-aperture" class="primary-button" type="button">升级</button></div></article>
+            <article class="item-row" id="xuan-immortal-body-ability" data-sort-cost="${XUAN_IMMORTAL_BODY_COST}"><div class="item-content"><h2>玄仙之躯</h2><p>使梵圣真魔功最终独立来源 ^1.40。</p></div><div class="purchase-control"><span id="xuan-immortal-body-preview">解锁后：梵圣真魔功 ^1.40</span><small>消耗 ${formatCost(XUAN_IMMORTAL_BODY_COST)} 法力</small><button id="unlock-xuan-immortal-body" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="law-ability" data-sort-cost="${LAW_COST}"><div class="item-content"><h2>法则</h2><p>使战力区域额外 ^1.02。</p></div><div class="purchase-control"><span id="law-preview">解锁后：战力区域 ^1.02</span><small>消耗 ${formatCost(LAW_COST)} 法力</small><button id="unlock-law" class="primary-button" type="button">解锁</button></div></article>` : "";
       return `
         <details class="upgrade-group" id="${realm.slug}-abilities" open hidden>
           <summary>
-            <span><b>${realm.name}</b><small>${realm.key === "voidRefinement" ? `${nextRealm.name}瓶颈、强化小天劫、梵圣真魔功、真灵变、银蝌文、炼虚为气、仙界神通、炼神术` : realm.key === "bodyIntegration" ? `${nextRealm.name}瓶颈、功法大成、天地元气、神通通神、双婴合一、元气入体、身外化身、魔界之游、返本归元` : realm.key === "mahayana" ? `${nextRealm.name}瓶颈、本命法宝、功法圆满、纵横灵界、降界、玄天灵宝、元婴大成、神游太虚、金篆文` : `${nextRealm.name}瓶颈`}</small></span>
+            <span><b>${realm.name}</b><small>${realm.key === "voidRefinement" ? `${nextRealm.name}瓶颈、强化小天劫、梵圣真魔功、真灵变、银蝌文、炼虚为气、仙界神通、炼神术` : realm.key === "bodyIntegration" ? `${nextRealm.name}瓶颈、功法大成、天地元气、神通通神、双婴合一、元气入体、身外化身、魔界之游、返本归元` : realm.key === "mahayana" ? `${nextRealm.name}瓶颈、本命法宝、功法圆满、纵横灵界、降界、玄天灵宝、元婴大成、神游太虚、金篆文` : realm.key === "trueImmortal" ? `天人三衰、飞升仙界、仙灵力、不灭元神、仙窍、玄仙之躯、法则` : `${nextRealm.name}瓶颈`}</small></span>
           </summary>
           <div class="item-list" data-sort-by-cost>
             <article class="item-row purchased" id="${realm.slug}-bottleneck-ability" data-sort-cost="0">
               <div class="item-content">
-                <h2>${nextRealm.name}瓶颈</h2>
-                <p>法力越接近当前${nextRealm.name}实际需求，法力获取倍率下降越快；突破${nextRealm.name}后解除。</p>
+                <h2>${realm.key === "trueImmortal" ? "天人三衰" : `${nextRealm.name}瓶颈`}</h2>
+                <p>${realm.key === "trueImmortal" ? "真仙自带。根据当前金仙法力进度，以动态指数同时压制法力、J与战力；突破金仙后解除。" : `法力越接近当前${nextRealm.name}实际需求，法力获取倍率下降越快；突破${nextRealm.name}后解除。`}</p>
               </div>
               <div class="purchase-control">
                 <span id="${realm.slug}-bottleneck-preview">当前法力获取倍率 ×1.00</span>
@@ -364,6 +382,7 @@
             ${voidRefinementAbilities}
             ${bodyIntegrationAbilities}
             ${mahayanaAbilities}
+            ${trueImmortalAbilities}
           </div>
         </details>
       `;
@@ -378,6 +397,14 @@
       const card = byId(`achievement-${achievement.key}`);
       card.classList.toggle("completed", achievement.completed);
       card.querySelector(".achievement-state").textContent = achievement.completed ? "已达成" : "未达成";
+      const automationButton = card.querySelector("[data-achievement-automation]");
+      if (automationButton) {
+        const automationControl = automationButton.closest(".achievement-automation");
+        const automationEnabled = state[automationButton.dataset.achievementAutomation] !== false;
+        automationControl.hidden = !achievement.completed;
+        automationButton.textContent = automationEnabled ? "自动化：开启" : "自动化：关闭";
+        automationButton.setAttribute("aria-pressed", String(automationEnabled));
+      }
       card.hidden = state.hideUnlockedAchievements && achievement.completed;
     });
     byId("achievement-unlocked-count").textContent = String(unlockedCount);
@@ -392,7 +419,8 @@
     const completed = challengeCompletionCount(challengeKey);
     const finished = completed >= challenge.maxCompletions;
     const active = state.activeChallenge === challengeKey;
-    const nextLimit = challenge.limitExponents?.[Math.min(completed, challenge.limitExponents.length - 1)];
+    const nextLimit = challenge.limitExponents?.[Math.min(completed, (challenge.limitExponents?.length ?? 1) - 1)];
+    const nextSourceMultiplier = challenge.sourceMultipliers?.[Math.min(completed, (challenge.sourceMultipliers?.length ?? 1) - 1)];
     const rewardExponent = challengeRewardExponent(challengeKey);
     const button = byId(`toggle-${idPrefix}`);
     const card = byId(`${idPrefix}-challenge`);
@@ -401,6 +429,13 @@
     if (card.hidden) return;
 
     byId(`${idPrefix}-progress`).textContent = `完成：${completed}/${challenge.maxCompletions}次`;
+    const target = byId(`${idPrefix}-target`);
+    if (target) {
+      const targetScale = SCALE_THRESHOLDS[challengeRequiredScaleIndex(challengeKey)].name;
+      target.textContent = finished
+        ? "全部目标已完成"
+        : `${active ? "本次" : "下次"}目标：达到${targetScale}`;
+    }
     if (challengeKey === "fiveMisfortunes") {
       const targetScale = SCALE_THRESHOLDS[challengeRequiredScaleIndex(challengeKey)].name;
       byId(`${idPrefix}-limit`).textContent = finished
@@ -411,8 +446,12 @@
       byId(`${idPrefix}-limit`).textContent = finished
         ? "全部挑战已完成"
         : active
-          ? `当前限制：${challenge.resourceName}获取 ^${currentExponent.toFixed(3)}（${formatElapsedTime(state.activeChallengeElapsedSeconds)} / 45分钟）`
-          : `下次限制：${challenge.resourceName}获取指数在45分钟内降至 ^${nextLimit.toFixed(2)}`;
+          ? `当前限制：${challenge.resourceName}获取 ^${currentExponent.toFixed(3)}（${formatElapsedTime(state.activeChallengeElapsedSeconds)} / ${formatElapsedTime(challenge.timeToLimitSeconds)}）`
+          : `下次限制：${challenge.resourceName}获取指数在${formatElapsedTime(challenge.timeToLimitSeconds)}内降至 ^${nextLimit.toFixed(2)}`;
+    } else if (challenge.sourceMultipliers) {
+      byId(`${idPrefix}-limit`).textContent = finished
+        ? "全部限制已克服"
+        : `${active ? "当前" : "下次"}限制：${challenge.resourceName} ×${nextSourceMultiplier.toFixed(2)}`;
     } else {
       byId(`${idPrefix}-limit`).textContent = finished
         ? "全部限制已克服"
@@ -453,10 +492,44 @@
     renderChallenge("powerless", "powerless");
     renderChallenge("longevity", "longevity");
     renderChallenge("fiveMisfortunes", "five-misfortunes");
+    renderChallenge("completeRealm", "complete-realm");
+    renderChallenge("moonless", "moonless");
+  }
+
+  function formatDebugEffectValue(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return "1";
+    if (Math.abs(numericValue) >= 1e4) return format(numericValue);
+    return String(Number(numericValue.toPrecision(5)));
+  }
+
+  function formatDebugEffectGroups(target, layer) {
+    const neutralValue = layer.endsWith("Additive") ? 0 : 1;
+    const operator = layer.endsWith("Exponent") ? "^" : layer.endsWith("Additive") ? "+" : "×";
+    const activeGroups = Object.entries(WIS.Core.Effects.groups(target, layer, state))
+      .map(([group, effects]) => [
+        group,
+        effects.filter((effect) => {
+          const value = Number(effect.value);
+          return Number.isFinite(value) && Math.abs(value - neutralValue) > 1e-12;
+        })
+      ])
+      .filter(([, effects]) => effects.length > 0);
+    if (activeGroups.length === 0) return "无";
+    return activeGroups.map(([group, effects]) =>
+      `${group}：${effects.map((effect) => `${effect.name} ${operator}${formatDebugEffectValue(effect.value)}`).join("、")}`
+    ).join("；");
+  }
+
+  function formatFitnessBaseBreakdown() {
+    const regenerationName = state.hyperRegenerationPurchased ? "超速再生" : "再生";
+    const baseTotal = longevityFitnessMultiplier() * immortalFitnessBaseMultiplier() +
+      carbonLimitFitnessBonus() + fitnessMembershipCardFitnessBonus();
+    return `合计 ×${baseTotal.toFixed(2)}（旧乘区：生命力量 ×${lifePowerFitnessMultiplier().toFixed(2)}、我流 ×${myStyleFitnessMultiplier().toFixed(2)}、耐力强化 ×${enduranceEnhancementFitnessMultiplier().toFixed(2)}、${regenerationName} ×${regenerationFitnessMultiplier().toFixed(2)}；注册基础倍率〔${formatDebugEffectGroups("fitness", "baseMultiplier")}〕；加法：碳基界限 +${carbonLimitFitnessBonus().toFixed(3)}、健身房会员卡 +${fitnessMembershipCardFitnessBonus().toFixed(3)}）`;
   }
 
   // DEBUG RESOURCE BREAKDOWN: START（删除本区块即可移除资源来源计算）
-  window.renderResourceDebug = () => {
+  window.renderResourceDebug = (renderValues = {}) => {
     const jBase = 1;
     const jFitness = fitnessJBonus();
     const jAchievement = achievementJBonus();
@@ -467,52 +540,83 @@
     const jSourceSum = jBase + jFitness + jAchievement + jMana + jKillingIntent + jElementalization;
     const jRaw = jSourceSum * multiplyEffectGroups(currentJGroups);
     const jRegionExponent = jGainExponent();
-    const jAfterExponent = applyGainExponent(jRaw, jRegionExponent);
+    const jAfterRegion = applyGainExponent(jRaw, jRegionExponent);
+    const currentCelestialDeclineExponent = celestialDeclineExponent();
+    const jAfterExponent = applyGainExponent(jAfterRegion, currentCelestialDeclineExponent);
     const jSoftcapExponent = resourceSoftcapExponent(state.joules);
     const jActual = applyResourceSoftcap(jAfterExponent, state.joules);
 
     const jDebug = byId("debug-j-sources");
     if (jDebug) {
-      jDebug.textContent = `来源层：基础 ${format(jBase)}；健身 ${format(jFitness)}（基础 ${format(effectiveFitnessLevel() * 2)}，原乘区与加法 ×${(longevityFitnessMultiplier() * immortalFitnessBaseMultiplier() + carbonLimitFitnessBonus() + fitnessMembershipCardFitnessBonus()).toFixed(2)}、寿与天齐 ×${equalHeavenLongevityFitnessMultiplier().toFixed(0)}、仙道·八灵尺 ×${baLingChiFitnessMultiplier().toFixed(3)}，金刚不坏与挑战奖励合计 ^${fitnessSourceExponent().toFixed(2)}）；成就 ${format(jAchievement)}；法力 ${format(jMana)}（法力液化 ×${manaLiquefactionManaJMultiplier().toFixed(2)}，已激活转世指数 ^${reincarnationManaJExponent().toFixed(2)}，炼神术 ^${spiritRefiningArtExponent().toFixed(2)}）；杀气 ${format(jKillingIntent)}（集中实际获取 ${format(actualFocusPowerPerSecond())}战力/秒的${(killingIntentExtractionRatio() * 100).toFixed(5)}%，超速思维 ×${superSpeedThinkingMultiplier().toFixed(0)}、杀意波动 ^${killingIntentWaveExponent().toFixed(3)}）；元素化独立来源 ${format(jElementalization)}。来源汇总 ${format(jSourceSum)}/秒；J区域乘区：${formatMultiplierGroups(currentJGroups)}；区域指数 ^${jRegionExponent.toFixed(3)}（福/寿限制、五弊体系前奖励）：${format(jRaw)}/秒 → ${format(jAfterExponent)}/秒；动态幂软上限 ^${formatSoftcapExponent(jSoftcapExponent)}（触发：${activeSoftcapStages(state.joules)}；境界解除：${removedSoftcapStages()}）：最终 ${format(jActual)}/秒`;
+      jDebug.textContent = `来源层：基础 ${format(jBase)}；健身 ${format(jFitness)}（基础 ${format(effectiveFitnessLevel() * 2)}，基础乘区与加法 ${formatFitnessBaseBreakdown()}，来源倍率〔${formatDebugEffectGroups("fitness", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("fitness", "sourceExponent")}〕）；成就 ${format(jAchievement)}；法力 ${format(jMana)}（法力液化 ×${manaLiquefactionManaJMultiplier().toFixed(2)}，已激活转世指数 ^${reincarnationManaJExponent().toFixed(2)}，来源指数〔${formatDebugEffectGroups("manaJ", "sourceExponent")}〕）；杀气 ${format(jKillingIntent)}（集中实际获取 ${format(actualFocusPowerPerSecond())}战力/秒的${(killingIntentExtractionRatio() * 100).toFixed(5)}%，来源倍率〔${formatDebugEffectGroups("killingIntent", "sourceMultiplier")}〕，杀意波动 ^${killingIntentWaveExponent().toFixed(3)}）；元素化独立来源 ${format(jElementalization)}（来源指数〔${formatDebugEffectGroups("elementalization", "sourceExponent")}〕）。来源汇总 ${format(jSourceSum)}/秒；J区域乘区：${formatMultiplierGroups(currentJGroups)}；区域指数效果〔${formatDebugEffectGroups("joules", "regionExponent")}〕，合计 ^${jRegionExponent.toFixed(3)}：${format(jRaw)}/秒 → ${format(jAfterRegion)}/秒；天人三衰 ^${currentCelestialDeclineExponent.toFixed(3)} → ${format(jAfterExponent)}/秒；动态幂软上限 ^${formatSoftcapExponent(jSoftcapExponent)}（触发：${activeSoftcapStages(state.joules)}；境界解除：${removedSoftcapStages()}）：最终 ${format(jActual)}/秒`;
     }
 
-    const focusSource = focusPowerPerSecond();
-    const rockSource = rockPowerPerSecond();
-    const ghostBrainSource = ghostBrainPowerSource();
-    const magicTreasureSource = magicTreasurePowerSource();
-    const brahmaDemonArtSource = brahmaDemonArtPowerSource(jFitness);
-    const powerRaw = focusSource + rockSource + ghostBrainSource + magicTreasureSource + brahmaDemonArtSource;
+    const focusSource = challengeAdjustedPowerSource(focusPowerPerSecond(), "focus");
+    const rockSource = challengeAdjustedPowerSource(rockPowerPerSecond(), "rock");
+    const ghostBrainSource = challengeAdjustedPowerSource(ghostBrainPowerSource(), "ghostBrain");
+    const ultimateIntentSource = challengeAdjustedPowerSource(ultimateIntentPowerSource(), "ultimateIntent");
+    const magicTreasureSource = challengeAdjustedPowerSource(magicTreasurePowerSource(), "magicTreasure");
+    const brahmaDemonArtSource = challengeAdjustedPowerSource(brahmaDemonArtPowerSource(jFitness), "brahmaDemonArt");
+    const registeredPowerSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: jFitness })
+      .map((source) => ({ ...source, value: challengeAdjustedPowerSource(source.value, source.id) }));
+    const powerRaw = focusSource + rockSource + ghostBrainSource + ultimateIntentSource +
+      registeredPowerSources.reduce((total, source) => total + source.value, 0);
     const powerExponent = powerGainExponent();
-    const currentSuperpowerExponent = superpowerExponent();
-    const tribulationExponent = minorTribulationPowerExponent();
-    const powerChallengeExponent = activeChallengeLimitExponent("powerless") * activeChallengeLimitExponent("longevity");
     const powerRegionMultiplied = powerRaw * powerMultiplier();
-    const powerAfterExponent = applyGainExponent(powerRegionMultiplied, powerExponent);
+    const powerAfterRegion = applyGainExponent(powerRegionMultiplied, powerExponent);
+    const powerAfterExponent = applyGainExponent(powerAfterRegion, currentCelestialDeclineExponent);
     const powerSoftcapExponent = resourceSoftcapExponent(state.power);
     const powerActual = applyResourceSoftcap(powerAfterExponent, state.power);
     const currentPowerGroups = powerMultiplierGroups();
     const powerDebug = byId("debug-power-sources");
     if (powerDebug) {
-      powerDebug.textContent = `来源层：锻炼 ${format(trainingPowerSource())}/次（J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}、高速代谢 ×${highSpeedMetabolismMultiplier().toFixed(2)}、禄奖励 ^${trainingSourceExponent().toFixed(2)}，仅手动结算）；集中 ${format(focusSource)}/秒（锻炼基础、J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}、比例 ${(focusPercent() * 100).toFixed(1)}%、直感 ×${intuitionFocusMultiplier().toFixed(2)}、动态专注 ×${dynamicFocusMultiplier().toFixed(2)}、入微 ^${subtleFocusExponent().toFixed(2)}、超过5e13后 ^0.75、来源动态幂软上限 ^${focusSoftcapExponent().toFixed(3)}）；打岩 ${format(rockSource)}/秒（生效等级 ${format(effectiveRockLevel())}、岩击 ×${rockStrikeMultiplier().toFixed(0)}、灭国 ×${state.destroyCountryPurchased ? "1e4" : "1"}、崩山/裂地 ^${mountainCollapseExponent().toFixed(3)}、真爆城 ^${hasAchievement("trueScale6") ? "1.06" : "1.00"}、大陆崩溃 ^${WIS.Core.Effects.value("continentCollapse", state).toFixed(3)}）；鬼脑独立来源 ${format(ghostBrainSource)}/秒（精神领域 ×${mentalDomainMultiplier().toFixed(0)}、裂天 ×${skySplitMultiplier().toFixed(2)}、脑域开发 ^${brainDomainDevelopmentExponent().toFixed(3)}）；极意独立来源 ${format(ultimateIntentPowerSource())}/秒；法宝独立来源 ${format(magicTreasureSource)}/秒（法力曲线 ^${magicTreasureManaExponent().toFixed(2)}、御物 ×${materialControlMultiplier().toFixed(0)}、仙道·万妖幡 ×${wanYaoFanMultiplier().toFixed(3)}、玄天斩灵剑 ^${mysticHeavenSpiritSlayingSwordExponent().toFixed(3)}）；梵圣真魔功 ${format(brahmaDemonArtSource)}/秒（健身最终来源300%）。自动来源汇总 ${format(powerRaw)}/秒；战力区域乘区：${formatMultiplierGroups(currentPowerGroups)}；区域指数：异能 ^${currentSuperpowerExponent.toFixed(2)}、挑战与五弊奖励 ^${(powerChallengeExponent * fiveMisfortunesRewardExponent()).toFixed(3)}、小天劫 ^${tribulationExponent.toFixed(3)}，合计 ^${powerExponent.toFixed(3)}：${format(powerRegionMultiplied)}/秒 → ${format(powerAfterExponent)}/秒；区域动态幂软上限 ^${formatSoftcapExponent(powerSoftcapExponent)}（集中在此承受第二次；触发：${activeSoftcapStages(state.power)}；境界解除：${removedSoftcapStages()}）：最终 ${format(powerActual)}/秒`;
+      powerDebug.textContent = `来源层：锻炼 ${format(challengeAdjustedPowerSource(trainingPowerSource(), "training"))}/次（J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}，来源倍率〔${formatDebugEffectGroups("training", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("training", "sourceExponent")}〕，仅手动结算）；集中 ${format(focusSource)}/秒（锻炼基础、J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}，来源倍率〔${formatDebugEffectGroups("focus", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("focus", "sourceExponent")}〕，超过5e13后 ^0.75、来源动态幂软上限 ^${focusSoftcapExponent().toFixed(3)}）；打岩 ${format(rockSource)}/秒（生效等级 ${format(effectiveRockLevel())}，来源倍率〔${formatDebugEffectGroups("rock", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("rock", "sourceExponent")}〕）；鬼脑独立来源 ${format(ghostBrainSource)}/秒（来源倍率〔${formatDebugEffectGroups("ghostBrain", "sourceMultiplier")}〕，脑域开发 ^${brainDomainDevelopmentExponent().toFixed(3)}）；极意独立来源 ${format(ultimateIntentSource)}/秒（来源倍率〔${formatDebugEffectGroups("ultimateIntent", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("ultimateIntent", "sourceExponent")}〕）；法宝独立来源 ${format(magicTreasureSource)}/秒（法力曲线 ^${magicTreasureManaExponent().toFixed(2)}，来源倍率〔${formatDebugEffectGroups("magicTreasure", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("magicTreasure", "sourceExponent")}〕）；梵圣真魔功 ${format(brahmaDemonArtSource)}/秒（健身最终来源300%，来源倍率〔${formatDebugEffectGroups("brahmaDemonArt", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("brahmaDemonArt", "sourceExponent")}〕）。自动来源汇总 ${format(powerRaw)}/秒（已计当前来源挑战限制）；战力区域乘区：${formatMultiplierGroups(currentPowerGroups)}；区域指数效果〔${formatDebugEffectGroups("power", "regionExponent")}〕，合计 ^${powerExponent.toFixed(3)}：${format(powerRegionMultiplied)}/秒 → ${format(powerAfterRegion)}/秒；天人三衰 ^${currentCelestialDeclineExponent.toFixed(3)} → ${format(powerAfterExponent)}/秒；区域动态幂软上限 ^${formatSoftcapExponent(powerSoftcapExponent)}（集中在此承受第二次；触发：${activeSoftcapStages(state.power)}；境界解除：${removedSoftcapStages()}）：最终 ${format(powerActual)}/秒`;
+      powerDebug.textContent += `；法宝法力曲线补充：1e24前 ^${magicTreasureManaExponent().toFixed(2)}，1e24后边际 ^${Math.min(magicTreasureManaExponent(), CONFIG.magicTreasure.lateManaExponent).toFixed(2)}，当前法力曲线量 ${format(magicTreasureManaCurve())}`;
     }
 
+    const debugExplorationPowerCost = renderValues.currentExplorationPowerCost ?? explorationPowerCost();
+    const debugRawExplorationAmount = renderValues.currentRawExplorationAmount ??
+      rawExplorationAmountForCost(debugExplorationPowerCost);
+    const debugExplorationAmount = renderValues.currentExplorationAmount ??
+      debugRawExplorationAmount * divineSenseMultiplier();
+    const debugTribulationPreview = renderValues.currentExplorationTribulationPreview ??
+      minorTribulationPreviewForExploration(debugExplorationAmount);
+    const explorationTribulationExponent = debugTribulationPreview.manaExponent;
+    const explorationActual = renderValues.currentExplorationMana ??
+      explorationPotentialManaGain(
+        debugExplorationPowerCost,
+        state.mana,
+        explorationTribulationExponent,
+        debugExplorationAmount,
+        true
+      );
+    const automaticExplorationManaRate = renderValues.automaticExplorationManaPreview ??
+      automaticExplorationManaPerSecond();
+    const automaticExplorationAmountRate = state.roamSpiritWorldUnlocked ? debugExplorationAmount * 0.0005 : 0;
+    const passiveManaGain = renderValues.passiveManaGain ??
+      Immortal.automaticBaseManaPerSecond() + automaticExplorationManaRate;
     const manaMultiplier = manaGainMultiplier();
     const breathingBase = baseBreathingManaGain();
     const breathingActual = breathingManaGain();
-    const explorationNormalSource = state.goldenCoreUnlocked ? explorationBaseMana() * flyingEscapeMultiplier() * mysteriousGreenBottleMultiplier() : 0;
-    const explorationFuBao = state.goldenCoreUnlocked ? fuBaoExplorationManaBonus(explorationPowerCost()) : 0;
-    const explorationSourceSum = explorationNormalSource + explorationFuBao;
-    const debugExplorationAmount = explorationAmountForCost(explorationPowerCost());
-    const debugTribulationPreview = minorTribulationPreviewForExploration(debugExplorationAmount);
-    const explorationTribulationExponent = debugTribulationPreview.manaExponent;
-    const explorationActual = state.goldenCoreUnlocked
-      ? explorationPotentialManaGain(explorationPowerCost(), state.mana, explorationTribulationExponent)
+    const debugManaExplorationAmount = explorationManaAmount(debugExplorationAmount);
+    const explorationNormalSource = state.goldenCoreUnlocked
+      ? calculateSourceGain({
+        base: EXPLORATION_BASE_MANA * debugManaExplorationAmount,
+        multipliers: WIS.Core.Effects.values("exploration", "sourceMultiplier", state)
+      })
       : 0;
+    const explorationFuBao = state.goldenCoreUnlocked
+      ? fuBaoExplorationManaBonus(debugExplorationPowerCost, debugExplorationAmount)
+      : 0;
+    const explorationSourceSum = explorationNormalSource + explorationFuBao;
     const manaDebug = byId("debug-mana-sources");
     const manaDebugRow = byId("debug-mana-source-row");
     if (manaDebugRow) manaDebugRow.hidden = !immortalCultivationActive() || !state.qiRefiningUnlocked;
     if (manaDebug) {
-      manaDebug.textContent = `来源层：吐纳基础 ${format(breathingBase)}（J曲线 ^${breathingJCurveExponent().toFixed(1)}、自身法力衰减 ×${breathingManaDecayMultiplier().toFixed(2)}、操控灵气 ×${auraControlMultiplier().toFixed(2)}、仙界神通 ×${immortalRealmDivineAbilityMultiplier().toFixed(2)}、炼虚为气 ^${voidRefiningToQiExponent().toFixed(2)}），主动吐纳专属重修 ×${scatterRebuildManaMultiplier().toFixed(2)}，区域计算后 ${format(breathingActual)}/次；周天来源按不含重修倍率的吐纳来源的 ${(circulationPercent() * 100).toFixed(1)}%${state.dualInfantUnityUnlocked ? "，双婴合一 ^1.08" : ""}，区域计算后 ${format(circulationManaPerSecond())}/秒${hasAchievement("refineTheVoid") ? `；炼化虚空独立基础来源1，自动法力合计 ${format(automaticManaPerSecond())}/秒` : ""}；原始探寻量 ${format(rawExplorationAmountForCost(explorationPowerCost()))} → 有效探寻量 ${format(debugExplorationAmount)}（神识 ×${divineSenseMultiplier().toFixed(2)}），普通探寻来源 ${format(explorationNormalSource)}（飞遁 ×${flyingEscapeMultiplier().toFixed(0)}、仙道·神秘绿瓶 ×${mysteriousGreenBottleMultiplier().toFixed(2)}）、仙道·符宝来源 ${format(explorationFuBao)}，汇总 ${format(explorationSourceSum)}，区域结算后再乘飞升灵界 ×${spiritWorldAscensionExplorationMultiplier().toFixed(0)}、银蝌文 ^${silverTadpoleScriptExplorationExponent().toFixed(2)}、小天劫 ^${explorationTribulationExponent.toFixed(3)}${debugTribulationPreview.triggered ? `（本次触发，负荷强度 ${format(debugTribulationPreview.loadFactor)}）` : ""}：${format(explorationActual)}/次；累计有效探寻量 ${format(state.explorationProgress)} / 1；小天劫负荷 ${format(state.minorTribulationExplorationLoad)} / ${format(minorTribulationTriggerLoad())}；法力区域乘区：${formatMultiplierGroups(manaMultiplierGroups())}`;
+      const tribulationText = state.advancedRealmLevel >= 6
+        ? "飞升仙界已使小天劫完全失效，负荷固定为0"
+        : `小天劫 ^${explorationTribulationExponent.toFixed(3)}${debugTribulationPreview.triggered ? `（本次触发，负荷强度 ${format(debugTribulationPreview.loadFactor)}）` : ""}；负荷 ${format(state.minorTribulationExplorationLoad)} / ${format(minorTribulationTriggerLoad())}`;
+      manaDebug.textContent = `来源层：吐纳基础 ${format(breathingBase)}（J曲线 ^${breathingJCurveExponent().toFixed(2)}、自身法力衰减 ×${breathingManaDecayMultiplier().toFixed(2)}，来源倍率〔${formatDebugEffectGroups("breathing", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("breathing", "sourceExponent")}〕），主动吐纳专属重修 ×${scatterRebuildManaMultiplier().toFixed(2)}，区域计算后 ${format(breathingActual)}/次；周天来源按不含重修倍率的吐纳来源的 ${(circulationPercent() * 100).toFixed(1)}%（比例效果〔${formatDebugEffectGroups("circulation", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("circulation", "sourceExponent")}〕），区域计算后 ${format(renderValues.circulationPotential ?? circulationManaPerSecond())}/秒；基础自动法力（周天${hasAchievement("refineTheVoid") ? "+炼化虚空" : ""}）${format(passiveManaGain - automaticExplorationManaRate)}/秒，纵横灵界自动探寻 ${format(automaticExplorationManaRate)}法力/秒、${format(automaticExplorationAmountRate)}有效探寻量/秒，自动法力合计 ${format(passiveManaGain)}/秒；原始探寻量 ${format(debugRawExplorationAmount)} → 有效探寻量 ${format(debugExplorationAmount)}（来源倍率〔${formatDebugEffectGroups("explorationAmount", "sourceMultiplier")}〕）→ 法力折算量 ${format(debugManaExplorationAmount)}（超过1e14后边际 ^0.15；不影响判定与负荷），普通探寻来源 ${format(explorationNormalSource)}（来源倍率〔${formatDebugEffectGroups("exploration", "sourceMultiplier")}〕）、仙道·符宝来源 ${format(explorationFuBao)}，汇总 ${format(explorationSourceSum)}，区域倍率〔${formatDebugEffectGroups("exploration", "regionMultiplier")}〕、来源指数〔${formatDebugEffectGroups("exploration", "sourceExponent")}〕、${tribulationText}：${format(explorationActual)}/次；累计有效探寻量 ${format(state.explorationProgress)} / 1；法力区域乘区：${formatMultiplierGroups(manaMultiplierGroups())}`;
     }
   };
   // DEBUG RESOURCE BREAKDOWN: END
@@ -549,7 +653,6 @@
     const fitnessCap = fitnessLevelCap();
     const nextPowerJ = joulesForNextBasePower();
     const manaGain = breathingManaGain();
-    const passiveManaGain = automaticManaPerSecond();
     const circulationPotential = circulationManaPerSecond();
     const nextManaJ = joulesForNextBaseMana();
     const nextQiSpellCost = qiSpellCost();
@@ -562,17 +665,35 @@
     const nextMindDivisionCost = mindDivisionCost();
     const nextHeavenlyTreasureCost = heavenlyTreasureCost();
     const nextMysticHeavenlyTreasureCost = mysticHeavenlyTreasureCost();
+    const nextImmortalApertureCost = Immortal.immortalApertureCost();
     const currentExplorationPowerCost = explorationPowerCost();
-    const currentRawExplorationAmount = rawExplorationAmountForCost(currentExplorationPowerCost);
-    const currentExplorationAmount = explorationAmountForCost(currentExplorationPowerCost);
-    const currentExplorationMana = explorationManaGain();
-    const canExplore = state.goldenCoreUnlocked
-      && currentExplorationPowerCost >= EXPLORATION_MINIMUM_POWER_COST
-      && currentExplorationMana >= 1;
+    const explorationAvailable = state.goldenCoreUnlocked &&
+      currentExplorationPowerCost >= EXPLORATION_MINIMUM_POWER_COST;
+    const currentRawExplorationAmount = explorationAvailable
+      ? rawExplorationAmountForCost(currentExplorationPowerCost)
+      : 0;
+    const currentExplorationAmount = currentRawExplorationAmount * divineSenseMultiplier();
+    const currentExplorationTribulationPreview = minorTribulationPreviewForExploration(currentExplorationAmount);
+    const currentExplorationMana = explorationAvailable
+      ? explorationPotentialManaGain(
+        currentExplorationPowerCost,
+        state.mana,
+        currentExplorationTribulationPreview.manaExponent,
+        currentExplorationAmount,
+        true
+      )
+      : 0;
+    const automaticExplorationManaPreview = state.roamSpiritWorldUnlocked
+      ? automaticExplorationManaPerSecond()
+      : 0;
+    const passiveManaGain = Immortal.automaticBaseManaPerSecond() + automaticExplorationManaPreview;
+    const canExplore = explorationAvailable && currentExplorationMana >= 1;
     const pearlCount = tianNiPearlCount();
     const greenBottleCount = mysteriousGreenBottleCount();
     const currentFuBaoCount = fuBaoCount();
     const membershipCardCount = fitnessMembershipCardCount();
+    const currentSuperLollipopCount = superLollipopCount();
+    const currentSkyCrystalCount = skyCrystalCount();
     const currentXuTianDingCount = xuTianDingCount();
     const currentBaLingChiCount = baLingChiCount();
     const currentWanYaoFanCount = wanYaoFanCount();
@@ -622,6 +743,7 @@
     byId("city-upgrades").hidden = state.highestScaleIndex < 6;
     byId("country-upgrades").hidden = state.highestScaleIndex < 7;
     byId("continent-upgrades").hidden = state.highestScaleIndex < 8;
+    byId("surface-upgrades").hidden = state.highestScaleIndex < 9;
     byId("rock-action").hidden = !state.wallUnlocked;
     byId("ghost-back-action").hidden = state.highestScaleIndex < 3;
     byId("ghost-back-action").classList.toggle("purchased", state.ghostBackActive);
@@ -659,6 +781,13 @@
     byId("brain-domain-development-preview").textContent = `${state.brainDomainDevelopmentPurchased ? "当前：" : "解锁后："}鬼脑来源 ^${Math.min(1.3, 1 + 0.1 * continentPowerMagnitude()).toFixed(3)}`;
     byId("continent-split-preview").textContent = `${state.continentSplitPurchased ? "当前：" : "解锁后："}打岩生效等级 +${format(Math.pow(state.rockLevel, 1.8))}`;
     byId("continent-collapse-preview").textContent = `${state.continentCollapsePurchased ? "当前：" : "解锁后："}打岩来源 ^${Math.min(1.5, 1 + 0.18 * continentPowerMagnitude()).toFixed(3)}`;
+    byId("wave-eye-preview").textContent = `${state.waveEyePurchased ? "当前：" : "解锁后："}杀气来源 ^1.75`;
+    byId("elemental-awakening-preview").textContent = `${state.elementalAwakeningPurchased ? "当前：" : "解锁后："}元素化来源 ^1.52`;
+    byId("moonfall-preview").textContent = `${state.moonfallPurchased ? "当前：" : "解锁后："}打岩来源 ×50`;
+    byId("flow-state-preview").textContent = `${state.flowStatePurchased ? "当前：" : "解锁后："}极意来源 ×${flowUltimateIntentMultiplier().toFixed(3)}`;
+    byId("selfhood-preview").textContent = `${state.selfhoodPurchased ? "当前：" : "解锁后："}极意来源 ^1.04`;
+    byId("freedom-preview").textContent = `${state.freedomPurchased ? "当前：" : "解锁后："}极意来源 ^1.03`;
+    byId("chicxulub-meteorite-preview").textContent = `${state.chicxulubMeteoritePurchased ? "当前：" : "解锁后："}战力区域 ×10`;
     byId("rock-strike-preview").textContent = `${state.rockStrikePurchased ? "当前：" : "解锁后："}打岩来源 ×2；等级上限 +20`;
     byId("high-speed-metabolism-preview").textContent = `${state.highSpeedMetabolismPurchased ? "当前：" : "解锁后："}锻炼来源 ×1.75`;
     byId("endurance-enhancement-preview").textContent = `${state.enduranceEnhancementPurchased ? "当前：" : "解锁后："}健身倍率 ×2；等级上限 +20`;
@@ -805,8 +934,10 @@
       byId(`${realm.slug}-bottleneck-preview`).textContent = !currentRealmUnlocked
         ? `等待重新${realm.name}，当前不生效`
         : nextRealmUnlocked
-          ? "已失效，法力获取倍率 ×1.00"
-          : `当前法力获取倍率 ×${bottleneckManaMultiplier(requirement, true).toFixed(2)}`;
+          ? realm.key === "trueImmortal" ? "已失效，天人三衰指数 ^1.000" : "已失效，法力获取倍率 ×1.00"
+          : realm.key === "trueImmortal"
+            ? `当前天人三衰指数 ^${Immortal.celestialDeclineExponent().toFixed(3)}（同时作用于法力、J、战力）`
+            : `当前法力获取倍率 ×${bottleneckManaMultiplier(requirement, true).toFixed(2)}`;
       byId(`${realm.slug}-bottleneck-state`).textContent = !currentRealmUnlocked
         ? `等待${realm.name}`
         : nextRealmUnlocked ? "已失效" : "已生效";
@@ -852,7 +983,8 @@
       ? `当前周天最终比例 ${(circulationPercent() * 100).toFixed(1)}%（基础合计 ×1.8）`
       : "解锁后：周天最终比例 ×1.8";
     byId("spirit-transformation-abilities").hidden = !advancedRealmAbilityGroupVisible(1);
-    byId("spirit-world-ascension-preview").textContent = `${state.spiritWorldAscensionUnlocked ? "当前：" : "解锁后："}探寻法力 ×10；天材地宝上限 ${naturalTreasureCap}`;
+    const spiritWorldAscensionTreasureCap = naturalTreasureCap + (state.spiritWorldAscensionUnlocked ? 0 : 10);
+    byId("spirit-world-ascension-preview").textContent = `${state.spiritWorldAscensionUnlocked ? "当前：" : "解锁后："}探寻法力 ×10；天材地宝上限 ${spiritWorldAscensionTreasureCap}`;
     byId("aura-control-preview").textContent = `${state.auraControlUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${auraControlPotentialMultiplier().toFixed(2)}`;
     byId("equal-heaven-longevity-preview").textContent = `${state.equalHeavenLongevityUnlocked ? "当前：" : "解锁后："}健身 ×8；等级上限 +10`;
     byId("five-elements-preview").textContent = state.fiveElementsUnlocked
@@ -863,9 +995,13 @@
       : 0.8 + (state.manaLiquefactionUnlocked ? 0.4 : 0) + (state.manaSolidificationUnlocked ? 0.6 : 0));
     byId("abundant-aura-preview").textContent = `${state.abundantAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${abundantAuraPotentialExponent.toFixed(1)}`;
     const currentTribulationManaExponent = minorTribulationExplorationManaExponent();
-    const nextTribulationPreview = minorTribulationPreviewForExploration(currentExplorationAmount);
-    byId("minor-tribulation-preview").textContent = `小天劫负荷 ${format(state.minorTribulationExplorationLoad)}/${format(minorTribulationTriggerLoad())}；下次探寻约 +${format(currentExplorationAmount)}`;
-    byId("minor-tribulation-recovery").textContent = `战力 ^${minorTribulationPowerExponent().toFixed(3)}；下次探寻法力 ^${nextTribulationPreview.manaExponent.toFixed(3)}（${nextTribulationPreview.triggered ? `本次触发，负荷强度 ${format(nextTribulationPreview.loadFactor)}` : `未触发，基础指数 ^${currentTribulationManaExponent.toFixed(3)}`}）`;
+    const nextTribulationPreview = currentExplorationTribulationPreview;
+    byId("minor-tribulation-preview").textContent = state.advancedRealmLevel >= 6
+      ? "飞升仙界已使小天劫完全失效；负荷固定为0"
+      : `小天劫负荷 ${format(state.minorTribulationExplorationLoad)}/${format(minorTribulationTriggerLoad())}；下次探寻约 +${format(currentExplorationAmount)}`;
+    byId("minor-tribulation-recovery").textContent = state.advancedRealmLevel >= 6
+      ? "战力与探寻均不再受小天劫影响"
+      : `战力 ^${minorTribulationPowerExponent().toFixed(3)}；下次探寻法力 ^${nextTribulationPreview.manaExponent.toFixed(3)}（${nextTribulationPreview.triggered ? `本次触发，负荷强度 ${format(nextTribulationPreview.loadFactor)}` : `未触发，基础指数 ^${currentTribulationManaExponent.toFixed(3)}`}）`;
     byId("enhanced-minor-tribulation-preview").textContent = state.advancedRealmLevel >= 3
       ? `当前：战力区域 ^${minorTribulationPowerExponent().toFixed(3)}；探寻基础指数 ${currentTribulationManaExponent.toFixed(3)}，触发区间 0.800～0.920，仅作用于本次探寻`
       : "等待炼虚";
@@ -883,21 +1019,47 @@
     byId("immortal-realm-divine-preview").textContent = `${state.immortalRealmDivineAbilityUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${immortalRealmDivineAbilityPotentialMultiplier().toFixed(2)}`;
     byId("spirit-refining-art-preview").textContent = `${state.spiritRefiningArtUnlocked ? "当前：" : "解锁后："}法力 J 来源 ^1.06`;
     byId("perfected-technique-preview").textContent = `${state.perfectedTechniqueUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`;
-    byId("heaven-earth-aura-preview").textContent = `${state.heavenEarthAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${breathingJCurveExponent().toFixed(2)}`;
+    const heavenEarthAuraPreviewExponent = breathingJCurveExponent() + (state.heavenEarthAuraUnlocked ? 0 : 0.25);
+    byId("heaven-earth-aura-preview").textContent = `${state.heavenEarthAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${heavenEarthAuraPreviewExponent.toFixed(2)}`;
     byId("divine-ability-mastery-preview").textContent = `${state.divineAbilityMasteryUnlocked ? "当前：" : "解锁后："}全部法力 ×2.5`;
     byId("dual-infant-unity-preview").textContent = `${state.dualInfantUnityUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08`;
     byId("aura-into-body-preview").textContent = `${state.auraIntoBodyUnlocked ? "当前：" : "解锁后："}健身 J ×20；健身上限 +40`;
     byId("external-incarnation-preview").textContent = `${state.externalIncarnationUnlocked ? "当前：" : "解锁后："}梵圣真魔功 ×5`;
     byId("demon-realm-journey-preview").textContent = `${state.demonRealmJourneyUnlocked ? "当前：" : "解锁后："}普通探寻 ×5；仙道宝物概率 ×3`;
     byId("return-to-origin-preview").textContent = `${state.returnToOriginUnlocked ? "当前：" : "解锁后："}J 区域 ^1.02`;
-    byId("natal-magic-treasure-preview").textContent = `${state.natalMagicTreasureUnlocked ? "当前：" : "解锁后："}法宝法力指数 ${magicTreasureManaExponent().toFixed(2)}`;
+    byId("natal-magic-treasure-preview").textContent = `${state.natalMagicTreasureUnlocked ? "当前：" : "解锁后："}前期法力指数 ${(state.natalMagicTreasureUnlocked ? magicTreasureManaExponent() : 0.8).toFixed(2)}；超过1e24后边际指数 ${(state.natalMagicTreasureUnlocked ? Math.min(magicTreasureManaExponent(), 0.72) : 0.72).toFixed(2)}`;
     byId("perfected-technique-completion-preview").textContent = `${state.perfectedTechniqueCompletionUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`;
-    byId("roam-spirit-world-preview").textContent = `${state.roamSpiritWorldUnlocked ? "当前：" : "解锁后："}自动探寻 +${format(automaticExplorationManaPerSecond())} 法力/秒、+${format(automaticExplorationAmountPerSecond())} 有效探寻量/秒`;
+    const roamSpiritWorldAvailable = immortalCultivationActive() && explorationAvailable;
+    const roamSpiritWorldAmountPreview = roamSpiritWorldAvailable ? currentExplorationAmount * 0.0005 : 0;
+    const roamSpiritWorldManaPreview = roamSpiritWorldAvailable
+      ? state.roamSpiritWorldUnlocked
+        ? automaticExplorationManaPerSecond()
+        : explorationPotentialManaGain(
+          currentExplorationPowerCost,
+          state.mana,
+          currentExplorationTribulationPreview.manaExponent,
+          currentExplorationAmount
+        ) * 0.0005
+      : 0;
+    byId("roam-spirit-world-preview").textContent = `${state.roamSpiritWorldUnlocked ? "当前：" : "解锁后："}自动探寻 +${format(roamSpiritWorldManaPreview)} 法力/秒、+${format(roamSpiritWorldAmountPreview)} 有效探寻量/秒`;
     const descendRealmMultiplier = Math.min(10, 1 + 0.75 * Math.log10(1 + Math.max(0, state.power) / 8.368e22));
     byId("descend-realm-preview").textContent = `${state.descendRealmUnlocked ? "当前：" : "解锁后："}仙道宝物概率 ×${descendRealmMultiplier.toFixed(3)}`;
-    byId("nascent-soul-completion-preview").textContent = `${state.nascentSoulCompletionUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08${state.dualInfantUnityUnlocked || state.nascentSoulCompletionUnlocked ? `（当前合计 ^${(1.08 * (state.dualInfantUnityUnlocked ? 1.08 : 1)).toFixed(4)}）` : ""}`;
+    byId("nascent-soul-completion-preview").textContent = `${state.nascentSoulCompletionUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08${state.dualInfantUnityUnlocked || state.nascentSoulCompletionUnlocked ? `（${state.nascentSoulCompletionUnlocked ? "当前合计" : "解锁后合计"} ^${(1.08 * (state.dualInfantUnityUnlocked ? 1.08 : 1)).toFixed(4)}）` : ""}`;
     byId("spirit-travel-void-preview").textContent = `${state.spiritTravelVoidUnlocked ? "当前：" : "解锁后："}强化小天劫门槛 ${format(state.spiritTravelVoidUnlocked ? minorTribulationTriggerLoad() : 150000)}`;
     byId("golden-seal-script-preview").textContent = `${state.goldenSealScriptUnlocked ? "当前：" : "解锁后："}法力区域 ×8`;
+    byId("ascend-immortal-world-preview").textContent = state.advancedRealmLevel >= 6
+      ? "已生效：小天劫失效；仙道宝物概率 ×3"
+      : "等待真仙";
+    byId("immortal-spirit-power-preview").textContent = `${state.immortalSpiritPowerUnlocked ? "当前：" : "解锁后："}法力 J 基础指数 ${state.immortalSpiritPowerUnlocked ? "0.83" : "0.80 → 0.83"}`;
+    byId("undying-primordial-spirit-preview").textContent = `${state.undyingPrimordialSpiritUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.03`;
+    byId("immortal-aperture-ability").classList.toggle("purchased", state.immortalApertureLevel >= IMMORTAL_APERTURE_CAP);
+    byId("immortal-aperture-ability").dataset.sortCost = String(state.immortalApertureLevel >= IMMORTAL_APERTURE_CAP ? Number.MAX_SAFE_INTEGER : nextImmortalApertureCost);
+    byId("immortal-aperture-level").textContent = `当前：${state.immortalApertureLevel}/${IMMORTAL_APERTURE_CAP}级；吐纳 ×${Math.pow(1.2, state.immortalApertureLevel).toFixed(3)}；周天 ×${Math.pow(2, Math.floor(state.immortalApertureLevel / 6)).toFixed(0)}`;
+    byId("immortal-aperture-cost").textContent = state.immortalApertureLevel >= IMMORTAL_APERTURE_CAP ? "已达到等级上限" : `消耗 ${formatCost(nextImmortalApertureCost)} 法力`;
+    byId("buy-immortal-aperture").textContent = state.immortalApertureLevel >= IMMORTAL_APERTURE_CAP ? "已达上限" : "升级";
+    byId("buy-immortal-aperture").disabled = state.advancedRealmLevel < 6 || state.immortalApertureLevel >= IMMORTAL_APERTURE_CAP || state.mana < nextImmortalApertureCost;
+    byId("xuan-immortal-body-preview").textContent = `${state.xuanImmortalBodyUnlocked ? "当前：" : "解锁后："}梵圣真魔功 ^1.40`;
+    byId("law-preview").textContent = `${state.lawUnlocked ? "当前：" : "解锁后："}战力区域 ^1.02`;
     byId("mystic-heavenly-treasure-ability").classList.toggle("purchased", state.mysticHeavenlyTreasureLevel >= 3);
     byId("mystic-heavenly-treasure-level").textContent = `当前：${state.mysticHeavenlyTreasureLevel}/3级；已解锁：${["无", "仙道·幻天镜", "仙道·幻天镜、仙道·玄天圣树", "仙道·幻天镜、仙道·玄天圣树、仙道·玄天斩灵剑"][state.mysticHeavenlyTreasureLevel]}`;
     byId("mystic-heavenly-treasure-cost").textContent = state.mysticHeavenlyTreasureLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextMysticHeavenlyTreasureCost)} 法力`;
@@ -948,6 +1110,14 @@
     byId("fitness-membership-card-count").textContent = `数量：${format(membershipCardCount, 0)}`;
     byId("fitness-membership-card-chance").textContent = `当前每秒概率 ${formatProbability(fitnessMembershipCardChance())}`;
     byId("fitness-membership-card-effect").textContent = `健身倍率加法 +${fitnessMembershipCardFitnessBonus().toFixed(3)}`;
+    byId("super-lollipop-treasure").hidden = !hasAchievement("scale8") && currentSuperLollipopCount <= 0;
+    byId("super-lollipop-count").textContent = `数量：${format(currentSuperLollipopCount, 0)}`;
+    byId("super-lollipop-chance").textContent = `下次健身升级概率 ${formatProbability(superLollipopChance())}`;
+    byId("super-lollipop-effect").textContent = `锻炼来源倍率 ×${superLollipopTrainingMultiplier().toFixed(2)}`;
+    byId("sky-crystal-treasure").hidden = !hasAchievement("scale9") && currentSkyCrystalCount <= 0;
+    byId("sky-crystal-count").textContent = `数量：${format(currentSkyCrystalCount, 0)}`;
+    byId("sky-crystal-chance").textContent = `当前每秒概率 ${formatProbability(skyCrystalChance())}`;
+    byId("sky-crystal-effect").textContent = `打岩来源倍率 ×${skyCrystalRockMultiplier().toFixed(2)}`;
     byId("xu-tian-ding-treasure").hidden = state.heavenlyTreasureLevel < 1 && currentXuTianDingCount <= 0;
     byId("xu-tian-ding-count").textContent = `数量：${format(currentXuTianDingCount, 0)}`;
     byId("xu-tian-ding-chance").textContent = `每 1 有效探寻量概率 ${formatProbability(xuTianDingChance())}`;
@@ -985,7 +1155,16 @@
     byId("statistics-game-time").textContent = formatGameCalendar(state.totalElapsedSeconds);
     renderChallenges();
     // DEBUG RESOURCE BREAKDOWN: 删除HTML区块或本函数区块后均会安全回退。
-    window.renderResourceDebug?.();
+    window.renderResourceDebug?.({
+      currentExplorationPowerCost,
+      currentRawExplorationAmount,
+      currentExplorationAmount,
+      currentExplorationTribulationPreview,
+      currentExplorationMana,
+      automaticExplorationManaPreview,
+      passiveManaGain,
+      circulationPotential
+    });
     renderCultivationPage();
 
     updateNavigation();
@@ -1038,6 +1217,13 @@
     updateOneTimeUpgrade("brain-domain-development-upgrade", "buy-brain-domain-development", state.brainDomainDevelopmentPurchased, state.highestScaleIndex >= 8 && state.power >= BRAIN_DOMAIN_DEVELOPMENT_COST);
     updateOneTimeUpgrade("continent-split-upgrade", "buy-continent-split", state.continentSplitPurchased, state.highestScaleIndex >= 8 && state.power >= CONTINENT_SPLIT_COST);
     updateOneTimeUpgrade("continent-collapse-upgrade", "buy-continent-collapse", state.continentCollapsePurchased, state.highestScaleIndex >= 8 && state.power >= CONTINENT_COLLAPSE_COST);
+    updateOneTimeUpgrade("wave-eye-upgrade", "buy-wave-eye", state.waveEyePurchased, state.highestScaleIndex >= 9 && state.power >= WAVE_EYE_COST);
+    updateOneTimeUpgrade("elemental-awakening-upgrade", "buy-elemental-awakening", state.elementalAwakeningPurchased, state.highestScaleIndex >= 9 && state.power >= ELEMENTAL_AWAKENING_COST);
+    updateOneTimeUpgrade("moonfall-upgrade", "buy-moonfall", state.moonfallPurchased, state.highestScaleIndex >= 9 && state.power >= MOONFALL_COST);
+    updateOneTimeUpgrade("flow-state-upgrade", "buy-flow-state", state.flowStatePurchased, state.highestScaleIndex >= 9 && state.power >= FLOW_STATE_COST);
+    updateOneTimeUpgrade("selfhood-upgrade", "buy-selfhood", state.selfhoodPurchased, state.highestScaleIndex >= 9 && state.power >= SELFHOOD_COST);
+    updateOneTimeUpgrade("freedom-upgrade", "buy-freedom", state.freedomPurchased, state.highestScaleIndex >= 9 && state.power >= FREEDOM_COST);
+    updateOneTimeUpgrade("chicxulub-meteorite-upgrade", "buy-chicxulub-meteorite", state.chicxulubMeteoritePurchased, state.highestScaleIndex >= 9 && state.power >= CHICXULUB_METEORITE_COST);
     updateOneTimeUnlock("qi-refining-stage", "unlock-qi-refining", state.qiRefiningUnlocked, immortalSelected && state.power >= QI_REFINING_COST);
     updateOneTimeUnlock("immortal-life-ability", "unlock-immortal-life", state.immortalLifeUnlocked, state.qiRefiningUnlocked && state.mana >= IMMORTAL_LIFE_COST);
     updateOneTimeUnlock("foundation-stage", "unlock-foundation", state.foundationUnlocked, state.qiRefiningUnlocked && state.mana >= nextFoundationCost);
@@ -1053,6 +1239,10 @@
     updateOneTimeUnlock("divine-sense-ability", "unlock-divine-sense", state.divineSenseUnlocked, state.advancedRealmLevel >= 1 && state.mana >= DIVINE_SENSE_COST);
     updateOneTimeUnlock("great-cultivator-ability", "unlock-great-cultivator", state.greatCultivatorUnlocked, state.advancedRealmLevel >= 1 && state.mana >= GREAT_CULTIVATOR_COST);
     updateOneTimeUnlock("second-nascent-soul-ability", "unlock-second-nascent-soul", state.secondNascentSoulUnlocked, state.advancedRealmLevel >= 1 && state.mana >= SECOND_NASCENT_SOUL_COST);
+    updateOneTimeUnlock("immortal-spirit-power-ability", "unlock-immortal-spirit-power", state.immortalSpiritPowerUnlocked, state.advancedRealmLevel >= 6 && state.mana >= IMMORTAL_SPIRIT_POWER_COST);
+    updateOneTimeUnlock("undying-primordial-spirit-ability", "unlock-undying-primordial-spirit", state.undyingPrimordialSpiritUnlocked, state.advancedRealmLevel >= 6 && state.mana >= UNDYING_PRIMORDIAL_SPIRIT_COST);
+    updateOneTimeUnlock("xuan-immortal-body-ability", "unlock-xuan-immortal-body", state.xuanImmortalBodyUnlocked, state.advancedRealmLevel >= 6 && state.mana >= XUAN_IMMORTAL_BODY_COST);
+    updateOneTimeUnlock("law-ability", "unlock-law", state.lawUnlocked, state.advancedRealmLevel >= 6 && state.mana >= LAW_COST);
     updateOneTimeUnlock("spirit-world-ascension-ability", "unlock-spirit-world-ascension", state.spiritWorldAscensionUnlocked, state.advancedRealmLevel >= 2 && state.mana >= SPIRIT_WORLD_ASCENSION_COST);
     updateOneTimeUnlock("aura-control-ability", "unlock-aura-control", state.auraControlUnlocked, state.advancedRealmLevel >= 2 && state.mana >= AURA_CONTROL_COST);
     updateOneTimeUnlock("equal-heaven-longevity-ability", "unlock-equal-heaven-longevity", state.equalHeavenLongevityUnlocked, state.advancedRealmLevel >= 2 && state.mana >= EQUAL_HEAVEN_LONGEVITY_COST);
@@ -1094,39 +1284,90 @@
 
   function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true } = {}) {
     const button = byId(id);
-    let delayTimer;
-    let repeatTimer;
+    let delayTimer = null;
+    let repeatTimer = null;
     let suppressNextClick = false;
+    let isHolding = false;
+    let activePointerId = null;
+
+    const clearTimers = () => {
+      window.clearTimeout(delayTimer);
+      window.clearTimeout(repeatTimer);
+      delayTimer = null;
+      repeatTimer = null;
+    };
 
     const stopRepeat = () => {
-      window.clearTimeout(delayTimer);
-      window.clearInterval(repeatTimer);
+      isHolding = false;
+      clearTimers();
+      activePointerId = null;
+    };
+
+    const cancelRepeat = () => {
+      stopRepeat();
+      suppressNextClick = false;
+    };
+
+    const runRepeat = () => {
+      if (!isHolding || button.disabled || !canRepeat()) {
+        stopRepeat();
+        return;
+      }
+      repeatAction();
+      if (!isHolding || button.disabled || !canRepeat()) {
+        stopRepeat();
+        return;
+      }
+      repeatTimer = window.setTimeout(runRepeat, 110);
     };
 
     button.addEventListener("pointerdown", (event) => {
-      if (button.disabled || (event.pointerType === "mouse" && event.button !== 0)) return;
+      if (button.disabled || isHolding || (event.pointerType === "mouse" && event.button !== 0)) return;
+      isHolding = true;
+      activePointerId = event.pointerId;
       suppressNextClick = true;
+
+      try {
+        button.setPointerCapture(event.pointerId);
+      } catch {
+        // 不支持 Pointer Capture 的环境继续依赖取消、失焦与页面隐藏兜底。
+      }
+
       action();
       delayTimer = window.setTimeout(() => {
-        if (button.disabled || !canRepeat()) return;
-        repeatTimer = window.setInterval(() => {
-          if (button.disabled || !canRepeat()) {
-            stopRepeat();
-            return;
-          }
-          repeatAction();
-        }, 110);
+        delayTimer = null;
+        runRepeat();
       }, 420);
     });
-    button.addEventListener("pointerup", stopRepeat);
-    button.addEventListener("pointercancel", () => {
+
+    button.addEventListener("pointerup", (event) => {
+      if (activePointerId !== null && event.pointerId !== activePointerId) return;
       stopRepeat();
-      suppressNextClick = false;
+
+      try {
+        if (button.hasPointerCapture(event.pointerId)) {
+          button.releasePointerCapture(event.pointerId);
+        }
+      } catch {
+        // 指针可能已由浏览器释放。
+      }
     });
-    button.addEventListener("pointerleave", () => {
+
+    button.addEventListener("pointercancel", cancelRepeat);
+    button.addEventListener("lostpointercapture", () => {
+      if (isHolding) cancelRepeat();
+    });
+    window.addEventListener("pointerup", (event) => {
+      if (!isHolding || (activePointerId !== null && event.pointerId !== activePointerId)) return;
       stopRepeat();
-      suppressNextClick = false;
     });
+    window.addEventListener("pointercancel", (event) => {
+      if (!isHolding || (activePointerId !== null && event.pointerId !== activePointerId)) return;
+      cancelRepeat();
+    });
+    window.addEventListener("blur", cancelRepeat);
+    document.addEventListener("visibilitychange", cancelRepeat);
+
     button.addEventListener("contextmenu", (event) => event.preventDefault());
     button.addEventListener("click", (event) => {
       if (suppressNextClick) {
@@ -1214,6 +1455,13 @@
     bindManualScaleUpgrade("buy-brain-domain-development", "brainDomainDevelopmentPurchased", () => WIS.Power.Scale.buyUpgrade("brainDomainDevelopment"));
     bindManualScaleUpgrade("buy-continent-split", "continentSplitPurchased", () => WIS.Power.Scale.buyUpgrade("continentSplit"));
     bindManualScaleUpgrade("buy-continent-collapse", "continentCollapsePurchased", () => WIS.Power.Scale.buyUpgrade("continentCollapse"));
+    bindManualScaleUpgrade("buy-wave-eye", "waveEyePurchased", () => WIS.Power.Scale.buyUpgrade("waveEye"));
+    bindManualScaleUpgrade("buy-elemental-awakening", "elementalAwakeningPurchased", () => WIS.Power.Scale.buyUpgrade("elementalAwakening"));
+    bindManualScaleUpgrade("buy-moonfall", "moonfallPurchased", () => WIS.Power.Scale.buyUpgrade("moonfall"));
+    bindManualScaleUpgrade("buy-flow-state", "flowStatePurchased", () => WIS.Power.Scale.buyUpgrade("flowState"));
+    bindManualScaleUpgrade("buy-selfhood", "selfhoodPurchased", () => WIS.Power.Scale.buyUpgrade("selfhood"));
+    bindManualScaleUpgrade("buy-freedom", "freedomPurchased", () => WIS.Power.Scale.buyUpgrade("freedom"));
+    bindManualScaleUpgrade("buy-chicxulub-meteorite", "chicxulubMeteoritePurchased", () => WIS.Power.Scale.buyUpgrade("chicxulubMeteorite"));
     byId("toggle-ghost-back").addEventListener("click", toggleGhostBack);
     bindManualRealmBreakthrough("unlock-qi-refining", unlockQiRefining);
     bindHoldButton("breathing-button", breathe);
@@ -1268,6 +1516,11 @@
     bindManualImmortalAbility("unlock-nascent-soul-completion", "nascentSoulCompletionUnlocked", () => WIS.Cultivation.Immortal.buyAbility("nascentSoulCompletion"));
     bindManualImmortalAbility("unlock-spirit-travel-void", "spiritTravelVoidUnlocked", () => WIS.Cultivation.Immortal.buyAbility("spiritTravelVoid"));
     bindManualImmortalAbility("unlock-golden-seal-script", "goldenSealScriptUnlocked", () => WIS.Cultivation.Immortal.buyAbility("goldenSealScript"));
+    bindManualImmortalAbility("unlock-immortal-spirit-power", "immortalSpiritPowerUnlocked", () => WIS.Cultivation.Immortal.buyAbility("immortalSpiritPower"));
+    bindManualImmortalAbility("unlock-undying-primordial-spirit", "undyingPrimordialSpiritUnlocked", () => WIS.Cultivation.Immortal.buyAbility("undyingPrimordialSpirit"));
+    bindManualImmortalAbility("buy-immortal-aperture", "immortalApertureLevel", () => WIS.Cultivation.Immortal.buyAbility("immortalAperture"));
+    bindManualImmortalAbility("unlock-xuan-immortal-body", "xuanImmortalBodyUnlocked", () => WIS.Cultivation.Immortal.buyAbility("xuanImmortalBody"));
+    bindManualImmortalAbility("unlock-law", "lawUnlocked", () => WIS.Cultivation.Immortal.buyAbility("law"));
     byId("scatter-rebuild").addEventListener("click", scatterAndRebuild);
     byId("reincarnate").addEventListener("click", reincarnate);
     byId("toggle-innate-deficiency").addEventListener("click", () => {
@@ -1286,6 +1539,14 @@
       if (state.activeChallenge === "fiveMisfortunes") exitChallenge();
       else startChallenge("fiveMisfortunes");
     });
+    byId("toggle-complete-realm").addEventListener("click", () => {
+      if (state.activeChallenge === "completeRealm") exitChallenge();
+      else startChallenge("completeRealm");
+    });
+    byId("toggle-moonless").addEventListener("click", () => {
+      if (state.activeChallenge === "moonless") exitChallenge();
+      else startChallenge("moonless");
+    });
     document.querySelectorAll("[data-cultivation]").forEach((button) => {
       button.addEventListener("click", () => chooseCultivation(button.dataset.cultivation));
     });
@@ -1296,6 +1557,15 @@
       state.hideUnlockedAchievements = !state.hideUnlockedAchievements;
       saveState();
       renderAchievements();
+    });
+    byId("achievement-list").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-achievement-automation]");
+      if (!button || !hasAchievement(button.dataset.achievementKey)) return;
+      const stateKey = button.dataset.achievementAutomation;
+      state[stateKey] = state[stateKey] === false;
+      saveState();
+      renderAchievements();
+      showNotice(`${button.dataset.automationLabel}已${state[stateKey] ? "开启" : "关闭"}`);
     });
     window.addEventListener("beforeunload", saveState);
 

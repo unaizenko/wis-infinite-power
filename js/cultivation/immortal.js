@@ -43,7 +43,7 @@
       { id: "equalHeavenFitness", name: "寿与天齐", group: "仙道", target: "fitness", layer: "sourceMultiplier", value: WIS.Cultivation.ImmortalLogic.equalHeavenLongevityFitnessMultiplier() },
       { id: "baLingChiFitness", name: "仙道·八灵尺", group: "宝物", target: "fitness", layer: "sourceMultiplier", value: WIS.Cultivation.ImmortalLogic.baLingChiFitnessMultiplier() },
       { id: "immortalFitnessLevelCap", name: "仙道健身上限", group: "仙道", target: "fitnessLevelCap", layer: "sourceAdditive", value: WIS.Cultivation.ImmortalLogic.immortalFitnessLevelCapBonus() },
-      { id: "minorTribulationPower", name: "小天劫", group: "仙道", target: "power", layer: "regionExponent", value: state.advancedRealmLevel >= 3 ? 0.99 : state.advancedRealmLevel >= 2 ? 0.995 : 1 },
+      { id: "minorTribulationPower", name: "小天劫", group: "仙道", target: "power", layer: "regionExponent", value: WIS.Cultivation.ImmortalLogic.minorTribulationPowerExponent() },
       { id: "materialControl", name: "御物", group: "仙道", target: "magicTreasure", layer: "sourceMultiplier", value: state.materialControlUnlocked ? 5 : 1 },
       { id: "wanYaoFan", name: "仙道·万妖幡", group: "宝物", target: "magicTreasure", layer: "sourceMultiplier", value: 1 + (state.meta.treasures.wanYaoFan || 0) * 0.003 },
       { id: "trueSpiritTransformation", name: "真灵变", group: "仙道", target: "mana", layer: "regionMultiplier", value: 1 + 0.6 * state.trueSpiritTransformationLevel },
@@ -79,7 +79,13 @@
       { id: "descendRealm", name: "降界", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", value: state.descendRealmUnlocked ? Math.min(10, 1 + 0.75 * Math.log10(1 + Math.max(0, state.power) / 8.368e22)) : 1 },
       { id: "nascentSoulCompletion", name: "元婴大成", group: "仙道", target: "circulation", layer: "sourceExponent", value: state.nascentSoulCompletionUnlocked ? 1.08 : 1 },
       { id: "goldenSealScript", name: "金篆文", group: "仙道", target: "mana", layer: "regionMultiplier", value: state.goldenSealScriptUnlocked ? 8 : 1 },
-      { id: "mysticHeavenSpiritSlayingSword", name: "仙道·玄天斩灵剑", group: "宝物", target: "magicTreasure", layer: "sourceExponent", value: WIS.Cultivation.ImmortalLogic.mysticHeavenSpiritSlayingSwordExponent() }
+      { id: "mysticHeavenSpiritSlayingSword", name: "仙道·玄天斩灵剑", group: "宝物", target: "magicTreasure", layer: "sourceExponent", value: WIS.Cultivation.ImmortalLogic.mysticHeavenSpiritSlayingSwordExponent() },
+      { id: "ascendImmortalWorldTreasure", name: "飞升仙界", group: "真仙", target: "immortalTreasureChance", layer: "sourceMultiplier", value: state.advancedRealmLevel >= 6 ? 3 : 1 },
+      { id: "undyingPrimordialSpirit", name: "不灭元神", group: "真仙", target: "circulation", layer: "sourceExponent", value: state.undyingPrimordialSpiritUnlocked ? 1.03 : 1 },
+      { id: "immortalApertureBreathing", name: "仙窍", group: "真仙", target: "breathing", layer: "sourceMultiplier", value: Math.pow(1.2, state.immortalApertureLevel) },
+      { id: "immortalApertureCirculation", name: "仙窍里程碑", group: "真仙", target: "circulation", layer: "sourceMultiplier", value: Math.pow(2, Math.floor(state.immortalApertureLevel / 6)) },
+      { id: "xuanImmortalBody", name: "玄仙之躯", group: "真仙", target: "brahmaDemonArt", layer: "sourceExponent", value: state.xuanImmortalBodyUnlocked ? 1.4 : 1 },
+      { id: "law", name: "法则", group: "真仙", target: "power", layer: "regionExponent", value: state.lawUnlocked ? 1.02 : 1 }
     ];
   }
 

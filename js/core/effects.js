@@ -20,7 +20,7 @@
   function values(target, layer, state) {
     const neutral = layer.endsWith("Additive") ? 0 : 1;
     return collect(target, layer, state).map((effect) => {
-      const value = Number(effect.value);
+      const value = Number(typeof effect.value === "function" ? effect.value(state) : effect.value);
       return Number.isFinite(value) ? value : neutral;
     });
   }
@@ -28,7 +28,8 @@
   function groups(target, layer, state) {
     return collect(target, layer, state).reduce((result, effect) => {
       const group = effect.group || effect.provider;
-      (result[group] ||= []).push({ name: effect.name || effect.id, value: effect.value });
+      const value = typeof effect.value === "function" ? effect.value(state) : effect.value;
+      (result[group] ||= []).push({ name: effect.name || effect.id, value });
       return result;
     }, {});
   }
@@ -41,7 +42,7 @@
     for (const [providerId, provider] of providers.entries()) {
       const effect = (provider(state) || []).find((candidate) => candidate.id === id);
       if (!effect) continue;
-      const result = Number(effect.value);
+      const result = Number(typeof effect.value === "function" ? effect.value(state) : effect.value);
       return Number.isFinite(result) ? result : neutral;
     }
     return neutral;

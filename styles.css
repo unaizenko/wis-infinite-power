@@ -293,10 +293,15 @@ button { font: inherit; }
   font-size: 10px;
   text-align: center;
 }
-.achievement > strong { flex: 0 0 160px; color: var(--muted); font-size: 12px; text-align: right; }
+.achievement-reward { flex: 0 0 190px; color: var(--muted); font-size: 12px; text-align: right; }
+.achievement-reward > strong { display: block; }
+.achievement-automation { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 10px; }
+.achievement-automation[hidden] { display: none; }
+.achievement-automation small { color: var(--muted); font-size: 11px; }
+.achievement-automation .secondary-button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 .achievement.completed { background: var(--accent-soft); }
 .achievement.completed .achievement-state { color: #fff; background: var(--accent); }
-.achievement.completed > strong { color: var(--accent); }
+.achievement.completed .achievement-reward > strong { color: var(--accent); }
 
 .statistics-grid {
   display: grid;
@@ -500,7 +505,7 @@ button { font: inherit; }
   .page-header > p { margin-top: 10px; text-align: left; }
   .item-row { align-items: flex-start; flex-direction: column; gap: 16px; padding: 20px; }
   .action-control, .purchase-control { width: 100%; flex-basis: auto; text-align: left; }
-  .achievement > strong { flex-basis: auto; text-align: left; }
+  .achievement-reward { width: 100%; flex-basis: auto; text-align: left; }
   .achievement-state { flex-basis: auto; padding: 6px 10px; }
   .achievement-toolbar { align-items: stretch; flex-direction: column; }
   .achievement-toolbar .secondary-button { width: 100%; }

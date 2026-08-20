@@ -17,13 +17,13 @@
 
   const Scale = WIS.Power.ScaleLogic;
   const {
-    autoUpgradeEnhancements, fitnessMembershipCardCount, train
+    autoUpgradeEnhancements, fitnessMembershipCardCount, superLollipopCount, skyCrystalCount, train
   } = Scale;
   const Immortal = WIS.Cultivation.ImmortalLogic;
   const {
     autoBreakthroughImmortalRealms, autoUpgradeImmortalAbilities, breathe, chooseCultivation,
     baLingChiCount, cultivationRealmLevel, explore, grantThreeDeficienciesResetReward,
-    minorTribulationPowerExponent, tianNiPearlCount, phantomHeavenMirrorCount,
+    minorTribulationPowerExponent, celestialDeclineExponent, tianNiPearlCount, phantomHeavenMirrorCount,
     mysticHeavenSacredTreeCount, mysticHeavenSpiritSlayingSwordCount
   } = Immortal;
   WIS.Core.Runtime.bind({ state: () => state, setState: (nextState) => { state = nextState; } });
@@ -59,6 +59,7 @@
     checkActiveChallengeCompletion,
     cultivationRealmLevel,
     minorTribulationPowerExponent,
+    celestialDeclineExponent,
     format,
     freshState: freshDefaultState,
     resetTransientAccumulators: () => {
@@ -258,6 +259,8 @@
       mana: state.mana,
       pearls: tianNiPearlCount(),
       fitnessCards: fitnessMembershipCardCount(),
+      superLollipops: superLollipopCount(),
+      skyCrystals: skyCrystalCount(),
       baLingChi: baLingChiCount(),
       phantomHeavenMirror: phantomHeavenMirrorCount(),
       mysticHeavenSacredTree: mysticHeavenSacredTreeCount(),
@@ -275,6 +278,10 @@
     if (pearlGain > 0) gains.push(`${format(pearlGain, 0)}枚仙道·天逆珠`);
     const fitnessCardGain = fitnessMembershipCardCount() - before.fitnessCards;
     if (fitnessCardGain > 0) gains.push(`${format(fitnessCardGain, 0)}张健身房会员卡`);
+    const superLollipopGain = superLollipopCount() - before.superLollipops;
+    if (superLollipopGain > 0) gains.push(`${format(superLollipopGain, 0)}个超级棒棒糖`);
+    const skyCrystalGain = skyCrystalCount() - before.skyCrystals;
+    if (skyCrystalGain > 0) gains.push(`${format(skyCrystalGain, 0)}枚天晶`);
     const baLingChiGain = baLingChiCount() - before.baLingChi;
     if (baLingChiGain > 0) gains.push(`${format(baLingChiGain, 0)}柄仙道·八灵尺`);
     const phantomHeavenMirrorGain = phantomHeavenMirrorCount() - before.phantomHeavenMirror;

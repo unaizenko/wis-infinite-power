@@ -50,6 +50,7 @@
       { id: "superpower", name: "异能", group: "量级论", target: "power", layer: "regionExponent", value: state.superpowerPurchased ? (state.superpowerEvolutionPurchased ? 1.06 : 1.05) : 1 },
       { id: "invulnerable", name: "金刚不坏", group: "量级论", target: "fitness", layer: "sourceExponent", value: state.invulnerablePurchased ? 1.15 : 1 },
       { id: "highSpeedMetabolism", name: "高速代谢", group: "量级论", target: "training", layer: "sourceMultiplier", value: state.highSpeedMetabolismPurchased ? 1.75 : 1 },
+      { id: "superLollipop", name: "超级棒棒糖", group: "宝物", target: "training", layer: "sourceMultiplier", value: 1 + (state.meta.treasures.superLollipop || 0) * 0.05 },
       { id: "focusRatio", name: "集中比例", group: "量级论", target: "focus", layer: "sourceMultiplier", value: 0.02 + (state.mentalPowerPurchased ? 0.01 : 0) + state.mindDivisionLevel * 0.005 },
       { id: "intuition", name: "直感", group: "量级论", target: "focus", layer: "sourceMultiplier", value: state.intuitionPurchased ? 1 + Math.log10(1 + Math.max(0, state.power)) * 0.1 * (state.superPerceptionPurchased ? 1.5 : 1) : 1 },
       { id: "dynamicFocus", name: "动态专注", group: "量级论", target: "focus", layer: "sourceMultiplier", value: state.dynamicFocusPurchased ? 1.5 : 1 },
@@ -68,13 +69,22 @@
       { id: "energyCycle", name: "能量循环", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", value: state.energyCyclePurchased ? 12 : 1 },
       { id: "mountainShatter", name: "崩岳", group: "量级论", target: "power", layer: "regionExponent", value: state.mountainShatterPurchased ? 1.015 : 1 },
       { id: "bioenergy", name: "生物能源", group: "量级论", target: "joules", layer: "regionMultiplier", value: state.bioenergyPurchased ? 3 : 1 },
-      { id: "continentCollapse", name: "大陆崩溃", group: "量级论", target: "rock", layer: "sourceExponent", value: state.continentCollapsePurchased ? Math.min(1.5, 1 + 0.18 * Math.log10(1 + Math.max(0, state.power) / 8.368e22)) : 1 }
+      { id: "continentCollapse", name: "大陆崩溃", group: "量级论", target: "rock", layer: "sourceExponent", value: state.continentCollapsePurchased ? Math.min(1.5, 1 + 0.18 * Math.log10(1 + Math.max(0, state.power) / 8.368e22)) : 1 },
+      { id: "skyCrystal", name: "天晶", group: "宝物", target: "rock", layer: "sourceMultiplier", value: 1 + (state.meta.treasures.skyCrystal || 0) * 0.05 },
+      { id: "waveEye", name: "波动眼", group: "量级论", target: "killingIntent", layer: "sourceExponent", value: state.waveEyePurchased ? 1.75 : 1 },
+      { id: "elementalAwakening", name: "元素觉醒", group: "量级论", target: "elementalization", layer: "sourceExponent", value: state.elementalAwakeningPurchased ? 1.52 : 1 },
+      { id: "moonfall", name: "月落", group: "量级论", target: "rock", layer: "sourceMultiplier", value: state.moonfallPurchased ? 50 : 1 },
+      { id: "flowState", name: "心流", group: "量级论", target: "ultimateIntent", layer: "sourceMultiplier", value: () => state.flowStatePurchased ? WIS.Power.ScaleLogic.flowUltimateIntentMultiplier() : 1 },
+      { id: "selfhood", name: "自我", group: "量级论", target: "ultimateIntent", layer: "sourceExponent", value: state.selfhoodPurchased ? 1.04 : 1 },
+      { id: "freedom", name: "自在", group: "量级论", target: "ultimateIntent", layer: "sourceExponent", value: state.freedomPurchased ? 1.03 : 1 },
+      { id: "chicxulubMeteorite", name: "希克苏鲁伯陨石", group: "量级论", target: "power", layer: "regionMultiplier", value: state.chicxulubMeteoritePurchased ? 10 : 1 }
     ];
   }
 
   WIS.Core.Effects.register("scale", effects);
 
   let fitnessCardRollAccumulator = 0;
+  let skyCrystalRollAccumulator = 0;
 
   function update(state, elapsedSeconds) {
     const rates = {
@@ -92,17 +102,27 @@
   }
 
   function rollPassiveTreasure(state, elapsedSeconds, silentTreasureRolls = false) {
+    let gained = 0;
     if (WIS.Power.ScaleLogic.fitnessJBonus() <= 0 || !WIS.Meta.Achievements.has(state, "scale5")) {
       fitnessCardRollAccumulator = 0;
-      return 0;
+    } else {
+      fitnessCardRollAccumulator += elapsedSeconds;
+      const attempts = Math.floor(fitnessCardRollAccumulator);
+      fitnessCardRollAccumulator -= attempts;
+      gained += WIS.Power.ScaleLogic.rollFitnessMembershipCardAttempts(attempts, silentTreasureRolls);
     }
-    fitnessCardRollAccumulator += elapsedSeconds;
-    const attempts = Math.floor(fitnessCardRollAccumulator);
-    fitnessCardRollAccumulator -= attempts;
-    return WIS.Power.ScaleLogic.rollFitnessMembershipCardAttempts(attempts, silentTreasureRolls);
+    if (WIS.Power.ScaleLogic.rockPowerPerSecond() <= 0 || !WIS.Meta.Achievements.has(state, "scale9")) {
+      skyCrystalRollAccumulator = 0;
+    } else {
+      skyCrystalRollAccumulator += elapsedSeconds;
+      const attempts = Math.floor(skyCrystalRollAccumulator);
+      skyCrystalRollAccumulator -= attempts;
+      gained += WIS.Power.ScaleLogic.rollSkyCrystalAttempts(attempts, silentTreasureRolls);
+    }
+    return gained;
   }
 
-  function resetTransient() { fitnessCardRollAccumulator = 0; }
+  function resetTransient() { fitnessCardRollAccumulator = 0; skyCrystalRollAccumulator = 0; }
 
   function afterStep() {
     WIS.Power.ScaleLogic.updateProgress(false);

@@ -3,6 +3,12 @@
 
   const powerCosts = WIS.Core.Config.costs.power;
   const immortalCosts = WIS.Core.Config.costs.immortal;
+  const achievementAutomationConfigs = Object.freeze({
+    infantSpirit: Object.freeze({ stateKey: "immortalAbilityAutomationEnabled", label: "仙道能力自动升级" }),
+    bodyIntegration: Object.freeze({ stateKey: "immortalRealmAutomationEnabled", label: "仙道境界自动突破" }),
+    scale6: Object.freeze({ stateKey: "scaleUpgradeAutomationEnabled", label: "强化自动升级" }),
+    trueScale7: Object.freeze({ stateKey: "scaleActionAutomationEnabled", label: "健身与打岩自动升级" })
+  });
 
   WIS.UI.byId = (id) => document.getElementById(id);
   WIS.UI.setPurchased = (row, button, purchased, purchasedLabel, availableLabel) => {
@@ -51,13 +57,31 @@
   }
 
   function renderAchievementCards(container, definitions) {
-    container.innerHTML = definitions.map((achievement) => `
-      <article class="item-row achievement" id="achievement-${achievement.key}">
-        <div class="achievement-state">未达成</div>
-        <div class="item-content"><h2>${achievement.name}</h2><p>${achievement.description}</p></div>
-        <strong>${achievement.reward}</strong>
-      </article>
-    `).join("");
+    container.innerHTML = definitions.map((achievement) => {
+      const automation = achievementAutomationConfigs[achievement.key];
+      const automationControl = automation ? `
+          <div class="achievement-automation" hidden>
+            <small>${automation.label}</small>
+            <button
+              class="secondary-button"
+              type="button"
+              data-achievement-automation="${automation.stateKey}"
+              data-achievement-key="${achievement.key}"
+              data-automation-label="${automation.label}"
+              aria-pressed="true"
+            >自动化：开启</button>
+          </div>` : "";
+      return `
+        <article class="item-row achievement" id="achievement-${achievement.key}">
+          <div class="achievement-state">未达成</div>
+          <div class="item-content"><h2>${achievement.name}</h2><p>${achievement.description}</p></div>
+          <div class="achievement-reward">
+            <strong>${achievement.reward}</strong>
+            ${automationControl}
+          </div>
+        </article>
+      `;
+    }).join("");
   }
 
   function renderUpgradeCards(container, definitions) {
@@ -102,6 +126,15 @@
       { id: "brain-domain-development", name: "脑域开发", description: "根据当前战力提高鬼脑来源指数，最高1.30。", previewId: "brain-domain-development-preview", preview: "解锁后：鬼脑来源指数随战力提高", cost: powerCosts.brainDomainDevelopment },
       { id: "continent-split", name: "大陆分裂", description: "打岩生效等级额外增加打岩实际等级的1.8次方。", previewId: "continent-split-preview", preview: "解锁后：打岩生效等级 + 打岩实际等级^1.8", cost: powerCosts.continentSplit },
       { id: "continent-collapse", name: "大陆崩溃", description: "根据当前战力提高打岩来源指数，最高1.50。", previewId: "continent-collapse-preview", preview: "解锁后：打岩来源指数随战力提高", cost: powerCosts.continentCollapse }
+    ]),
+    surface: Object.freeze([
+      { id: "wave-eye", name: "波动眼", description: "使杀气来源总指数额外 ×1.75。", previewId: "wave-eye-preview", preview: "解锁后：杀气来源指数 ×1.75", cost: powerCosts.waveEye },
+      { id: "elemental-awakening", name: "元素觉醒", description: "使元素化独立 J 来源 ^1.52。", previewId: "elemental-awakening-preview", preview: "解锁后：元素化来源 ^1.52", cost: powerCosts.elementalAwakening },
+      { id: "moonfall", name: "月落", description: "使打岩来源在来源指数之前 ×50。", previewId: "moonfall-preview", preview: "解锁后：打岩来源 ×50", cost: powerCosts.moonfall },
+      { id: "flow-state", name: "心流", description: "根据集中实际来源动态提高极意来源倍率，最高 ×1e7。", previewId: "flow-state-preview", preview: "解锁后：集中联动极意，最高 ×1e7", cost: powerCosts.flowState },
+      { id: "selfhood", name: "自我", description: "使极意来源额外 ^1.04。", previewId: "selfhood-preview", preview: "解锁后：极意来源 ^1.04", cost: powerCosts.selfhood },
+      { id: "freedom", name: "自在", description: "使极意来源再额外 ^1.03。", previewId: "freedom-preview", preview: "解锁后：极意来源 ^1.03", cost: powerCosts.freedom },
+      { id: "chicxulub-meteorite", name: "希克苏鲁伯陨石", description: "使战力区域获取倍率 ×10。", previewId: "chicxulub-meteorite-preview", preview: "解锁后：战力区域 ×10", cost: powerCosts.chicxulubMeteorite }
     ])
   });
 

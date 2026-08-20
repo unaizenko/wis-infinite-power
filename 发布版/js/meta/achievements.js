@@ -79,10 +79,10 @@
       { key: "aspireImmortality", name: "我欲成仙", description: "解锁炼气。", reward: "每个已解锁仙道境界使法力获取倍率 ×1.2", completed: completedAchievement("aspireImmortality", state.qiRefiningUnlocked) },
       { key: "daoFoundation", name: "道基", description: "解锁筑基。", reward: "解锁宝物烙印·仙道·天逆珠", completed: completedAchievement("daoFoundation", state.foundationUnlocked) },
       { key: "goldenCore", name: "一颗金丹吞入腹", description: "解锁结丹。", reward: "解锁宝物烙印·仙道·神秘绿瓶", completed: completedAchievement("goldenCore", state.goldenCoreUnlocked) },
-      { key: "infantSpirit", name: "婴灵", description: "突破元婴。", reward: "自动升级曾手动升级过的仙道能力", completed: completedAchievement("infantSpirit", state.advancedRealmLevel >= 1) },
+      { key: "infantSpirit", name: "婴灵", description: "突破元婴。", reward: "自动升级曾手动升级过的仙道能力（默认开启，可关闭）", completed: completedAchievement("infantSpirit", state.advancedRealmLevel >= 1) },
       { key: "humanRealmDominance", name: "人界纵横", description: "达到仙道·化神。", reward: "仙道宝物获取概率 ×2", completed: completedAchievement("humanRealmDominance", state.advancedRealmLevel >= 2) },
       { key: "refineTheVoid", name: "炼化虚空", description: "达到仙道·炼虚。", reward: "选择仙道并解锁法力后，获得 +1 法力/秒的独立基础来源", completed: completedAchievement("refineTheVoid", state.advancedRealmLevel >= 3) },
-      { key: "bodyIntegration", name: "合体", description: "达到仙道·合体。", reward: "自动突破曾手动突破过的仙道境界", completed: completedAchievement("bodyIntegration", state.advancedRealmLevel >= 4 || state.lifetimeHighestCultivationRealmLevel >= 7) },
+      { key: "bodyIntegration", name: "合体", description: "达到仙道·合体。", reward: "自动突破曾手动突破过的仙道境界（默认开启，可关闭）", completed: completedAchievement("bodyIntegration", state.advancedRealmLevel >= 4 || state.lifetimeHighestCultivationRealmLevel >= 7) },
       { key: "mahayana", name: "大乘", description: "达到仙道·大乘。", reward: "选择仙道后自动获得3次转世重修效果", completed: completedAchievement("mahayana", state.advancedRealmLevel >= 5 || state.lifetimeHighestCultivationRealmLevel >= 8) },
       { key: "threeDeficiencies", name: "三缺", description: "福、禄、寿三种挑战各完成1次。", reward: "非挑战转生类重置后获得1000 战力", completed: completedAchievement("threeDeficiencies", threeDeficienciesCompleted()) },
       { key: "fiveMisfortunesThreeDeficiencies", name: "五弊三缺", description: "福、禄、寿、五弊挑战全部完成3次。", reward: "纪念性成就", completed: completedAchievement("fiveMisfortunesThreeDeficiencies", allFortuneChallengesCompleted()) },
@@ -108,9 +108,13 @@
               : scaleIndex === 5
                 ? "解锁宝物烙印·健身房会员卡"
             : scaleIndex === 6
-              ? "自动升级曾手动升级过的强化"
+              ? "自动升级曾手动升级过的强化（默认开启，可关闭）"
             : scaleIndex === 7
               ? "打岩生效等级变为实际等级 ×1.2（向下取整）"
+            : scaleIndex === 8
+              ? "解锁永久宝物·超级棒棒糖"
+            : scaleIndex === 9
+              ? "解锁永久宝物·天晶"
               : "奖励：后续加入",
           completed: completedAchievement(`scale${scaleIndex}`, state.highestScaleIndex >= scaleIndex)
         },
@@ -129,7 +133,11 @@
             : scaleIndex === 6
               ? "打岩来源 ^1.06"
             : scaleIndex === 7
-              ? "自动升级行动（同消耗强化优先）"
+              ? "自动升级行动（默认开启，可关闭；同消耗强化优先）"
+            : scaleIndex === 8
+              ? "解锁挑战·完全境界"
+            : scaleIndex === 9
+              ? "解锁挑战·无月"
               : "奖励：后续加入",
           completed: completedAchievement(`trueScale${scaleIndex}`, state.maxSinglePowerGain >= scale.power)
         }

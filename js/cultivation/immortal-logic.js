@@ -40,6 +40,12 @@
   const MYSTIC_HEAVENLY_TREASURE_COSTS = IMMORTAL_COSTS.mysticHeavenlyTreasure;
   const NASCENT_SOUL_COMPLETION_COST = IMMORTAL_COSTS.nascentSoulCompletion;
   const SPIRIT_TRAVEL_VOID_COST = IMMORTAL_COSTS.spiritTravelVoid, GOLDEN_SEAL_SCRIPT_COST = IMMORTAL_COSTS.goldenSealScript;
+  const IMMORTAL_SPIRIT_POWER_COST = IMMORTAL_COSTS.immortalSpiritPower;
+  const UNDYING_PRIMORDIAL_SPIRIT_COST = IMMORTAL_COSTS.undyingPrimordialSpirit;
+  const IMMORTAL_APERTURE_BASE_COST = IMMORTAL_COSTS.immortalApertureBase;
+  const IMMORTAL_APERTURE_GROWTH = IMMORTAL_COSTS.immortalApertureGrowth;
+  const IMMORTAL_APERTURE_CAP = IMMORTAL_COSTS.immortalApertureCap;
+  const XUAN_IMMORTAL_BODY_COST = IMMORTAL_COSTS.xuanImmortalBody, LAW_COST = IMMORTAL_COSTS.law;
   const MINOR_TRIBULATION_BASE_TRIGGER_LOAD = CONFIG.minorTribulationBaseTriggerLoad;
   const LONGEVITY_800_COSTS = IMMORTAL_COSTS.longevity800;
   const MANA_LIQUEFACTION_COST = IMMORTAL_COSTS.manaLiquefaction;
@@ -51,9 +57,13 @@
   const TECHNIQUE_COST = IMMORTAL_COSTS.technique;
   const MAGIC_TREASURE_COST = IMMORTAL_COSTS.magicTreasure;
   const EXPLORATION_BASE_MANA = CONFIG.exploration.baseMana;
+  const EXPLORATION_MANA_SOFTCAP_THRESHOLD = CONFIG.exploration.manaSoftcapThreshold;
+  const EXPLORATION_MANA_SOFTCAP_EXPONENT = CONFIG.exploration.manaSoftcapExponent;
   const EXPLORATION_MINIMUM_POWER_COST = CONFIG.exploration.minimumPowerCost;
   const EXPLORATION_STANDARD_POWER_COST = CONFIG.exploration.standardPowerCost;
   const EXPLORATION_COST_EXPONENT_SCALE = CONFIG.exploration.costExponentScale;
+  const MAGIC_TREASURE_MANA_SOFTCAP_THRESHOLD = CONFIG.magicTreasure.manaSoftcapThreshold;
+  const MAGIC_TREASURE_LATE_MANA_EXPONENT = CONFIG.magicTreasure.lateManaExponent;
   const REINCARNATION_ROOTS = CONFIG.reincarnationRoots;
   const BREATHING_REALM_CONFIGS = CONFIG.breathingRealms;
   const SCATTER_RETAINED_UPGRADE_TIERS = CONFIG.scatterRetainedUpgradeTiers;
@@ -153,7 +163,8 @@
   }
 
   function manaJRawBonus() {
-    return state.qiRefiningUnlocked ? 10 * Math.pow(Math.max(0, state.mana), 0.8) : 0;
+    const exponent = state.immortalSpiritPowerUnlocked ? 0.83 : 0.8;
+    return state.qiRefiningUnlocked ? 10 * Math.pow(Math.max(0, state.mana), exponent) : 0;
   }
 
   function manaJBonus() {
@@ -166,12 +177,23 @@
   }
 
   function magicTreasurePotentialPowerBonus() {
-    return 10 * Math.pow(Math.max(0, state.mana), magicTreasureManaExponent()) *
+    return 10 * magicTreasureManaCurve() *
       WIS.Core.Effects.product("magicTreasure", "sourceMultiplier", state);
   }
 
   function magicTreasureManaExponent() {
     return state.natalMagicTreasureUnlocked ? 0.8 : 0.65;
+  }
+
+  function magicTreasureManaCurve(mana = state.mana) {
+    const currentMana = Math.max(0, Number(mana) || 0);
+    const earlyExponent = magicTreasureManaExponent();
+    if (currentMana <= MAGIC_TREASURE_MANA_SOFTCAP_THRESHOLD) {
+      return Math.pow(currentMana, earlyExponent);
+    }
+    const lateExponent = Math.min(earlyExponent, MAGIC_TREASURE_LATE_MANA_EXPONENT);
+    return Math.pow(MAGIC_TREASURE_MANA_SOFTCAP_THRESHOLD, earlyExponent) *
+      Math.pow(currentMana / MAGIC_TREASURE_MANA_SOFTCAP_THRESHOLD, lateExponent);
   }
 
   function materialControlMultiplier() {
@@ -193,7 +215,8 @@
     return immortalCultivationActive() && state.brahmaDemonArtUnlocked
       ? calculateSourceGain({
         base: Math.max(0, Number(fitnessSource) || 0) * 3,
-        multipliers: WIS.Core.Effects.values("brahmaDemonArt", "sourceMultiplier", state)
+        multipliers: WIS.Core.Effects.values("brahmaDemonArt", "sourceMultiplier", state),
+        exponents: WIS.Core.Effects.values("brahmaDemonArt", "sourceExponent", state)
       })
       : 0;
   }
@@ -232,19 +255,23 @@
 
   function minorTribulationPowerExponent() {
     if (!immortalCultivationActive()) return 1;
+    if (state.advancedRealmLevel >= 6) return 1;
     if (state.advancedRealmLevel < 2) return 1;
     return state.advancedRealmLevel >= 3 ? 0.99 : 0.995;
   }
 
   function minorTribulationExplorationBaseExponent(advancedRealmLevel = state.advancedRealmLevel) {
+    if (advancedRealmLevel >= 6) return 1;
     return advancedRealmLevel >= 3 ? 0.92 : advancedRealmLevel >= 2 ? 0.95 : 1;
   }
 
   function minorTribulationExplorationMinimumExponent(advancedRealmLevel = state.advancedRealmLevel) {
+    if (advancedRealmLevel >= 6) return 1;
     return advancedRealmLevel >= 3 ? 0.8 : 0.85;
   }
 
   function minorTribulationExplorationDecayCoefficient(advancedRealmLevel = state.advancedRealmLevel) {
+    if (advancedRealmLevel >= 6) return 0;
     return advancedRealmLevel >= 3 ? 0.022 : 0.02;
   }
 
@@ -253,7 +280,7 @@
     triggerExponent = minorTribulationExplorationBaseExponent(),
     advancedRealmLevel = state.advancedRealmLevel
   ) {
-    if (advancedRealmLevel < 2) return 1;
+    if (advancedRealmLevel < 2 || advancedRealmLevel >= 6) return 1;
     const baseExponent = minorTribulationExplorationBaseExponent(advancedRealmLevel);
     if (!triggered) return baseExponent;
     return Math.min(baseExponent, Math.max(
@@ -414,7 +441,26 @@
     return 1 / (1 + 1.5 * Math.pow(ratio, 4));
   }
 
+  function celestialDeclineActive() {
+    return immortalCultivationActive() && state.advancedRealmLevel === 6;
+  }
+
+  function celestialDeclineExponent(currentMana = state.mana, pressureGain = 0) {
+    if (!celestialDeclineActive()) return 1;
+    const requirement = nextRealmCost();
+    if (!(requirement > 0)) return 1;
+    const currentRatio = Math.max(0, Number(currentMana) || 0) / requirement;
+    const gainRatio = Math.max(0, Number(pressureGain) || 0) / requirement;
+    const progress = Math.min(1, Math.max(currentRatio, gainRatio));
+    return 1 - 0.16 * Math.sqrt(progress);
+  }
+
+  function applyCelestialDecline(gain, currentMana = state.mana, pressureGain = 0) {
+    return applyGainExponent(gain, celestialDeclineExponent(currentMana, pressureGain));
+  }
+
   function cultivationBottleneckManaMultiplier(currentMana = state.mana) {
+    if (celestialDeclineActive()) return 1;
     const requirement = nextRealmCost();
     return requirement > 0 ? bottleneckManaMultiplier(requirement, true, currentMana) : 1;
   }
@@ -527,8 +573,8 @@
     return fuBaoCount() * 0.002;
   }
 
-  function fuBaoExplorationManaBonus(powerCost) {
-    return explorationBaseMana(powerCost) * fuBaoManaRatio();
+  function fuBaoExplorationManaBonus(powerCost, explorationAmount = explorationAmountForCost(powerCost)) {
+    return EXPLORATION_BASE_MANA * explorationManaAmount(explorationAmount) * fuBaoManaRatio();
   }
 
   function formatProbability(probability) {
@@ -554,36 +600,145 @@
     return sourceGains.length > 0 ? finalManaGainFromSources(sourceGains) : 0;
   }
 
+  function automaticExplorationContext() {
+    const powerCost = explorationPowerCost();
+    if (!state.roamSpiritWorldUnlocked || !state.goldenCoreUnlocked || powerCost < EXPLORATION_MINIMUM_POWER_COST) return null;
+    const fullExplorationAmount = explorationAmountForCost(powerCost);
+    const explorationAmountPerSecond = fullExplorationAmount * 0.0005;
+    return explorationAmountPerSecond > 0
+      ? { powerCost, fullExplorationAmount, explorationAmountPerSecond }
+      : null;
+  }
+
   function automaticExplorationAmountPerSecond() {
-    if (!state.roamSpiritWorldUnlocked || !state.goldenCoreUnlocked || explorationPowerCost() < EXPLORATION_MINIMUM_POWER_COST) return 0;
-    return explorationAmountForCost(explorationPowerCost()) * 0.0005;
+    return automaticExplorationContext()?.explorationAmountPerSecond || 0;
+  }
+
+  function integratePowerCurve(start, end, exponent) {
+    if (!(end > start)) return 0;
+    if (Math.abs(exponent - 1) < 1e-10) return Math.log(end / start);
+    return (Math.pow(end, 1 - exponent) - Math.pow(start, 1 - exponent)) / (1 - exponent);
+  }
+
+  function integrateAutomaticExplorationManaByLoad(preTribulationMana, fullExplorationAmount, startLoad, endLoad) {
+    if (!(endLoad > startLoad) || !(preTribulationMana > 0)) return 0;
+    const triggerLoad = minorTribulationTriggerLoad();
+    const baseExponent = minorTribulationExplorationBaseExponent();
+    const minimumExponent = minorTribulationExplorationMinimumExponent();
+    const decayCoefficient = minorTribulationExplorationDecayCoefficient();
+    const triggerBoundary = Math.max(0, Math.min(triggerLoad, triggerLoad - fullExplorationAmount));
+    const minimumBoundary = Math.max(triggerBoundary, Math.min(
+      triggerLoad,
+      triggerLoad * (Math.pow(10, (baseExponent - minimumExponent) / decayCoefficient) - 1)
+        - fullExplorationAmount
+    ));
+    let integratedMana = 0;
+
+    const untriggeredEnd = Math.min(endLoad, triggerBoundary);
+    if (untriggeredEnd > startLoad) {
+      integratedMana += Math.pow(preTribulationMana, baseExponent) * (untriggeredEnd - startLoad);
+    }
+
+    const dynamicStart = Math.max(startLoad, triggerBoundary);
+    const dynamicEnd = Math.min(endLoad, minimumBoundary);
+    if (dynamicEnd > dynamicStart) {
+      const curveExponent = decayCoefficient * Math.log10(preTribulationMana);
+      const curveStart = 1 + (dynamicStart + fullExplorationAmount) / triggerLoad;
+      const curveEnd = 1 + (dynamicEnd + fullExplorationAmount) / triggerLoad;
+      integratedMana += Math.pow(preTribulationMana, baseExponent) * triggerLoad *
+        integratePowerCurve(curveStart, curveEnd, curveExponent);
+    }
+
+    const minimumStart = Math.max(startLoad, minimumBoundary);
+    if (endLoad > minimumStart) {
+      integratedMana += Math.pow(preTribulationMana, minimumExponent) * (endLoad - minimumStart);
+    }
+    return integratedMana;
+  }
+
+  function integratedAutomaticExplorationMana(preTribulationMana, fullExplorationAmount, elapsedSeconds) {
+    const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
+    if (!(elapsed > 0) || !(fullExplorationAmount > 0) || !(preTribulationMana > 0)) return 0;
+    if (state.advancedRealmLevel < 2 || state.advancedRealmLevel >= 6) return preTribulationMana * 0.0005 * elapsed;
+
+    const triggerLoad = minorTribulationTriggerLoad();
+    const explorationLoad = fullExplorationAmount * 0.0005 * elapsed;
+    if (!Number.isFinite(triggerLoad) || !(triggerLoad > 0) ||
+        !Number.isFinite(fullExplorationAmount) || !Number.isFinite(explorationLoad) ||
+        !Number.isFinite(preTribulationMana)) {
+      const preview = minorTribulationPreviewForExploration(fullExplorationAmount);
+      return explorationPotentialManaGain(
+        explorationPowerCost(),
+        state.mana,
+        preview.manaExponent,
+        fullExplorationAmount
+      ) * 0.0005 * elapsed;
+    }
+
+    const startLoad = Math.max(0, state.minorTribulationExplorationLoad) % triggerLoad;
+    let remainingLoad = explorationLoad;
+    let integratedByLoad = 0;
+    const firstCycleLoad = Math.min(remainingLoad, triggerLoad - startLoad);
+    integratedByLoad += integrateAutomaticExplorationManaByLoad(
+      preTribulationMana,
+      fullExplorationAmount,
+      startLoad,
+      startLoad + firstCycleLoad
+    );
+    remainingLoad -= firstCycleLoad;
+
+    if (remainingLoad > 0) {
+      const fullCycles = Math.floor(remainingLoad / triggerLoad);
+      if (fullCycles > 0) {
+        integratedByLoad += fullCycles * integrateAutomaticExplorationManaByLoad(
+          preTribulationMana,
+          fullExplorationAmount,
+          0,
+          triggerLoad
+        );
+        remainingLoad -= fullCycles * triggerLoad;
+      }
+      if (remainingLoad > 0) {
+        integratedByLoad += integrateAutomaticExplorationManaByLoad(
+          preTribulationMana,
+          fullExplorationAmount,
+          0,
+          remainingLoad
+        );
+      }
+    }
+    return integratedByLoad / fullExplorationAmount;
   }
 
   function automaticExplorationManaGain(elapsedSeconds = 1) {
     const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
-    const fullExplorationAmount = explorationAmountForCost(explorationPowerCost());
-    const explorationAmount = automaticExplorationAmountPerSecond() * elapsed;
-    if (!(explorationAmount > 0)) return { mana: 0, explorationAmount: 0, rewards: null, tribulationTriggered: false };
-    const fullExplorationPreview = minorTribulationPreviewForExploration(fullExplorationAmount);
-    const fullExplorationMana = explorationPotentialManaGain(
-      explorationPowerCost(),
+    if (!(elapsed > 0)) return { mana: 0, explorationAmount: 0, rewards: null, tribulationTriggered: false };
+    const context = automaticExplorationContext();
+    if (!context) return { mana: 0, explorationAmount: 0, rewards: null, tribulationTriggered: false };
+    const { powerCost, fullExplorationAmount, explorationAmountPerSecond } = context;
+    const explorationAmount = explorationAmountPerSecond * elapsed;
+    const preTribulationMana = explorationPotentialManaGain(
+      powerCost,
       state.mana,
-      fullExplorationPreview.manaExponent
+      1,
+      fullExplorationAmount
     );
-    const mana = fullExplorationMana * 0.0005 * elapsed;
+    const mana = integratedAutomaticExplorationMana(preTribulationMana, fullExplorationAmount, elapsed);
     const rewards = processExplorationJudgements(addExplorationProgress(explorationAmount));
     const tribulationTriggered = registerSuccessfulExploration(explorationAmount);
     return { mana, explorationAmount, rewards, tribulationTriggered };
   }
 
   function automaticExplorationManaPerSecond() {
-    const fullExplorationAmount = explorationAmountForCost(explorationPowerCost());
-    if (!(automaticExplorationAmountPerSecond() > 0)) return 0;
+    const context = automaticExplorationContext();
+    if (!context) return 0;
+    const { powerCost, fullExplorationAmount } = context;
     const fullExplorationPreview = minorTribulationPreviewForExploration(fullExplorationAmount);
     return explorationPotentialManaGain(
-      explorationPowerCost(),
+      powerCost,
       state.mana,
-      fullExplorationPreview.manaExponent
+      fullExplorationPreview.manaExponent,
+      fullExplorationAmount
     ) * 0.0005;
   }
 
@@ -616,24 +771,33 @@
     const powerCost = explorationPowerCost();
     const explorationAmount = explorationAmountForCost(powerCost);
     const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
-    return explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent);
+    return explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
   }
 
   function explorationPotentialManaGain(
     powerCost = explorationPowerCost(),
     currentMana = state.mana,
-    tribulationExponent = minorTribulationExplorationManaExponent()
+    tribulationExponent = minorTribulationExplorationManaExponent(),
+    explorationAmount = explorationAmountForCost(powerCost),
+    activeExploration = false
   ) {
     if (!immortalCultivationActive() || !state.goldenCoreUnlocked) return 0;
+    const manaExplorationAmount = explorationManaAmount(explorationAmount);
+    const baseExplorationMana = EXPLORATION_BASE_MANA * manaExplorationAmount;
     const explorationSource = calculateSourceGain({
-      base: explorationBaseMana(powerCost),
+      base: baseExplorationMana,
       multipliers: WIS.Core.Effects.values("exploration", "sourceMultiplier", state)
     });
-    const fuBaoSource = calculateSourceGain({ base: fuBaoExplorationManaBonus(powerCost) });
-    const finalGain = finalManaGainFromSources([explorationSource, fuBaoSource], currentMana)
+    const fuBaoSource = calculateSourceGain({ base: baseExplorationMana * fuBaoManaRatio() });
+    const finalGain = finalManaGainFromSources([explorationSource, fuBaoSource], currentMana, [], false)
       * WIS.Core.Effects.product("exploration", "regionMultiplier", state);
     const silverTadpoleScriptGain = applyGainExponent(finalGain, WIS.Core.Effects.product("exploration", "sourceExponent", state));
-    return applyGainExponent(silverTadpoleScriptGain, tribulationExponent);
+    const tribulationGain = applyGainExponent(silverTadpoleScriptGain, tribulationExponent);
+    return applyCelestialDecline(
+      tribulationGain,
+      currentMana,
+      activeExploration ? tribulationGain : 0
+    );
   }
 
   function silverTadpoleScriptExplorationExponent() {
@@ -651,10 +815,11 @@
     return WIS.Core.Effects.value("spiritWorldAscension", state);
   }
 
-  function finalManaGainFromSources(sourceGains, currentMana = state.mana, additionalMultipliers = []) {
-    return calculateRegionGain(sourceGains, {
+  function finalManaGainFromSources(sourceGains, currentMana = state.mana, additionalMultipliers = [], applyDecline = true) {
+    const gain = calculateRegionGain(sourceGains, {
       multipliers: [manaGainMultiplier(currentMana), ...additionalMultipliers]
     });
+    return applyDecline ? applyCelestialDecline(gain, currentMana) : gain;
   }
 
   function flyingEscapeMultiplier() {
@@ -691,12 +856,19 @@
     return rawExplorationAmountForCost(powerCost) * WIS.Core.Effects.product("explorationAmount", "sourceMultiplier", state);
   }
 
+  function explorationManaAmount(explorationAmount) {
+    const amount = Math.max(0, Number(explorationAmount) || 0);
+    if (amount <= EXPLORATION_MANA_SOFTCAP_THRESHOLD) return amount;
+    return EXPLORATION_MANA_SOFTCAP_THRESHOLD *
+      Math.pow(amount / EXPLORATION_MANA_SOFTCAP_THRESHOLD, EXPLORATION_MANA_SOFTCAP_EXPONENT);
+  }
+
   function divineSenseMultiplier() {
     return WIS.Core.Effects.value("divineSense", state);
   }
 
   function explorationBaseMana(powerCost = explorationPowerCost()) {
-    return EXPLORATION_BASE_MANA * explorationAmountForCost(powerCost);
+    return EXPLORATION_BASE_MANA * explorationManaAmount(explorationAmountForCost(powerCost));
   }
 
   function rollMysteriousGreenBottleAttempts(attempts) {
@@ -855,6 +1027,13 @@
     return MYSTIC_HEAVENLY_TREASURE_COSTS[state.mysticHeavenlyTreasureLevel] ?? 0;
   }
 
+  function immortalApertureCost(level = state.immortalApertureLevel) {
+    const safeLevel = Math.max(0, Math.min(IMMORTAL_APERTURE_CAP, Math.floor(Number(level) || 0)));
+    return safeLevel >= IMMORTAL_APERTURE_CAP
+      ? 0
+      : IMMORTAL_APERTURE_BASE_COST * Math.pow(IMMORTAL_APERTURE_GROWTH, safeLevel);
+  }
+
   function manualImmortalAbilityHistory() {
     return state.cultivation.systems.immortal.history.manualAbilities;
   }
@@ -884,7 +1063,7 @@
   }
 
   function autoUpgradeImmortalAbilities() {
-    if (!hasAchievement("infantSpirit") || state.cultivation.active !== "immortal") return 0;
+    if (!state.immortalAbilityAutomationEnabled || !hasAchievement("infantSpirit") || state.cultivation.active !== "immortal") return 0;
     const candidates = [
       { historyKey: "qiSpellLevel", cost: qiSpellCost, available: () => state.qiRefiningUnlocked && state.qiSpellLevel < 3, apply: () => { state.qiSpellLevel += 1; } },
       { historyKey: "immortalLifeUnlocked", cost: () => IMMORTAL_LIFE_COST, available: () => state.qiRefiningUnlocked && !state.immortalLifeUnlocked, apply: () => { state.immortalLifeUnlocked = true; } },
@@ -930,7 +1109,12 @@
       { historyKey: "mysticHeavenlyTreasureLevel", cost: mysticHeavenlyTreasureCost, available: () => state.advancedRealmLevel >= 5 && state.mysticHeavenlyTreasureLevel < 3, apply: () => { state.mysticHeavenlyTreasureLevel += 1; } },
       { historyKey: "nascentSoulCompletionUnlocked", cost: () => NASCENT_SOUL_COMPLETION_COST, available: () => state.advancedRealmLevel >= 5 && !state.nascentSoulCompletionUnlocked, apply: () => { state.nascentSoulCompletionUnlocked = true; } },
       { historyKey: "spiritTravelVoidUnlocked", cost: () => SPIRIT_TRAVEL_VOID_COST, available: () => state.advancedRealmLevel >= 5 && !state.spiritTravelVoidUnlocked, apply: () => { state.spiritTravelVoidUnlocked = true; } },
-      { historyKey: "goldenSealScriptUnlocked", cost: () => GOLDEN_SEAL_SCRIPT_COST, available: () => state.advancedRealmLevel >= 5 && !state.goldenSealScriptUnlocked, apply: () => { state.goldenSealScriptUnlocked = true; } }
+      { historyKey: "goldenSealScriptUnlocked", cost: () => GOLDEN_SEAL_SCRIPT_COST, available: () => state.advancedRealmLevel >= 5 && !state.goldenSealScriptUnlocked, apply: () => { state.goldenSealScriptUnlocked = true; } },
+      { historyKey: "immortalSpiritPowerUnlocked", cost: () => IMMORTAL_SPIRIT_POWER_COST, available: () => state.advancedRealmLevel >= 6 && !state.immortalSpiritPowerUnlocked, apply: () => { state.immortalSpiritPowerUnlocked = true; } },
+      { historyKey: "undyingPrimordialSpiritUnlocked", cost: () => UNDYING_PRIMORDIAL_SPIRIT_COST, available: () => state.advancedRealmLevel >= 6 && !state.undyingPrimordialSpiritUnlocked, apply: () => { state.undyingPrimordialSpiritUnlocked = true; } },
+      { historyKey: "immortalApertureLevel", cost: immortalApertureCost, available: () => state.advancedRealmLevel >= 6 && state.immortalApertureLevel < IMMORTAL_APERTURE_CAP, apply: () => { state.immortalApertureLevel += 1; } },
+      { historyKey: "xuanImmortalBodyUnlocked", cost: () => XUAN_IMMORTAL_BODY_COST, available: () => state.advancedRealmLevel >= 6 && !state.xuanImmortalBodyUnlocked, apply: () => { state.xuanImmortalBodyUnlocked = true; } },
+      { historyKey: "lawUnlocked", cost: () => LAW_COST, available: () => state.advancedRealmLevel >= 6 && !state.lawUnlocked, apply: () => { state.lawUnlocked = true; } }
     ];
     candidates.forEach((candidate) => {
       const available = candidate.available;
@@ -938,13 +1122,13 @@
     });
     // 散功重修与转世重修会重置进度并要求确认，永远不进入自动升级候选。
     let purchases = 0;
-    const maximumPurchases = candidates.length + QI_SPELL_COSTS.length + FOUNDATION_SPELL_COSTS.length + LONGEVITY_COSTS.length + GOLDEN_CORE_LONGEVITY_COSTS.length + LONGEVITY_800_COSTS.length + HEAVENLY_TREASURE_COSTS.length + TRUE_SPIRIT_TRANSFORMATION_COSTS.length + MYSTIC_HEAVENLY_TREASURE_COSTS.length;
+    const maximumPurchases = candidates.length + QI_SPELL_COSTS.length + FOUNDATION_SPELL_COSTS.length + LONGEVITY_COSTS.length + GOLDEN_CORE_LONGEVITY_COSTS.length + LONGEVITY_800_COSTS.length + HEAVENLY_TREASURE_COSTS.length + TRUE_SPIRIT_TRANSFORMATION_COSTS.length + MYSTIC_HEAVENLY_TREASURE_COSTS.length + IMMORTAL_APERTURE_CAP;
     while (purchases < maximumPurchases && purchaseCheapestAvailable(candidates, "mana")) purchases += 1;
     return purchases;
   }
 
   function autoBreakthroughImmortalRealms() {
-    if (!hasAchievement("bodyIntegration") || state.cultivation.active !== "immortal") return 0;
+    if (!state.immortalRealmAutomationEnabled || !hasAchievement("bodyIntegration") || state.cultivation.active !== "immortal") return 0;
     const candidates = [
       { resourceKey: "power", cost: () => QI_REFINING_COST, available: () => !state.qiRefiningUnlocked, apply: () => { state.qiRefiningUnlocked = true; } },
       { resourceKey: "mana", cost: foundationCost, available: () => state.qiRefiningUnlocked && !state.foundationUnlocked, apply: () => { state.foundationUnlocked = true; } },
@@ -955,6 +1139,7 @@
         available: () => state.goldenCoreUnlocked && state.advancedRealmLevel === index,
         apply: () => {
           state.advancedRealmLevel = index + 1;
+          if (index === 5) state.minorTribulationExplorationLoad = 0;
           if (index === 0) {
             state.reincarnationManaJRewardLevel = Math.max(
               state.reincarnationManaJRewardLevel,
@@ -1035,7 +1220,7 @@
 
   function minorTribulationPreviewForExploration(explorationAmount) {
     const currentManaExponent = minorTribulationExplorationManaExponent();
-    if (state.advancedRealmLevel < 2) {
+    if (state.advancedRealmLevel < 2 || state.advancedRealmLevel >= 6) {
       return { triggered: false, nextLoad: 0, remainingLoad: 0, loadFactor: 0, manaExponent: currentManaExponent };
     }
     const nextLoad = state.minorTribulationExplorationLoad + Math.max(0, Number(explorationAmount) || 0);
@@ -1049,25 +1234,28 @@
       minorTribulationExplorationBaseExponent()
         - minorTribulationExplorationDecayCoefficient() * Math.log10(1 + loadFactor)
     );
+    const rawRemainingLoad = nextLoad % triggerLoad;
+    const remainingLoad = rawRemainingLoad < triggerLoad * 1e-12 ||
+      triggerLoad - rawRemainingLoad < triggerLoad * 1e-12
+      ? 0
+      : rawRemainingLoad;
     return {
       triggered: true,
       nextLoad,
-      remainingLoad: nextLoad % triggerLoad,
+      remainingLoad,
       loadFactor,
       manaExponent: minorTribulationExplorationManaExponent(true, calculatedInitialExponent)
     };
   }
 
   function registerSuccessfulExploration(explorationAmount, preview = null) {
-    if (state.advancedRealmLevel < 2) return false;
+    if (state.advancedRealmLevel < 2 || state.advancedRealmLevel >= 6) {
+      state.minorTribulationExplorationLoad = 0;
+      return false;
+    }
     const triggerPreview = preview || minorTribulationPreviewForExploration(explorationAmount);
     state.minorTribulationExplorationLoad = triggerPreview.remainingLoad;
-    state.minorTribulationRecoveryRemaining = 0;
-    state.minorTribulationTriggered = false;
-    if (!triggerPreview.triggered) return false;
-    state.minorTribulationLastLoadFactor = triggerPreview.loadFactor;
-    state.minorTribulationInitialManaExponent = triggerPreview.manaExponent;
-    return true;
+    return triggerPreview.triggered;
   }
 
   function unlockFoundation() {
@@ -1098,6 +1286,7 @@
     const previousAchievements = achievementStates();
     WIS.Core.Resources.spendSystem("immortal", "mana", cost);
     state.advancedRealmLevel = index + 1;
+    if (index === 5) state.minorTribulationExplorationLoad = 0;
     if (index === 0) {
       state.reincarnationManaJRewardLevel = Math.max(
         state.reincarnationManaJRewardLevel,
@@ -1282,6 +1471,23 @@
     render();
   }
 
+  function unlockTrueImmortalAbility(stateKey, cost) {
+    if (state.advancedRealmLevel < 6 || state[stateKey] || state.mana < cost) return;
+    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    state[stateKey] = true;
+    saveState();
+    render();
+  }
+
+  function buyImmortalAperture() {
+    const cost = immortalApertureCost();
+    if (state.advancedRealmLevel < 6 || state.immortalApertureLevel >= IMMORTAL_APERTURE_CAP || state.mana < cost) return;
+    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    state.immortalApertureLevel += 1;
+    saveState();
+    render();
+  }
+
   function buyHeavenlyTreasure() {
     const cost = heavenlyTreasureCost();
     if (state.advancedRealmLevel < 2 || state.heavenlyTreasureLevel >= 3 || state.mana < cost) return;
@@ -1324,7 +1530,7 @@
     if (!state.goldenCoreUnlocked || powerCost < EXPLORATION_MINIMUM_POWER_COST) return;
     const explorationAmount = explorationAmountForCost(powerCost);
     const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
-    const gained = explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent);
+    const gained = explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
     if (gained < 1) return;
     const previousAchievements = achievementStates();
     WIS.Core.Resources.spend("power", powerCost);
@@ -1484,14 +1690,21 @@
     mysticHeavenlyTreasure: buyMysticHeavenlyTreasure,
     nascentSoulCompletion: () => unlockMahayanaAbility("nascentSoulCompletionUnlocked", NASCENT_SOUL_COMPLETION_COST),
     spiritTravelVoid: () => unlockMahayanaAbility("spiritTravelVoidUnlocked", SPIRIT_TRAVEL_VOID_COST),
-    goldenSealScript: () => unlockMahayanaAbility("goldenSealScriptUnlocked", GOLDEN_SEAL_SCRIPT_COST)
+    goldenSealScript: () => unlockMahayanaAbility("goldenSealScriptUnlocked", GOLDEN_SEAL_SCRIPT_COST),
+    immortalSpiritPower: () => unlockTrueImmortalAbility("immortalSpiritPowerUnlocked", IMMORTAL_SPIRIT_POWER_COST),
+    undyingPrimordialSpirit: () => unlockTrueImmortalAbility("undyingPrimordialSpiritUnlocked", UNDYING_PRIMORDIAL_SPIRIT_COST),
+    immortalAperture: buyImmortalAperture,
+    xuanImmortalBody: () => unlockTrueImmortalAbility("xuanImmortalBodyUnlocked", XUAN_IMMORTAL_BODY_COST),
+    law: () => unlockTrueImmortalAbility("lawUnlocked", LAW_COST)
   });
   function performAction(id, ...args) { const name = actions[id]; return name ? api[name](...args) : false; }
   function buyAbility(id, ...args) { const ability = abilities[id]; return ability ? ability(...args) : false; }
   function getActionIds() { return Object.keys(actions).filter((id) => id !== "choose"); }
   function getAbilityIds() { return Object.keys(abilities); }
   const api = Object.freeze({
-    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, baseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
+    celestialDeclineActive, celestialDeclineExponent, applyCelestialDecline,
+    immortalApertureCost, unlockTrueImmortalAbility, buyImmortalAperture,
+    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, baseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
     unlockBodyIntegrationAbility, unlockMahayanaAbility, scatterAndRebuild, reincarnate,
     getManaPerSecond: automaticManaPerSecond,
     autoUpgrade: autoUpgradeImmortalAbilities,

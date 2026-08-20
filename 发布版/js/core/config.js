@@ -19,6 +19,9 @@
       elementalization: 2e23, killingIntentPerception: 4e23, killingIntentWave: 8e23,
       ultimateIntent: 1.5e24, brainDomainDevelopment: 3e24, continentSplit: 5e24,
       continentCollapse: 8e24,
+      waveEye: 5e25, elementalAwakening: 1.5e26, moonfall: 5e26,
+      flowState: 2e27, selfhood: 8e27, freedom: 3e28,
+      chicxulubMeteorite: 1e29,
       rockBase: 2000
     }),
     immortal: Object.freeze({
@@ -42,7 +45,10 @@
       roamSpiritWorld: 5e19, descendRealm: 8e19,
       mysticHeavenlyTreasure: Object.freeze([1e20, 2e20, 4e20]),
       nascentSoulCompletion: 1.5e20, spiritTravelVoid: 2.5e20,
-      goldenSealScript: 5e20
+      goldenSealScript: 5e20,
+      immortalSpiritPower: 4e22, undyingPrimordialSpirit: 6e22,
+      immortalApertureBase: 6e20, immortalApertureGrowth: 1.14,
+      immortalApertureCap: 36, xuanImmortalBody: 1e23, law: 1.8e23
     })
   });
 
@@ -78,10 +84,12 @@
   ].map(([name, threshold, strength, growth, removedAtRealm, removedBy]) => Object.freeze({ name, threshold, strength, growth, removedAtRealm, removedBy })));
 
   const challenges = Object.freeze({
-    innateDeficiency: Object.freeze({ name: "福", maxCompletions: 3, limitExponents: [0.85, 0.7, 0.55], rewardExponents: [1.05, 1.1, 1.2], requiredScaleIndex: 2, resourceName: "J", rewardSourceName: "健身" }),
-    powerless: Object.freeze({ name: "禄", maxCompletions: 3, limitExponents: [0.85, 0.72, 0.6], rewardExponents: [1.05, 1.1, 1.15], requiredScaleIndex: 3, resourceName: "战力", rewardSourceName: "锻炼" }),
-    longevity: Object.freeze({ name: "寿", maxCompletions: 3, limitExponents: [0.8, 0.75, 0.69], rewardMultipliers: [10, 100, 1000], requiredScaleIndex: 4, resourceName: "J与战力", timeToLimitSeconds: 2700, unlockAchievementKey: "trueScale4" }),
-    fiveMisfortunes: Object.freeze({ name: "五弊", maxCompletions: 3, rewardExponents: [1.1, 1.2, 1.5], requiredScaleIndices: [3, 4, 5], resourceName: "选择体系前的J与战力", unlockAchievementKey: "trueScale5" })
+    innateDeficiency: Object.freeze({ name: "福", maxCompletions: 3, limitExponents: [0.85, 0.7, 0.55], rewardExponents: [1.05, 1.08, 1.15], requiredScaleIndices: [2, 3, 4], resourceName: "J", rewardSourceName: "健身" }),
+    powerless: Object.freeze({ name: "禄", maxCompletions: 3, limitExponents: [0.85, 0.72, 0.6], rewardExponents: [1.05, 1.08, 1.12], requiredScaleIndices: [3, 4, 5], resourceName: "战力", rewardSourceName: "锻炼" }),
+    longevity: Object.freeze({ name: "寿", maxCompletions: 3, limitExponents: [0.8, 0.75, 0.69], rewardMultipliers: [10, 25, 100], requiredScaleIndices: [4, 5, 6], resourceName: "J与战力", timeToLimitSeconds: 600, unlockAchievementKey: "trueScale4" }),
+    fiveMisfortunes: Object.freeze({ name: "五弊", maxCompletions: 3, rewardExponents: [1.1, 1.2, 1.5], requiredScaleIndices: [3, 4, 5], resourceName: "选择体系前的J与战力", unlockAchievementKey: "trueScale5" }),
+    completeRealm: Object.freeze({ name: "完全境界", maxCompletions: 3, sourceMultipliers: [0.2, 0.1, 0.01], rewardExponents: [1.1, 1.15, 1.2], requiredScaleIndex: 9, resourceName: "非极意战力来源", rewardSourceName: "极意", unlockAchievementKey: "trueScale8" }),
+    moonless: Object.freeze({ name: "无月", maxCompletions: 3, sourceMultipliers: [0.2, 0.1, 0.01], rewardExponents: [1.05, 1.08, 1.15], requiredScaleIndex: 9, resourceName: "非打岩战力来源", rewardSourceName: "打岩", unlockAchievementKey: "trueScale9" })
   });
 
   const scatterRetainedUpgradeTiers = Object.freeze(["", "普通人", "爆砖及之前", "爆墙及之前"]);
@@ -103,11 +111,15 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.3.11", saveVersion: 39,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.3.12", saveVersion: 40,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
-    exploration: Object.freeze({ baseMana: 50, minimumPowerCost: 1e6, standardPowerCost: 1e7, costExponentScale: 0.08 }),
+    exploration: Object.freeze({
+      baseMana: 50, minimumPowerCost: 1e6, standardPowerCost: 1e7, costExponentScale: 0.08,
+      manaSoftcapThreshold: 1e14, manaSoftcapExponent: 0.15
+    }),
+    magicTreasure: Object.freeze({ manaSoftcapThreshold: 1e24, lateManaExponent: 0.72 }),
     training: Object.freeze({ decayScale: 1e6, decayLogDivisor: 9, decayPower: 3 })
   });
 }(window.WIS));

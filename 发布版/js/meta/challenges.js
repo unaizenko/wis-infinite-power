@@ -29,7 +29,9 @@
       { id: "longevityPowerLimit", name: "寿", group: "挑战", target: "power", layer: "regionExponent", value: activeLimit(state, "longevity") },
       { id: "fivePowerReward", name: "五弊奖励", group: "挑战", target: "power", layer: "regionExponent", value: fiveReward },
       { id: "fortuneFitnessReward", name: "福奖励", group: "挑战", target: "fitness", layer: "sourceExponent", value: reward(state, "innateDeficiency", "rewardExponents") },
-      { id: "powerlessTrainingReward", name: "禄奖励", group: "挑战", target: "training", layer: "sourceExponent", value: reward(state, "powerless", "rewardExponents") }
+      { id: "powerlessTrainingReward", name: "禄奖励", group: "挑战", target: "training", layer: "sourceExponent", value: reward(state, "powerless", "rewardExponents") },
+      { id: "completeRealmUltimateReward", name: "完全境界奖励", group: "挑战", target: "ultimateIntent", layer: "sourceExponent", value: reward(state, "completeRealm", "rewardExponents") },
+      { id: "moonlessRockReward", name: "无月奖励", group: "挑战", target: "rock", layer: "sourceExponent", value: reward(state, "moonless", "rewardExponents") }
     ];
   }
   WIS.Core.Effects.register("challenges", effects);

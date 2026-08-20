@@ -53,7 +53,9 @@
     "lifetimeHighestJ", "lifetimeHighestPower", "lifetimeHighestScaleIndex", "lifetimeTotalJ",
     "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana", "lifetimeHighestCultivationRealmLevel",
     "immortalSelectionCount", "totalElapsedSeconds", "unlockedAchievements", "symbolicPowerMilestones",
-    "treasureImprints", "challengeCompletions", "hideUnlockedAchievements", "theme"
+    "treasureImprints", "challengeCompletions", "hideUnlockedAchievements",
+    "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
+    "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "theme"
   ]);
 
   register("scatter", {
@@ -72,10 +74,11 @@
       "mountainShatterPurchased", "bioenergyPurchased", "elementalizationPurchased",
       "killingIntentPerceptionPurchased", "killingIntentWavePurchased", "ultimateIntentPurchased",
       "brainDomainDevelopmentPurchased", "continentSplitPurchased", "continentCollapsePurchased",
+      "waveEyePurchased", "elementalAwakeningPurchased", "moonfallPurchased", "flowStatePurchased",
+      "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
       "ghostBackActive", "mana",
       "explorationProgress", "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
-      "minorTribulationExplorationLoad", "minorTribulationRecoveryRemaining", "minorTribulationTriggered",
-      "minorTribulationInitialManaExponent", "minorTribulationLastLoadFactor",
+      "minorTribulationExplorationLoad",
       ...(nextScatterLevel < 2 ? ["transcendentPurchased", "focusPurchased", "breathingMethodPurchased", "extremeExercisePurchased"] : []),
       ...(nextScatterLevel < 3 ? ["waterPurchased", "ghostBrainPurchased", "naturalStrengthPurchased", "mentalPowerPurchased", "lifePowerPurchased"] : [])
     ]
