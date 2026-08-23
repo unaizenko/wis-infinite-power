@@ -40,12 +40,17 @@
   const MYSTIC_HEAVENLY_TREASURE_COSTS = IMMORTAL_COSTS.mysticHeavenlyTreasure;
   const NASCENT_SOUL_COMPLETION_COST = IMMORTAL_COSTS.nascentSoulCompletion;
   const SPIRIT_TRAVEL_VOID_COST = IMMORTAL_COSTS.spiritTravelVoid, GOLDEN_SEAL_SCRIPT_COST = IMMORTAL_COSTS.goldenSealScript;
-  const IMMORTAL_SPIRIT_POWER_COST = IMMORTAL_COSTS.immortalSpiritPower;
-  const UNDYING_PRIMORDIAL_SPIRIT_COST = IMMORTAL_COSTS.undyingPrimordialSpirit;
-  const IMMORTAL_APERTURE_BASE_COST = IMMORTAL_COSTS.immortalApertureBase;
-  const IMMORTAL_APERTURE_GROWTH = IMMORTAL_COSTS.immortalApertureGrowth;
-  const IMMORTAL_APERTURE_CAP = IMMORTAL_COSTS.immortalApertureCap;
-  const XUAN_IMMORTAL_BODY_COST = IMMORTAL_COSTS.xuanImmortalBody, LAW_COST = IMMORTAL_COSTS.law;
+  const IMMORTAL_POWER_CONFIG = CONFIG.immortalPower;
+  const IMMORTAL_POWER_ABILITY_COSTS = IMMORTAL_POWER_CONFIG.abilityCosts;
+  const IMMORTAL_APERTURE_CONFIG = IMMORTAL_POWER_CONFIG.immortalAperture;
+  const UNDYING_PRIMORDIAL_SPIRIT_COST = IMMORTAL_POWER_ABILITY_COSTS.undyingPrimordialSpirit;
+  const IMMORTAL_APERTURE_BASE_COST = IMMORTAL_APERTURE_CONFIG.baseCost;
+  const IMMORTAL_APERTURE_GROWTH = IMMORTAL_APERTURE_CONFIG.growth;
+  const IMMORTAL_APERTURE_CAP = IMMORTAL_APERTURE_CONFIG.cap;
+  const CELESTIAL_FIVE_DECLINES_CONFIG = IMMORTAL_POWER_CONFIG.celestialFiveDeclines;
+  const FIVE_ELEMENTS_TREASURE_CONFIG = IMMORTAL_POWER_CONFIG.fiveElementsTreasure;
+  const XUAN_IMMORTAL_BODY_COST = IMMORTAL_POWER_ABILITY_COSTS.xuanImmortalBody;
+  const LAW_COST = IMMORTAL_POWER_ABILITY_COSTS.law;
   const MINOR_TRIBULATION_BASE_TRIGGER_LOAD = CONFIG.minorTribulationBaseTriggerLoad;
   const LONGEVITY_800_COSTS = IMMORTAL_COSTS.longevity800;
   const MANA_LIQUEFACTION_COST = IMMORTAL_COSTS.manaLiquefaction;
@@ -57,13 +62,16 @@
   const TECHNIQUE_COST = IMMORTAL_COSTS.technique;
   const MAGIC_TREASURE_COST = IMMORTAL_COSTS.magicTreasure;
   const EXPLORATION_BASE_MANA = CONFIG.exploration.baseMana;
-  const EXPLORATION_MANA_SOFTCAP_THRESHOLD = CONFIG.exploration.manaSoftcapThreshold;
-  const EXPLORATION_MANA_SOFTCAP_EXPONENT = CONFIG.exploration.manaSoftcapExponent;
+  const EXPLORATION_MANA_CURVE_CONFIG = CONFIG.exploration.manaCurve;
   const EXPLORATION_MINIMUM_POWER_COST = CONFIG.exploration.minimumPowerCost;
   const EXPLORATION_STANDARD_POWER_COST = CONFIG.exploration.standardPowerCost;
   const EXPLORATION_COST_EXPONENT_SCALE = CONFIG.exploration.costExponentScale;
-  const MAGIC_TREASURE_MANA_SOFTCAP_THRESHOLD = CONFIG.magicTreasure.manaSoftcapThreshold;
-  const MAGIC_TREASURE_LATE_MANA_EXPONENT = CONFIG.magicTreasure.lateManaExponent;
+  const AUTOMATIC_EXPLORATION_EFFICIENCY = CONFIG.exploration.automaticEfficiency;
+  const MAGIC_TREASURE_MANA_CURVE_CONFIG = CONFIG.magicTreasure.manaCurve;
+  const TREASURE_MANA_DIMINISHING_CONFIG = CONFIG.treasureManaDiminishing;
+  const MANA_REALM_PROGRESS_STEP = 0.01;
+  const IMMORTAL_POWER_REALM_PROGRESS_STEP = IMMORTAL_POWER_CONFIG.realmProgressStep;
+  const MANA_PROGRESSIVE_MAX_SEGMENTS = 10000;
   const REINCARNATION_ROOTS = CONFIG.reincarnationRoots;
   const BREATHING_REALM_CONFIGS = CONFIG.breathingRealms;
   const SCATTER_RETAINED_UPGRADE_TIERS = CONFIG.scatterRetainedUpgradeTiers;
@@ -71,6 +79,9 @@
   const calculateSourceGain = (options) => WIS.Core.Formulas.source(options);
   const calculateRegionGain = (sources, options) => WIS.Core.Formulas.region(sources, options);
   const multiplyEffectGroups = (groups) => WIS.Core.Formulas.multiply(Object.values(groups).flat());
+  const smoothPowerSoftcap = (...args) => WIS.Core.Formulas.smoothPowerSoftcap(...args);
+  const diminishingMultiplierExponent = (...args) => WIS.Core.Formulas.diminishingMultiplierExponent(...args);
+  const applyDiminishingMultiplier = (...args) => WIS.Core.Formulas.applyDiminishingMultiplier(...args);
   const saveState = (...args) => runtime.call("save", ...args);
   const render = (...args) => runtime.call("render", ...args);
   const showNotice = (...args) => runtime.call("showNotice", ...args);
@@ -81,6 +92,8 @@
   const format = (...args) => runtime.call("format", ...args);
   const freshDefaultState = () => runtime.call("freshState");
   const updateLifetimeStatistics = (...args) => runtime.call("updateLifetimeStatistics", ...args);
+  const checkActiveChallengeCompletion = (...args) => runtime.call("checkActiveChallengeCompletion", ...args);
+  const applyResourceSoftcapProgressive = (...args) => runtime.call("applyResourceSoftcapProgressive", ...args);
   const hasAchievement = (key) => WIS.Meta.Achievements.has(state, key);
 
   function applyGainExponent(value, exponent) {
@@ -163,7 +176,7 @@
   }
 
   function manaJRawBonus() {
-    const exponent = state.immortalSpiritPowerUnlocked ? 0.83 : 0.8;
+    const exponent = state.advancedRealmLevel >= IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel ? 0.83 : 0.8;
     return state.qiRefiningUnlocked ? 10 * Math.pow(Math.max(0, state.mana), exponent) : 0;
   }
 
@@ -182,18 +195,21 @@
   }
 
   function magicTreasureManaExponent() {
-    return state.natalMagicTreasureUnlocked ? 0.8 : 0.65;
+    return state.natalMagicTreasureUnlocked
+      ? MAGIC_TREASURE_MANA_CURVE_CONFIG.earlyExponent
+      : MAGIC_TREASURE_MANA_CURVE_CONFIG.baseEarlyExponent;
   }
 
   function magicTreasureManaCurve(mana = state.mana) {
     const currentMana = Math.max(0, Number(mana) || 0);
     const earlyExponent = magicTreasureManaExponent();
-    if (currentMana <= MAGIC_TREASURE_MANA_SOFTCAP_THRESHOLD) {
-      return Math.pow(currentMana, earlyExponent);
-    }
-    const lateExponent = Math.min(earlyExponent, MAGIC_TREASURE_LATE_MANA_EXPONENT);
-    return Math.pow(MAGIC_TREASURE_MANA_SOFTCAP_THRESHOLD, earlyExponent) *
-      Math.pow(currentMana / MAGIC_TREASURE_MANA_SOFTCAP_THRESHOLD, lateExponent);
+    return smoothPowerSoftcap(
+      currentMana,
+      MAGIC_TREASURE_MANA_CURVE_CONFIG.scale,
+      earlyExponent,
+      Math.min(earlyExponent, MAGIC_TREASURE_MANA_CURVE_CONFIG.lateExponent),
+      MAGIC_TREASURE_MANA_CURVE_CONFIG.sharpness
+    );
   }
 
   function materialControlMultiplier() {
@@ -233,6 +249,7 @@
     if (!immortalCultivationActive()) return [];
     return [
       { id: "manaJ", name: "法力", group: "仙道", target: "joules", value: manaJBonus() },
+      { id: "spiritDomain", name: "灵域", group: "金仙", target: "joules", value: spiritDomainJSource() },
       { id: "magicTreasure", name: "法宝", group: "仙道", target: "power", value: magicTreasurePowerSource() },
       { id: "brahmaDemonArt", name: "梵圣真魔功", group: "仙道", target: "power", value: brahmaDemonArtPowerSource(context.fitnessJBonus) }
     ];
@@ -249,6 +266,20 @@
     if (!silent && gained > 0) {
       saveState();
       showNotice(`获得宝物烙印：仙道·天逆珠 +${gained}`);
+    }
+    return gained;
+  }
+
+  function rollFiveElementsTreasureAttempts(attempts, silent = false) {
+    const gained = rollDynamicAttempts(
+      attempts,
+      () => state.fiveElementsTreasureUnlocked,
+      fiveElementsTreasureChance,
+      () => { WIS.Meta.Treasures.add(state, "fiveElementsTreasure"); }
+    );
+    if (!silent && gained > 0) {
+      saveState();
+      showNotice(`获得宝物烙印：仙道·五行至宝 +${gained}`);
     }
     return gained;
   }
@@ -295,7 +326,8 @@
 
   function immortalTreasureChanceMultiplier() {
     return (hasAchievement("humanRealmDominance") ? 2 : 1) *
-      WIS.Core.Effects.product("immortalTreasureChance", "sourceMultiplier", state);
+      WIS.Core.Effects.product("immortalTreasureChance", "sourceMultiplier", state) *
+      WIS.Power.ScaleLogic.treasureChanceMultiplier();
   }
 
   function activeRootRequirementMultiplier() {
@@ -326,7 +358,10 @@
     if (!state.qiRefiningUnlocked) return 0;
     if (!state.foundationUnlocked) return 1;
     if (!state.goldenCoreUnlocked) return 2;
-    return ADVANCED_REALMS[state.advancedRealmLevel] ? state.advancedRealmLevel + 3 : 0;
+    return ADVANCED_REALMS[state.advancedRealmLevel] &&
+      advancedRealmResource(state.advancedRealmLevel) === "mana"
+      ? state.advancedRealmLevel + 3
+      : 0;
   }
 
   function foundationCost() {
@@ -341,8 +376,24 @@
     return GOLDEN_CORE_BASE_COST * additiveLevelMultiplier(effectiveScatterRebuildLevel(), 2);
   }
 
-  function advancedRealmCost(index) {
+  function advancedRealmResource(index) {
+    return index >= IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel ? "immortalPower" : "mana";
+  }
+
+  function immortalPowerRealmCost(index) {
+    const key = ADVANCED_REALMS[index]?.key;
+    const cost = Number(IMMORTAL_POWER_CONFIG.realmCosts[key]);
+    return Number.isFinite(cost) && cost > 0 ? cost : 0;
+  }
+
+  function advancedRealmManaCost(index) {
     return Math.round(advancedRealmBaseCost(index) * realmRequirementMultiplier(index + 3));
+  }
+
+  function advancedRealmCost(index) {
+    return advancedRealmResource(index) === "immortalPower"
+      ? immortalPowerRealmCost(index)
+      : advancedRealmManaCost(index);
   }
 
   function advancedRealmBaseCost(index) {
@@ -359,20 +410,36 @@
       : 0;
   }
 
+  function nextRealmResource() {
+    if (!state.qiRefiningUnlocked) return "power";
+    if (!state.foundationUnlocked || !state.goldenCoreUnlocked) return "mana";
+    return ADVANCED_REALMS[state.advancedRealmLevel]
+      ? advancedRealmResource(state.advancedRealmLevel)
+      : null;
+  }
+
+  function manaProgressReferenceCost() {
+    if (!state.qiRefiningUnlocked) return 0;
+    if (!state.foundationUnlocked) return foundationCost();
+    if (!state.goldenCoreUnlocked) return goldenCoreCost();
+    if (!ADVANCED_REALMS[state.advancedRealmLevel]) return 0;
+    return advancedRealmManaCost(state.advancedRealmLevel);
+  }
+
   function breathingRealmConfig() {
     return BREATHING_REALM_CONFIGS[cultivationRealmLevel()] ?? BREATHING_REALM_CONFIGS[1];
   }
 
-  function breathingManaDecayMultiplier() {
+  function breathingManaDecayMultiplier(currentMana = state.mana) {
     const { manaScale } = breathingRealmConfig();
-    return Math.pow(1 + Math.max(0, state.mana) / manaScale, -0.25);
+    return Math.pow(1 + Math.max(0, Number(currentMana) || 0) / manaScale, -0.25);
   }
 
-  function baseBreathingManaGain() {
+  function baseBreathingManaGain(currentMana = state.mana) {
     if (state.joules < 3000) return 0;
     const { base } = breathingRealmConfig();
     const jCurve = Math.pow(1 + Math.log10(state.joules / 3000), breathingJCurveExponent());
-    return Math.floor(base * jCurve * breathingManaDecayMultiplier());
+    return Math.floor(base * jCurve * breathingManaDecayMultiplier(currentMana));
   }
 
   function breathingJCurveExponent() {
@@ -388,18 +455,18 @@
       .reduce((total, value) => total + value, 0);
   }
 
-  function breathingManaGain() {
+  function breathingManaGain(currentMana = state.mana) {
     if (!immortalCultivationActive() || !state.qiRefiningUnlocked) return 0;
-    const breathingSource = breathingManaSource();
+    const breathingSource = breathingManaSource(currentMana);
     return breathingSource >= 1
-      ? finalManaGainFromSources([breathingSource], state.mana, [scatterRebuildManaMultiplier()])
+      ? finalManaGainFromSources([breathingSource], currentMana, [scatterRebuildManaMultiplier()])
       : 0;
   }
 
-  function breathingManaSource() {
+  function breathingManaSource(currentMana = state.mana) {
     if (!immortalCultivationActive() || !state.qiRefiningUnlocked) return 0;
     return calculateSourceGain({
-      base: baseBreathingManaGain(),
+      base: baseBreathingManaGain(currentMana),
       multipliers: WIS.Core.Effects.values("breathing", "sourceMultiplier", state),
       exponents: WIS.Core.Effects.values("breathing", "sourceExponent", state)
     });
@@ -441,27 +508,316 @@
     return 1 / (1 + 1.5 * Math.pow(ratio, 4));
   }
 
-  function celestialDeclineActive() {
-    return immortalCultivationActive() && state.advancedRealmLevel === 6;
+  function immortalPowerUnlocked() {
+    return immortalCultivationActive() &&
+      state.advancedRealmLevel >= IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel;
   }
 
-  function celestialDeclineExponent(currentMana = state.mana, pressureGain = 0) {
+  function nextImmortalPowerRealmCost() {
+    return immortalPowerUnlocked() ? immortalPowerRealmCost(state.advancedRealmLevel) : 0;
+  }
+
+  function immortalPowerProgressRatio(currentImmortalPower = state.immortalPower) {
+    const requirement = nextImmortalPowerRealmCost();
+    if (!(requirement > 0)) return 0;
+    return Math.min(1, Math.max(0, Number(currentImmortalPower) || 0) / requirement);
+  }
+
+  function immortalPowerManaSuppressionExponent(currentImmortalPower = state.immortalPower) {
+    if (!immortalPowerUnlocked()) return 1;
+    if (state.advancedRealmLevel >= 7) {
+      return celestialFiveDeclineExponent(currentImmortalPower);
+    }
+    return Math.max(
+      0,
+      1 - IMMORTAL_POWER_CONFIG.manaSuppressionStrength *
+        Math.sqrt(immortalPowerProgressRatio(currentImmortalPower))
+    );
+  }
+
+  function applyImmortalPowerManaSuppression(gain, currentImmortalPower = state.immortalPower) {
+    return applyGainExponent(gain, immortalPowerManaSuppressionExponent(currentImmortalPower));
+  }
+
+  function immortalPowerBasePerSecond(currentMana = state.mana) {
+    if (!immortalPowerUnlocked()) return 0;
+    const scaledMana = Math.max(0, Number(currentMana) || 0) / IMMORTAL_POWER_CONFIG.manaScale;
+    return Math.pow(scaledMana, IMMORTAL_POWER_CONFIG.manaExponent);
+  }
+
+  function immortalPowerMultiplierGroups() {
+    return WIS.Core.Effects.groups("immortalPower", "regionMultiplier", state);
+  }
+
+  function immortalPowerMultiplier() {
+    return multiplyEffectGroups(immortalPowerMultiplierGroups());
+  }
+
+  function immortalPowerRegionExponent() {
+    const registeredExponent = WIS.Core.Effects.product("immortalPower", "regionExponent", state);
+    if (state.activeChallenge !== "severSelfCorpse") return registeredExponent;
+    const config = IMMORTAL_POWER_CONFIG.daluo;
+    const progress = Math.log10(
+      1 + Math.max(0, Number(state.immortalPower) || 0) / config.selfCorpseScale
+    );
+    return registeredExponent / (1 + config.selfCorpseCoefficient * progress);
+  }
+
+  function immortalPowerPerSecond(currentMana = state.mana) {
+    return calculateRegionGain([immortalPowerBasePerSecond(currentMana)], {
+      multipliers: [immortalPowerMultiplier()],
+      exponents: [immortalPowerRegionExponent()]
+    });
+  }
+
+  function immortalApertureCap() {
+    if (state.ultimateImmortalApertureUnlocked) return IMMORTAL_APERTURE_CAP;
+    if (state.immortalApertureVIIUnlocked) return 360;
+    if (state.immortalApertureVIUnlocked) return 276;
+    if (state.immortalApertureVUnlocked) return 192;
+    if (state.immortalApertureIVUnlocked) return 108;
+    if (state.immortalApertureIIIUnlocked) return 84;
+    if (state.immortalApertureIIUnlocked) return 60;
+    return IMMORTAL_APERTURE_CONFIG.baseCap;
+  }
+
+  function immortalApertureLevelMultiplier(level = state.immortalApertureLevel) {
+    const safeLevel = Math.max(0, Math.min(IMMORTAL_APERTURE_CAP, Math.floor(Number(level) || 0)));
+    const earlyLevels = Math.min(safeLevel, IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel);
+    const lateLevels = Math.max(0, Math.min(
+      safeLevel,
+      IMMORTAL_APERTURE_CONFIG.ultimateRuleStartLevel
+    ) - IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel);
+    const ultimateLevels = Math.max(0, safeLevel - IMMORTAL_APERTURE_CONFIG.ultimateRuleStartLevel);
+    return Math.pow(IMMORTAL_APERTURE_CONFIG.perLevelMultiplier, earlyLevels) *
+      Math.pow(IMMORTAL_APERTURE_CONFIG.latePerLevelMultiplier, lateLevels) *
+      Math.pow(IMMORTAL_APERTURE_CONFIG.ultimatePerLevelMultiplier, ultimateLevels);
+  }
+
+  function immortalApertureMilestoneMultiplier(level = state.immortalApertureLevel) {
+    const safeLevel = Math.max(0, Math.min(IMMORTAL_APERTURE_CAP, Math.floor(Number(level) || 0)));
+    const earlyLevels = Math.min(safeLevel, IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel);
+    const lateLevels = Math.max(0, Math.min(
+      safeLevel,
+      IMMORTAL_APERTURE_CONFIG.ultimateRuleStartLevel
+    ) - IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel);
+    const ultimateLevels = Math.max(0, safeLevel - IMMORTAL_APERTURE_CONFIG.ultimateRuleStartLevel);
+    return Math.pow(
+      IMMORTAL_APERTURE_CONFIG.milestoneMultiplier,
+      Math.floor(earlyLevels / IMMORTAL_APERTURE_CONFIG.milestoneInterval)
+    ) * Math.pow(
+      IMMORTAL_APERTURE_CONFIG.lateMilestoneMultiplier,
+      Math.floor(lateLevels / IMMORTAL_APERTURE_CONFIG.lateMilestoneInterval)
+    ) * Math.pow(
+      IMMORTAL_APERTURE_CONFIG.ultimateMilestoneMultiplier,
+      Math.floor(ultimateLevels / IMMORTAL_APERTURE_CONFIG.ultimateMilestoneInterval)
+    );
+  }
+
+  function immortalApertureMultiplier(level = state.immortalApertureLevel) {
+    return immortalApertureLevelMultiplier(level) * immortalApertureMilestoneMultiplier(level);
+  }
+
+  function lawImmortalPowerExponent() {
+    let exponent = IMMORTAL_POWER_CONFIG.law.logExponent;
+    if (state.threadsOfLawUnlocked) exponent *= IMMORTAL_POWER_CONFIG.law.upgradeExponentMultiplier;
+    if (state.lawAffinityUnlocked) exponent *= IMMORTAL_POWER_CONFIG.law.upgradeExponentMultiplier;
+    return exponent;
+  }
+
+  function lawImmortalPowerActualExponent(currentMana = state.mana) {
+    const config = IMMORTAL_POWER_CONFIG.law;
+    const mana = Math.max(0, Number(currentMana) || 0);
+    const progress = Math.log10(1 + mana / config.manaScale);
+    const decay = Math.pow(progress / config.decayScale, config.decayExponent);
+    return config.limitingExponent +
+      (lawImmortalPowerExponent() - config.limitingExponent) / (1 + decay);
+  }
+
+  function lawImmortalPowerMultiplier(currentMana = state.mana) {
+    if (!state.lawUnlocked || state.activeChallenge === "severSelfCorpse") return 1;
+    const progress = Math.log10(1 + Math.max(0, Number(currentMana) || 0) / IMMORTAL_POWER_CONFIG.law.manaScale);
+    const multiplier = 1 + Math.pow(progress, lawImmortalPowerActualExponent(currentMana));
+    return state.lawOriginUnlocked
+      ? Math.pow(multiplier, IMMORTAL_POWER_CONFIG.daluo.lawOriginExponent)
+      : multiplier;
+  }
+
+  function trinityImmortalPowerMultiplier() {
+    if (!state.trinityUnlocked) return 1;
+    const config = IMMORTAL_POWER_CONFIG.daluo;
+    const magnitude = Math.log10(1 + Math.max(0, Number(state.joules) || 0) / config.trinityJoulesScale);
+    return 1 + Math.pow(magnitude, config.trinityExponent);
+  }
+
+  function unityWithDaoExponent() {
+    if (!state.unityWithDaoUnlocked) return 1;
+    const config = IMMORTAL_POWER_CONFIG.daluo;
+    const magnitude = Math.log10(
+      1 + Math.max(0, Number(state.immortalPower) || 0) /
+        IMMORTAL_POWER_CONFIG.realmCosts.daluo
+    );
+    return 1 + config.unityWithDaoMaximumBonus * magnitude / (magnitude + config.unityWithDaoSaturation);
+  }
+
+  function lawCrystalFilamentPowerExponent() {
+    if (!state.lawCrystalFilamentUnlocked) return 1;
+    const config = IMMORTAL_POWER_CONFIG.daluo;
+    const magnitude = Math.log10(Math.max(1, lawImmortalPowerMultiplier()));
+    return 1 + config.lawCrystalMaximumBonus * magnitude / (magnitude + config.lawCrystalSaturation);
+  }
+
+  function spiritCaptureReturnMultiplier(currentImmortalPower = state.immortalPower) {
+    if (!state.spiritCaptureReturnUnlocked) return 1;
+    const config = IMMORTAL_POWER_CONFIG.spiritCaptureReturn;
+    const numerator = Math.log10(1 + Math.max(0, Number(currentImmortalPower) || 0) / config.immortalPowerScale);
+    const denominator = Math.log10(1 + config.targetImmortalPower / config.immortalPowerScale);
+    const progress = denominator > 0 ? Math.min(1, Math.max(0, numerator / denominator)) : 0;
+    return Math.min(config.maximumMultiplier, Math.max(1, 1 + 2 * Math.pow(progress, config.exponent)));
+  }
+
+  function spiritDomainJSource(currentImmortalPower = state.immortalPower) {
+    if (!immortalCultivationActive() || !state.spiritDomainUnlocked) return 0;
+    const config = IMMORTAL_POWER_CONFIG.spiritDomain;
+    return calculateSourceGain({
+      base: config.baseJoules * Math.pow(
+        1 + Math.max(0, Number(currentImmortalPower) || 0) / config.immortalPowerScale,
+        config.exponent
+      ),
+      multipliers: WIS.Core.Effects.values("spiritDomain", "sourceMultiplier", state)
+    });
+  }
+
+  function soulQualitativeChangeMultiplier(currentImmortalPower = state.immortalPower) {
+    return state.soulQualitativeChangeUnlocked
+      ? 1 + Math.pow(
+        Math.max(0, Number(currentImmortalPower) || 0) /
+          IMMORTAL_POWER_CONFIG.soulQualitativeChange.immortalPowerScale,
+        IMMORTAL_POWER_CONFIG.soulQualitativeChange.exponent
+      )
+      : 1;
+  }
+
+  function fiveElementsTreasureCount() {
+    const count = Number(state.treasureImprints?.fiveElementsTreasure);
+    return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  }
+
+  function fiveElementsTreasureRawMultiplier() {
+    return 1 + FIVE_ELEMENTS_TREASURE_CONFIG.perItemAdditive * fiveElementsTreasureCount();
+  }
+
+  function fiveElementsTreasureInternalExponent() {
+    const count = fiveElementsTreasureCount();
+    return FIVE_ELEMENTS_TREASURE_CONFIG.minimumInternalExponent +
+      FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentRange /
+        (1 + count / FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentScale);
+  }
+
+  function fiveElementsTreasureMultiplierBeforeDecline() {
+    if (!state.fiveElementsTreasureUnlocked) return 1;
+    return Math.pow(fiveElementsTreasureRawMultiplier(), fiveElementsTreasureInternalExponent());
+  }
+
+  function fiveElementsTreasureChance() {
+    return Math.min(1,
+      FIVE_ELEMENTS_TREASURE_CONFIG.baseChance *
+      Math.pow(FIVE_ELEMENTS_TREASURE_CONFIG.chanceDecay, fiveElementsTreasureCount()) *
+      immortalTreasureChanceMultiplier()
+    );
+  }
+
+  function logarithmicRealmProgress(currentValue, startRequirement, endRequirement) {
+    const start = Number(startRequirement);
+    const end = Number(endRequirement);
+    if (!(start > 0) || !(end > start)) return 0;
+    const current = Math.max(start, Number(currentValue) || 0);
+    return Math.min(1, Math.max(0,
+      (Math.log10(current) - Math.log10(start)) /
+        (Math.log10(end) - Math.log10(start))
+    ));
+  }
+
+  function celestialFiveDeclineBaseExponent(currentImmortalPower = state.immortalPower) {
+    const level = Math.max(0, Math.floor(Number(state.advancedRealmLevel) || 0));
+    const immortalPower = Math.max(0, Number(currentImmortalPower) || 0);
+    const realmCosts = IMMORTAL_POWER_CONFIG.realmCosts;
+    const goldenImmortalEndExponent = 1 - CELESTIAL_FIVE_DECLINES_CONFIG.goldenImmortalLoss;
+    if (level === 7) {
+      const progress = logarithmicRealmProgress(
+        immortalPower,
+        realmCosts.goldenImmortal,
+        realmCosts.taiyi
+      );
+      return 1 - CELESTIAL_FIVE_DECLINES_CONFIG.goldenImmortalLoss * Math.sqrt(progress);
+    }
+    if (level === 8) {
+      const progress = logarithmicRealmProgress(
+        immortalPower,
+        realmCosts.taiyi,
+        realmCosts.daluo
+      );
+      return goldenImmortalEndExponent -
+        CELESTIAL_FIVE_DECLINES_CONFIG.taiyiLoss * Math.sqrt(progress);
+    }
+    if (level === 9) {
+      const progress = logarithmicRealmProgress(
+        immortalPower,
+        realmCosts.daluo,
+        realmCosts.daoAncestor
+      );
+      return goldenImmortalEndExponent - CELESTIAL_FIVE_DECLINES_CONFIG.taiyiLoss -
+        CELESTIAL_FIVE_DECLINES_CONFIG.daluoLoss * Math.sqrt(progress);
+    }
+    return 1;
+  }
+
+  function celestialFiveDeclineExponent(currentImmortalPower = state.immortalPower) {
+    const base = celestialFiveDeclineBaseExponent(currentImmortalPower);
+    return state.flawlessJadeBodyUnlocked
+      ? 1 - (1 - base) * CELESTIAL_FIVE_DECLINES_CONFIG.flawlessJadeBodyReduction
+      : base;
+  }
+
+  function applyCelestialFiveDeclineToMultiplier(multiplier, currentImmortalPower = state.immortalPower) {
+    const value = Number(multiplier);
+    if (Number.isNaN(value) || value <= 0) return 1;
+    if (value === Infinity) return Infinity;
+    return Math.pow(value, celestialFiveDeclineExponent(currentImmortalPower));
+  }
+
+  function nextImmortalPowerProgressBoundary(currentImmortalPower = state.immortalPower) {
+    const requirement = nextImmortalPowerRealmCost();
+    const current = Math.max(0, Number(currentImmortalPower) || 0);
+    if (!Number.isFinite(requirement) || !(requirement > 0) || current >= requirement) return Infinity;
+    const step = requirement * IMMORTAL_POWER_REALM_PROGRESS_STEP;
+    if (!Number.isFinite(step) || !(step > 0)) return Infinity;
+    const completedSteps = Math.floor(current / step + 1e-10);
+    let boundary = Math.min(requirement, (completedSteps + 1) * step);
+    const tolerance = Math.max(Number.EPSILON * Math.max(1, current) * 8, step * 1e-12);
+    if (!(boundary > current + tolerance)) boundary = Math.min(requirement, boundary + step);
+    return Number.isFinite(boundary) && boundary > current ? boundary : Infinity;
+  }
+
+  function celestialDeclineActive() {
+    return immortalPowerUnlocked() && nextImmortalPowerRealmCost() > 0;
+  }
+
+  function celestialDeclineExponent(currentImmortalPower = state.immortalPower) {
     if (!celestialDeclineActive()) return 1;
-    const requirement = nextRealmCost();
-    if (!(requirement > 0)) return 1;
-    const currentRatio = Math.max(0, Number(currentMana) || 0) / requirement;
-    const gainRatio = Math.max(0, Number(pressureGain) || 0) / requirement;
-    const progress = Math.min(1, Math.max(currentRatio, gainRatio));
-    return 1 - 0.16 * Math.sqrt(progress);
+    if (state.advancedRealmLevel >= 7) {
+      return celestialFiveDeclineExponent(currentImmortalPower);
+    }
+    return 1 - 0.16 * Math.sqrt(immortalPowerProgressRatio(currentImmortalPower));
   }
 
   function applyCelestialDecline(gain, currentMana = state.mana, pressureGain = 0) {
-    return applyGainExponent(gain, celestialDeclineExponent(currentMana, pressureGain));
+    return applyImmortalPowerManaSuppression(gain);
   }
 
   function cultivationBottleneckManaMultiplier(currentMana = state.mana) {
-    if (celestialDeclineActive()) return 1;
-    const requirement = nextRealmCost();
+    if (state.advancedRealmLevel >= IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel) return 1;
+    const requirement = manaProgressReferenceCost();
     return requirement > 0 ? bottleneckManaMultiplier(requirement, true, currentMana) : 1;
   }
 
@@ -469,20 +825,36 @@
     return additiveLevelMultiplier(effectiveScatterRebuildLevel(), 1.5);
   }
 
+  function naturalTreasureRawManaMultiplier() {
+    return (1 + state.naturalTreasureLevel * 0.1) * xuTianDingMultiplier();
+  }
+
+  function naturalTreasureManaDiminishingExponent() {
+    return diminishingMultiplierExponent(
+      naturalTreasureRawManaMultiplier(),
+      TREASURE_MANA_DIMINISHING_CONFIG.naturalTreasureCoefficient
+    );
+  }
+
   function naturalTreasureManaMultiplier() {
-    return WIS.Core.Effects.value("naturalTreasureMana", state);
+    return applyDiminishingMultiplier(
+      naturalTreasureRawManaMultiplier(),
+      TREASURE_MANA_DIMINISHING_CONFIG.naturalTreasureCoefficient
+    );
   }
 
   function naturalTreasureUpgradeChance() {
     if (state.naturalTreasureLevel >= naturalTreasureLevelCap()) return 0;
     if (state.naturalTreasureLevel >= 10) {
-      return 0.0005 * Math.pow(0.6, state.naturalTreasureLevel - 10);
+      return Math.min(1, 0.0005 * Math.pow(0.6, state.naturalTreasureLevel - 10) *
+        WIS.Power.ScaleLogic.treasureChanceMultiplier());
     }
-    return 0.1 * Math.pow(0.65, state.naturalTreasureLevel);
+    return Math.min(1, 0.1 * Math.pow(0.65, state.naturalTreasureLevel) *
+      WIS.Power.ScaleLogic.treasureChanceMultiplier());
   }
 
   function naturalTreasureLevelCap() {
-    return (state.spiritWorldAscensionUnlocked ? 20 : 10) + mysticHeavenSacredTreeCount() * 5;
+    return (state.spiritWorldAscensionUnlocked ? 20 : 10) + mysticHeavenSacredTreeCount() * 2;
   }
 
   function xuTianDingCount() {
@@ -534,15 +906,29 @@
   }
 
   function mysticHeavenSpiritSlayingSwordExponent() {
-    return Math.min(1.2, 1 + 0.005 * mysticHeavenSpiritSlayingSwordCount());
+    return 1 + 0.23 * Math.log10(1 + mysticHeavenSpiritSlayingSwordCount() / 20);
   }
 
   function tianNiPearlCount() {
     return state.treasureImprints?.tianNiPearl || 0;
   }
 
+  function tianNiPearlRawManaMultiplier() {
+    return 1 + tianNiPearlCount() * 0.005;
+  }
+
+  function tianNiPearlManaDiminishingExponent() {
+    return diminishingMultiplierExponent(
+      tianNiPearlRawManaMultiplier(),
+      TREASURE_MANA_DIMINISHING_CONFIG.tianNiPearlCoefficient
+    );
+  }
+
   function tianNiPearlManaMultiplier() {
-    return WIS.Core.Effects.value("tianNiPearlMana", state);
+    return applyDiminishingMultiplier(
+      tianNiPearlRawManaMultiplier(),
+      TREASURE_MANA_DIMINISHING_CONFIG.tianNiPearlCoefficient
+    );
   }
 
   function tianNiPearlChance() {
@@ -591,20 +977,33 @@
     return Math.ceil(Math.max(3000, 3000 * Math.pow(10, curveTarget - 1)));
   }
 
-  function automaticBaseManaPerSecond() {
-    if (!immortalCultivationActive() || !state.qiRefiningUnlocked) return 0;
+  function automaticBaseManaSources(currentMana = state.mana) {
+    if (!immortalCultivationActive() || !state.qiRefiningUnlocked) return [];
     const sourceGains = [];
-    const circulationSource = circulationManaSource();
+    const circulationSource = circulationManaSource(currentMana);
     if (circulationSource > 0) sourceGains.push(circulationSource);
     if (hasAchievement("refineTheVoid")) sourceGains.push(1);
-    return sourceGains.length > 0 ? finalManaGainFromSources(sourceGains) : 0;
+    return sourceGains;
+  }
+
+  function automaticBaseManaBeforeSuppressionPerSecond(currentMana = state.mana) {
+    const sourceGains = automaticBaseManaSources(currentMana);
+    return sourceGains.length > 0
+      ? finalManaGainFromSources(sourceGains, currentMana, [], false)
+      : 0;
+  }
+
+  function automaticBaseManaPerSecond(currentMana = state.mana) {
+    return applyImmortalPowerManaSuppression(
+      automaticBaseManaBeforeSuppressionPerSecond(currentMana)
+    );
   }
 
   function automaticExplorationContext() {
     const powerCost = explorationPowerCost();
     if (!state.roamSpiritWorldUnlocked || !state.goldenCoreUnlocked || powerCost < EXPLORATION_MINIMUM_POWER_COST) return null;
     const fullExplorationAmount = explorationAmountForCost(powerCost);
-    const explorationAmountPerSecond = fullExplorationAmount * 0.0005;
+    const explorationAmountPerSecond = fullExplorationAmount * AUTOMATIC_EXPLORATION_EFFICIENCY;
     return explorationAmountPerSecond > 0
       ? { powerCost, fullExplorationAmount, explorationAmountPerSecond }
       : null;
@@ -612,6 +1011,167 @@
 
   function automaticExplorationAmountPerSecond() {
     return automaticExplorationContext()?.explorationAmountPerSecond || 0;
+  }
+
+  function nextManaProgressBoundary(currentMana = state.mana) {
+    const current = Math.max(0, Number(currentMana) || 0);
+    if (state.advancedRealmLevel >= IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel) {
+      const reference = Math.max(current, IMMORTAL_POWER_CONFIG.manaScale);
+      const boundary = current + reference * MANA_REALM_PROGRESS_STEP;
+      return Number.isFinite(boundary) && boundary > current ? boundary : Infinity;
+    }
+    const requirement = manaProgressReferenceCost();
+    if (!Number.isFinite(requirement) || !(requirement > 0)) return Infinity;
+    const step = requirement * MANA_REALM_PROGRESS_STEP;
+    if (!Number.isFinite(step) || !(step > 0)) return Infinity;
+    const completedSteps = Math.floor(current / step + 1e-10);
+    let boundary = (completedSteps + 1) * step;
+    const tolerance = Math.max(Number.EPSILON * Math.max(1, current) * 8, step * 1e-12);
+    if (!(boundary > current + tolerance)) boundary += step;
+    return Number.isFinite(boundary) && boundary > current ? boundary : Infinity;
+  }
+
+  function normalizeManaEvaluation(value) {
+    const detail = value && typeof value === "object" ? value : { mana: value };
+    const numericGain = Number(detail.mana);
+    return {
+      detail,
+      mana: Number.isNaN(numericGain) || numericGain <= 0 ? 0 : numericGain
+    };
+  }
+
+  function settleManaGainProgressive(
+    totalBudget,
+    calculateGain,
+    commitBudget = () => {},
+    applyToState = true,
+    linearBudget = false,
+    maximumBudgetForSegment = (_currentMana, remainingBudget) => remainingBudget
+  ) {
+    const budget = Math.max(0, Number(totalBudget) || 0);
+    if (!(budget > 0) || typeof calculateGain !== "function") {
+      return { mana: 0, budgetUsed: 0, segments: 0, capped: false };
+    }
+
+    let remainingBudget = budget;
+    let totalMana = 0;
+    let segments = 0;
+    let currentMana = Math.max(0, Number(state.mana) || 0);
+    const budgetTolerance = Math.max(Number.EPSILON * budget * 16, 1e-12);
+
+    const evaluate = (segmentBudget, currentMana) => normalizeManaEvaluation(
+      calculateGain(segmentBudget, currentMana)
+    );
+    const commit = (segmentBudget, appliedMana, evaluation, segmentCurrentMana) => {
+      if (applyToState && appliedMana > 0) {
+        WIS.Core.Resources.addSystem("immortal", "mana", appliedMana);
+      }
+      commitBudget(segmentBudget, appliedMana, evaluation.detail, segmentCurrentMana);
+      totalMana += appliedMana;
+      currentMana += appliedMana;
+      remainingBudget = Math.max(0, remainingBudget - segmentBudget);
+      segments += 1;
+    };
+
+    while (remainingBudget > budgetTolerance && segments < MANA_PROGRESSIVE_MAX_SEGMENTS) {
+      const segmentCurrentMana = currentMana;
+      const requestedMaximum = Number(maximumBudgetForSegment(segmentCurrentMana, remainingBudget));
+      const segmentBudget = requestedMaximum > 0 && Number.isFinite(requestedMaximum)
+        ? Math.min(remainingBudget, Math.max(budgetTolerance, requestedMaximum))
+        : remainingBudget;
+      const fullEvaluation = evaluate(segmentBudget, segmentCurrentMana);
+      const boundary = nextManaProgressBoundary(segmentCurrentMana);
+      const neededMana = boundary - segmentCurrentMana;
+      const gainTolerance = Math.max(Number.EPSILON * Math.max(1, boundary) * 16, 1e-12);
+
+      if (!(fullEvaluation.mana > 0) || !Number.isFinite(boundary) ||
+          fullEvaluation.mana <= neededMana + gainTolerance) {
+        commit(segmentBudget, fullEvaluation.mana, fullEvaluation, segmentCurrentMana);
+        continue;
+      }
+
+      let lowerBudget = 0;
+      let upperBudget = segmentBudget;
+      let upperEvaluation = fullEvaluation;
+      if (linearBudget) {
+        upperBudget = segmentBudget * neededMana / fullEvaluation.mana;
+        upperEvaluation = evaluate(upperBudget, segmentCurrentMana);
+      } else {
+        for (let iteration = 0; iteration < 48; iteration += 1) {
+          const middleBudget = (lowerBudget + upperBudget) / 2;
+          const middleEvaluation = evaluate(middleBudget, segmentCurrentMana);
+          if (middleEvaluation.mana >= neededMana) {
+            upperBudget = middleBudget;
+            upperEvaluation = middleEvaluation;
+          } else {
+            lowerBudget = middleBudget;
+          }
+        }
+      }
+
+      if (!(upperBudget > 0) || upperBudget >= segmentBudget) {
+        commit(segmentBudget, fullEvaluation.mana, fullEvaluation, segmentCurrentMana);
+        continue;
+      }
+      commit(upperBudget, neededMana, upperEvaluation, segmentCurrentMana);
+    }
+
+    const capped = remainingBudget > budgetTolerance;
+    if (capped) {
+      const fallbackEvaluation = evaluate(remainingBudget, currentMana);
+      commit(remainingBudget, fallbackEvaluation.mana, fallbackEvaluation, currentMana);
+    }
+    return { mana: totalMana, budgetUsed: budget - remainingBudget, segments, capped };
+  }
+
+  function applyManaGainProgressive(
+    totalBudget,
+    calculateGain,
+    commitBudget = () => {},
+    { linearBudget = false, maximumBudgetForSegment } = {}
+  ) {
+    return settleManaGainProgressive(
+      totalBudget,
+      calculateGain,
+      commitBudget,
+      true,
+      linearBudget,
+      maximumBudgetForSegment
+    );
+  }
+
+  function previewManaGainProgressive(totalBudget, calculateGain, { linearBudget = false } = {}) {
+    return settleManaGainProgressive(totalBudget, calculateGain, () => {}, false, linearBudget);
+  }
+
+  function breathingManaGainProgressive() {
+    const currentGain = breathingManaGain();
+    if (currentGain < 1) return currentGain;
+    return previewManaGainProgressive(
+      1,
+      (actionFraction, currentMana) => breathingManaGain(currentMana) * actionFraction,
+      { linearBudget: true }
+    ).mana;
+  }
+
+  function explorationManaGainProgressive(
+    powerCost = explorationPowerCost(),
+    explorationAmount = explorationAmountForCost(powerCost),
+    tribulationExponent = minorTribulationPreviewForExploration(explorationAmount).manaExponent
+  ) {
+    if (!immortalCultivationActive() || !state.goldenCoreUnlocked ||
+        powerCost < EXPLORATION_MINIMUM_POWER_COST) return 0;
+    return previewManaGainProgressive(
+      1,
+      (actionFraction, currentMana) => explorationPotentialManaGain(
+        powerCost,
+        currentMana,
+        tribulationExponent,
+        explorationAmount,
+        true
+      ) * actionFraction,
+      { linearBudget: true }
+    ).mana;
   }
 
   function integratePowerCurve(start, end, exponent) {
@@ -656,23 +1216,31 @@
     return integratedMana;
   }
 
-  function integratedAutomaticExplorationMana(preTribulationMana, fullExplorationAmount, elapsedSeconds) {
+  function integratedAutomaticExplorationMana(
+    preTribulationMana,
+    fullExplorationAmount,
+    elapsedSeconds,
+    currentMana = state.mana,
+    powerCost = explorationPowerCost()
+  ) {
     const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
     if (!(elapsed > 0) || !(fullExplorationAmount > 0) || !(preTribulationMana > 0)) return 0;
-    if (state.advancedRealmLevel < 2 || state.advancedRealmLevel >= 6) return preTribulationMana * 0.0005 * elapsed;
+    if (state.advancedRealmLevel < 2 || state.advancedRealmLevel >= 6) {
+      return preTribulationMana * AUTOMATIC_EXPLORATION_EFFICIENCY * elapsed;
+    }
 
     const triggerLoad = minorTribulationTriggerLoad();
-    const explorationLoad = fullExplorationAmount * 0.0005 * elapsed;
+    const explorationLoad = fullExplorationAmount * AUTOMATIC_EXPLORATION_EFFICIENCY * elapsed;
     if (!Number.isFinite(triggerLoad) || !(triggerLoad > 0) ||
         !Number.isFinite(fullExplorationAmount) || !Number.isFinite(explorationLoad) ||
         !Number.isFinite(preTribulationMana)) {
       const preview = minorTribulationPreviewForExploration(fullExplorationAmount);
       return explorationPotentialManaGain(
-        explorationPowerCost(),
-        state.mana,
+        powerCost,
+        currentMana,
         preview.manaExponent,
         fullExplorationAmount
-      ) * 0.0005 * elapsed;
+      ) * AUTOMATIC_EXPLORATION_EFFICIENCY * elapsed;
     }
 
     const startLoad = Math.max(0, state.minorTribulationExplorationLoad) % triggerLoad;
@@ -710,23 +1278,97 @@
     return integratedByLoad / fullExplorationAmount;
   }
 
-  function automaticExplorationManaGain(elapsedSeconds = 1) {
+  function automaticManaComponents(elapsedSeconds, currentMana = state.mana, context = automaticExplorationContext()) {
     const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
-    if (!(elapsed > 0)) return { mana: 0, explorationAmount: 0, rewards: null, tribulationTriggered: false };
-    const context = automaticExplorationContext();
-    if (!context) return { mana: 0, explorationAmount: 0, rewards: null, tribulationTriggered: false };
-    const { powerCost, fullExplorationAmount, explorationAmountPerSecond } = context;
-    const explorationAmount = explorationAmountPerSecond * elapsed;
+    const passiveMana = automaticBaseManaPerSecond(currentMana) * elapsed;
+    if (!(elapsed > 0) || !context) {
+      return { mana: passiveMana, passiveMana, explorationMana: 0 };
+    }
+    const { powerCost, fullExplorationAmount } = context;
     const preTribulationMana = explorationPotentialManaGain(
       powerCost,
-      state.mana,
+      currentMana,
       1,
       fullExplorationAmount
     );
-    const mana = integratedAutomaticExplorationMana(preTribulationMana, fullExplorationAmount, elapsed);
-    const rewards = processExplorationJudgements(addExplorationProgress(explorationAmount));
-    const tribulationTriggered = registerSuccessfulExploration(explorationAmount);
-    return { mana, explorationAmount, rewards, tribulationTriggered };
+    const explorationMana = integratedAutomaticExplorationMana(
+      preTribulationMana,
+      fullExplorationAmount,
+      elapsed,
+      currentMana,
+      powerCost
+    );
+    return { mana: passiveMana + explorationMana, passiveMana, explorationMana };
+  }
+
+  function emptyExplorationRewards() {
+    return {
+      attempts: 0, tianNiPearl: 0, greenBottle: 0, fuBao: 0, naturalTreasure: 0,
+      xuTianDing: 0, wanYaoFan: 0, phantomHeavenMirror: 0,
+      mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0,
+      seizeFoundation: 0
+    };
+  }
+
+  function automaticManaGainProgressive(elapsedSeconds = 1) {
+    const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
+    const context = automaticExplorationContext();
+    const rewards = emptyExplorationRewards();
+    let passiveMana = 0;
+    let explorationMana = 0;
+    let explorationAmount = 0;
+    let immortalPower = 0;
+    let immortalPowerActiveSeconds = 0;
+    let tribulationTriggered = false;
+
+    const settlement = applyManaGainProgressive(
+      elapsed,
+      (segmentSeconds, currentMana) => automaticManaComponents(segmentSeconds, currentMana, context),
+      (segmentSeconds, appliedMana, detail, segmentCurrentMana) => {
+        const calculatedMana = Math.max(0, Number(detail.mana) || 0);
+        const appliedRatio = calculatedMana > 0 ? Math.min(1, appliedMana / calculatedMana) : 0;
+        passiveMana += Math.max(0, Number(detail.passiveMana) || 0) * appliedRatio;
+        explorationMana += Math.max(0, Number(detail.explorationMana) || 0) * appliedRatio;
+        const segmentImmortalPower = immortalPowerPerSecond(segmentCurrentMana) * segmentSeconds;
+        if (segmentImmortalPower > 0) {
+          WIS.Core.Resources.addSystem("immortal", "immortalPower", segmentImmortalPower);
+          immortalPower += segmentImmortalPower;
+          immortalPowerActiveSeconds += segmentSeconds;
+        }
+        if (!context) return;
+        const segmentExplorationAmount = context.explorationAmountPerSecond * segmentSeconds;
+        explorationAmount += segmentExplorationAmount;
+        const segmentRewards = processExplorationJudgements(addExplorationProgress(segmentExplorationAmount));
+        Object.keys(rewards).forEach((key) => { rewards[key] += Number(segmentRewards[key]) || 0; });
+        tribulationTriggered = registerSuccessfulExploration(segmentExplorationAmount) || tribulationTriggered;
+      },
+      {
+        maximumBudgetForSegment: (currentMana, remainingSeconds) => {
+          const rate = immortalPowerPerSecond(currentMana);
+          const boundary = nextImmortalPowerProgressBoundary();
+          if (!(rate > 0) || !Number.isFinite(boundary)) return remainingSeconds;
+          const needed = boundary - Math.max(0, Number(state.immortalPower) || 0);
+          if (!(needed > 0)) return remainingSeconds;
+          return Math.min(remainingSeconds, needed / rate);
+        }
+      }
+    );
+
+    return {
+      ...settlement,
+      passiveMana,
+      explorationMana,
+      immortalPower,
+      immortalPowerActiveSeconds,
+      explorationAmount,
+      rewards,
+      tribulationTriggered
+    };
+  }
+
+  // 兼容旧调用名；返回值现已包含全部自动法力并完成渐进入账。
+  function automaticExplorationManaGain(elapsedSeconds = 1) {
+    return automaticManaGainProgressive(elapsedSeconds);
   }
 
   function automaticExplorationManaPerSecond() {
@@ -739,16 +1381,36 @@
       state.mana,
       fullExplorationPreview.manaExponent,
       fullExplorationAmount
-    ) * 0.0005;
+    ) * AUTOMATIC_EXPLORATION_EFFICIENCY;
+  }
+
+  function automaticExplorationManaBeforeSuppressionPerSecond() {
+    const context = automaticExplorationContext();
+    if (!context) return 0;
+    const { powerCost, fullExplorationAmount } = context;
+    const fullExplorationPreview = minorTribulationPreviewForExploration(fullExplorationAmount);
+    return explorationPotentialManaGain(
+      powerCost,
+      state.mana,
+      fullExplorationPreview.manaExponent,
+      fullExplorationAmount,
+      false,
+      false
+    ) * AUTOMATIC_EXPLORATION_EFFICIENCY;
+  }
+
+  function automaticManaBeforeSuppressionPerSecond() {
+    return automaticBaseManaBeforeSuppressionPerSecond() +
+      automaticExplorationManaBeforeSuppressionPerSecond();
   }
 
   function automaticManaPerSecond() {
     return automaticBaseManaPerSecond() + automaticExplorationManaPerSecond();
   }
 
-  function circulationManaSource() {
+  function circulationManaSource(currentMana = state.mana) {
     if (!state.circulationUnlocked) return 0;
-    const source = breathingManaSource() * circulationPercent();
+    const source = breathingManaSource(currentMana) * circulationPercent();
     return applyGainExponent(source, circulationSourceExponent());
   }
 
@@ -771,7 +1433,7 @@
     const powerCost = explorationPowerCost();
     const explorationAmount = explorationAmountForCost(powerCost);
     const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
-    return explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
+    return explorationManaGainProgressive(powerCost, explorationAmount, tribulationPreview.manaExponent);
   }
 
   function explorationPotentialManaGain(
@@ -779,7 +1441,8 @@
     currentMana = state.mana,
     tribulationExponent = minorTribulationExplorationManaExponent(),
     explorationAmount = explorationAmountForCost(powerCost),
-    activeExploration = false
+    activeExploration = false,
+    applyImmortalSuppression = true
   ) {
     if (!immortalCultivationActive() || !state.goldenCoreUnlocked) return 0;
     const manaExplorationAmount = explorationManaAmount(explorationAmount);
@@ -793,11 +1456,11 @@
       * WIS.Core.Effects.product("exploration", "regionMultiplier", state);
     const silverTadpoleScriptGain = applyGainExponent(finalGain, WIS.Core.Effects.product("exploration", "sourceExponent", state));
     const tribulationGain = applyGainExponent(silverTadpoleScriptGain, tribulationExponent);
-    return applyCelestialDecline(
+    return applyImmortalSuppression ? applyCelestialDecline(
       tribulationGain,
       currentMana,
       activeExploration ? tribulationGain : 0
-    );
+    ) : tribulationGain;
   }
 
   function silverTadpoleScriptExplorationExponent() {
@@ -817,7 +1480,8 @@
 
   function finalManaGainFromSources(sourceGains, currentMana = state.mana, additionalMultipliers = [], applyDecline = true) {
     const gain = calculateRegionGain(sourceGains, {
-      multipliers: [manaGainMultiplier(currentMana), ...additionalMultipliers]
+      multipliers: [manaGainMultiplier(currentMana), ...additionalMultipliers],
+      exponents: [WIS.Core.Effects.product("mana", "regionExponent", state)]
     });
     return applyDecline ? applyCelestialDecline(gain, currentMana) : gain;
   }
@@ -858,9 +1522,13 @@
 
   function explorationManaAmount(explorationAmount) {
     const amount = Math.max(0, Number(explorationAmount) || 0);
-    if (amount <= EXPLORATION_MANA_SOFTCAP_THRESHOLD) return amount;
-    return EXPLORATION_MANA_SOFTCAP_THRESHOLD *
-      Math.pow(amount / EXPLORATION_MANA_SOFTCAP_THRESHOLD, EXPLORATION_MANA_SOFTCAP_EXPONENT);
+    return smoothPowerSoftcap(
+      amount,
+      EXPLORATION_MANA_CURVE_CONFIG.scale,
+      EXPLORATION_MANA_CURVE_CONFIG.earlyExponent,
+      EXPLORATION_MANA_CURVE_CONFIG.lateExponent,
+      EXPLORATION_MANA_CURVE_CONFIG.sharpness
+    );
   }
 
   function divineSenseMultiplier() {
@@ -1031,7 +1699,22 @@
     const safeLevel = Math.max(0, Math.min(IMMORTAL_APERTURE_CAP, Math.floor(Number(level) || 0)));
     return safeLevel >= IMMORTAL_APERTURE_CAP
       ? 0
-      : IMMORTAL_APERTURE_BASE_COST * Math.pow(IMMORTAL_APERTURE_GROWTH, safeLevel);
+      : safeLevel <= IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel
+        ? IMMORTAL_APERTURE_BASE_COST * Math.pow(IMMORTAL_APERTURE_GROWTH, safeLevel)
+        : safeLevel <= IMMORTAL_APERTURE_CONFIG.ultimateRuleStartLevel
+          ? IMMORTAL_APERTURE_BASE_COST *
+            Math.pow(IMMORTAL_APERTURE_GROWTH, IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel) *
+            Math.pow(IMMORTAL_APERTURE_CONFIG.lateGrowth, safeLevel - IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel)
+          : IMMORTAL_APERTURE_BASE_COST *
+            Math.pow(IMMORTAL_APERTURE_GROWTH, IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel) *
+            Math.pow(
+              IMMORTAL_APERTURE_CONFIG.lateGrowth,
+              IMMORTAL_APERTURE_CONFIG.ultimateRuleStartLevel - IMMORTAL_APERTURE_CONFIG.lateRuleStartLevel
+            ) *
+            Math.pow(
+              IMMORTAL_APERTURE_CONFIG.ultimateGrowth,
+              safeLevel - IMMORTAL_APERTURE_CONFIG.ultimateRuleStartLevel
+            );
   }
 
   function manualImmortalAbilityHistory() {
@@ -1110,11 +1793,31 @@
       { historyKey: "nascentSoulCompletionUnlocked", cost: () => NASCENT_SOUL_COMPLETION_COST, available: () => state.advancedRealmLevel >= 5 && !state.nascentSoulCompletionUnlocked, apply: () => { state.nascentSoulCompletionUnlocked = true; } },
       { historyKey: "spiritTravelVoidUnlocked", cost: () => SPIRIT_TRAVEL_VOID_COST, available: () => state.advancedRealmLevel >= 5 && !state.spiritTravelVoidUnlocked, apply: () => { state.spiritTravelVoidUnlocked = true; } },
       { historyKey: "goldenSealScriptUnlocked", cost: () => GOLDEN_SEAL_SCRIPT_COST, available: () => state.advancedRealmLevel >= 5 && !state.goldenSealScriptUnlocked, apply: () => { state.goldenSealScriptUnlocked = true; } },
-      { historyKey: "immortalSpiritPowerUnlocked", cost: () => IMMORTAL_SPIRIT_POWER_COST, available: () => state.advancedRealmLevel >= 6 && !state.immortalSpiritPowerUnlocked, apply: () => { state.immortalSpiritPowerUnlocked = true; } },
-      { historyKey: "undyingPrimordialSpiritUnlocked", cost: () => UNDYING_PRIMORDIAL_SPIRIT_COST, available: () => state.advancedRealmLevel >= 6 && !state.undyingPrimordialSpiritUnlocked, apply: () => { state.undyingPrimordialSpiritUnlocked = true; } },
-      { historyKey: "immortalApertureLevel", cost: immortalApertureCost, available: () => state.advancedRealmLevel >= 6 && state.immortalApertureLevel < IMMORTAL_APERTURE_CAP, apply: () => { state.immortalApertureLevel += 1; } },
-      { historyKey: "xuanImmortalBodyUnlocked", cost: () => XUAN_IMMORTAL_BODY_COST, available: () => state.advancedRealmLevel >= 6 && !state.xuanImmortalBodyUnlocked, apply: () => { state.xuanImmortalBodyUnlocked = true; } },
-      { historyKey: "lawUnlocked", cost: () => LAW_COST, available: () => state.advancedRealmLevel >= 6 && !state.lawUnlocked, apply: () => { state.lawUnlocked = true; } }
+      { resourceKey: "immortalPower", historyKey: "undyingPrimordialSpiritUnlocked", cost: () => UNDYING_PRIMORDIAL_SPIRIT_COST, available: () => state.advancedRealmLevel >= 6 && !state.undyingPrimordialSpiritUnlocked, apply: () => { state.undyingPrimordialSpiritUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "immortalApertureLevel", cost: immortalApertureCost, available: () => state.advancedRealmLevel >= 6 && state.immortalApertureLevel < immortalApertureCap(), apply: () => { state.immortalApertureLevel += 1; } },
+      { resourceKey: "immortalPower", historyKey: "xuanImmortalBodyUnlocked", cost: () => XUAN_IMMORTAL_BODY_COST, available: () => state.advancedRealmLevel >= 6 && !state.xuanImmortalBodyUnlocked, apply: () => { state.xuanImmortalBodyUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "lawUnlocked", cost: () => LAW_COST, available: () => state.advancedRealmLevel >= 6 && !state.lawUnlocked, apply: () => { state.lawUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "immortalApertureIIUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.immortalApertureII, available: () => state.advancedRealmLevel >= 7 && !state.immortalApertureIIUnlocked, apply: () => { state.immortalApertureIIUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "spiritDomainUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.spiritDomain, available: () => state.advancedRealmLevel >= 7 && !state.spiritDomainUnlocked, apply: () => { state.spiritDomainUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "threadsOfLawUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.threadsOfLaw, available: () => state.advancedRealmLevel >= 7 && !state.threadsOfLawUnlocked, apply: () => { state.threadsOfLawUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "immortalApertureIIIUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.immortalApertureIII, available: () => state.advancedRealmLevel >= 7 && state.immortalApertureIIUnlocked && !state.immortalApertureIIIUnlocked, apply: () => { state.immortalApertureIIIUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "spiritCaptureReturnUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.spiritCaptureReturn, available: () => state.advancedRealmLevel >= 7 && !state.spiritCaptureReturnUnlocked, apply: () => { state.spiritCaptureReturnUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "indestructibleDharmaBodyUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.indestructibleDharmaBody, available: () => state.advancedRealmLevel >= 7 && !state.indestructibleDharmaBodyUnlocked, apply: () => { state.indestructibleDharmaBodyUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "fiveElementsTreasureUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.fiveElementsTreasure, available: () => state.advancedRealmLevel >= 7 && !state.fiveElementsTreasureUnlocked, apply: () => { state.fiveElementsTreasureUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "immortalApertureIVUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.immortalApertureIV, available: () => state.advancedRealmLevel >= 7 && state.immortalApertureIIIUnlocked && !state.immortalApertureIVUnlocked, apply: () => { state.immortalApertureIVUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "immortalApertureVUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.immortalApertureV, available: () => state.advancedRealmLevel >= 8 && state.immortalApertureIVUnlocked && !state.immortalApertureVUnlocked, apply: () => { state.immortalApertureVUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "lawAffinityUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.lawAffinity, available: () => state.advancedRealmLevel >= 8 && state.threadsOfLawUnlocked && !state.lawAffinityUnlocked, apply: () => { state.lawAffinityUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "flawlessJadeBodyUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.flawlessJadeBody, available: () => state.advancedRealmLevel >= 8 && !state.flawlessJadeBodyUnlocked, apply: () => { state.flawlessJadeBodyUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "spiritDomainWorldTransformationUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.spiritDomainWorldTransformation, available: () => state.advancedRealmLevel >= 8 && state.spiritDomainUnlocked && !state.spiritDomainWorldTransformationUnlocked, apply: () => { state.spiritDomainWorldTransformationUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "immortalApertureVIUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.immortalApertureVI, available: () => state.advancedRealmLevel >= 8 && state.immortalApertureVUnlocked && !state.immortalApertureVIUnlocked, apply: () => { state.immortalApertureVIUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "soulQualitativeChangeUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.soulQualitativeChange, available: () => state.advancedRealmLevel >= 8 && !state.soulQualitativeChangeUnlocked, apply: () => { state.soulQualitativeChangeUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "immortalApertureVIIUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.immortalApertureVII, available: () => state.advancedRealmLevel >= 8 && state.immortalApertureVIUnlocked && !state.immortalApertureVIIUnlocked, apply: () => { state.immortalApertureVIIUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "trinityUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.trinity, available: () => state.advancedRealmLevel >= 9 && !state.trinityUnlocked, apply: () => { state.trinityUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "unityWithDaoUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.unityWithDao, available: () => state.advancedRealmLevel >= 9 && !state.unityWithDaoUnlocked, apply: () => { state.unityWithDaoUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "lawOriginUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.lawOrigin, available: () => state.advancedRealmLevel >= 9 && !state.lawOriginUnlocked, apply: () => { state.lawOriginUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "lawCrystalFilamentUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.lawCrystalFilament, available: () => state.advancedRealmLevel >= 9 && !state.lawCrystalFilamentUnlocked, apply: () => { state.lawCrystalFilamentUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "severThreeCorpsesUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.severThreeCorpses, available: () => state.advancedRealmLevel >= 9 && !state.threeCorpseChallengesUnlocked, apply: () => { state.severThreeCorpsesUnlocked = true; state.threeCorpseChallengesUnlocked = true; } },
+      { resourceKey: "immortalPower", historyKey: "ultimateImmortalApertureUnlocked", cost: () => IMMORTAL_POWER_ABILITY_COSTS.ultimateImmortalAperture, available: () => state.advancedRealmLevel >= 9 && ultimateImmortalAperturePrerequisiteMet() && !state.ultimateImmortalApertureUnlocked, apply: () => { state.ultimateImmortalApertureUnlocked = true; } }
     ];
     candidates.forEach((candidate) => {
       const available = candidate.available;
@@ -1123,7 +1826,14 @@
     // 散功重修与转世重修会重置进度并要求确认，永远不进入自动升级候选。
     let purchases = 0;
     const maximumPurchases = candidates.length + QI_SPELL_COSTS.length + FOUNDATION_SPELL_COSTS.length + LONGEVITY_COSTS.length + GOLDEN_CORE_LONGEVITY_COSTS.length + LONGEVITY_800_COSTS.length + HEAVENLY_TREASURE_COSTS.length + TRUE_SPIRIT_TRANSFORMATION_COSTS.length + MYSTIC_HEAVENLY_TREASURE_COSTS.length + IMMORTAL_APERTURE_CAP;
-    while (purchases < maximumPurchases && purchaseCheapestAvailable(candidates, "mana")) purchases += 1;
+    const manaCandidates = candidates.filter((candidate) => candidate.resourceKey !== "immortalPower");
+    const immortalPowerCandidates = candidates.filter((candidate) => candidate.resourceKey === "immortalPower");
+    while (purchases < maximumPurchases) {
+      const purchased = purchaseCheapestAvailable(manaCandidates, "mana") ||
+        purchaseCheapestAvailable(immortalPowerCandidates, "immortalPower");
+      if (!purchased) break;
+      purchases += 1;
+    }
     return purchases;
   }
 
@@ -1134,9 +1844,10 @@
       { resourceKey: "mana", cost: foundationCost, available: () => state.qiRefiningUnlocked && !state.foundationUnlocked, apply: () => { state.foundationUnlocked = true; } },
       { resourceKey: "mana", cost: goldenCoreCost, available: () => state.foundationUnlocked && !state.goldenCoreUnlocked, apply: () => { state.goldenCoreUnlocked = true; } },
       ...ADVANCED_REALMS.map((_realm, index) => ({
-        resourceKey: "mana",
+        resourceKey: advancedRealmResource(index),
         cost: () => advancedRealmCost(index),
-        available: () => state.goldenCoreUnlocked && state.advancedRealmLevel === index,
+        available: () => state.goldenCoreUnlocked && state.advancedRealmLevel === index &&
+          (index !== 9 || WIS.Meta.Challenges.completionCount(state, "severSelfCorpse") >= 1),
         apply: () => {
           state.advancedRealmLevel = index + 1;
           if (index === 5) state.minorTribulationExplorationLoad = 0;
@@ -1163,10 +1874,10 @@
       if (!(cost > 0)) break;
       const affordable = next.resourceKey === "power"
         ? WIS.Core.Resources.canAfford("power", cost)
-        : WIS.Core.Resources.canAffordSystem("immortal", "mana", cost);
+        : WIS.Core.Resources.canAffordSystem("immortal", next.resourceKey, cost);
       if (!affordable) break;
       if (next.resourceKey === "power") WIS.Core.Resources.spend("power", cost);
-      else WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+      else WIS.Core.Resources.spendSystem("immortal", next.resourceKey, cost);
       next.apply();
       breakthroughs += 1;
     }
@@ -1207,10 +1918,14 @@
 
   function breathe() {
     if (!state.qiRefiningUnlocked) return;
-    const gained = breathingManaGain();
-    if (gained < 1) return;
+    if (breathingManaGain() < 1) return;
+    const { mana: gained } = applyManaGainProgressive(
+      1,
+      (actionFraction, currentMana) => breathingManaGain(currentMana) * actionFraction,
+      () => {},
+      { linearBudget: true }
+    );
     WIS.Core.Resources.set("joules", 0);
-    WIS.Core.Resources.addSystem("immortal", "mana", gained);
     state.lifetimeTotalMana += gained;
     tryTianNiPearl();
     rollBaLingChiAttempts(1);
@@ -1282,9 +1997,12 @@
 
   function unlockAdvancedRealm(index) {
     const cost = advancedRealmCost(index);
-    if (!state.goldenCoreUnlocked || state.advancedRealmLevel !== index || state.mana < cost) return;
+    const resourceKey = advancedRealmResource(index);
+    if (!state.goldenCoreUnlocked || state.advancedRealmLevel !== index ||
+        (index === 9 && WIS.Meta.Challenges.completionCount(state, "severSelfCorpse") < 1) ||
+        !WIS.Core.Resources.canAffordSystem("immortal", resourceKey, cost)) return;
     const previousAchievements = achievementStates();
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    WIS.Core.Resources.spendSystem("immortal", resourceKey, cost);
     state.advancedRealmLevel = index + 1;
     if (index === 5) state.minorTribulationExplorationLoad = 0;
     if (index === 0) {
@@ -1293,6 +2011,7 @@
         state.reincarnationEffectLevel
       );
     }
+    checkActiveChallengeCompletion();
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
@@ -1472,17 +2191,40 @@
   }
 
   function unlockTrueImmortalAbility(stateKey, cost) {
-    if (state.advancedRealmLevel < 6 || state[stateKey] || state.mana < cost) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (state.advancedRealmLevel < 6 || state[stateKey] || state.immortalPower < cost) return;
+    WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost);
     state[stateKey] = true;
+    saveState();
+    render();
+  }
+
+  function unlockAdvancedImmortalAbility(stateKey, cost, requiredAdvancedRealmLevel, prerequisite = () => true) {
+    if (state.advancedRealmLevel < requiredAdvancedRealmLevel || state[stateKey] ||
+        !prerequisite() || state.immortalPower < cost) return;
+    WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost);
+    state[stateKey] = true;
+    saveState();
+    render();
+  }
+
+  function ultimateImmortalAperturePrerequisiteMet() {
+    return state.immortalApertureVIIUnlocked === true;
+  }
+
+  function unlockSeverThreeCorpses() {
+    const cost = IMMORTAL_POWER_ABILITY_COSTS.severThreeCorpses;
+    if (state.advancedRealmLevel < 9 || state.threeCorpseChallengesUnlocked || state.immortalPower < cost) return;
+    WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost);
+    state.severThreeCorpsesUnlocked = true;
+    state.threeCorpseChallengesUnlocked = true;
     saveState();
     render();
   }
 
   function buyImmortalAperture() {
     const cost = immortalApertureCost();
-    if (state.advancedRealmLevel < 6 || state.immortalApertureLevel >= IMMORTAL_APERTURE_CAP || state.mana < cost) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (state.advancedRealmLevel < 6 || state.immortalApertureLevel >= immortalApertureCap() || state.immortalPower < cost) return;
+    WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost);
     state.immortalApertureLevel += 1;
     saveState();
     render();
@@ -1517,12 +2259,12 @@
 
   function grantThreeDeficienciesResetReward() {
     if (!hasAchievement("threeDeficiencies")) return 0;
-    const reward = 1000;
-    WIS.Core.Resources.add("power", reward);
-    state.totalPower += reward;
-    state.lifetimeTotalPower += reward;
+    const gained = applyResourceSoftcapProgressive(1000, state.power);
+    WIS.Core.Resources.add("power", gained);
+    state.totalPower += gained;
+    state.lifetimeTotalPower += gained;
     runtime.call("updateScaleProgress", false);
-    return reward;
+    return gained;
   }
 
   function explore() {
@@ -1530,11 +2272,22 @@
     if (!state.goldenCoreUnlocked || powerCost < EXPLORATION_MINIMUM_POWER_COST) return;
     const explorationAmount = explorationAmountForCost(powerCost);
     const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
-    const gained = explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
-    if (gained < 1) return;
+    const previewGain = explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
+    if (previewGain < 1) return;
     const previousAchievements = achievementStates();
     WIS.Core.Resources.spend("power", powerCost);
-    WIS.Core.Resources.addSystem("immortal", "mana", gained);
+    const { mana: gained } = applyManaGainProgressive(
+      1,
+      (actionFraction, currentMana) => explorationPotentialManaGain(
+        powerCost,
+        currentMana,
+        tribulationPreview.manaExponent,
+        explorationAmount,
+        true
+      ) * actionFraction,
+      () => {},
+      { linearBudget: true }
+    );
     state.lifetimeTotalMana += gained;
 
     const rewards = processExplorationJudgements(addExplorationProgress(explorationAmount));
@@ -1579,17 +2332,17 @@
   }
 
   function purchaseCheapestAvailable(candidates, resourceKey) {
-    const commonResource = resourceKey === "mana" ? null : resourceKey;
+    const isCultivationResource = resourceKey === "mana" || resourceKey === "immortalPower";
     const affordable = candidates
       .filter((candidate) => candidate.available())
       .map((candidate, candidateIndex) => ({ ...candidate, candidateIndex, currentCost: candidate.cost() }))
-      .filter((candidate) => candidate.currentCost > 0 && (commonResource
-        ? WIS.Core.Resources.canAfford(commonResource, candidate.currentCost)
-        : WIS.Core.Resources.canAffordSystem("immortal", "mana", candidate.currentCost)))
+      .filter((candidate) => candidate.currentCost > 0 && (isCultivationResource
+        ? WIS.Core.Resources.canAffordSystem("immortal", resourceKey, candidate.currentCost)
+        : WIS.Core.Resources.canAfford(resourceKey, candidate.currentCost)))
       .sort((left, right) => left.currentCost - right.currentCost || left.candidateIndex - right.candidateIndex)[0];
     if (!affordable) return false;
-    if (commonResource) WIS.Core.Resources.spend(commonResource, affordable.currentCost);
-    else WIS.Core.Resources.spendSystem("immortal", "mana", affordable.currentCost);
+    if (isCultivationResource) WIS.Core.Resources.spendSystem("immortal", resourceKey, affordable.currentCost);
+    else WIS.Core.Resources.spend(resourceKey, affordable.currentCost);
     affordable.apply();
     return true;
   }
@@ -1600,7 +2353,7 @@
     if (!state.goldenCoreUnlocked || currentEffectLevel >= 3) return;
     const nextScatterLevel = currentEffectLevel + 1;
     const retainedTier = SCATTER_RETAINED_UPGRADE_TIERS[nextScatterLevel];
-    if (!window.confirm(`第${nextScatterLevel}次散功重修将保留${retainedTier}强化；更高量级强化、J、战力、法力、量级和境界会重置，仙道能力、成就与宝物烙印继续保留。确定继续吗？`)) return;
+    if (!window.confirm(`第${nextScatterLevel}次散功重修将保留${retainedTier}强化；更高量级强化、J、战力、法力、仙灵力、量级和境界会重置，仙道能力、成就与宝物烙印继续保留。确定继续吗？`)) return;
     updateLifetimeStatistics();
     runtime.setState(WIS.Core.Reset.apply("scatter", state, freshDefaultState, {
       context: { nextScatterLevel },
@@ -1691,20 +2444,61 @@
     nascentSoulCompletion: () => unlockMahayanaAbility("nascentSoulCompletionUnlocked", NASCENT_SOUL_COMPLETION_COST),
     spiritTravelVoid: () => unlockMahayanaAbility("spiritTravelVoidUnlocked", SPIRIT_TRAVEL_VOID_COST),
     goldenSealScript: () => unlockMahayanaAbility("goldenSealScriptUnlocked", GOLDEN_SEAL_SCRIPT_COST),
-    immortalSpiritPower: () => unlockTrueImmortalAbility("immortalSpiritPowerUnlocked", IMMORTAL_SPIRIT_POWER_COST),
     undyingPrimordialSpirit: () => unlockTrueImmortalAbility("undyingPrimordialSpiritUnlocked", UNDYING_PRIMORDIAL_SPIRIT_COST),
     immortalAperture: buyImmortalAperture,
     xuanImmortalBody: () => unlockTrueImmortalAbility("xuanImmortalBodyUnlocked", XUAN_IMMORTAL_BODY_COST),
-    law: () => unlockTrueImmortalAbility("lawUnlocked", LAW_COST)
+    law: () => unlockTrueImmortalAbility("lawUnlocked", LAW_COST),
+    immortalApertureII: () => unlockAdvancedImmortalAbility("immortalApertureIIUnlocked", IMMORTAL_POWER_ABILITY_COSTS.immortalApertureII, 7),
+    spiritDomain: () => unlockAdvancedImmortalAbility("spiritDomainUnlocked", IMMORTAL_POWER_ABILITY_COSTS.spiritDomain, 7),
+    threadsOfLaw: () => unlockAdvancedImmortalAbility("threadsOfLawUnlocked", IMMORTAL_POWER_ABILITY_COSTS.threadsOfLaw, 7),
+    immortalApertureIII: () => unlockAdvancedImmortalAbility("immortalApertureIIIUnlocked", IMMORTAL_POWER_ABILITY_COSTS.immortalApertureIII, 7, () => state.immortalApertureIIUnlocked),
+    spiritCaptureReturn: () => unlockAdvancedImmortalAbility("spiritCaptureReturnUnlocked", IMMORTAL_POWER_ABILITY_COSTS.spiritCaptureReturn, 7),
+    indestructibleDharmaBody: () => unlockAdvancedImmortalAbility("indestructibleDharmaBodyUnlocked", IMMORTAL_POWER_ABILITY_COSTS.indestructibleDharmaBody, 7),
+    immortalApertureIV: () => unlockAdvancedImmortalAbility("immortalApertureIVUnlocked", IMMORTAL_POWER_ABILITY_COSTS.immortalApertureIV, 7, () => state.immortalApertureIIIUnlocked),
+    fiveElementsTreasure: () => unlockAdvancedImmortalAbility("fiveElementsTreasureUnlocked", IMMORTAL_POWER_ABILITY_COSTS.fiveElementsTreasure, 7),
+    lawAffinity: () => unlockAdvancedImmortalAbility("lawAffinityUnlocked", IMMORTAL_POWER_ABILITY_COSTS.lawAffinity, 8, () => state.threadsOfLawUnlocked),
+    flawlessJadeBody: () => unlockAdvancedImmortalAbility("flawlessJadeBodyUnlocked", IMMORTAL_POWER_ABILITY_COSTS.flawlessJadeBody, 8),
+    spiritDomainWorldTransformation: () => unlockAdvancedImmortalAbility("spiritDomainWorldTransformationUnlocked", IMMORTAL_POWER_ABILITY_COSTS.spiritDomainWorldTransformation, 8, () => state.spiritDomainUnlocked),
+    immortalApertureV: () => unlockAdvancedImmortalAbility("immortalApertureVUnlocked", IMMORTAL_POWER_ABILITY_COSTS.immortalApertureV, 8, () => state.immortalApertureIVUnlocked),
+    immortalApertureVI: () => unlockAdvancedImmortalAbility("immortalApertureVIUnlocked", IMMORTAL_POWER_ABILITY_COSTS.immortalApertureVI, 8, () => state.immortalApertureVUnlocked),
+    immortalApertureVII: () => unlockAdvancedImmortalAbility("immortalApertureVIIUnlocked", IMMORTAL_POWER_ABILITY_COSTS.immortalApertureVII, 8, () => state.immortalApertureVIUnlocked),
+    soulQualitativeChange: () => unlockAdvancedImmortalAbility("soulQualitativeChangeUnlocked", IMMORTAL_POWER_ABILITY_COSTS.soulQualitativeChange, 8),
+    trinity: () => unlockAdvancedImmortalAbility("trinityUnlocked", IMMORTAL_POWER_ABILITY_COSTS.trinity, 9),
+    unityWithDao: () => unlockAdvancedImmortalAbility("unityWithDaoUnlocked", IMMORTAL_POWER_ABILITY_COSTS.unityWithDao, 9),
+    lawOrigin: () => unlockAdvancedImmortalAbility("lawOriginUnlocked", IMMORTAL_POWER_ABILITY_COSTS.lawOrigin, 9),
+    lawCrystalFilament: () => unlockAdvancedImmortalAbility("lawCrystalFilamentUnlocked", IMMORTAL_POWER_ABILITY_COSTS.lawCrystalFilament, 9),
+    severThreeCorpses: unlockSeverThreeCorpses,
+    ultimateImmortalAperture: () => unlockAdvancedImmortalAbility("ultimateImmortalApertureUnlocked", IMMORTAL_POWER_ABILITY_COSTS.ultimateImmortalAperture, 9, ultimateImmortalAperturePrerequisiteMet)
   });
   function performAction(id, ...args) { const name = actions[id]; return name ? api[name](...args) : false; }
   function buyAbility(id, ...args) { const ability = abilities[id]; return ability ? ability(...args) : false; }
   function getActionIds() { return Object.keys(actions).filter((id) => id !== "choose"); }
   function getAbilityIds() { return Object.keys(abilities); }
   const api = Object.freeze({
+    nextManaProgressBoundary, applyManaGainProgressive, previewManaGainProgressive,
+    breathingManaGainProgressive, explorationManaGainProgressive,
+    automaticManaComponents, automaticManaGainProgressive,
+    automaticBaseManaBeforeSuppressionPerSecond, automaticExplorationManaBeforeSuppressionPerSecond,
+    automaticManaBeforeSuppressionPerSecond,
     celestialDeclineActive, celestialDeclineExponent, applyCelestialDecline,
-    immortalApertureCost, unlockTrueImmortalAbility, buyImmortalAperture,
-    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, baseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
+    immortalPowerUnlocked, immortalPowerRealmCost, nextImmortalPowerRealmCost,
+    immortalPowerProgressRatio, immortalPowerManaSuppressionExponent, applyImmortalPowerManaSuppression,
+    immortalPowerBasePerSecond, immortalPowerMultiplierGroups, immortalPowerMultiplier, immortalPowerPerSecond,
+    immortalApertureCap, immortalApertureLevelMultiplier, immortalApertureMilestoneMultiplier,
+    immortalApertureMultiplier, lawImmortalPowerExponent, lawImmortalPowerActualExponent, lawImmortalPowerMultiplier,
+    spiritCaptureReturnMultiplier, spiritDomainJSource, soulQualitativeChangeMultiplier,
+    immortalPowerRegionExponent, trinityImmortalPowerMultiplier, unityWithDaoExponent,
+    lawCrystalFilamentPowerExponent,
+    fiveElementsTreasureCount, fiveElementsTreasureRawMultiplier,
+    fiveElementsTreasureInternalExponent, fiveElementsTreasureMultiplierBeforeDecline,
+    fiveElementsTreasureChance, rollFiveElementsTreasureAttempts,
+    celestialFiveDeclineBaseExponent, celestialFiveDeclineExponent,
+    applyCelestialFiveDeclineToMultiplier, nextImmortalPowerProgressBoundary,
+    advancedRealmResource, advancedRealmManaCost, nextRealmResource,
+    immortalApertureCost, unlockTrueImmortalAbility, unlockAdvancedImmortalAbility,
+    ultimateImmortalAperturePrerequisiteMet,
+    unlockSeverThreeCorpses, buyImmortalAperture,
+    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, baseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureRawManaMultiplier, naturalTreasureManaDiminishingExponent, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlRawManaMultiplier, tianNiPearlManaDiminishingExponent, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
     unlockBodyIntegrationAbility, unlockMahayanaAbility, scatterAndRebuild, reincarnate,
     getManaPerSecond: automaticManaPerSecond,
     autoUpgrade: autoUpgradeImmortalAbilities,

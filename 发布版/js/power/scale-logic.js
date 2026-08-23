@@ -29,20 +29,28 @@
   const MOONFALL_COST = POWER_COSTS.moonfall, FLOW_STATE_COST = POWER_COSTS.flowState;
   const SELFHOOD_COST = POWER_COSTS.selfhood, FREEDOM_COST = POWER_COSTS.freedom;
   const CHICXULUB_METEORITE_COST = POWER_COSTS.chicxulubMeteorite;
+  const PLANET_WILL_COST = POWER_COSTS.planetWill, STAR_SPIRIT_COST = POWER_COSTS.starSpirit;
+  const STAR_SHATTER_COST = POWER_COSTS.starShatter, SPACE_QUAKE_COST = POWER_COSTS.spaceQuake;
+  const SELFLESS_COST = POWER_COSTS.selfless, SUPERNATURAL_FIRE_COST = POWER_COSTS.supernaturalFire;
+  const FIVE_SPIRIT_STONE_COST = POWER_COSTS.fiveSpiritStone, SELF_SUPPRESSION_COST = POWER_COSTS.selfSuppression;
   const ROCK_BASE_LEVEL_CAP = CONFIG.rockBaseLevelCap;
   const TRAINING_J_DECAY_SCALE = CONFIG.training.decayScale, TRAINING_J_DECAY_LOG_DIVISOR = CONFIG.training.decayLogDivisor, TRAINING_J_DECAY_POWER = CONFIG.training.decayPower;
   const SCATTER_RETAINED_UPGRADE_TIERS = CONFIG.scatterRetainedUpgradeTiers;
   const SCALE_THRESHOLDS = CONFIG.scales;
+  const RESOURCE_SOFTCAP_STAGES = CONFIG.softcaps;
+  const RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP = 0.01;
+  const RESOURCE_SOFTCAP_MAX_ITERATIONS = 16384;
   const CHALLENGE_DEFINITIONS = CONFIG.challenges;
-  const FOCUS_LATE_SOFTCAP_START = 5e13;
-  const FOCUS_LATE_SOFTCAP_EXPONENT = 0.75;
+  const GHOST_BRAIN_CONFIG = CONFIG.ghostBrain;
+  const FOCUS_SOURCE_CURVE_CONFIG = CONFIG.focus.sourceCurve;
+  const STAR_ENHANCEMENT_CONFIG = CONFIG.starEnhancements;
+  const STAR_SOFTCAP_ACHIEVEMENT_CONFIG = CONFIG.starSoftcapAchievement;
+  const SCALE_TREASURE_CONFIG = CONFIG.scaleTreasures;
   const CONTINENT_REFERENCE_POWER = 8.368e22;
 
   const calculateSourceGain = (options) => WIS.Core.Formulas.source(options);
   const calculateRegionGain = (sources, options) => WIS.Core.Formulas.region(sources, options);
   const multiplyEffectGroups = (groups) => WIS.Core.Formulas.multiply(Object.values(groups).flat());
-  const applyResourceSoftcap = (...args) => runtime.call("applyResourceSoftcap", ...args);
-  const resourceSoftcapExponent = (...args) => runtime.call("resourceSoftcapExponent", ...args);
   const updateLifetimeStatistics = (...args) => runtime.call("updateLifetimeStatistics", ...args);
   const showScaleNotice = (...args) => runtime.call("showScaleNotice", ...args);
   const checkActiveChallengeCompletion = (...args) => runtime.call("checkActiveChallengeCompletion", ...args);
@@ -55,6 +63,322 @@
   const celestialDeclineExponent = (...args) => runtime.call("celestialDeclineExponent", ...args);
   const hasAchievement = (key) => WIS.Meta.Achievements.has(state, key);
   const upgradesUnlocked = () => hasAchievement("powerOne");
+
+  function resourceSoftcapRealmLevel() {
+    const getRealmLevel = WIS.Cultivation?.ImmortalLogic?.cultivationRealmLevel;
+    return typeof getRealmLevel === "function"
+      ? Math.max(0, Number(getRealmLevel()) || 0)
+      : 0;
+  }
+
+  function baseSoftcapStageExponent(amount, stage) {
+    if (amount <= stage.threshold) return 1;
+    const overflowOrders = Math.log10(amount / stage.threshold);
+    const pressure = stage.strength * overflowOrders
+      + stage.growth * Math.pow(overflowOrders, 1.5);
+    return 1 / (1 + pressure);
+  }
+
+  function softcapStageExponent(amount, stage) {
+    const exponent = baseSoftcapStageExponent(amount, stage);
+    return stage.name === "爆星" && state.spaceQuakePurchased
+      ? 1 - (1 - exponent) * STAR_ENHANCEMENT_CONFIG.spaceQuake.remainingPressureMultiplier
+      : exponent;
+  }
+
+  function resourceSoftcapStageActive(stage, realmLevel = resourceSoftcapRealmLevel()) {
+    return stage.removedAtRealm === null || realmLevel < stage.removedAtRealm;
+  }
+
+  function resourceSoftcapExponent(currentAmount) {
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    const realmLevel = resourceSoftcapRealmLevel();
+    const baseExponent = RESOURCE_SOFTCAP_STAGES.reduce((exponent, stage) => {
+      if (!resourceSoftcapStageActive(stage, realmLevel)) return exponent;
+      return exponent * softcapStageExponent(amount, stage);
+    }, 1);
+    return hasAchievement("scale10")
+      ? 1 - (1 - baseExponent) * STAR_SOFTCAP_ACHIEVEMENT_CONFIG.remainingPressureMultiplier
+      : baseExponent;
+  }
+
+  function planetSuppressionRewardExponent(currentAmount) {
+    if (challengeCompletionCount("planetSuppression") < 1) return 1;
+    const softcapExponent = Math.max(0, Math.min(1, resourceSoftcapExponent(currentAmount)));
+    return 1 + STAR_SOFTCAP_ACHIEVEMENT_CONFIG.challengeRewardLossConversion
+      * (1 - softcapExponent);
+  }
+
+  function planetSuppressionSoftcapExponent(currentAmount) {
+    if (state.activeChallenge !== "planetSuppression") return 1;
+    const challenge = CHALLENGE_DEFINITIONS.planetSuppression;
+    const threshold = SCALE_THRESHOLDS[challenge.requiredScaleIndex]?.power;
+    const starStage = RESOURCE_SOFTCAP_STAGES.find((stage) => stage.name === "爆星");
+    if (!(threshold > 0) || !starStage) return 1;
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    const progress = Math.max(0, Math.min(1,
+      Math.log10(1 + amount) / Math.log10(1 + threshold)
+    ));
+    const virtualAmount = threshold * Math.pow(10, 1 + 4 * progress);
+    const baseExponent = baseSoftcapStageExponent(virtualAmount, starStage);
+    let remainingPressure = 1 - baseExponent;
+    if (state.spaceQuakePurchased) {
+      remainingPressure *= STAR_ENHANCEMENT_CONFIG.spaceQuake.remainingPressureMultiplier;
+    }
+    if (hasAchievement("scale10")) {
+      remainingPressure *= STAR_SOFTCAP_ACHIEVEMENT_CONFIG.remainingPressureMultiplier;
+    }
+    return 1 - remainingPressure;
+  }
+
+  function resourceSoftcapSettlementExponent(currentAmount) {
+    return resourceSoftcapExponent(currentAmount)
+      * planetSuppressionSoftcapExponent(currentAmount);
+  }
+
+  function applySoftcapExponent(rawGain, exponent) {
+    const gain = Math.max(0, Number(rawGain) || 0);
+    if (!(gain > 0)) return 0;
+    if (exponent >= 1) return gain;
+    if (!(exponent > 0)) return 0;
+    return Math.expm1(exponent * Math.log1p(gain));
+  }
+
+  function applyResourceSoftcap(rawGain, currentAmount) {
+    const gain = Math.max(0, Number(rawGain) || 0);
+    if (!(gain > 0)) return 0;
+    return applySoftcapExponent(gain, resourceSoftcapExponent(currentAmount));
+  }
+
+  function applyResourceSoftcapSettlement(rawGain, currentAmount) {
+    const normalSettledGain = applyResourceSoftcap(rawGain, currentAmount);
+    return applySoftcapExponent(
+      normalSettledGain,
+      planetSuppressionSoftcapExponent(currentAmount)
+    );
+  }
+
+  function applyResourceSoftcapRate(rawRate, currentAmount) {
+    return applyResourceSoftcap(rawRate, currentAmount);
+  }
+
+  function nextResourceSoftcapThreshold(currentAmount) {
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    const realmLevel = resourceSoftcapRealmLevel();
+    const nextStage = RESOURCE_SOFTCAP_STAGES.find((stage) =>
+      stage.threshold > amount
+      && resourceSoftcapStageActive(stage, realmLevel)
+    );
+    return nextStage?.threshold ?? Infinity;
+  }
+
+  function hasStartedUnremovedResourceSoftcap(currentAmount) {
+    if (state.activeChallenge === "planetSuppression") return true;
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    const realmLevel = resourceSoftcapRealmLevel();
+    return RESOURCE_SOFTCAP_STAGES.some((stage) =>
+      stage.threshold <= amount
+      && resourceSoftcapStageActive(stage, realmLevel)
+    );
+  }
+
+  function resourceSoftcapIntegrationLogIndex(currentAmount) {
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    if (!(amount > 0) || !Number.isFinite(amount)) return 0;
+    const scaledLog = Math.log10(amount) / RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP;
+    const nearestInteger = Math.round(scaledLog);
+    const tolerance = Math.max(1, Math.abs(scaledLog)) * Number.EPSILON * 32;
+    return Math.abs(scaledLog - nearestInteger) <= tolerance
+      ? nearestInteger
+      : Math.floor(scaledLog);
+  }
+
+  function resourceSoftcapLogBoundary(index) {
+    return Math.pow(10, index * RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP);
+  }
+
+  function latestStartedResourceSoftcapThreshold(currentAmount) {
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    const realmLevel = resourceSoftcapRealmLevel();
+    return RESOURCE_SOFTCAP_STAGES.reduce((latestThreshold, stage) => {
+      if (stage.threshold > amount) return latestThreshold;
+      if (!resourceSoftcapStageActive(stage, realmLevel)) return latestThreshold;
+      return Math.max(latestThreshold, stage.threshold);
+    }, 0);
+  }
+
+  function resourceSoftcapIntegrationEvaluationAmount(currentAmount) {
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    if (!(amount > 0) || !hasStartedUnremovedResourceSoftcap(amount)) return amount;
+    const cellStart = resourceSoftcapLogBoundary(
+      resourceSoftcapIntegrationLogIndex(amount)
+    );
+    return Math.max(
+      Math.min(amount, cellStart),
+      latestStartedResourceSoftcapThreshold(amount)
+    );
+  }
+
+  function applyResourceSoftcapEffectiveRate(rawRate, currentAmount) {
+    return applyResourceSoftcapSettlement(
+      rawRate,
+      resourceSoftcapIntegrationEvaluationAmount(currentAmount)
+    );
+  }
+
+  function nextResourceSoftcapIntegrationBoundary(currentAmount) {
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    const nextThreshold = nextResourceSoftcapThreshold(amount);
+    if (state.activeChallenge === "planetSuppression" && !(amount > 0)) {
+      return Math.min(nextThreshold, 1);
+    }
+    if (!(amount > 0) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
+    let nextLogIndex = resourceSoftcapIntegrationLogIndex(amount) + 1;
+    let nextLogBoundary = resourceSoftcapLogBoundary(nextLogIndex);
+    while (!(nextLogBoundary > amount) && nextLogIndex < Number.MAX_SAFE_INTEGER) {
+      nextLogIndex += 1;
+      nextLogBoundary = resourceSoftcapLogBoundary(nextLogIndex);
+    }
+    return Math.min(nextThreshold, nextLogBoundary);
+  }
+
+  function rawGainForSoftcappedActualGain(actualGain, exponent) {
+    const gain = Math.max(0, Number(actualGain) || 0);
+    if (!(gain > 0)) return 0;
+    if (!(exponent > 0)) return Infinity;
+    if (exponent >= 1) return gain;
+    return Math.expm1(Math.log1p(gain) / exponent);
+  }
+
+  function applyResourceSoftcapProgressive(rawGain, currentAmount) {
+    let remainingRawGain = Math.max(0, Number(rawGain) || 0);
+    const initialAmount = Math.max(0, Number(currentAmount) || 0);
+    if (!(remainingRawGain > 0) || !Number.isFinite(initialAmount)) return 0;
+    if (!Number.isFinite(remainingRawGain)) return Infinity;
+
+    let settledAmount = initialAmount;
+    let settledGain = 0;
+    for (
+      let iteration = 0;
+      iteration < RESOURCE_SOFTCAP_MAX_ITERATIONS && remainingRawGain > 0;
+      iteration += 1
+    ) {
+      const exponent = resourceSoftcapSettlementExponent(settledAmount);
+      if (!(exponent > 0)) break;
+      const nextBoundary = nextResourceSoftcapIntegrationBoundary(settledAmount);
+      if (!Number.isFinite(nextBoundary)) {
+        settledGain += applyResourceSoftcapSettlement(remainingRawGain, settledAmount);
+        remainingRawGain = 0;
+        break;
+      }
+
+      const neededActualGain = Math.max(0, nextBoundary - settledAmount);
+      if (!(neededActualGain > 0)) break;
+      const neededRawGain = rawGainForSoftcappedActualGain(neededActualGain, exponent);
+      const tolerance = Math.max(1, neededRawGain) * Number.EPSILON * 16;
+      if (!Number.isFinite(neededRawGain) || remainingRawGain + tolerance < neededRawGain) {
+        settledGain += applyResourceSoftcapSettlement(remainingRawGain, settledAmount);
+        remainingRawGain = 0;
+        break;
+      }
+
+      settledAmount = nextBoundary;
+      settledGain += neededActualGain;
+      remainingRawGain = Math.max(0, remainingRawGain - neededRawGain);
+      if (remainingRawGain <= tolerance) remainingRawGain = 0;
+    }
+
+    if (remainingRawGain > 0) {
+      settledGain += applyResourceSoftcapSettlement(remainingRawGain, settledAmount);
+    }
+    return Math.max(0, settledGain);
+  }
+
+  function applyResourceSoftcapDynamicRateOverTime(rawRateAtAmount, currentAmount, elapsedSeconds) {
+    let remainingTime = Math.max(0, Number(elapsedSeconds) || 0);
+    const initialAmount = Math.max(0, Number(currentAmount) || 0);
+    if (typeof rawRateAtAmount !== "function"
+      || !(remainingTime > 0)
+      || !Number.isFinite(initialAmount)) return 0;
+    if (!Number.isFinite(remainingTime)) return Infinity;
+
+    let settledAmount = initialAmount;
+    let settledGain = 0;
+    for (
+      let iteration = 0;
+      iteration < RESOURCE_SOFTCAP_MAX_ITERATIONS && remainingTime > 0;
+      iteration += 1
+    ) {
+      const evaluationAmount = resourceSoftcapIntegrationEvaluationAmount(settledAmount);
+      const rawRate = Math.max(0, Number(rawRateAtAmount(evaluationAmount)) || 0);
+      if (!Number.isFinite(rawRate)) return Infinity;
+      const actualRate = applyResourceSoftcapSettlement(rawRate, evaluationAmount);
+      if (!(actualRate > 0)) break;
+      const nextBoundary = nextResourceSoftcapIntegrationBoundary(settledAmount);
+      if (!Number.isFinite(nextBoundary)) {
+        settledGain += actualRate * remainingTime;
+        remainingTime = 0;
+        break;
+      }
+
+      const neededActualGain = Math.max(0, nextBoundary - settledAmount);
+      if (!(neededActualGain > 0)) break;
+      const timeToBoundary = neededActualGain / actualRate;
+      const tolerance = Math.max(1, timeToBoundary) * Number.EPSILON * 16;
+      if (!Number.isFinite(timeToBoundary) || remainingTime + tolerance < timeToBoundary) {
+        settledGain += actualRate * remainingTime;
+        remainingTime = 0;
+        break;
+      }
+
+      settledAmount = nextBoundary;
+      settledGain += neededActualGain;
+      remainingTime = Math.max(0, remainingTime - timeToBoundary);
+      if (remainingTime <= tolerance) remainingTime = 0;
+    }
+
+    if (remainingTime > 0) {
+      const evaluationAmount = resourceSoftcapIntegrationEvaluationAmount(settledAmount);
+      const rawRate = Math.max(0, Number(rawRateAtAmount(evaluationAmount)) || 0);
+      if (!Number.isFinite(rawRate)) return Infinity;
+      settledGain += applyResourceSoftcapSettlement(rawRate, evaluationAmount) * remainingTime;
+    }
+    return Math.max(0, settledGain);
+  }
+
+  function applyResourceSoftcapOverTime(rawRate, currentAmount, elapsedSeconds) {
+    const rate = Math.max(0, Number(rawRate) || 0);
+    if (!(rate > 0)) return 0;
+    if (!Number.isFinite(rate)) return Infinity;
+    return applyResourceSoftcapDynamicRateOverTime(
+      () => rate,
+      currentAmount,
+      elapsedSeconds
+    );
+  }
+
+  function formatSoftcapExponent(exponent) {
+    return exponent >= 0.001 ? exponent.toFixed(3) : exponent.toExponential(2);
+  }
+
+  function activeSoftcapStages(currentAmount) {
+    const amount = Math.max(0, Number(currentAmount) || 0);
+    const realmLevel = resourceSoftcapRealmLevel();
+    const names = RESOURCE_SOFTCAP_STAGES
+      .filter((stage) => amount > stage.threshold
+        && resourceSoftcapStageActive(stage, realmLevel))
+      .map((stage) => stage.name);
+    return names.length > 0 ? names.join("、") : "未触发";
+  }
+
+  function removedSoftcapStages() {
+    const realmLevel = resourceSoftcapRealmLevel();
+    const names = RESOURCE_SOFTCAP_STAGES
+      .filter((stage) => stage.removedAtRealm !== null && realmLevel >= stage.removedAtRealm
+        && !resourceSoftcapStageActive(stage, realmLevel))
+      .map((stage) => stage.name);
+    return names.length > 0 ? names.join("、") : "无";
+  }
 
   function gymPotentialMultiplier() {
     return (1.25 + Math.log10(1 + Math.max(0, state.power)) * 0.5) * breathingMethodGymMultiplier();
@@ -120,11 +444,14 @@
   }
 
   function superLollipopChance() {
-    return 0.01 / Math.sqrt(1 + superLollipopCount() / 10);
+    const config = SCALE_TREASURE_CONFIG.superLollipop;
+    return Math.min(1,
+      config.baseChance * Math.pow(config.chanceDecay, superLollipopCount()) * treasureChanceMultiplier()
+    );
   }
 
   function superLollipopTrainingMultiplier() {
-    return 1 + superLollipopCount() * 0.05;
+    return 1 + superLollipopCount() * SCALE_TREASURE_CONFIG.superLollipop.perItemMultiplier;
   }
 
   function rollSuperLollipopAttempts(attempts, silent = false) {
@@ -145,7 +472,7 @@
   function skyCrystalChance() {
     return Math.min(1,
       0.005 * (1 + Math.log10(1 + effectiveRockLevel() / 1000)) /
-        Math.sqrt(1 + skyCrystalCount() / 10)
+        Math.sqrt(1 + skyCrystalCount() / 10) * treasureChanceMultiplier()
     );
   }
 
@@ -203,16 +530,23 @@
     return WIS.Meta.Challenges.completionCount(state, key);
   }
 
+  function declineChallengeReward(multiplier) {
+    const adjust = WIS.Cultivation?.ImmortalLogic?.applyCelestialFiveDeclineToMultiplier;
+    return typeof adjust === "function" ? adjust(multiplier) : multiplier;
+  }
+
   function challengeRewardExponent(key) {
     const challenge = CHALLENGE_DEFINITIONS[key];
     const completions = challengeCompletionCount(key);
-    return completions > 0 && challenge.rewardExponents ? challenge.rewardExponents[completions - 1] : 1;
+    const reward = completions > 0 && challenge.rewardExponents ? challenge.rewardExponents[completions - 1] : 1;
+    return declineChallengeReward(reward);
   }
 
   function challengeRewardMultiplier(key) {
     const challenge = CHALLENGE_DEFINITIONS[key];
     const completions = challengeCompletionCount(key);
-    return completions > 0 && challenge.rewardMultipliers ? challenge.rewardMultipliers[completions - 1] : 1;
+    const reward = completions > 0 && challenge.rewardMultipliers ? challenge.rewardMultipliers[completions - 1] : 1;
+    return declineChallengeReward(reward);
   }
 
   function longevityChallengeRewardMultiplier() {
@@ -234,6 +568,14 @@
 
   function jGainExponent() {
     return WIS.Core.Effects.product("joules", "regionExponent", state);
+  }
+
+  function selfSuppressionJExponent() {
+    if (!state.selfSuppressionPurchased) return 1;
+    const softcapExponent = Math.max(0, Math.min(1, resourceSoftcapExponent(state.joules)));
+    if (softcapExponent >= 1) return 1;
+    return 1 + STAR_ENHANCEMENT_CONFIG.selfSuppression.softcapLossConversion
+      * (1 - softcapExponent);
   }
 
   function powerGainExponent() {
@@ -282,7 +624,27 @@
   }
 
   function automaticJPerSecond() {
-    return finalJPerSecondFromSources(jSourceGains());
+    const evaluationAmount = resourceSoftcapIntegrationEvaluationAmount(state.joules);
+    return applyResourceSoftcapSettlement(
+      automaticJRawPerSecondAt(evaluationAmount),
+      evaluationAmount
+    );
+  }
+
+  function automaticJRawPerSecond() {
+    return preSoftcapJGainFromSources(jSourceGains());
+  }
+
+  function automaticJRawPerSecondAt(joulesAmount) {
+    const evaluationJoules = Math.max(0, Number(joulesAmount) || 0);
+    if (!Number.isFinite(evaluationJoules)) return automaticJRawPerSecond();
+    const previousJoules = state.joules;
+    state.joules = evaluationJoules;
+    try {
+      return automaticJRawPerSecond();
+    } finally {
+      state.joules = previousJoules;
+    }
   }
 
   function jSourceGains({ includeFitness = true } = {}) {
@@ -305,16 +667,33 @@
     const base = 1e12 * Math.pow(Math.max(0, fitnessJBonus()) / 1e12, 1.4);
     return calculateSourceGain({
       base,
+      multipliers: WIS.Core.Effects.values("elementalization", "sourceMultiplier", state),
       exponents: WIS.Core.Effects.values("elementalization", "sourceExponent", state)
     });
   }
 
-  function finalJPerSecondFromSources(sourceGains) {
+  function planetWillElementalizationMultiplier() {
+    if (!state.planetWillPurchased) return 1;
+    const config = STAR_ENHANCEMENT_CONFIG.planetWill;
+    return Math.min(
+      config.maximumMultiplier,
+      Math.pow(1 + Math.max(0, Number(state.joules) || 0) / config.joulesScale, config.exponent)
+    );
+  }
+
+  function preSoftcapJGainFromSources(sourceGains) {
     const regionGain = calculateRegionGain(sourceGains, {
       multipliers: [jMultiplier()],
       exponents: [jGainExponent()]
     });
-    return applyResourceSoftcap(applyGainExponent(regionGain, celestialDeclineExponent()), state.joules);
+    return applyGainExponent(regionGain, celestialDeclineExponent());
+  }
+
+  function finalJPerSecondFromSources(sourceGains) {
+    return applyResourceSoftcapEffectiveRate(
+      preSoftcapJGainFromSources(sourceGains),
+      state.joules
+    );
   }
 
   function longevityFitnessMultiplier() {
@@ -364,7 +743,9 @@
   }
 
   function fitnessMembershipCardChance() {
-    return 0.005 * Math.pow(0.97, fitnessMembershipCardCount());
+    return Math.min(1,
+      0.005 * Math.pow(0.97, fitnessMembershipCardCount()) * treasureChanceMultiplier()
+    );
   }
 
   function fitnessJBonus() {
@@ -440,11 +821,22 @@
   }
 
   function conversionGain() {
-    return finalPowerGainFromSources([challengeAdjustedPowerSource(trainingPowerSource(), "training")]);
+    return applyResourceSoftcapProgressive(
+      preSoftcapPowerGainFromSources([
+        challengeAdjustedPowerSource(trainingPowerSource(), "training")
+      ]),
+      state.power
+    );
   }
 
   function ghostBrainPotentialPowerBonus() {
-    return Math.pow(Math.max(0, state.highestPower), 0.6) / 250;
+    const highestPower = Math.max(0, Number(state.highestPower) || 0);
+    const attenuation = Math.pow(
+      1 + highestPower / GHOST_BRAIN_CONFIG.attenuationScale,
+      GHOST_BRAIN_CONFIG.attenuationExponent
+    );
+    return Math.pow(highestPower, GHOST_BRAIN_CONFIG.highestPowerExponent) /
+      (GHOST_BRAIN_CONFIG.divisor * attenuation);
   }
 
   function ghostBrainPowerBonus() {
@@ -474,7 +866,7 @@
 
   function brainDomainDevelopmentExponent() {
     return state.brainDomainDevelopmentPurchased
-      ? Math.min(1.3, 1 + 0.1 * continentPowerMagnitude())
+      ? Math.min(1.2, 1 + 0.1 * continentPowerMagnitude())
       : 1;
   }
 
@@ -491,7 +883,7 @@
     return calculateSourceGain({
       base: rawFocusPowerPerSecond(),
       exponents: WIS.Core.Effects.values("focus", "sourceExponent", state),
-      softcaps: [applyFocusLateSoftcap, (gain) => applyResourceSoftcap(gain, state.power)]
+      softcaps: [applyFocusSmoothSoftcap, (gain) => applyResourceSoftcapRate(gain, state.power)]
     });
   }
 
@@ -507,12 +899,13 @@
     });
   }
 
-  function applyFocusLateSoftcap(gain) {
-    const safeGain = Math.max(0, Number(gain) || 0);
-    if (safeGain <= FOCUS_LATE_SOFTCAP_START) return safeGain;
-    return FOCUS_LATE_SOFTCAP_START * Math.pow(
-      safeGain / FOCUS_LATE_SOFTCAP_START,
-      FOCUS_LATE_SOFTCAP_EXPONENT
+  function applyFocusSmoothSoftcap(gain) {
+    return WIS.Core.Formulas.smoothPowerSoftcap(
+      gain,
+      FOCUS_SOURCE_CURVE_CONFIG.scale,
+      FOCUS_SOURCE_CURVE_CONFIG.earlyExponent,
+      FOCUS_SOURCE_CURVE_CONFIG.lateExponent,
+      FOCUS_SOURCE_CURVE_CONFIG.sharpness
     );
   }
 
@@ -595,6 +988,13 @@
     return originalEffectiveLevel + (state.ghostManTransformationPurchased ? state.runningLevel : 0) + continentSplitBonus;
   }
 
+  function starShatterRockMultiplier() {
+    if (!state.starShatterPurchased) return 1;
+    const level = Math.max(0, Number(effectiveRockLevel()) || 0);
+    const config = STAR_ENHANCEMENT_CONFIG.starShatter;
+    return Math.pow(10, config.maximumOrders * level / (level + config.levelScale));
+  }
+
   function rockStrikeMultiplier() {
     return WIS.Core.Effects.value("rockStrike", state);
   }
@@ -604,20 +1004,106 @@
   }
 
   function automaticPowerPerSecond() {
+    const evaluationAmount = resourceSoftcapIntegrationEvaluationAmount(state.power);
+    return applyResourceSoftcapSettlement(
+      automaticPowerRawPerSecondAt(evaluationAmount),
+      evaluationAmount
+    );
+  }
+
+  function automaticPowerRawPerSecond() {
+    return preSoftcapPowerGainFromSources(automaticPowerSourceGains());
+  }
+
+  function automaticPowerRawPerSecondAt(powerAmount) {
+    const evaluationPower = Math.max(0, Number(powerAmount) || 0);
+    if (!Number.isFinite(evaluationPower)) return automaticPowerRawPerSecond();
+    const previousPower = state.power;
+    const previousHighestPower = state.highestPower;
+    const historicalHighestPower = Number(previousHighestPower) > Number(previousPower)
+      ? Math.max(0, Number(previousHighestPower) || 0)
+      : 0;
+    state.power = evaluationPower;
+    state.highestPower = Math.max(historicalHighestPower, evaluationPower);
+    try {
+      return automaticPowerRawPerSecond();
+    } finally {
+      state.power = previousPower;
+      state.highestPower = previousHighestPower;
+    }
+  }
+
+  function automaticPowerSourceGains() {
     const registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessJBonus() })
       .map((source) => challengeAdjustedPowerSource(source.value, source.id));
-    return finalPowerGainFromSources([
+    return [
       challengeAdjustedPowerSource(focusPowerPerSecond(), "focus"),
       challengeAdjustedPowerSource(rockPowerPerSecond(), "rock"),
       challengeAdjustedPowerSource(ghostBrainPowerSource(), "ghostBrain"),
       challengeAdjustedPowerSource(ultimateIntentPowerSource(), "ultimateIntent"),
       ...registeredSources
-    ]);
+    ];
   }
 
   function flowUltimateIntentMultiplier() {
     const focusSource = Math.max(0, focusPowerPerSecond());
     return Math.min(1e7, Math.pow(1 + Math.log10(1 + focusSource / 1e12), 14));
+  }
+
+  let calculatingSupernaturalFire = false;
+  function supernaturalFirePowerMultiplier() {
+    if (!state.supernaturalFirePurchased || calculatingSupernaturalFire) return 1;
+    calculatingSupernaturalFire = true;
+    try {
+      const focusSource = Math.max(0, Number(focusPowerPerSecond()) || 0);
+      const magnitude = Math.log10(1 + focusSource);
+      const config = STAR_ENHANCEMENT_CONFIG.supernaturalFire;
+      return 1 + config.numerator * magnitude / (config.saturation + magnitude);
+    } finally {
+      calculatingSupernaturalFire = false;
+    }
+  }
+
+  function completedChallengeLayers() {
+    return WIS.Meta.Challenges?.totalCompletionCount?.(state) || 0;
+  }
+
+  function treasureChanceMultiplier() {
+    return state.starSpiritPurchased
+      ? Math.pow(STAR_ENHANCEMENT_CONFIG.starSpirit.perChallengeMultiplier, completedChallengeLayers())
+      : 1;
+  }
+
+  function fiveSpiritStoneCount() {
+    return Math.max(0, Math.floor(Number(state.treasureImprints?.fiveSpiritStone) || 0));
+  }
+
+  function fiveSpiritStoneChance() {
+    const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
+    return Math.min(1,
+      config.baseChance * Math.pow(config.chanceDecay, fiveSpiritStoneCount()) * treasureChanceMultiplier()
+    );
+  }
+
+  function fiveSpiritStoneJSource() {
+    const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
+    return config.joulesBase * (Math.pow(fiveSpiritStoneCount() + 1, config.joulesExponent) - 1);
+  }
+
+  function fiveSpiritStonePowerSource() {
+    const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
+    return config.powerBase * (Math.pow(fiveSpiritStoneCount() + 1, config.powerExponent) - 1);
+  }
+
+  function rollFiveSpiritStoneAttempts(attempts, silent = false) {
+    const gained = rollDynamicAttempts(
+      attempts,
+      () => state.fiveSpiritStonePurchased && ultimateIntentPowerSource() > 0,
+      fiveSpiritStoneChance,
+      () => { WIS.Meta.Treasures.add(state, "fiveSpiritStone"); }
+    );
+    if (!silent && gained > 0) showNotice(`获得永久宝物：五灵石 +${gained}`);
+    return gained;
   }
 
   function ultimateIntentPowerSource() {
@@ -630,27 +1116,38 @@
     });
   }
 
-  function activePowerSourceChallengeMultiplier(sourceId) {
+  function activePowerSourceChallengeExponent(sourceId) {
     const challengeKey = state.activeChallenge;
     if (challengeKey !== "completeRealm" && challengeKey !== "moonless") return 1;
     if (challengeKey === "completeRealm" && sourceId === "ultimateIntent") return 1;
     if (challengeKey === "moonless" && sourceId === "rock") return 1;
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
-    return challenge.sourceMultipliers?.[
-      Math.min(challengeCompletionCount(challengeKey), challenge.sourceMultipliers.length - 1)
+    return challenge.sourceExponents?.[
+      Math.min(challengeCompletionCount(challengeKey), challenge.sourceExponents.length - 1)
     ] ?? 1;
   }
 
   function challengeAdjustedPowerSource(source, sourceId) {
-    return Math.max(0, Number(source) || 0) * activePowerSourceChallengeMultiplier(sourceId);
+    const safeSource = Math.max(0, Number(source) || 0);
+    const exponent = activePowerSourceChallengeExponent(sourceId);
+    return exponent >= 1
+      ? safeSource
+      : Math.expm1(exponent * Math.log1p(safeSource));
   }
 
-  function finalPowerGainFromSources(sourceGains) {
+  function preSoftcapPowerGainFromSources(sourceGains) {
     const regionGain = calculateRegionGain(sourceGains, {
       multipliers: [powerMultiplier()],
       exponents: [powerGainExponent()]
     });
-    return applyResourceSoftcap(applyGainExponent(regionGain, celestialDeclineExponent()), state.power);
+    return applyGainExponent(regionGain, celestialDeclineExponent());
+  }
+
+  function finalPowerGainFromSources(sourceGains) {
+    return applyResourceSoftcapEffectiveRate(
+      preSoftcapPowerGainFromSources(sourceGains),
+      state.power
+    );
   }
 
   function mindDivisionCost() {
@@ -729,17 +1226,31 @@
       { historyKey: "freedomPurchased", cost: () => FREEDOM_COST, available: () => state.highestScaleIndex >= 9 && !state.freedomPurchased, apply: () => { state.freedomPurchased = true; } },
       { historyKey: "chicxulubMeteoritePurchased", cost: () => CHICXULUB_METEORITE_COST, available: () => state.highestScaleIndex >= 9 && !state.chicxulubMeteoritePurchased, apply: () => { state.chicxulubMeteoritePurchased = true; } },
       // 行动候选放在强化候选之后；稳定排序保证相同消耗时强化优先。
-      { cost: runningCost, available: () => actionAutomationActive && upgradesUnlocked() && state.runningLevel < fitnessLevelCap(), apply: () => { state.runningLevel += 1; rollSuperLollipopAttempts(1, true); } },
+      { cost: runningCost, available: () => actionAutomationActive && upgradesUnlocked() && state.runningLevel < fitnessLevelCap(), apply: () => { state.runningLevel += 1; } },
       { cost: rockCost, available: () => actionAutomationActive && state.wallUnlocked && state.rockLevel < rockLevelCap(), apply: () => { state.rockLevel += 1; } }
     ];
-    candidates.forEach((candidate) => {
+    const jouleCandidates = [
+      { historyKey: "planetWillPurchased", cost: () => PLANET_WILL_COST, available: () => state.highestScaleIndex >= 10 && !state.planetWillPurchased, apply: () => { state.planetWillPurchased = true; } },
+      { historyKey: "starSpiritPurchased", cost: () => STAR_SPIRIT_COST, available: () => state.highestScaleIndex >= 10 && !state.starSpiritPurchased, apply: () => { state.starSpiritPurchased = true; } },
+      { historyKey: "starShatterPurchased", cost: () => STAR_SHATTER_COST, available: () => state.highestScaleIndex >= 10 && !state.starShatterPurchased, apply: () => { state.starShatterPurchased = true; } },
+      { historyKey: "spaceQuakePurchased", cost: () => SPACE_QUAKE_COST, available: () => state.highestScaleIndex >= 10 && !state.spaceQuakePurchased, apply: () => { state.spaceQuakePurchased = true; } },
+      { historyKey: "selflessPurchased", cost: () => SELFLESS_COST, available: () => state.highestScaleIndex >= 10 && !state.selflessPurchased, apply: () => { state.selflessPurchased = true; } },
+      { historyKey: "supernaturalFirePurchased", cost: () => SUPERNATURAL_FIRE_COST, available: () => state.highestScaleIndex >= 10 && !state.supernaturalFirePurchased, apply: () => { state.supernaturalFirePurchased = true; } },
+      { historyKey: "fiveSpiritStonePurchased", cost: () => FIVE_SPIRIT_STONE_COST, available: () => state.highestScaleIndex >= 10 && !state.fiveSpiritStonePurchased, apply: () => { state.fiveSpiritStonePurchased = true; } }
+      ,{ historyKey: "selfSuppressionPurchased", cost: () => SELF_SUPPRESSION_COST, available: () => state.highestScaleIndex >= 10 && !state.selfSuppressionPurchased, apply: () => { state.selfSuppressionPurchased = true; } }
+    ];
+    [...candidates, ...jouleCandidates].forEach((candidate) => {
       if (!candidate.historyKey) return;
       const available = candidate.available;
       candidate.available = () => upgradeAutomationActive && hasManuallyUpgradedScale(candidate.historyKey) && available();
     });
     let purchases = 0;
-    const maximumPurchases = candidates.length + MIND_DIVISION_COSTS.length + fitnessLevelCap() + rockLevelCap();
-    while (purchases < maximumPurchases && purchaseCheapestAvailable(candidates)) purchases += 1;
+    const maximumPurchases = candidates.length + jouleCandidates.length + MIND_DIVISION_COSTS.length + fitnessLevelCap() + rockLevelCap();
+    while (purchases < maximumPurchases) {
+      const purchased = purchaseCheapestAvailable(candidates) || purchaseCheapestAvailable(jouleCandidates, "joules");
+      if (!purchased) break;
+      purchases += 1;
+    }
     return purchases;
   }
 
@@ -772,7 +1283,6 @@
     if (!upgradesUnlocked() || state.runningLevel >= fitnessLevelCap() || state.power < cost) return;
     WIS.Core.Resources.spend("power", cost);
     state.runningLevel += 1;
-    rollSuperLollipopAttempts(1);
     saveState();
     render();
   }
@@ -1019,6 +1529,14 @@
     render();
   }
 
+  function buyJouleOneTime(stateKey, cost, requiredScaleIndex = 10) {
+    if (state.highestScaleIndex < requiredScaleIndex || state[stateKey] || state.joules < cost) return;
+    WIS.Core.Resources.spend("joules", cost);
+    state[stateKey] = true;
+    saveState();
+    render();
+  }
+
   function buyHyperRegeneration() {
     return buyPowerOneTime("hyperRegenerationPurchased", HYPER_REGENERATION_COST, state.regenerationPurchased);
   }
@@ -1069,6 +1587,14 @@
   function buySelfhood() { return buyPowerOneTime("selfhoodPurchased", SELFHOOD_COST, true, 9); }
   function buyFreedom() { return buyPowerOneTime("freedomPurchased", FREEDOM_COST, true, 9); }
   function buyChicxulubMeteorite() { return buyPowerOneTime("chicxulubMeteoritePurchased", CHICXULUB_METEORITE_COST, true, 9); }
+  function buyPlanetWill() { return buyJouleOneTime("planetWillPurchased", PLANET_WILL_COST); }
+  function buyStarSpirit() { return buyJouleOneTime("starSpiritPurchased", STAR_SPIRIT_COST); }
+  function buyStarShatter() { return buyJouleOneTime("starShatterPurchased", STAR_SHATTER_COST); }
+  function buySpaceQuake() { return buyJouleOneTime("spaceQuakePurchased", SPACE_QUAKE_COST); }
+  function buySelfless() { return buyJouleOneTime("selflessPurchased", SELFLESS_COST); }
+  function buySupernaturalFire() { return buyJouleOneTime("supernaturalFirePurchased", SUPERNATURAL_FIRE_COST); }
+  function buyFiveSpiritStone() { return buyJouleOneTime("fiveSpiritStonePurchased", FIVE_SPIRIT_STONE_COST); }
+  function buySelfSuppression() { return buyJouleOneTime("selfSuppressionPurchased", SELF_SUPPRESSION_COST); }
 
   function toggleGhostBack() {
     if (state.highestScaleIndex < 3) return;
@@ -1099,14 +1625,14 @@
     return gained;
   }
 
-  function purchaseCheapestAvailable(candidates) {
+  function purchaseCheapestAvailable(candidates, resourceKey = "power") {
     const affordable = candidates
       .filter((candidate) => candidate.available())
       .map((candidate, candidateIndex) => ({ ...candidate, candidateIndex, currentCost: candidate.cost() }))
-      .filter((candidate) => candidate.currentCost > 0 && WIS.Core.Resources.canAfford("power", candidate.currentCost))
+      .filter((candidate) => candidate.currentCost > 0 && WIS.Core.Resources.canAfford(resourceKey, candidate.currentCost))
       .sort((left, right) => left.currentCost - right.currentCost || left.candidateIndex - right.candidateIndex)[0];
     if (!affordable) return false;
-    WIS.Core.Resources.spend("power", affordable.currentCost);
+    WIS.Core.Resources.spend(resourceKey, affordable.currentCost);
     affordable.apply();
     return true;
   }
@@ -1135,18 +1661,40 @@
     brainDomainDevelopment: "buyBrainDomainDevelopment", continentSplit: "buyContinentSplit",
     continentCollapse: "buyContinentCollapse", waveEye: "buyWaveEye", elementalAwakening: "buyElementalAwakening",
     moonfall: "buyMoonfall", flowState: "buyFlowState", selfhood: "buySelfhood", freedom: "buyFreedom",
-    chicxulubMeteorite: "buyChicxulubMeteorite"
+    chicxulubMeteorite: "buyChicxulubMeteorite", planetWill: "buyPlanetWill",
+    starSpirit: "buyStarSpirit", starShatter: "buyStarShatter", spaceQuake: "buySpaceQuake",
+    selfless: "buySelfless", supernaturalFire: "buySupernaturalFire", fiveSpiritStone: "buyFiveSpiritStone",
+    selfSuppression: "buySelfSuppression"
   });
   function performAction(id, ...args) { const name = actions[id]; return name ? api[name](...args) : false; }
   function buyUpgrade(id, ...args) { const name = upgrades[id]; return name ? api[name](...args) : false; }
   function getActionIds() { return Object.keys(actions); }
   function getUpgradeIds() { return Object.keys(upgrades); }
   const api = Object.freeze({
+    resourceSoftcapExponent, planetSuppressionSoftcapExponent,
+    resourceSoftcapSettlementExponent,
+    applyResourceSoftcap, applyResourceSoftcapSettlement, applyResourceSoftcapRate,
+    applyResourceSoftcapEffectiveRate,
+    applyResourceSoftcapOverTime, applyResourceSoftcapDynamicRateOverTime,
+    applyResourceSoftcapProgressive,
+    nextResourceSoftcapIntegrationBoundary, resourceSoftcapIntegrationEvaluationAmount,
+    formatSoftcapExponent,
+    activeSoftcapStages, removedSoftcapStages,
     superLollipopCount, superLollipopChance, superLollipopTrainingMultiplier, rollSuperLollipopAttempts,
     skyCrystalCount, skyCrystalChance, skyCrystalRockMultiplier, rollSkyCrystalAttempts,
-    flowUltimateIntentMultiplier, activePowerSourceChallengeMultiplier, challengeAdjustedPowerSource,
+    completedChallengeLayers, treasureChanceMultiplier,
+    fiveSpiritStoneCount, fiveSpiritStoneChance, fiveSpiritStoneJSource, fiveSpiritStonePowerSource,
+    rollFiveSpiritStoneAttempts,
+    automaticJRawPerSecond, automaticJRawPerSecondAt, preSoftcapJGainFromSources,
+    automaticPowerRawPerSecond, automaticPowerRawPerSecondAt,
+    preSoftcapPowerGainFromSources,
+    flowUltimateIntentMultiplier, supernaturalFirePowerMultiplier,
+    activePowerSourceChallengeExponent, challengeAdjustedPowerSource,
     buyWaveEye, buyElementalAwakening, buyMoonfall, buyFlowState, buySelfhood, buyFreedom, buyChicxulubMeteorite,
-    gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplier, godspeedExponent, godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress, rollFitnessMembershipCardAttempts, exercisePotentialMultiplier, exerciseMultiplier, transcendentPotentialMultiplier, transcendentMultiplier, extremeExerciseEffectMultiplier, naturalStrengthPotentialMultiplier, powerMultiplierGroups, powerMultiplier, challengeCompletionCount, challengeRewardExponent, challengeRewardMultiplier, longevityChallengeRewardMultiplier, fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent, currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent, trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier, automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier, lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier, myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus, regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount, fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel, waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap, baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier, conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier, skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent, ghostBrainActualPowerPerSecond, joulesForNextBasePower, focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, applyFocusLateSoftcap, dynamicFocusMultiplier, focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus, rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus, focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost, rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent, automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost, manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus, train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod, buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower, buyLifePower, buyMyStyle, buyIntuition, buySonicMovement, buyCarbonLimit, buyKillingIntent, buyRockStrike, buyHighSpeedMetabolism, buyEnduranceEnhancement, buyBulletTime, buyDynamicFocus, buySuperPerception, buyInvulnerable, buyRegeneration, buySuperpower, buySuperSpeedThinking, buyMountainCollapse, buyMindDivision, buyPowerOneTime, buyHyperRegeneration, buyMentalDomain, buyEarthSplit, buyGodspeed, buySuperpowerEvolution, buySubtle, buySkySplit, buyBiologicalQuantification, buyGhostManTransformation, buyDestroyCountry, buyHumanGhostTransformation, buyKillingIntentSubstance, buyEnergyCycle, buyMountainShatter, buyBioenergy, buyElementalization, buyKillingIntentPerception, buyKillingIntentWave, buyUltimateIntent, buyBrainDomainDevelopment, buyContinentSplit, buyContinentCollapse, toggleGhostBack,
+    buyPlanetWill, buyStarSpirit, buyStarShatter, buySpaceQuake, buySelfless, buySupernaturalFire, buyFiveSpiritStone, buySelfSuppression,
+    planetWillElementalizationMultiplier, starShatterRockMultiplier, selfSuppressionJExponent,
+    planetSuppressionRewardExponent,
+    gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplier, godspeedExponent, godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress, rollFitnessMembershipCardAttempts, exercisePotentialMultiplier, exerciseMultiplier, transcendentPotentialMultiplier, transcendentMultiplier, extremeExerciseEffectMultiplier, naturalStrengthPotentialMultiplier, powerMultiplierGroups, powerMultiplier, challengeCompletionCount, challengeRewardExponent, challengeRewardMultiplier, longevityChallengeRewardMultiplier, fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent, currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent, trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier, automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier, lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier, myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus, regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount, fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel, waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap, baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier, conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier, skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent, ghostBrainActualPowerPerSecond, joulesForNextBasePower, focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, applyFocusSmoothSoftcap, dynamicFocusMultiplier, focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus, rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus, focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost, rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent, automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost, manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus, train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod, buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower, buyLifePower, buyMyStyle, buyIntuition, buySonicMovement, buyCarbonLimit, buyKillingIntent, buyRockStrike, buyHighSpeedMetabolism, buyEnduranceEnhancement, buyBulletTime, buyDynamicFocus, buySuperPerception, buyInvulnerable, buyRegeneration, buySuperpower, buySuperSpeedThinking, buyMountainCollapse, buyMindDivision, buyPowerOneTime, buyHyperRegeneration, buyMentalDomain, buyEarthSplit, buyGodspeed, buySuperpowerEvolution, buySubtle, buySkySplit, buyBiologicalQuantification, buyGhostManTransformation, buyDestroyCountry, buyHumanGhostTransformation, buyKillingIntentSubstance, buyEnergyCycle, buyMountainShatter, buyBioenergy, buyElementalization, buyKillingIntentPerception, buyKillingIntentWave, buyUltimateIntent, buyBrainDomainDevelopment, buyContinentSplit, buyContinentCollapse, toggleGhostBack,
     getJPerSecond: automaticJPerSecond,
     getPowerPerSecond: automaticPowerPerSecond,
     updateProgress: updateScaleProgress,

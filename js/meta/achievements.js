@@ -77,13 +77,13 @@
       { key: "lightningFiveWhip", name: "闪电五连鞭", description: "2 秒内连续点击 5 次锻炼。", reward: "可以通过长按代替点击", completed: completedAchievement("lightningFiveWhip", false) },
       { key: "trainingUp", name: "练起来", description: "游戏时间达到10 分钟。", reward: "解锁统计界面", completed: completedAchievement("trainingUp", state.totalElapsedSeconds >= 600) },
       { key: "aspireImmortality", name: "我欲成仙", description: "解锁炼气。", reward: "每个已解锁仙道境界使法力获取倍率 ×1.2", completed: completedAchievement("aspireImmortality", state.qiRefiningUnlocked) },
-      { key: "daoFoundation", name: "道基", description: "解锁筑基。", reward: "解锁宝物烙印·仙道·天逆珠", completed: completedAchievement("daoFoundation", state.foundationUnlocked) },
-      { key: "goldenCore", name: "一颗金丹吞入腹", description: "解锁结丹。", reward: "解锁宝物烙印·仙道·神秘绿瓶", completed: completedAchievement("goldenCore", state.goldenCoreUnlocked) },
-      { key: "infantSpirit", name: "婴灵", description: "突破元婴。", reward: "自动升级曾手动升级过的仙道能力（默认开启，可关闭）", completed: completedAchievement("infantSpirit", state.advancedRealmLevel >= 1) },
-      { key: "humanRealmDominance", name: "人界纵横", description: "达到仙道·化神。", reward: "仙道宝物获取概率 ×2", completed: completedAchievement("humanRealmDominance", state.advancedRealmLevel >= 2) },
-      { key: "refineTheVoid", name: "炼化虚空", description: "达到仙道·炼虚。", reward: "选择仙道并解锁法力后，获得 +1 法力/秒的独立基础来源", completed: completedAchievement("refineTheVoid", state.advancedRealmLevel >= 3) },
-      { key: "bodyIntegration", name: "合体", description: "达到仙道·合体。", reward: "自动突破曾手动突破过的仙道境界（默认开启，可关闭）", completed: completedAchievement("bodyIntegration", state.advancedRealmLevel >= 4 || state.lifetimeHighestCultivationRealmLevel >= 7) },
-      { key: "mahayana", name: "大乘", description: "达到仙道·大乘。", reward: "选择仙道后自动获得3次转世重修效果", completed: completedAchievement("mahayana", state.advancedRealmLevel >= 5 || state.lifetimeHighestCultivationRealmLevel >= 8) },
+      { key: "daoFoundation", system: "仙道", name: "道基", description: "解锁筑基。", reward: "解锁宝物烙印·仙道·天逆珠", completed: completedAchievement("daoFoundation", state.foundationUnlocked) },
+      { key: "goldenCore", system: "仙道", name: "一颗金丹吞入腹", description: "解锁结丹。", reward: "解锁宝物烙印·仙道·神秘绿瓶", completed: completedAchievement("goldenCore", state.goldenCoreUnlocked) },
+      { key: "infantSpirit", system: "仙道", name: "婴灵", description: "突破元婴。", reward: "自动升级曾手动升级过的仙道能力（默认开启，可关闭）", completed: completedAchievement("infantSpirit", state.advancedRealmLevel >= 1) },
+      { key: "humanRealmDominance", system: "仙道", name: "人界纵横", description: "达到仙道·化神。", reward: "仙道宝物获取概率 ×2", completed: completedAchievement("humanRealmDominance", state.advancedRealmLevel >= 2) },
+      { key: "refineTheVoid", system: "仙道", name: "炼化虚空", description: "达到仙道·炼虚。", reward: "选择仙道并解锁法力后，获得 +1 法力/秒的独立基础来源", completed: completedAchievement("refineTheVoid", state.advancedRealmLevel >= 3) },
+      { key: "bodyIntegration", system: "仙道", name: "合体", description: "达到仙道·合体。", reward: "自动突破曾手动突破过的仙道境界（默认开启，可关闭）", completed: completedAchievement("bodyIntegration", state.advancedRealmLevel >= 4 || state.lifetimeHighestCultivationRealmLevel >= 7) },
+      { key: "mahayana", system: "仙道", name: "大乘", description: "达到仙道·大乘。", reward: "选择仙道后自动获得3次转世重修效果", completed: completedAchievement("mahayana", state.advancedRealmLevel >= 5 || state.lifetimeHighestCultivationRealmLevel >= 8) },
       { key: "threeDeficiencies", name: "三缺", description: "福、禄、寿三种挑战各完成1次。", reward: "非挑战转生类重置后获得1000 战力", completed: completedAchievement("threeDeficiencies", threeDeficienciesCompleted()) },
       { key: "fiveMisfortunesThreeDeficiencies", name: "五弊三缺", description: "福、禄、寿、五弊挑战全部完成3次。", reward: "纪念性成就", completed: completedAchievement("fiveMisfortunesThreeDeficiencies", allFortuneChallengesCompleted()) },
       { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
@@ -115,6 +115,8 @@
               ? "解锁永久宝物·超级棒棒糖"
             : scaleIndex === 9
               ? "解锁永久宝物·天晶"
+            : scaleIndex === 10
+              ? "J、战力量级软上限损失 ×0.95"
               : "奖励：后续加入",
           completed: completedAchievement(`scale${scaleIndex}`, state.highestScaleIndex >= scaleIndex)
         },
@@ -138,6 +140,8 @@
               ? "解锁挑战·完全境界"
             : scaleIndex === 9
               ? "解锁挑战·无月"
+            : scaleIndex === 10
+              ? "永久解锁挑战·星球压制"
               : "奖励：后续加入",
           completed: completedAchievement(`trueScale${scaleIndex}`, state.maxSinglePowerGain >= scale.power)
         }
@@ -152,19 +156,27 @@
   }
 
   function recordCurrentAchievements() {
+    let changed = false;
     achievementDefinitions().forEach((achievement) => {
-      if (achievement.completed) WIS.Meta.Achievements.record(state, achievement.key);
+      if (!achievement.completed || hasAchievement(achievement.key)) return;
+      WIS.Meta.Achievements.record(state, achievement.key);
+      changed = true;
     });
+    return changed;
   }
 
   function notifyNewAchievements(previousAchievements) {
-    recordCurrentAchievements();
-    const currentAchievements = achievementStates();
-    const namesByKey = Object.fromEntries(achievementDefinitions().map((achievement) => [achievement.key, achievement.name]));
-    const unlocked = Object.keys(currentAchievements)
-      .filter((key) => !previousAchievements[key] && currentAchievements[key])
-      .map((key) => namesByKey[key]);
+    const definitions = achievementDefinitions();
+    definitions.forEach((achievement) => {
+      if (achievement.completed && !hasAchievement(achievement.key)) {
+        WIS.Meta.Achievements.record(state, achievement.key);
+      }
+    });
+    const unlocked = definitions
+      .filter((achievement) => !previousAchievements[achievement.key] && achievement.completed)
+      .map((achievement) => achievement.name);
     if (unlocked.length > 0) showAchievementNotice(unlocked);
+    return unlocked;
   }
 
   WIS.Meta.Achievements = Object.freeze({

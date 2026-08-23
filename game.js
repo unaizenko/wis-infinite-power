@@ -5,7 +5,6 @@
   const GAME_VERSION = CONFIG.gameVersion;
   const OFFLINE_NOTICE_MIN_SECONDS = CONFIG.offlineNoticeMinSeconds, OFFLINE_MAX_STEPS = CONFIG.offlineMaxSteps;
   const CHALLENGE_DEFINITIONS = CONFIG.challenges;
-  const RESOURCE_SOFTCAP_STAGES = CONFIG.softcaps;
   const SCALE_THRESHOLDS = CONFIG.scales;
   const { compact: formatCompact, number: format, cost: formatCost } = WIS.UI.Format;
 
@@ -17,7 +16,13 @@
 
   const Scale = WIS.Power.ScaleLogic;
   const {
-    autoUpgradeEnhancements, fitnessMembershipCardCount, superLollipopCount, skyCrystalCount, train
+    autoUpgradeEnhancements, fitnessMembershipCardCount, superLollipopCount, skyCrystalCount,
+    fiveSpiritStoneCount, train,
+    applyResourceSoftcap, applyResourceSoftcapRate, applyResourceSoftcapEffectiveRate,
+    applyResourceSoftcapOverTime, applyResourceSoftcapDynamicRateOverTime,
+    applyResourceSoftcapProgressive, resourceSoftcapExponent,
+    planetSuppressionSoftcapExponent, formatSoftcapExponent,
+    activeSoftcapStages, removedSoftcapStages
   } = Scale;
   const Immortal = WIS.Cultivation.ImmortalLogic;
   const {
@@ -34,17 +39,107 @@
   } = WIS.Meta.Achievements;
   const { startChallenge, exitChallenge, checkActiveChallengeCompletion } = WIS.Meta.Challenges;
   const UI = WIS.UI.App.create({
-    saveState, simulateOfflineProgress, achievementStates, recordCurrentAchievements, updateLifetimeStatistics, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge,
+    saveState, simulateOfflineProgress, achievementStates, recordCurrentAchievements, updateLifetimeStatistics, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge,
     setLastTickAt: (value) => { lastTickAt = value; }
   });
-  const { render, ensureAchievementCards, applyTheme, switchPage, showNotice,
-    showAchievementNotice, showScaleNotice } = UI;
+  const { render, renderResourceDebugPanel, ensureAdvancedRealmAbilityGroups, applyTheme, switchPage, showNotice,
+    showAchievementNotice, showScaleNotice, markGlobalDirty, markCurrentPageDirty,
+    markPagesDirty, markCostGroupsDirty, markAchievementsDirty } = UI;
+  let renderPending = false;
+  let lastUpgradeCostSortSignature = "";
+  let lastCultivationCostSortSignature = "";
+  let lastUpgradeUnlockSignature = "";
+  let lastCultivationUnlockSignature = "";
+  let lastTreasureSignature = "";
+  let lastChallengeSignature = "";
+
+  function upgradeCostSortSignature() {
+    return String(state.mindDivisionLevel);
+  }
+
+  function cultivationCostSortSignature() {
+    return [
+      state.qiSpellLevel, state.longevityLevel, state.foundationSpellLevel,
+      state.goldenCoreLongevityLevel, state.longevity800Level,
+      state.heavenlyTreasureLevel, state.trueSpiritTransformationLevel,
+      state.mysticHeavenlyTreasureLevel, state.immortalApertureLevel,
+      state.advancedRealmLevel
+    ].join("|");
+  }
+
+  function stateFlagSignature(suffixes) {
+    return Object.keys(state)
+      .filter((key) => suffixes.some((suffix) => key.endsWith(suffix)))
+      .sort()
+      .map((key) => `${key}:${state[key]}`)
+      .join("|");
+  }
+
+  function requestRender(pageName) {
+    markGlobalDirty();
+    if (pageName === "all") markPagesDirty();
+    else if (typeof pageName === "string") markPagesDirty(pageName);
+    else markCurrentPageDirty();
+
+    const nextUpgradeUnlockSignature = [state.highestScaleIndex, state.brickUnlocked, state.wallUnlocked,
+      stateFlagSignature(["Purchased"])].join("|");
+    if (nextUpgradeUnlockSignature !== lastUpgradeUnlockSignature) {
+      lastUpgradeUnlockSignature = nextUpgradeUnlockSignature;
+      markPagesDirty("upgrades");
+    }
+    const nextCultivationUnlockSignature = [state.cultivation?.active, state.advancedRealmLevel,
+      stateFlagSignature(["Unlocked", "Level"])].join("|");
+    if (nextCultivationUnlockSignature !== lastCultivationUnlockSignature) {
+      const previousRealmLevel = Number(lastCultivationUnlockSignature.split("|")[1]) || 0;
+      lastCultivationUnlockSignature = nextCultivationUnlockSignature;
+      markPagesDirty("cultivation");
+      if (state.advancedRealmLevel !== previousRealmLevel) ensureAdvancedRealmAbilityGroups();
+    }
+    const nextTreasureSignature = [
+      state.heavenlyTreasureLevel, state.mysticHeavenlyTreasureLevel,
+      state.fiveElementsTreasureUnlocked, state.fiveSpiritStonePurchased,
+      JSON.stringify(state.treasureImprints || {})
+    ].join("|");
+    if (nextTreasureSignature !== lastTreasureSignature) {
+      lastTreasureSignature = nextTreasureSignature;
+      markPagesDirty("treasures");
+    }
+    const nextChallengeSignature = `${state.activeChallenge}|${state.threeCorpseChallengesUnlocked}|${JSON.stringify(state.challengeCompletions || {})}`;
+    if (nextChallengeSignature !== lastChallengeSignature) {
+      lastChallengeSignature = nextChallengeSignature;
+      markPagesDirty("challenges");
+    }
+    const nextUpgradeCostSortSignature = upgradeCostSortSignature();
+    if (nextUpgradeCostSortSignature !== lastUpgradeCostSortSignature) {
+      lastUpgradeCostSortSignature = nextUpgradeCostSortSignature;
+      markCostGroupsDirty("upgrades");
+    }
+    const nextCultivationCostSortSignature = cultivationCostSortSignature();
+    if (nextCultivationCostSortSignature !== lastCultivationCostSortSignature) {
+      lastCultivationCostSortSignature = nextCultivationCostSortSignature;
+      markCostGroupsDirty("cultivation");
+    }
+    renderPending = true;
+  }
+
+  function flushRender(now = Date.now(), { force = false } = {}) {
+    if (!renderPending && !force) return false;
+    if (!force && now - lastRenderAt < RENDER_INTERVAL_MS) return false;
+    render();
+    renderPending = false;
+    lastRenderAt = now;
+    return true;
+  }
   WIS.Core.Resources.bind(() => state);
   WIS.Core.Runtime.bind({
     state: () => state,
     setState: (nextState) => { state = nextState; },
     save: saveState,
-    render,
+    render: requestRender,
+    renderImmediately: (pageName) => {
+      requestRender(pageName);
+      flushRender(Date.now(), { force: true });
+    },
     showNotice,
     switchPage,
     showAchievementNotice,
@@ -53,6 +148,11 @@
     cultivationUnlocked,
     treasuresUnlocked,
     applyResourceSoftcap,
+    applyResourceSoftcapRate,
+    applyResourceSoftcapEffectiveRate,
+    applyResourceSoftcapOverTime,
+    applyResourceSoftcapDynamicRateOverTime,
+    applyResourceSoftcapProgressive,
     resourceSoftcapExponent,
     updateLifetimeStatistics,
     showScaleNotice,
@@ -70,51 +170,6 @@
     grantThreeDeficienciesResetReward
   });
 
-  function softcapStageExponent(amount, stage) {
-    if (amount <= stage.threshold) return 1;
-    const overflowOrders = Math.log10(amount / stage.threshold);
-    const pressure = stage.strength * overflowOrders + stage.growth * Math.pow(overflowOrders, 1.5);
-    return 1 / (1 + pressure);
-  }
-
-  function resourceSoftcapExponent(currentAmount) {
-    const amount = Math.max(0, currentAmount);
-    const realmLevel = cultivationRealmLevel();
-    return RESOURCE_SOFTCAP_STAGES.reduce((exponent, stage) => {
-      if (stage.removedAtRealm !== null && realmLevel >= stage.removedAtRealm) return exponent;
-      return exponent * softcapStageExponent(amount, stage);
-    }, 1);
-  }
-
-  function applyResourceSoftcap(rawGain, currentAmount) {
-    const gain = Math.max(0, Number(rawGain) || 0);
-    if (gain <= 0) return 0;
-    const exponent = resourceSoftcapExponent(currentAmount);
-    if (exponent >= 1) return gain;
-    if (exponent <= 0) return 0;
-    return Math.expm1(exponent * Math.log1p(gain));
-  }
-
-  function formatSoftcapExponent(exponent) {
-    return exponent >= 0.001 ? exponent.toFixed(3) : exponent.toExponential(2);
-  }
-
-  function activeSoftcapStages(currentAmount) {
-    const realmLevel = cultivationRealmLevel();
-    const names = RESOURCE_SOFTCAP_STAGES
-      .filter((stage) => currentAmount > stage.threshold && (stage.removedAtRealm === null || realmLevel < stage.removedAtRealm))
-      .map((stage) => stage.name);
-    return names.length > 0 ? names.join("、") : "未触发";
-  }
-
-  function removedSoftcapStages() {
-    const realmLevel = cultivationRealmLevel();
-    const names = RESOURCE_SOFTCAP_STAGES
-      .filter((stage) => stage.removedAtRealm !== null && realmLevel >= stage.removedAtRealm)
-      .map((stage) => stage.name);
-    return names.length > 0 ? names.join("、") : "无";
-  }
-
   function freshDefaultState() {
     return WIS.Core.State.fresh();
   }
@@ -125,7 +180,7 @@
   }
 
   function saveState() {
-    recordCurrentAchievements();
+    if (recordCurrentAchievements()) markAchievementsDirty();
     updateLifetimeStatistics();
     // 记录游戏状态已经推进到的时间点，避免页面冻结后保存吞掉尚未结算的离线时间。
     state.lastUpdateAt = lastTickAt;
@@ -221,10 +276,15 @@
       ?.rollPassiveManaTreasure?.(elapsedSeconds, passiveManaRate, silentTreasureRolls)) || 0);
     activePowerSystem?.rollPassiveTreasure?.(state, elapsedSeconds, silentTreasureRolls);
     activeCultivationSystem?.rollCirculationTreasure?.(state, elapsedSeconds, silentTreasureRolls);
+    activeCultivationSystem?.rollImmortalPowerTreasure?.(
+      state,
+      cultivationUpdate?.immortalPowerActiveSeconds,
+      silentTreasureRolls
+    );
     activePowerSystem?.afterStep?.(state, elapsedSeconds);
     updateLifetimeStatistics();
-    recordCurrentAchievements();
-    runAchievementAutomations();
+    if (recordCurrentAchievements()) markAchievementsDirty();
+    if (runAchievementAutomations() > 0) markCostGroupsDirty();
     return gainedPearls;
   }
 
@@ -249,30 +309,31 @@
     return gainedPearls;
   }
 
-  function simulateOfflineProgress(elapsedSeconds) {
-    const safeElapsed = Math.max(0, Number(elapsedSeconds) || 0);
-    if (safeElapsed <= 0) return "";
-    const shouldReport = safeElapsed >= OFFLINE_NOTICE_MIN_SECONDS;
-    const before = {
+  function offlineProgressSnapshot() {
+    return {
       joules: state.joules,
       power: state.power,
       mana: state.mana,
+      immortalPower: state.immortalPower,
       pearls: tianNiPearlCount(),
       fitnessCards: fitnessMembershipCardCount(),
       superLollipops: superLollipopCount(),
       skyCrystals: skyCrystalCount(),
+      fiveSpiritStones: fiveSpiritStoneCount(),
       baLingChi: baLingChiCount(),
       phantomHeavenMirror: phantomHeavenMirrorCount(),
       mysticHeavenSacredTree: mysticHeavenSacredTreeCount(),
       mysticHeavenSpiritSlayingSword: mysticHeavenSpiritSlayingSwordCount()
     };
-    advanceGame(safeElapsed, { offline: true });
-    recordCurrentAchievements();
-    if (!shouldReport) return "";
+  }
+
+  function formatOfflineProgressReport(safeElapsed, before) {
+    if (safeElapsed < OFFLINE_NOTICE_MIN_SECONDS) return "";
     const gains = [
       [state.joules - before.joules, "J"],
       [state.power - before.power, "战力"],
-      [state.mana - before.mana, "法力"]
+      [state.mana - before.mana, "法力"],
+      [state.immortalPower - before.immortalPower, "仙灵力"]
     ].filter(([gain]) => gain > 0).map(([gain, name]) => `${format(gain)} ${name}`);
     const pearlGain = tianNiPearlCount() - before.pearls;
     if (pearlGain > 0) gains.push(`${format(pearlGain, 0)}枚仙道·天逆珠`);
@@ -282,6 +343,8 @@
     if (superLollipopGain > 0) gains.push(`${format(superLollipopGain, 0)}个超级棒棒糖`);
     const skyCrystalGain = skyCrystalCount() - before.skyCrystals;
     if (skyCrystalGain > 0) gains.push(`${format(skyCrystalGain, 0)}枚天晶`);
+    const fiveSpiritStoneGain = fiveSpiritStoneCount() - before.fiveSpiritStones;
+    if (fiveSpiritStoneGain > 0) gains.push(`${format(fiveSpiritStoneGain, 0)}枚五灵石`);
     const baLingChiGain = baLingChiCount() - before.baLingChi;
     if (baLingChiGain > 0) gains.push(`${format(baLingChiGain, 0)}柄仙道·八灵尺`);
     const phantomHeavenMirrorGain = phantomHeavenMirrorCount() - before.phantomHeavenMirror;
@@ -295,6 +358,38 @@
       : `离线 ${formatElapsedTime(safeElapsed)}，当前没有可自动获取的资源`;
   }
 
+  function simulateOfflineProgress(elapsedSeconds) {
+    const safeElapsed = Math.max(0, Number(elapsedSeconds) || 0);
+    if (safeElapsed <= 0) return "";
+    const before = offlineProgressSnapshot();
+    advanceGame(safeElapsed, { offline: true });
+    if (recordCurrentAchievements()) markAchievementsDirty();
+    return formatOfflineProgressReport(safeElapsed, before);
+  }
+
+  function yieldForFirstPaint() {
+    return new Promise((resolve) => window.setTimeout(resolve, 0));
+  }
+
+  async function simulateOfflineProgressChunked(elapsedSeconds) {
+    const safeElapsed = Math.max(0, Number(elapsedSeconds) || 0);
+    if (safeElapsed <= 0) return "";
+    const before = offlineProgressSnapshot();
+    const steps = Math.min(OFFLINE_MAX_STEPS, Math.max(1, Math.ceil(safeElapsed)));
+    const stepSeconds = safeElapsed / steps;
+    const chunkSize = 20;
+    state.totalElapsedSeconds += safeElapsed;
+    for (let start = 0; start < steps; start += chunkSize) {
+      const end = Math.min(steps, start + chunkSize);
+      for (let step = start; step < end; step += 1) {
+        advanceGameStep(stepSeconds, true);
+      }
+      if (end < steps) await yieldForFirstPaint();
+    }
+    if (recordCurrentAchievements()) markAchievementsDirty();
+    return formatOfflineProgressReport(safeElapsed, before);
+  }
+
   function runAchievementAutomations() {
     return autoBreakthroughImmortalRealms() + autoUpgradeImmortalAbilities() + autoUpgradeEnhancements();
   }
@@ -302,8 +397,7 @@
   UI.bindEvents();
 
   const initialAchievementStates = achievementStates();
-  const initialOfflineReport = simulateOfflineProgress((Date.now() - state.lastUpdateAt) / 1000);
-  lastTickAt = Date.now();
+  const initialOfflineElapsedSeconds = (Date.now() - state.lastUpdateAt) / 1000;
 
   WIS.Game = Object.freeze({
     version: GAME_VERSION,
@@ -337,14 +431,13 @@
       advanceGame(realElapsedSeconds * debugSpeedMultiplier, { clockSeconds: realElapsedSeconds });
     }
     notifyNewAchievements(previousAchievements);
-    if (now - lastRenderAt >= RENDER_INTERVAL_MS) {
-      render();
-      lastRenderAt = now;
-    }
+    requestRender();
+    flushRender(now);
     if (offlineReport) showNotice(offlineReport, 6000);
   }
 
   document.addEventListener("visibilitychange", () => {
+    if (!initialLoadComplete) return;
     if (document.hidden) {
       saveState();
       return;
@@ -355,22 +448,47 @@
     const previousAchievements = achievementStates();
     const offlineReport = simulateOfflineProgress(elapsedSeconds);
     notifyNewAchievements(previousAchievements);
-    render();
-    lastRenderAt = now;
+    requestRender();
+    flushRender(now, { force: true });
     if (offlineReport) showNotice(offlineReport, 6000);
   });
 
-  window.setInterval(runMainTick, LOGIC_INTERVAL_MS);
-  window.setInterval(() => {
-    if (!document.hidden) saveState();
-  }, 5000);
-
-  ensureAchievementCards();
   applyTheme();
+  ensureAdvancedRealmAbilityGroups();
   switchPage("actions");
-  render();
-  lastRenderAt = Date.now();
-  saveState();
-  notifyNewAchievements(initialAchievementStates);
-  if (initialOfflineReport) showNotice(initialOfflineReport, 6000);
+  lastUpgradeCostSortSignature = upgradeCostSortSignature();
+  lastCultivationCostSortSignature = cultivationCostSortSignature();
+  lastUpgradeUnlockSignature = [state.highestScaleIndex, state.brickUnlocked, state.wallUnlocked,
+    stateFlagSignature(["Purchased"])].join("|");
+  lastCultivationUnlockSignature = [state.cultivation?.active, state.advancedRealmLevel,
+    stateFlagSignature(["Unlocked", "Level"])].join("|");
+  lastTreasureSignature = [state.heavenlyTreasureLevel, state.mysticHeavenlyTreasureLevel,
+    state.fiveElementsTreasureUnlocked, state.fiveSpiritStonePurchased,
+    JSON.stringify(state.treasureImprints || {})].join("|");
+  lastChallengeSignature = `${state.activeChallenge}|${state.threeCorpseChallengesUnlocked}|${JSON.stringify(state.challengeCompletions || {})}`;
+
+  let initialLoadComplete = false;
+  async function finishInitialLoad() {
+    const initialOfflineReport = await simulateOfflineProgressChunked(initialOfflineElapsedSeconds);
+    lastTickAt = Date.now();
+    initialLoadComplete = true;
+    markCostGroupsDirty();
+    requestRender();
+    flushRender(Date.now(), { force: true });
+    saveState();
+    notifyNewAchievements(initialAchievementStates);
+    if (initialOfflineReport) showNotice(initialOfflineReport, 6000);
+    window.setInterval(runMainTick, LOGIC_INTERVAL_MS);
+    window.setInterval(() => {
+      if (!document.hidden) saveState();
+    }, 5000);
+    window.setInterval(() => {
+      if (!document.hidden) renderResourceDebugPanel();
+    }, 1000);
+  }
+
+  // 先把首屏交给浏览器绘制，再分块结算最多600个离线步骤。
+  const queueInitialOfflineProgress = () => window.setTimeout(() => { void finishInitialLoad(); }, 0);
+  if (document.hidden) queueInitialOfflineProgress();
+  else window.requestAnimationFrame(queueInitialOfflineProgress);
 })();

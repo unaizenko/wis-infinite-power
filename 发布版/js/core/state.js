@@ -29,8 +29,11 @@
     continentCollapsePurchased: false, waveEyePurchased: false,
     elementalAwakeningPurchased: false, moonfallPurchased: false,
     flowStatePurchased: false, selfhoodPurchased: false, freedomPurchased: false,
-    chicxulubMeteoritePurchased: false,
-    cultivationSystem: null, mana: 0, qiRefiningUnlocked: false, immortalLifeUnlocked: false,
+    chicxulubMeteoritePurchased: false, planetWillPurchased: false, starSpiritPurchased: false,
+    starShatterPurchased: false, spaceQuakePurchased: false, selflessPurchased: false,
+    supernaturalFirePurchased: false, fiveSpiritStonePurchased: false, selfSuppressionPurchased: false,
+    superLollipopRollProgress: 0, fiveSpiritStoneRollProgress: 0,
+    cultivationSystem: null, mana: 0, immortalPower: 0, qiRefiningUnlocked: false, immortalLifeUnlocked: false,
     qiSpellLevel: 0, foundationUnlocked: false, goldenCoreUnlocked: false, advancedRealmLevel: 0,
     circulationUnlocked: false, minorTechniqueUnlocked: false, flyingEscapeUnlocked: false,
     longevity800Level: 0, explorationProgress: 0, manaLiquefactionUnlocked: false,
@@ -54,8 +57,19 @@
     spiritTravelVoidUnlocked: false, goldenSealScriptUnlocked: false,
     immortalSpiritPowerUnlocked: false, undyingPrimordialSpiritUnlocked: false,
     immortalApertureLevel: 0, xuanImmortalBodyUnlocked: false, lawUnlocked: false,
-    minorTribulationExplorationLoad: 0,
-    activeChallenge: null, activeChallengeElapsedSeconds: 0, hideUnlockedAchievements: false,
+    immortalApertureIIUnlocked: false, spiritDomainUnlocked: false, threadsOfLawUnlocked: false,
+    immortalApertureIIIUnlocked: false, spiritCaptureReturnUnlocked: false,
+    indestructibleDharmaBodyUnlocked: false, immortalApertureIVUnlocked: false,
+    fiveElementsTreasureUnlocked: false, lawAffinityUnlocked: false,
+    flawlessJadeBodyUnlocked: false, spiritDomainWorldTransformationUnlocked: false,
+    immortalApertureVUnlocked: false, immortalApertureVIUnlocked: false,
+    immortalApertureVIIUnlocked: false, soulQualitativeChangeUnlocked: false,
+    trinityUnlocked: false, unityWithDaoUnlocked: false, lawOriginUnlocked: false,
+    lawCrystalFilamentUnlocked: false, severThreeCorpsesUnlocked: false,
+    ultimateImmortalApertureUnlocked: false,
+    fiveElementsTreasureRollProgress: 0, minorTribulationExplorationLoad: 0,
+    activeChallenge: null, activeChallengeElapsedSeconds: 0, threeCorpseChallengesUnlocked: false,
+    hideUnlockedAchievements: false,
     immortalAbilityAutomationEnabled: true, immortalRealmAutomationEnabled: true,
     scaleUpgradeAutomationEnabled: true, scaleActionAutomationEnabled: true,
     theme: "light"
@@ -70,7 +84,8 @@
       treasureImprints: {
         tianNiPearl: 0, mysteriousGreenBottle: 0, fuBao: 0, fitnessMembershipCard: 0,
         superLollipop: 0, skyCrystal: 0, xuTianDing: 0, baLingChi: 0, wanYaoFan: 0,
-        phantomHeavenMirror: 0, mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0
+        phantomHeavenMirror: 0, mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0,
+        fiveElementsTreasure: 0, fiveSpiritStone: 0
       },
       lastUpdateAt: Date.now()
     };
@@ -171,12 +186,17 @@
       phantomHeavenMirror: Math.max(0, Math.floor(Number(source.treasureImprints?.phantomHeavenMirror) || 0)),
       mysticHeavenSacredTree: Math.max(0, Math.floor(Number(source.treasureImprints?.mysticHeavenSacredTree) || 0)),
       mysticHeavenSpiritSlayingSword: Math.max(0, Math.floor(Number(source.treasureImprints?.mysticHeavenSpiritSlayingSword) || 0)),
+      fiveElementsTreasure: Math.max(0, Math.floor(Number(source.treasureImprints?.fiveElementsTreasure) || 0)),
       superLollipop: Math.max(0, Math.floor(Number(source.treasureImprints?.superLollipop) || 0)),
-      skyCrystal: Math.max(0, Math.floor(Number(source.treasureImprints?.skyCrystal) || 0))
+      skyCrystal: Math.max(0, Math.floor(Number(source.treasureImprints?.skyCrystal) || 0)),
+      fiveSpiritStone: Math.max(0, Math.floor(Number(source.treasureImprints?.fiveSpiritStone) || 0))
     };
     const imprintedHeavenlyTreasureLevel = treasureImprints.wanYaoFan > 0
       ? 3
       : treasureImprints.baLingChi > 0 ? 2 : treasureImprints.xuTianDing > 0 ? 1 : 0;
+    const imprintedMysticHeavenlyTreasureLevel = treasureImprints.mysticHeavenSpiritSlayingSword > 0
+      ? 3
+      : treasureImprints.mysticHeavenSacredTree > 0 ? 2 : treasureImprints.phantomHeavenMirror > 0 ? 1 : 0;
     const lifetimeHighestScaleIndex = Math.max(
       highestScaleIndex,
       Math.min(config.scales.length - 1, Math.floor(Number(source.lifetimeHighestScaleIndex) || 0))
@@ -268,9 +288,26 @@
       selfhoodPurchased: source.selfhoodPurchased === true,
       freedomPurchased: source.freedomPurchased === true,
       chicxulubMeteoritePurchased: source.chicxulubMeteoritePurchased === true,
+      planetWillPurchased: source.planetWillPurchased === true,
+      starSpiritPurchased: source.starSpiritPurchased === true,
+      starShatterPurchased: source.starShatterPurchased === true,
+      spaceQuakePurchased: source.spaceQuakePurchased === true,
+      selflessPurchased: source.selflessPurchased === true,
+      supernaturalFirePurchased: source.supernaturalFirePurchased === true,
+      fiveSpiritStonePurchased: source.fiveSpiritStonePurchased === true || treasureImprints.fiveSpiritStone > 0,
+      selfSuppressionPurchased: source.selfSuppressionPurchased === true,
+      superLollipopRollProgress: Number.isFinite(Number(source.superLollipopRollProgress))
+        ? Math.max(0, Number(source.superLollipopRollProgress)) % 1
+        : 0,
+      fiveSpiritStoneRollProgress: Number.isFinite(Number(source.fiveSpiritStoneRollProgress))
+        ? Math.max(0, Number(source.fiveSpiritStoneRollProgress)) % 1
+        : 0,
       ghostBackActive: highestScaleIndex >= 3 && source.ghostBackActive === true,
       cultivationSystem,
       mana,
+      immortalPower: advancedRealmLevel >= config.immortalPower.unlockAdvancedRealmLevel
+        ? Math.max(0, Number(source.immortalPower) || 0)
+        : 0,
       qiRefiningUnlocked,
       immortalLifeUnlocked: source.immortalLifeUnlocked === true,
       qiSpellLevel: Math.max(0, Math.min(3, Math.floor(Number(source.qiSpellLevel) || 0))),
@@ -307,7 +344,7 @@
       greatCultivatorUnlocked: source.greatCultivatorUnlocked === true,
       secondNascentSoulUnlocked: source.secondNascentSoulUnlocked === true,
       naturalTreasureLevel: Math.max(0, Math.min(
-        (source.spiritWorldAscensionUnlocked === true ? 20 : 10) + treasureImprints.mysticHeavenSacredTree * 5,
+        (source.spiritWorldAscensionUnlocked === true ? 20 : 10) + treasureImprints.mysticHeavenSacredTree * 2,
         Math.floor(Number(source.naturalTreasureLevel) || 0)
       )),
       spiritWorldAscensionUnlocked: source.spiritWorldAscensionUnlocked === true,
@@ -339,18 +376,47 @@
       perfectedTechniqueCompletionUnlocked: source.perfectedTechniqueCompletionUnlocked === true,
       roamSpiritWorldUnlocked: source.roamSpiritWorldUnlocked === true,
       descendRealmUnlocked: source.descendRealmUnlocked === true,
-      mysticHeavenlyTreasureLevel: Math.max(0, Math.min(3, Math.floor(Number(source.mysticHeavenlyTreasureLevel) || 0))),
+      mysticHeavenlyTreasureLevel: Math.max(
+        imprintedMysticHeavenlyTreasureLevel,
+        Math.max(0, Math.min(3, Math.floor(Number(source.mysticHeavenlyTreasureLevel) || 0)))
+      ),
       nascentSoulCompletionUnlocked: source.nascentSoulCompletionUnlocked === true,
       spiritTravelVoidUnlocked: source.spiritTravelVoidUnlocked === true,
       goldenSealScriptUnlocked: source.goldenSealScriptUnlocked === true,
       immortalSpiritPowerUnlocked: source.immortalSpiritPowerUnlocked === true,
       undyingPrimordialSpiritUnlocked: source.undyingPrimordialSpiritUnlocked === true,
       immortalApertureLevel: Math.max(0, Math.min(
-        config.costs.immortal.immortalApertureCap,
+        source.ultimateImmortalApertureUnlocked === true
+          ? config.immortalPower.immortalAperture.cap
+          : config.immortalPower.immortalAperture.ultimateRuleStartLevel,
         Math.floor(Number(source.immortalApertureLevel) || 0)
       )),
       xuanImmortalBodyUnlocked: source.xuanImmortalBodyUnlocked === true,
       lawUnlocked: source.lawUnlocked === true,
+      immortalApertureIIUnlocked: source.immortalApertureIIUnlocked === true,
+      spiritDomainUnlocked: source.spiritDomainUnlocked === true,
+      threadsOfLawUnlocked: source.threadsOfLawUnlocked === true,
+      immortalApertureIIIUnlocked: source.immortalApertureIIIUnlocked === true,
+      spiritCaptureReturnUnlocked: source.spiritCaptureReturnUnlocked === true,
+      indestructibleDharmaBodyUnlocked: source.indestructibleDharmaBodyUnlocked === true,
+      immortalApertureIVUnlocked: source.immortalApertureIVUnlocked === true,
+      fiveElementsTreasureUnlocked: source.fiveElementsTreasureUnlocked === true || treasureImprints.fiveElementsTreasure > 0,
+      lawAffinityUnlocked: source.lawAffinityUnlocked === true,
+      flawlessJadeBodyUnlocked: source.flawlessJadeBodyUnlocked === true,
+      spiritDomainWorldTransformationUnlocked: source.spiritDomainWorldTransformationUnlocked === true,
+      immortalApertureVUnlocked: source.immortalApertureVUnlocked === true,
+      immortalApertureVIUnlocked: source.immortalApertureVIUnlocked === true,
+      immortalApertureVIIUnlocked: source.immortalApertureVIIUnlocked === true,
+      soulQualitativeChangeUnlocked: source.soulQualitativeChangeUnlocked === true,
+      trinityUnlocked: source.trinityUnlocked === true,
+      unityWithDaoUnlocked: source.unityWithDaoUnlocked === true,
+      lawOriginUnlocked: source.lawOriginUnlocked === true,
+      lawCrystalFilamentUnlocked: source.lawCrystalFilamentUnlocked === true,
+      severThreeCorpsesUnlocked: source.severThreeCorpsesUnlocked === true,
+      ultimateImmortalApertureUnlocked: source.ultimateImmortalApertureUnlocked === true,
+      fiveElementsTreasureRollProgress: Number.isFinite(Number(source.fiveElementsTreasureRollProgress))
+        ? Math.max(0, Number(source.fiveElementsTreasureRollProgress)) % 1
+        : 0,
       minorTribulationExplorationLoad: advancedRealmLevel >= 6
         ? 0
         : Math.max(0, savedMinorTribulationExplorationLoad || 0),
@@ -369,6 +435,10 @@
         key,
         Math.max(0, Math.min(challenge.maxCompletions, Math.floor(Number(source.challengeCompletions?.[key]) || 0)))
       ])),
+      threeCorpseChallengesUnlocked: source.threeCorpseChallengesUnlocked === true ||
+        ["severEvilCorpse", "severGoodCorpse", "severSelfCorpse"].some((key) =>
+          (Number(source.challengeCompletions?.[key]) || 0) > 0
+        ),
       unlockedAchievements,
       treasureImprints,
       hideUnlockedAchievements: source.hideUnlockedAchievements === true,
@@ -390,7 +460,7 @@
       "hideUnlockedAchievements", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
       "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "theme"
     ],
-    "powerSystem.systems.scale.progress": ["highestPower", "totalPower", "maxSinglePowerGain", "brickUnlocked", "wallUnlocked", "highestScaleIndex"],
+    "powerSystem.systems.scale.progress": ["highestPower", "totalPower", "maxSinglePowerGain", "brickUnlocked", "wallUnlocked", "highestScaleIndex", "superLollipopRollProgress", "fiveSpiritStoneRollProgress"],
     "powerSystem.systems.scale.actions": ["runningLevel", "rockLevel", "ghostBackActive"],
     "powerSystem.systems.scale.upgrades": [
       "gymPurchased", "exercisePurchased", "transcendentPurchased", "focusPurchased", "breathingMethodPurchased",
@@ -408,12 +478,14 @@
       "killingIntentPerceptionPurchased", "killingIntentWavePurchased", "ultimateIntentPurchased",
       "brainDomainDevelopmentPurchased", "continentSplitPurchased", "continentCollapsePurchased",
       "waveEyePurchased", "elementalAwakeningPurchased", "moonfallPurchased", "flowStatePurchased",
-      "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased"
+      "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
+      "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
+      "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased"
     ],
-    "cultivation.systems.immortal.resources": ["mana"],
+    "cultivation.systems.immortal.resources": ["mana", "immortalPower"],
     "cultivation.systems.immortal.progress": [
       "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel", "explorationProgress",
-      "minorTribulationExplorationLoad"
+      "minorTribulationExplorationLoad", "fiveElementsTreasureRollProgress"
     ],
     "cultivation.systems.immortal.abilities": [
       "immortalLifeUnlocked", "qiSpellLevel", "circulationUnlocked", "minorTechniqueUnlocked", "flyingEscapeUnlocked",
@@ -429,7 +501,14 @@
       "natalMagicTreasureUnlocked", "perfectedTechniqueCompletionUnlocked", "roamSpiritWorldUnlocked",
       "descendRealmUnlocked", "mysticHeavenlyTreasureLevel", "nascentSoulCompletionUnlocked",
       "spiritTravelVoidUnlocked", "goldenSealScriptUnlocked", "immortalSpiritPowerUnlocked",
-      "undyingPrimordialSpiritUnlocked", "immortalApertureLevel", "xuanImmortalBodyUnlocked", "lawUnlocked"
+      "undyingPrimordialSpiritUnlocked", "immortalApertureLevel", "xuanImmortalBodyUnlocked", "lawUnlocked",
+      "immortalApertureIIUnlocked", "spiritDomainUnlocked", "threadsOfLawUnlocked",
+      "immortalApertureIIIUnlocked", "spiritCaptureReturnUnlocked", "indestructibleDharmaBodyUnlocked",
+      "immortalApertureIVUnlocked", "fiveElementsTreasureUnlocked", "lawAffinityUnlocked",
+      "flawlessJadeBodyUnlocked", "spiritDomainWorldTransformationUnlocked", "immortalApertureVUnlocked",
+      "immortalApertureVIUnlocked", "immortalApertureVIIUnlocked", "soulQualitativeChangeUnlocked",
+      "trinityUnlocked", "unityWithDaoUnlocked", "lawOriginUnlocked", "lawCrystalFilamentUnlocked",
+      "severThreeCorpsesUnlocked", "ultimateImmortalApertureUnlocked"
     ],
     "cultivation.systems.immortal.persistent": [
       "scatterRebuildLevel", "scatterRetentionLevel", "reincarnationLevel", "permanentRootLevel",
@@ -440,7 +519,7 @@
       "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana",
       "lifetimeHighestCultivationRealmLevel", "immortalSelectionCount"
     ],
-    "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "challengeCompletions"],
+    "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "challengeCompletions", "threeCorpseChallengesUnlocked"],
     "meta": ["unlockedAchievements", "treasureImprints", "symbolicPowerMilestones"]
   });
 
@@ -466,7 +545,9 @@
     "killingIntentPerceptionPurchased", "killingIntentWavePurchased", "ultimateIntentPurchased",
     "brainDomainDevelopmentPurchased", "continentSplitPurchased", "continentCollapsePurchased",
     "waveEyePurchased", "elementalAwakeningPurchased", "moonfallPurchased", "flowStatePurchased",
-    "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased"
+    "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
+    "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
+    "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased"
   ]);
   const trackedImmortalAbilityKeys = Object.freeze([
     "qiSpellLevel", "immortalLifeUnlocked", "longevityLevel", "foundationSpellLevel", "circulationUnlocked",
@@ -482,7 +563,14 @@
     "natalMagicTreasureUnlocked", "perfectedTechniqueCompletionUnlocked", "roamSpiritWorldUnlocked",
     "descendRealmUnlocked", "mysticHeavenlyTreasureLevel", "nascentSoulCompletionUnlocked",
     "spiritTravelVoidUnlocked", "goldenSealScriptUnlocked", "immortalSpiritPowerUnlocked",
-    "undyingPrimordialSpiritUnlocked", "immortalApertureLevel", "xuanImmortalBodyUnlocked", "lawUnlocked"
+    "undyingPrimordialSpiritUnlocked", "immortalApertureLevel", "xuanImmortalBodyUnlocked", "lawUnlocked",
+    "immortalApertureIIUnlocked", "spiritDomainUnlocked", "threadsOfLawUnlocked",
+    "immortalApertureIIIUnlocked", "spiritCaptureReturnUnlocked", "indestructibleDharmaBodyUnlocked",
+    "immortalApertureIVUnlocked", "fiveElementsTreasureUnlocked", "lawAffinityUnlocked",
+    "flawlessJadeBodyUnlocked", "spiritDomainWorldTransformationUnlocked", "immortalApertureVUnlocked",
+    "immortalApertureVIUnlocked", "immortalApertureVIIUnlocked", "soulQualitativeChangeUnlocked",
+    "trinityUnlocked", "unityWithDaoUnlocked", "lawOriginUnlocked", "lawCrystalFilamentUnlocked",
+    "severThreeCorpsesUnlocked", "ultimateImmortalApertureUnlocked"
   ]);
 
   function clone(value) {
@@ -658,12 +746,21 @@
       : normalizeLegacy(data),
     40: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
       ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    41: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    42: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    43: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
       : normalizeLegacy(data)
   });
 
   function migrate(schemaVersion, data) {
     const version = Number(schemaVersion) || 36;
-    const migration = migrations[version] || migrations[Math.min(version, 40)] || migrations[36];
+    const migration = migrations[version] || migrations[Math.min(version, 43)] || migrations[36];
     return migration(data);
   }
 

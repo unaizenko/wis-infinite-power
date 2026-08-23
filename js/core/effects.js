@@ -8,19 +8,28 @@
     providers.set(id, provider);
   }
 
+  function resolvedEffect(effect, state) {
+    const rawValue = typeof effect.value === "function" ? effect.value(state) : effect.value;
+    const adjust = WIS.Cultivation?.ImmortalLogic?.applyCelestialFiveDeclineToMultiplier;
+    const value = effect.celestialFiveDecline === true && typeof adjust === "function"
+      ? adjust(rawValue)
+      : rawValue;
+    return { ...effect, rawValue, value };
+  }
+
   function collect(target, layer, state) {
     return [...providers.entries()].flatMap(([providerId, provider]) => {
       const effects = provider(state) || [];
       return effects
         .filter((effect) => effect.target === target && effect.layer === layer)
-        .map((effect) => ({ provider: providerId, ...effect }));
+        .map((effect) => ({ provider: providerId, ...resolvedEffect(effect, state) }));
     });
   }
 
   function values(target, layer, state) {
     const neutral = layer.endsWith("Additive") ? 0 : 1;
     return collect(target, layer, state).map((effect) => {
-      const value = Number(typeof effect.value === "function" ? effect.value(state) : effect.value);
+      const value = Number(effect.value);
       return Number.isFinite(value) ? value : neutral;
     });
   }
@@ -28,8 +37,7 @@
   function groups(target, layer, state) {
     return collect(target, layer, state).reduce((result, effect) => {
       const group = effect.group || effect.provider;
-      const value = typeof effect.value === "function" ? effect.value(state) : effect.value;
-      (result[group] ||= []).push({ name: effect.name || effect.id, value });
+      (result[group] ||= []).push({ name: effect.name || effect.id, value: effect.value, rawValue: effect.rawValue });
       return result;
     }, {});
   }
@@ -42,7 +50,7 @@
     for (const [providerId, provider] of providers.entries()) {
       const effect = (provider(state) || []).find((candidate) => candidate.id === id);
       if (!effect) continue;
-      const result = Number(typeof effect.value === "function" ? effect.value(state) : effect.value);
+      const result = Number(resolvedEffect(effect, state).value);
       return Number.isFinite(result) ? result : neutral;
     }
     return neutral;

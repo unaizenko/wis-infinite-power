@@ -165,6 +165,8 @@ button { font: inherit; }
 
 .item-list { display: grid; margin-top: 20px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .upgrade-groups { display: grid; gap: 12px; margin-top: 20px; }
+.realm-ability-groups { display: grid; gap: 12px; }
+.catalog-groups { margin-top: 12px; }
 .upgrade-group { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
 .upgrade-group summary {
   min-height: 58px;
@@ -184,6 +186,7 @@ button { font: inherit; }
 .upgrade-group[open] summary::after { content: "－"; }
 .upgrade-group[open] summary { border-bottom: 1px solid var(--border); }
 .upgrade-group .item-list { margin-top: 0; border: 0; border-radius: 0; }
+.catalog-empty { margin: 0; padding: 22px 18px; color: var(--muted); font-size: 12px; }
 .item-row {
   min-height: 132px;
   display: flex;
@@ -254,7 +257,7 @@ button { font: inherit; }
 .achievement-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding: 13px 16px; background: var(--subtle); border: 1px solid var(--border); border-radius: var(--radius); }
 .achievement-toolbar p { margin: 0; color: var(--muted); font-size: 12px; }
 .achievement-toolbar strong { color: var(--accent); font-size: 18px; }
-.achievement-toolbar + .item-list { margin-top: 10px; }
+.achievement-toolbar + .catalog-groups { margin-top: 10px; }
 .achievement-state {
   flex: 0 0 64px;
   padding: 6px 0;

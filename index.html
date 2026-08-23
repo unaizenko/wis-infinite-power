@@ -13,7 +13,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.3.12</small>
+          <small id="game-version" class="game-version">v0.1.4.1</small>
         </div>
         <div class="header-actions">
           <div class="scale-progress">
@@ -51,12 +51,20 @@
               <small id="mana-rate" hidden>（+0/秒）</small>
             </div>
           </div>
+          <div class="resource-row" id="immortal-power-resource" hidden>
+            <span>仙灵力</span>
+            <div class="resource-value">
+              <strong id="immortal-power">0</strong>
+              <small id="immortal-power-rate" hidden>（+0/秒）</small>
+            </div>
+          </div>
         </div>
         <!-- DEBUG RESOURCE BREAKDOWN: START（删除本区块即可安全停用资源来源显示） -->
         <div class="resource-debug-breakdown" aria-label="资源获取来源调试信息">
           <p><b>J来源</b><span id="debug-j-sources">正在计算……</span></p>
           <p><b>战力来源</b><span id="debug-power-sources">正在计算……</span></p>
           <p id="debug-mana-source-row" hidden><b>法力来源</b><span id="debug-mana-sources">正在计算……</span></p>
+          <p id="debug-immortal-power-source-row" hidden><b>仙灵力来源</b><span id="debug-immortal-power-sources">正在计算……</span></p>
         </div>
         <!-- DEBUG RESOURCE BREAKDOWN: END -->
       </section>
@@ -185,66 +193,71 @@
             </div>
 
             <div class="upgrade-groups">
-              <details class="upgrade-group" open>
+              <details class="upgrade-group">
                 <summary>
                   <span><b>量级 · 普通人</b><small>跑步、运动</small></span>
                 </summary>
                 <div class="item-list" id="normal-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="brick-upgrades" open hidden>
+              <details class="upgrade-group" id="brick-upgrades" hidden>
                 <summary>
                   <span><b>量级 · 爆砖</b><small>集中、超凡之力、呼吸法、极限运动</small></span>
                 </summary>
                 <div class="item-list" id="brick-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="wall-upgrades" open hidden>
+              <details class="upgrade-group" id="wall-upgrades" hidden>
                 <summary>
                   <span><b>量级 · 爆墙</b><small>天生神力、击水、鬼脑、精神力量、生命力量</small></span>
                 </summary>
 <div class="item-list" id="wall-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="house-upgrades" open hidden>
+              <details class="upgrade-group" id="house-upgrades" hidden>
                 <summary>
                   <span><b>量级 · 爆屋</b><small>我流、直感、音速移动、碳基界限、杀气</small></span>
                 </summary>
 <div class="item-list" id="house-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="building-upgrades" open hidden>
+              <details class="upgrade-group" id="building-upgrades" hidden>
                 <summary>
                   <span><b>量级 · 爆楼</b><small>岩击、高速代谢、耐力强化、子弹时间、动态专注</small></span>
                 </summary>
 <div class="item-list" id="building-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="street-upgrades" open hidden>
+              <details class="upgrade-group" id="street-upgrades" hidden>
                 <summary>
                   <span><b>量级 · 爆街</b><small>超感知、金刚不坏、再生、异能、超速思维、崩山</small></span>
                 </summary>
 <div class="item-list" id="street-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="city-upgrades" open hidden>
+              <details class="upgrade-group" id="city-upgrades" hidden>
                 <summary><span><b>量级 · 爆城</b><small>思维分割、超速再生、精神领域、裂地、神速、异能进化、入微、裂天</small></span></summary>
 <div class="item-list" id="city-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="country-upgrades" open hidden>
+              <details class="upgrade-group" id="country-upgrades" hidden>
                 <summary><span><b>量级 · 爆国</b><small>生体量化、鬼人化、灭国、人鬼化、杀意实质、能量循环、崩岳、生物能源</small></span></summary>
                 <div class="item-list" id="country-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="continent-upgrades" open hidden>
+              <details class="upgrade-group" id="continent-upgrades" hidden>
                 <summary><span><b>量级 · 爆大陆</b><small>元素化、杀意感知、杀意波动、极意、脑域开发、大陆分裂、大陆崩溃</small></span></summary>
                 <div class="item-list" id="continent-upgrade-list" data-sort-by-cost></div>
               </details>
 
-              <details class="upgrade-group" id="surface-upgrades" open hidden>
+              <details class="upgrade-group" id="surface-upgrades" hidden>
                 <summary><span><b>量级 · 地表</b><small>波动眼、元素觉醒、月落、心流、自我、自在、希克苏鲁伯陨石</small></span></summary>
                 <div class="item-list" id="surface-upgrade-list" data-sort-by-cost></div>
+              </details>
+
+              <details class="upgrade-group" id="star-upgrades" hidden>
+                <summary><span><b>量级 · 爆星</b><small>星球意志、星灵、碎星、空间震、无我、超自然发火、五灵石、自我抑制</small></span></summary>
+                <div class="item-list" id="star-upgrade-list" data-sort-by-cost></div>
               </details>
             </div>
           </section>
@@ -262,7 +275,7 @@
               <p>已解锁 <strong id="achievement-unlocked-count">0</strong> / <span id="achievement-total-count">0</span></p>
               <button id="toggle-achievement-filter" class="secondary-button" type="button" aria-pressed="false">隐藏已解锁成就</button>
             </div>
-            <div class="item-list" id="achievement-list"></div>
+            <div id="achievement-list"></div>
           </section>
 
           <section class="page" id="cultivation-page">
@@ -296,7 +309,7 @@
 
               <section class="cultivation-subpage active" id="immortal-realms-panel" role="tabpanel">
                 <div class="upgrade-groups">
-                  <details class="upgrade-group" open>
+                  <details class="upgrade-group">
                     <summary>
                       <span><b>境界</b><small>炼气至道祖</small></span>
                     </summary>
@@ -307,44 +320,44 @@
 
               <section class="cultivation-subpage" id="immortal-abilities-panel" role="tabpanel">
                 <div class="upgrade-groups">
-                  <details class="upgrade-group" id="root-abilities" open>
+                  <details class="upgrade-group" id="root-abilities">
                     <summary>
                       <span><b>灵根</b><small>永久保留，不因转世重修而重置</small></span>
                     </summary>
 <div class="item-list" id="root-ability-list"></div>
                   </details>
 
-                  <details class="upgrade-group" id="qi-abilities" open hidden>
+                  <details class="upgrade-group" id="qi-abilities" hidden>
                     <summary>
                       <span><b>炼气</b><small>筑基瓶颈、炼气法术、仙道贵生</small></span>
                     </summary>
 <div class="item-list" id="qi-ability-list" data-sort-by-cost></div>
                   </details>
 
-                  <details class="upgrade-group" id="foundation-abilities" open hidden>
+                  <details class="upgrade-group" id="foundation-abilities" hidden>
                     <summary>
                       <span><b>筑基</b><small>结丹瓶颈、延年益寿200载、筑基法术、周天、法力液化、功法</small></span>
                     </summary>
 <div class="item-list" id="foundation-ability-list" data-sort-by-cost></div>
                   </details>
 
-                  <details class="upgrade-group" id="golden-core-abilities" open hidden>
+                  <details class="upgrade-group" id="golden-core-abilities" hidden>
                     <summary>
                       <span><b>结丹</b><small>元婴瓶颈、延年益寿400载、法力固化、功法小成、法宝、天材地宝、散功重修</small></span>
                     </summary>
 <div class="item-list" id="golden-core-ability-list" data-sort-by-cost></div>
                   </details>
 
-                  <details class="upgrade-group" id="nascent-soul-abilities" open hidden>
+                  <details class="upgrade-group" id="nascent-soul-abilities" hidden>
                     <summary>
                       <span><b>元婴</b><small>化神瓶颈、御物、飞遁、延年益寿800载、神识、大修士、第二元婴、转世重修</small></span>
                     </summary>
 <div class="item-list" id="nascent-soul-ability-list" data-sort-by-cost></div>
                   </details>
 
-                  <div id="advanced-realm-ability-groups"></div>
+                  <div class="realm-ability-groups" id="advanced-realm-ability-groups"></div>
 
-                  <details class="upgrade-group" id="spirit-transformation-abilities" open hidden>
+                  <details class="upgrade-group" id="spirit-transformation-abilities" hidden>
                     <summary><span><b>化神</b><small>炼虚瓶颈、飞升灵界、操控灵气、寿与天齐、小天劫、五行俱全、灵气充沛、通天灵宝</small></span></summary>
 <div class="item-list" id="spirit-transformation-ability-list" data-sort-by-cost></div>
                   </details>
@@ -359,8 +372,8 @@
                 <h1>宝物</h1>
               </div>
             </div>
-            <div class="item-list">
-              <article class="item-row" id="tian-ni-pearl-treasure">
+            <div id="treasure-list">
+              <article class="item-row" id="tian-ni-pearl-treasure" data-catalog-system="仙道">
                 <div class="item-content">
                   <h2>仙道·天逆珠</h2>
                   <p>主动吐纳成功时判定一次；周天实际获取法力时每秒判定一次；探寻每累计 1 有效探寻量判定一次。每枚提升法力获取倍率。</p>
@@ -372,7 +385,7 @@
                 </div>
               </article>
 
-              <article class="item-row" id="mysterious-green-bottle-treasure" hidden>
+              <article class="item-row" id="mysterious-green-bottle-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content">
                   <h2>仙道·神秘绿瓶</h2>
                   <p>每累计 1 有效探寻量可能获得，提升普通探寻法力。</p>
@@ -384,7 +397,7 @@
                 </div>
               </article>
 
-              <article class="item-row" id="fu-bao-treasure" hidden>
+              <article class="item-row" id="fu-bao-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content">
                   <h2>仙道·符宝</h2>
                   <p>每累计 1 有效探寻量可能获得；每枚额外提供探寻基础法力的0.2%。</p>
@@ -411,11 +424,11 @@
               <article class="item-row" id="super-lollipop-treasure" hidden>
                 <div class="item-content">
                   <h2>超级棒棒糖</h2>
-                  <p>解锁爆大陆成就后，成功购买健身等级时判定；每个使锻炼来源倍率提高5%。</p>
+                  <p>健身实际产生 J 时，每累计1秒有效时间判定一次；每个使锻炼来源倍率提高2%。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="super-lollipop-count">数量：0</span>
-                  <small id="super-lollipop-chance">下次健身升级概率 1.00%</small>
+                  <small id="super-lollipop-chance">每有效秒概率 0.05%</small>
                   <small id="super-lollipop-effect">锻炼来源倍率 ×1.00</small>
                 </div>
               </article>
@@ -432,34 +445,44 @@
                 </div>
               </article>
 
-              <article class="item-row" id="xu-tian-ding-treasure" hidden>
+              <article class="item-row" id="xu-tian-ding-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content"><h2>仙道·虚天鼎</h2><p>每累计 1 有效探寻量可能获得；每枚使天材地宝倍率提高0.5%。</p></div>
                 <div class="purchase-control"><span id="xu-tian-ding-count">数量：0</span><small id="xu-tian-ding-chance">每 1 有效探寻量概率 0.02%</small><small id="xu-tian-ding-effect">天材地宝倍率 ×1.000</small></div>
               </article>
 
-              <article class="item-row" id="ba-ling-chi-treasure" hidden>
-                <div class="item-content"><h2>仙道·八灵尺</h2><p>主动吐纳或周天实际获取法力时可能获得；每枚使健身倍率提高0.2%。</p></div>
-                <div class="purchase-control"><span id="ba-ling-chi-count">数量：0</span><small id="ba-ling-chi-chance">吐纳/周天判定概率 0.20%</small><small id="ba-ling-chi-effect">健身倍率 ×1.000</small></div>
+              <article class="item-row" id="ba-ling-chi-treasure" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>仙道·八灵尺</h2><p>主动吐纳成功时判定一次；周天实际获取法力时每累计1秒判定一次。每枚使健身倍率提高0.2%。</p></div>
+                <div class="purchase-control"><span id="ba-ling-chi-count">数量：0</span><small id="ba-ling-chi-chance">主动吐纳成功时/周天每秒判定概率 0.20%</small><small id="ba-ling-chi-effect">健身倍率 ×1.000</small></div>
               </article>
 
-              <article class="item-row" id="wan-yao-fan-treasure" hidden>
+              <article class="item-row" id="wan-yao-fan-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content"><h2>仙道·万妖幡</h2><p>每累计 1 有效探寻量可能获得；每枚使法宝独立来源倍率提高0.3%。</p></div>
                 <div class="purchase-control"><span id="wan-yao-fan-count">数量：0</span><small id="wan-yao-fan-chance">每 1 有效探寻量概率 0.01%</small><small id="wan-yao-fan-effect">法宝来源倍率 ×1.000</small></div>
               </article>
 
-              <article class="item-row" id="phantom-heaven-mirror-treasure" hidden>
+              <article class="item-row" id="phantom-heaven-mirror-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content"><h2>仙道·幻天镜</h2><p>每累计 1 有效探寻量可能获得；每枚使强化小天劫负荷门槛翻倍。</p></div>
                 <div class="purchase-control"><span id="phantom-heaven-mirror-count">数量：0</span><small id="phantom-heaven-mirror-chance">每 1 有效探寻量概率 5e-10%</small><small id="phantom-heaven-mirror-effect">天劫负荷门槛 ×1</small></div>
               </article>
 
-              <article class="item-row" id="mystic-heaven-sacred-tree-treasure" hidden>
-                <div class="item-content"><h2>仙道·玄天圣树</h2><p>每累计 1 有效探寻量可能获得；每枚使天材地宝等级上限 +5。</p></div>
+              <article class="item-row" id="mystic-heaven-sacred-tree-treasure" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>仙道·玄天圣树</h2><p>每累计 1 有效探寻量可能获得；每枚使天材地宝等级上限 +2。</p></div>
                 <div class="purchase-control"><span id="mystic-heaven-sacred-tree-count">数量：0</span><small id="mystic-heaven-sacred-tree-chance">每 1 有效探寻量概率 5e-12%</small><small id="mystic-heaven-sacred-tree-effect">天材地宝上限 +0</small></div>
               </article>
 
-              <article class="item-row" id="mystic-heaven-spirit-slaying-sword-treasure" hidden>
-                <div class="item-content"><h2>仙道·玄天斩灵剑</h2><p>每累计 1 有效探寻量可能获得；提高法宝来源指数，效果最高 ^1.20。</p></div>
+              <article class="item-row" id="mystic-heaven-spirit-slaying-sword-treasure" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>仙道·玄天斩灵剑</h2><p>每累计 1 有效探寻量可能获得；法宝来源指数 = 1 + 0.23 × log10(1 + 数量/20)。</p></div>
                 <div class="purchase-control"><span id="mystic-heaven-spirit-slaying-sword-count">数量：0</span><small id="mystic-heaven-spirit-slaying-sword-chance">每 1 有效探寻量概率 1e-10%</small><small id="mystic-heaven-spirit-slaying-sword-effect">法宝来源 ^1.000</small></div>
+              </article>
+
+              <article class="item-row" id="five-elements-treasure" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>仙道·五行至宝</h2><p>解锁对应能力后，每累计1秒实际获取仙灵力的时间判定一次；数量无上限，并提供带内部衰减的仙灵力倍率。</p></div>
+                <div class="purchase-control"><span id="five-elements-treasure-count">数量：0</span><small id="five-elements-treasure-chance">每有效秒概率 2.00%</small><small id="five-elements-treasure-effect">实际仙灵力倍率 ×1.000</small></div>
+              </article>
+
+              <article class="item-row" id="five-spirit-stone-treasure" hidden>
+                <div class="item-content"><h2>五灵石</h2><p>极意实际产生战力时，每累计1秒有效时间判定一次；数量永久保留，并提供独立 J 与战力来源。</p></div>
+                <div class="purchase-control"><span id="five-spirit-stone-count">数量：0</span><small id="five-spirit-stone-chance">每有效秒概率 0.05%</small><small id="five-spirit-stone-effect">独立 J +0/秒；独立战力 +0/秒</small></div>
               </article>
             </div>
           </section>
@@ -474,8 +497,8 @@
             </div>
 
             <p class="challenge-active-state" id="challenge-active-state">当前未进行挑战</p>
-            <div class="item-list">
-              <article class="item-row" id="innate-deficiency-challenge">
+            <div id="challenge-list">
+              <article class="item-row" id="innate-deficiency-challenge" data-challenge-key="innateDeficiency">
                 <div class="item-content">
                   <h2>福</h2>
                   <p>挑战中削弱J 获取；三次目标依次为爆墙、爆屋、爆楼。</p>
@@ -489,7 +512,7 @@
                 </div>
               </article>
 
-              <article class="item-row" id="powerless-challenge">
+              <article class="item-row" id="powerless-challenge" data-challenge-key="powerless">
                 <div class="item-content">
                   <h2>禄</h2>
                   <p>挑战中削弱战力获取；三次目标依次为爆屋、爆楼、爆街。</p>
@@ -503,7 +526,7 @@
                 </div>
               </article>
 
-              <article class="item-row" id="longevity-challenge" hidden>
+              <article class="item-row" id="longevity-challenge" data-challenge-key="longevity" hidden>
                 <div class="item-content">
                   <h2>寿</h2>
                   <p>挑战时间越久，J与战力获取指数越低；三次目标依次为爆楼、爆街、爆城。</p>
@@ -517,7 +540,7 @@
                 </div>
               </article>
 
-              <article class="item-row" id="five-misfortunes-challenge" hidden>
+              <article class="item-row" id="five-misfortunes-challenge" data-challenge-key="fiveMisfortunes" hidden>
                 <div class="item-content">
                   <h2>五弊</h2>
                   <p>挑战中无法选择体系；三次分别要求达到爆屋、爆楼、爆街。</p>
@@ -530,32 +553,61 @@
                 </div>
               </article>
 
-              <article class="item-row" id="complete-realm-challenge" hidden>
+              <article class="item-row" id="complete-realm-challenge" data-challenge-key="completeRealm" hidden>
                 <div class="item-content">
                   <h2>完全境界</h2>
                   <p>挑战中削弱除极意外的全部战力来源；达到地表即完成。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="complete-realm-progress">完成：0/3次</span>
-                  <small id="complete-realm-limit">下次限制：非极意战力来源 ×0.20</small>
+                  <small id="complete-realm-limit">下次限制：非极意战力来源 ^0.85</small>
                   <small>要求：达到地表</small>
                   <small id="complete-realm-reward">当前奖励：极意来源 ^1.00</small>
                   <button id="toggle-complete-realm" class="primary-button" type="button">开启挑战</button>
                 </div>
               </article>
 
-              <article class="item-row" id="moonless-challenge" hidden>
+              <article class="item-row" id="moonless-challenge" data-challenge-key="moonless" hidden>
                 <div class="item-content">
                   <h2>无月</h2>
                   <p>挑战中削弱除打岩外的全部战力来源；达到地表即完成。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="moonless-progress">完成：0/3次</span>
-                  <small id="moonless-limit">下次限制：非打岩战力来源 ×0.20</small>
+                  <small id="moonless-limit">下次限制：非打岩战力来源 ^0.85</small>
                   <small>要求：达到地表</small>
                   <small id="moonless-reward">当前奖励：打岩来源 ^1.00</small>
                   <button id="toggle-moonless" class="primary-button" type="button">开启挑战</button>
                 </div>
+              </article>
+
+              <article class="item-row" id="planet-suppression-challenge" data-challenge-key="planetSuppression" hidden>
+                <div class="item-content">
+                  <h2>星球压制</h2>
+                  <p>挑战中J、战力在正常结算后额外承受一层始终存在的爆星级动态软上限；达到爆星即完成。</p>
+                </div>
+                <div class="purchase-control">
+                  <span id="planet-suppression-progress">完成：0/1次</span>
+                  <small id="planet-suppression-limit">限制：正常软上限后追加星球压制专属软上限</small>
+                  <small id="planet-suppression-target">目标：达到爆星</small>
+                  <small id="planet-suppression-reward">当前奖励：受到软上限时强化J与战力区域指数</small>
+                  <button id="toggle-planet-suppression" class="primary-button" type="button">开启挑战</button>
+                </div>
+              </article>
+
+              <article class="item-row" id="sever-evil-corpse-challenge" data-challenge-key="severEvilCorpse" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>斩恶尸</h2><p>J、战力、法力、仙灵力获取均 ^0.85；达到恒星量级即完成。</p></div>
+                <div class="purchase-control"><span id="sever-evil-corpse-progress">完成：0/1次</span><small id="sever-evil-corpse-limit">限制：四类资源获取 ^0.85</small><small id="sever-evil-corpse-target">目标：达到恒星</small><small id="sever-evil-corpse-reward">当前奖励：仙灵力 ×1</small><button id="toggle-sever-evil-corpse" class="primary-button" type="button">开启挑战</button></div>
+              </article>
+
+              <article class="item-row" id="sever-good-corpse-challenge" data-challenge-key="severGoodCorpse" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>斩善尸</h2><p>四类资源获取均 ^0.70；完成斩恶尸后开放，达到恒星量级即完成。</p></div>
+                <div class="purchase-control"><span id="sever-good-corpse-progress">完成：0/1次</span><small id="sever-good-corpse-limit">限制：四类资源获取 ^0.70</small><small id="sever-good-corpse-target">目标：达到恒星</small><small id="sever-good-corpse-reward">当前奖励：仙灵力区域 ^1.000</small><button id="toggle-sever-good-corpse" class="primary-button" type="button">开启挑战</button></div>
+              </article>
+
+              <article class="item-row" id="sever-self-corpse-challenge" data-challenge-key="severSelfCorpse" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效，仙灵力受到动态倒数指数；完成斩善尸后开放。</p></div>
+                <div class="purchase-control"><span id="sever-self-corpse-progress">完成：0/1次</span><small id="sever-self-corpse-limit">限制：法则失效；仙灵力额外动态压制</small><small id="sever-self-corpse-target">目标：重新达到大罗</small><small id="sever-self-corpse-reward">奖励：永久取得突破道祖资格</small><button id="toggle-sever-self-corpse" class="primary-button" type="button">开启挑战</button></div>
               </article>
             </div>
           </section>
