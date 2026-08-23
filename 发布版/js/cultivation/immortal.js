@@ -88,6 +88,7 @@
       { id: "lawImmortalPower", name: "法则", group: "真仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.lawImmortalPowerMultiplier(current.mana) },
       { id: "spiritCaptureReturn", name: "摄灵返源", group: "金仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.spiritCaptureReturnMultiplier(current.immortalPower) },
       { id: "fiveElementsTreasurePower", name: "仙道·五行至宝", group: "宝物", target: "immortalPower", layer: "regionMultiplier", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.fiveElementsTreasureMultiplierBeforeDecline() },
+      { id: "immortalCrystalPower", name: "仙晶", group: "宝物", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.immortalCrystalMultiplier() },
       { id: "indestructibleDharmaBody", name: "法体不灭", group: "金仙", target: "brahmaDemonArt", layer: "sourceExponent", value: state.indestructibleDharmaBodyUnlocked ? 1.55 : 1 },
       { id: "spiritDomainWorldTransformation", name: "灵域化界", group: "太乙", target: "spiritDomain", layer: "sourceMultiplier", value: state.spiritDomainWorldTransformationUnlocked ? WIS.Core.Config.immortalPower.spiritDomain.worldMultiplier : 1 },
       { id: "soulQualitativeChange", name: "神魂质变", group: "太乙", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.soulQualitativeChangeMultiplier(current.immortalPower) }
@@ -141,11 +142,21 @@
 
   function rollImmortalPowerTreasure(state, activeSeconds, silentTreasureRolls = false) {
     const elapsed = Math.max(0, Number(activeSeconds) || 0);
-    if (!(elapsed > 0) || !state.fiveElementsTreasureUnlocked) return 0;
-    const total = Math.max(0, Number(state.fiveElementsTreasureRollProgress) || 0) + elapsed;
-    const attempts = Math.floor(total + 1e-10);
-    state.fiveElementsTreasureRollProgress = Math.max(0, total - attempts);
-    return WIS.Cultivation.ImmortalLogic.rollFiveElementsTreasureAttempts(attempts, silentTreasureRolls);
+    if (!(elapsed > 0)) return 0;
+    let gained = 0;
+    if (WIS.Meta.Achievements.has(state, "ascendImmortal")) {
+      const crystalTotal = Math.max(0, Number(state.immortalCrystalRollProgress) || 0) + elapsed;
+      const crystalAttempts = Math.floor(crystalTotal + 1e-10);
+      state.immortalCrystalRollProgress = Math.max(0, crystalTotal - crystalAttempts);
+      gained += WIS.Cultivation.ImmortalLogic.rollImmortalCrystalAttempts(crystalAttempts, silentTreasureRolls);
+    }
+    if (state.fiveElementsTreasureUnlocked) {
+      const treasureTotal = Math.max(0, Number(state.fiveElementsTreasureRollProgress) || 0) + elapsed;
+      const treasureAttempts = Math.floor(treasureTotal + 1e-10);
+      state.fiveElementsTreasureRollProgress = Math.max(0, treasureTotal - treasureAttempts);
+      gained += WIS.Cultivation.ImmortalLogic.rollFiveElementsTreasureAttempts(treasureAttempts, silentTreasureRolls);
+    }
+    return gained;
   }
 
   function resetTransient() {

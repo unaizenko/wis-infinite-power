@@ -84,6 +84,10 @@
       { key: "refineTheVoid", system: "仙道", name: "炼化虚空", description: "达到仙道·炼虚。", reward: "选择仙道并解锁法力后，获得 +1 法力/秒的独立基础来源", completed: completedAchievement("refineTheVoid", state.advancedRealmLevel >= 3) },
       { key: "bodyIntegration", system: "仙道", name: "合体", description: "达到仙道·合体。", reward: "自动突破曾手动突破过的仙道境界（默认开启，可关闭）", completed: completedAchievement("bodyIntegration", state.advancedRealmLevel >= 4 || state.lifetimeHighestCultivationRealmLevel >= 7) },
       { key: "mahayana", system: "仙道", name: "大乘", description: "达到仙道·大乘。", reward: "选择仙道后自动获得3次转世重修效果", completed: completedAchievement("mahayana", state.advancedRealmLevel >= 5 || state.lifetimeHighestCultivationRealmLevel >= 8) },
+      { key: "ascendImmortal", system: "仙道", name: "登仙", description: "抵达仙道·真仙。", reward: "解锁永久宝物烙印·仙晶", completed: completedAchievement("ascendImmortal", state.advancedRealmLevel >= 6 || state.lifetimeHighestCultivationRealmLevel >= 9) },
+      { key: "goldenNature", system: "仙道", name: "金性", description: "抵达仙道·金仙。", reward: "本次转生每经过20分钟，按 0.025×log2(1+t/20分钟) 提升仙灵力获取指数", completed: completedAchievement("goldenNature", state.advancedRealmLevel >= 7 || state.lifetimeHighestCultivationRealmLevel >= 10) },
+      { key: "utmostPurity", system: "仙道", name: "至净", description: "抵达仙道·太乙。", reward: "按当前量级停留时间渐近弱化下一量级的J、战力软上限，跨量级后重新计时", completed: completedAchievement("utmostPurity", state.advancedRealmLevel >= 8 || state.lifetimeHighestCultivationRealmLevel >= 11) },
+      { key: "greatLuo", system: "仙道", name: "大罗", description: "抵达仙道·大罗。", reward: "斩三尸挑战中按 0.035×log2(1+t/20分钟) 提升法力获取指数", completed: completedAchievement("greatLuo", state.advancedRealmLevel >= 9 || state.lifetimeHighestCultivationRealmLevel >= 12) },
       { key: "threeDeficiencies", name: "三缺", description: "福、禄、寿三种挑战各完成1次。", reward: "非挑战转生类重置后获得1000 战力", completed: completedAchievement("threeDeficiencies", threeDeficienciesCompleted()) },
       { key: "fiveMisfortunesThreeDeficiencies", name: "五弊三缺", description: "福、禄、寿、五弊挑战全部完成3次。", reward: "纪念性成就", completed: completedAchievement("fiveMisfortunesThreeDeficiencies", allFortuneChallengesCompleted()) },
       { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
@@ -117,6 +121,8 @@
               ? "解锁永久宝物·天晶"
             : scaleIndex === 10
               ? "J、战力量级软上限损失 ×0.95"
+            : scaleIndex === 11
+              ? "挑战中战力获取倍率 ×15"
               : "奖励：后续加入",
           completed: completedAchievement(`scale${scaleIndex}`, state.highestScaleIndex >= scaleIndex)
         },

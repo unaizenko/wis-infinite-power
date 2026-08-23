@@ -5,7 +5,8 @@
     joules: 0, power: 0, highestPower: 0, lifetimeHighestJ: 0, lifetimeHighestPower: 0,
     lifetimeHighestScaleIndex: 0, lifetimeTotalJ: 0, lifetimeTotalPower: 0,
     lifetimeHighestMana: 0, lifetimeTotalMana: 0, lifetimeHighestCultivationRealmLevel: 0,
-    immortalSelectionCount: 0, totalElapsedSeconds: 0, totalPower: 0, maxSinglePowerGain: 0,
+    immortalSelectionCount: 0, totalElapsedSeconds: 0, reincarnationElapsedSeconds: 0,
+    currentScaleElapsedSeconds: 0, totalPower: 0, maxSinglePowerGain: 0,
     brickUnlocked: false, wallUnlocked: false, highestScaleIndex: 0, runningLevel: 0,
     gymPurchased: false, exercisePurchased: false, transcendentPurchased: false,
     focusPurchased: false, breathingMethodPurchased: false, extremeExercisePurchased: false,
@@ -67,7 +68,7 @@
     trinityUnlocked: false, unityWithDaoUnlocked: false, lawOriginUnlocked: false,
     lawCrystalFilamentUnlocked: false, severThreeCorpsesUnlocked: false,
     ultimateImmortalApertureUnlocked: false,
-    fiveElementsTreasureRollProgress: 0, minorTribulationExplorationLoad: 0,
+    fiveElementsTreasureRollProgress: 0, immortalCrystalRollProgress: 0, minorTribulationExplorationLoad: 0,
     activeChallenge: null, activeChallengeElapsedSeconds: 0, threeCorpseChallengesUnlocked: false,
     hideUnlockedAchievements: false,
     immortalAbilityAutomationEnabled: true, immortalRealmAutomationEnabled: true,
@@ -85,7 +86,7 @@
         tianNiPearl: 0, mysteriousGreenBottle: 0, fuBao: 0, fitnessMembershipCard: 0,
         superLollipop: 0, skyCrystal: 0, xuTianDing: 0, baLingChi: 0, wanYaoFan: 0,
         phantomHeavenMirror: 0, mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0,
-        fiveElementsTreasure: 0, fiveSpiritStone: 0
+        fiveElementsTreasure: 0, immortalCrystal: 0, fiveSpiritStone: 0
       },
       lastUpdateAt: Date.now()
     };
@@ -146,6 +147,10 @@
     if (goldenCoreUnlocked) unlockedAchievements.goldenCore = true;
     if (advancedRealmLevel >= 2 || Number(source.lifetimeHighestCultivationRealmLevel) >= 5) unlockedAchievements.humanRealmDominance = true;
     if (advancedRealmLevel >= 3 || Number(source.lifetimeHighestCultivationRealmLevel) >= 6) unlockedAchievements.refineTheVoid = true;
+    if (advancedRealmLevel >= 6 || Number(source.lifetimeHighestCultivationRealmLevel) >= 9) unlockedAchievements.ascendImmortal = true;
+    if (advancedRealmLevel >= 7 || Number(source.lifetimeHighestCultivationRealmLevel) >= 10) unlockedAchievements.goldenNature = true;
+    if (advancedRealmLevel >= 8 || Number(source.lifetimeHighestCultivationRealmLevel) >= 11) unlockedAchievements.utmostPurity = true;
+    if (advancedRealmLevel >= 9 || Number(source.lifetimeHighestCultivationRealmLevel) >= 12) unlockedAchievements.greatLuo = true;
     if (totalElapsedSeconds >= 600) unlockedAchievements.trainingUp = true;
     if (Math.max(power, Number(source.highestPower) || 0, Number(source.lifetimeHighestPower) || 0) >= 1e100) unlockedAchievements.googol = true;
     config.scales.slice(2).forEach((scale, offset) => {
@@ -187,6 +192,7 @@
       mysticHeavenSacredTree: Math.max(0, Math.floor(Number(source.treasureImprints?.mysticHeavenSacredTree) || 0)),
       mysticHeavenSpiritSlayingSword: Math.max(0, Math.floor(Number(source.treasureImprints?.mysticHeavenSpiritSlayingSword) || 0)),
       fiveElementsTreasure: Math.max(0, Math.floor(Number(source.treasureImprints?.fiveElementsTreasure) || 0)),
+      immortalCrystal: Math.max(0, Math.floor(Number(source.treasureImprints?.immortalCrystal) || 0)),
       superLollipop: Math.max(0, Math.floor(Number(source.treasureImprints?.superLollipop) || 0)),
       skyCrystal: Math.max(0, Math.floor(Number(source.treasureImprints?.skyCrystal) || 0)),
       fiveSpiritStone: Math.max(0, Math.floor(Number(source.treasureImprints?.fiveSpiritStone) || 0))
@@ -224,6 +230,8 @@
       ),
       immortalSelectionCount: Math.max(cultivationSystem === "仙道" ? 1 : 0, Math.floor(Number(source.immortalSelectionCount) || 0)),
       totalElapsedSeconds,
+      reincarnationElapsedSeconds: Math.max(0, Number(source.reincarnationElapsedSeconds) || 0),
+      currentScaleElapsedSeconds: Math.max(0, Number(source.currentScaleElapsedSeconds) || 0),
       totalPower,
       maxSinglePowerGain,
       brickUnlocked: highestScaleIndex >= 1,
@@ -417,6 +425,9 @@
       fiveElementsTreasureRollProgress: Number.isFinite(Number(source.fiveElementsTreasureRollProgress))
         ? Math.max(0, Number(source.fiveElementsTreasureRollProgress)) % 1
         : 0,
+      immortalCrystalRollProgress: Number.isFinite(Number(source.immortalCrystalRollProgress))
+        ? Math.max(0, Number(source.immortalCrystalRollProgress)) % 1
+        : 0,
       minorTribulationExplorationLoad: advancedRealmLevel >= 6
         ? 0
         : Math.max(0, savedMinorTribulationExplorationLoad || 0),
@@ -425,11 +436,10 @@
         tree3: source.symbolicPowerMilestones?.tree3 === true
       },
       activeChallenge,
-      activeChallengeElapsedSeconds: activeChallenge === "longevity"
-        ? Math.max(0, Math.min(
-          config.challenges.longevity.timeToLimitSeconds,
-          Number(source.activeChallengeElapsedSeconds) || 0
-        ))
+      activeChallengeElapsedSeconds: activeChallenge
+        ? Math.max(0, activeChallenge === "longevity"
+          ? Math.min(config.challenges.longevity.timeToLimitSeconds, Number(source.activeChallengeElapsedSeconds) || 0)
+          : Number(source.activeChallengeElapsedSeconds) || 0)
         : 0,
       challengeCompletions: Object.fromEntries(Object.entries(config.challenges).map(([key, challenge]) => [
         key,
@@ -455,7 +465,7 @@
 
   const fieldGroups = Object.freeze({
     "core.resources": ["joules", "power"],
-    "core.runtime": ["totalElapsedSeconds", "lastUpdateAt"],
+    "core.runtime": ["totalElapsedSeconds", "reincarnationElapsedSeconds", "currentScaleElapsedSeconds", "lastUpdateAt"],
     "core.preferences": [
       "hideUnlockedAchievements", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
       "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "theme"
@@ -485,7 +495,7 @@
     "cultivation.systems.immortal.resources": ["mana", "immortalPower"],
     "cultivation.systems.immortal.progress": [
       "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel", "explorationProgress",
-      "minorTribulationExplorationLoad", "fiveElementsTreasureRollProgress"
+      "minorTribulationExplorationLoad", "fiveElementsTreasureRollProgress", "immortalCrystalRollProgress"
     ],
     "cultivation.systems.immortal.abilities": [
       "immortalLifeUnlocked", "qiSpellLevel", "circulationUnlocked", "minorTechniqueUnlocked", "flyingEscapeUnlocked",
@@ -755,12 +765,15 @@
       : normalizeLegacy(data),
     43: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
       ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    44: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
       : normalizeLegacy(data)
   });
 
   function migrate(schemaVersion, data) {
     const version = Number(schemaVersion) || 36;
-    const migration = migrations[version] || migrations[Math.min(version, 43)] || migrations[36];
+    const migration = migrations[version] || migrations[Math.min(version, 44)] || migrations[36];
     return migration(data);
   }
 

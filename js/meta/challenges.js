@@ -49,6 +49,7 @@
     const longevityReward = reward(state, "longevity", "rewardMultipliers");
     const fiveReward = state.cultivation.active ? 1 : reward(state, "fiveMisfortunes", "rewardExponents");
     return [
+      { id: "stellarChallengePower", name: "恒星成就", group: "成就", target: "power", layer: "regionMultiplier", value: state.activeChallenge && WIS.Meta.Achievements.has(state, "scale11") ? WIS.Core.Config.achievementEffects.stellarChallengePowerMultiplier : 1 },
       { id: "longevityJReward", name: "寿奖励", group: "挑战", target: "joules", layer: "regionMultiplier", celestialFiveDecline: true, value: longevityReward },
       { id: "longevityPowerReward", name: "寿奖励", group: "量级论", target: "power", layer: "regionMultiplier", celestialFiveDecline: true, value: longevityReward },
       { id: "fortuneJLimit", name: "福", group: "挑战", target: "joules", layer: "regionExponent", value: activeLimit(state, "innateDeficiency") },
@@ -120,6 +121,8 @@
     runtime.setState(WIS.Core.Reset.apply("challenge", state, freshDefaultState, { overrides: {
       activeChallenge: challengeKey,
       activeChallengeElapsedSeconds: 0,
+      reincarnationElapsedSeconds: 0,
+      currentScaleElapsedSeconds: 0,
       lastUpdateAt: Date.now()
     } }));
     runtime.call("resetTransientAccumulators");

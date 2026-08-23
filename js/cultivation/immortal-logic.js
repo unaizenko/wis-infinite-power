@@ -49,6 +49,8 @@
   const IMMORTAL_APERTURE_CAP = IMMORTAL_APERTURE_CONFIG.cap;
   const CELESTIAL_FIVE_DECLINES_CONFIG = IMMORTAL_POWER_CONFIG.celestialFiveDeclines;
   const FIVE_ELEMENTS_TREASURE_CONFIG = IMMORTAL_POWER_CONFIG.fiveElementsTreasure;
+  const ACHIEVEMENT_EFFECT_CONFIG = CONFIG.achievementEffects;
+  const IMMORTAL_CRYSTAL_CONFIG = ACHIEVEMENT_EFFECT_CONFIG.immortalCrystal;
   const XUAN_IMMORTAL_BODY_COST = IMMORTAL_POWER_ABILITY_COSTS.xuanImmortalBody;
   const LAW_COST = IMMORTAL_POWER_ABILITY_COSTS.law;
   const MINOR_TRIBULATION_BASE_TRIGGER_LOAD = CONFIG.minorTribulationBaseTriggerLoad;
@@ -280,6 +282,20 @@
     if (!silent && gained > 0) {
       saveState();
       showNotice(`获得宝物烙印：仙道·五行至宝 +${gained}`);
+    }
+    return gained;
+  }
+
+  function rollImmortalCrystalAttempts(attempts, silent = false) {
+    const gained = rollDynamicAttempts(
+      attempts,
+      () => hasAchievement("ascendImmortal"),
+      immortalCrystalChance,
+      () => { WIS.Meta.Treasures.add(state, "immortalCrystal"); }
+    );
+    if (!silent && gained > 0) {
+      saveState();
+      showNotice(`获得宝物烙印：仙晶 +${gained}`);
     }
     return gained;
   }
@@ -553,14 +569,36 @@
     return multiplyEffectGroups(immortalPowerMultiplierGroups());
   }
 
+  function logarithmicTimeBonus(elapsedSeconds, coefficient) {
+    const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
+    return coefficient * Math.log2(1 + elapsed / ACHIEVEMENT_EFFECT_CONFIG.timeScaleSeconds);
+  }
+
+  function goldenNatureImmortalPowerExponentBonus(elapsedSeconds = state.reincarnationElapsedSeconds) {
+    return hasAchievement("goldenNature")
+      ? logarithmicTimeBonus(elapsedSeconds, ACHIEVEMENT_EFFECT_CONFIG.goldenNatureExponentPerDoubling)
+      : 0;
+  }
+
+  function greatLuoManaExponentBonus(elapsedSeconds = state.activeChallengeElapsedSeconds) {
+    const inThreeCorpseChallenge = ["severEvilCorpse", "severGoodCorpse", "severSelfCorpse"]
+      .includes(state.activeChallenge);
+    return hasAchievement("greatLuo") && inThreeCorpseChallenge
+      ? logarithmicTimeBonus(elapsedSeconds, ACHIEVEMENT_EFFECT_CONFIG.greatLuoManaExponentPerDoubling)
+      : 0;
+  }
+
   function immortalPowerRegionExponent() {
     const registeredExponent = WIS.Core.Effects.product("immortalPower", "regionExponent", state);
-    if (state.activeChallenge !== "severSelfCorpse") return registeredExponent;
-    const config = IMMORTAL_POWER_CONFIG.daluo;
-    const progress = Math.log10(
-      1 + Math.max(0, Number(state.immortalPower) || 0) / config.selfCorpseScale
-    );
-    return registeredExponent / (1 + config.selfCorpseCoefficient * progress);
+    let challengeAdjustedExponent = registeredExponent;
+    if (state.activeChallenge === "severSelfCorpse") {
+      const config = IMMORTAL_POWER_CONFIG.daluo;
+      const progress = Math.log10(
+        1 + Math.max(0, Number(state.immortalPower) || 0) / config.selfCorpseScale
+      );
+      challengeAdjustedExponent /= 1 + config.selfCorpseCoefficient * progress;
+    }
+    return challengeAdjustedExponent + goldenNatureImmortalPowerExponentBonus();
   }
 
   function immortalPowerPerSecond(currentMana = state.mana) {
@@ -725,6 +763,42 @@
       Math.pow(FIVE_ELEMENTS_TREASURE_CONFIG.chanceDecay, fiveElementsTreasureCount()) *
       immortalTreasureChanceMultiplier()
     );
+  }
+
+  function immortalCrystalCount() {
+    const count = Number(state.treasureImprints?.immortalCrystal);
+    return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  }
+
+  function immortalCrystalChance(count = immortalCrystalCount()) {
+    const currentCount = Math.max(0, Math.floor(Number(count) || 0));
+    return IMMORTAL_CRYSTAL_CONFIG.baseChance * Math.pow(
+      1 + currentCount / IMMORTAL_CRYSTAL_CONFIG.decayScale,
+      IMMORTAL_CRYSTAL_CONFIG.decayExponent
+    );
+  }
+
+  function immortalCrystalIncrement(count = immortalCrystalCount()) {
+    const currentCount = Math.max(0, Math.floor(Number(count) || 0));
+    return IMMORTAL_CRYSTAL_CONFIG.perItemAdditive * Math.pow(
+      1 + currentCount / IMMORTAL_CRYSTAL_CONFIG.decayScale,
+      IMMORTAL_CRYSTAL_CONFIG.decayExponent
+    );
+  }
+
+  let cachedImmortalCrystalCount = 0;
+  let cachedImmortalCrystalBonus = 0;
+  function immortalCrystalMultiplier(count = immortalCrystalCount()) {
+    const targetCount = Math.max(0, Math.floor(Number(count) || 0));
+    if (targetCount < cachedImmortalCrystalCount) {
+      cachedImmortalCrystalCount = 0;
+      cachedImmortalCrystalBonus = 0;
+    }
+    while (cachedImmortalCrystalCount < targetCount) {
+      cachedImmortalCrystalBonus += immortalCrystalIncrement(cachedImmortalCrystalCount);
+      cachedImmortalCrystalCount += 1;
+    }
+    return 1 + cachedImmortalCrystalBonus;
   }
 
   function logarithmicRealmProgress(currentValue, startRequirement, endRequirement) {
@@ -1481,7 +1555,7 @@
   function finalManaGainFromSources(sourceGains, currentMana = state.mana, additionalMultipliers = [], applyDecline = true) {
     const gain = calculateRegionGain(sourceGains, {
       multipliers: [manaGainMultiplier(currentMana), ...additionalMultipliers],
-      exponents: [WIS.Core.Effects.product("mana", "regionExponent", state)]
+      exponents: [WIS.Core.Effects.product("mana", "regionExponent", state) + greatLuoManaExponentBonus()]
     });
     return applyDecline ? applyCelestialDecline(gain, currentMana) : gain;
   }
@@ -2494,11 +2568,14 @@
     immortalApertureCap, immortalApertureLevelMultiplier, immortalApertureMilestoneMultiplier,
     immortalApertureMultiplier, lawImmortalPowerExponent, lawImmortalPowerActualExponent, lawImmortalPowerMultiplier,
     spiritCaptureReturnMultiplier, spiritDomainJSource, soulQualitativeChangeMultiplier,
-    immortalPowerRegionExponent, trinityImmortalPowerMultiplier, unityWithDaoExponent,
+    immortalPowerRegionExponent, goldenNatureImmortalPowerExponentBonus, greatLuoManaExponentBonus,
+    trinityImmortalPowerMultiplier, unityWithDaoExponent,
     lawCrystalFilamentPowerExponent,
     fiveElementsTreasureCount, fiveElementsTreasureRawMultiplier,
     fiveElementsTreasureInternalExponent, fiveElementsTreasureMultiplierBeforeDecline,
     fiveElementsTreasureChance, rollFiveElementsTreasureAttempts,
+    immortalCrystalCount, immortalCrystalChance, immortalCrystalIncrement,
+    immortalCrystalMultiplier, rollImmortalCrystalAttempts,
     celestialFiveDeclineBaseExponent, celestialFiveDeclineExponent,
     applyCelestialFiveDeclineToMultiplier, nextImmortalPowerProgressBoundary,
     advancedRealmResource, advancedRealmManaCost, nextRealmResource,

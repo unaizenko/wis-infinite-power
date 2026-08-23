@@ -13,7 +13,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.4.2</small>
+          <small id="game-version" class="game-version">v0.1.4.3</small>
         </div>
         <div class="header-actions">
           <div class="scale-progress">
@@ -480,6 +480,11 @@
                 <div class="purchase-control"><span id="five-elements-treasure-count">数量：0</span><small id="five-elements-treasure-chance">每有效秒概率 2.00%</small><small id="five-elements-treasure-effect">实际仙灵力倍率 ×1.000</small></div>
               </article>
 
+              <article class="item-row" id="immortal-crystal-treasure" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>仙晶</h2><p>达成仙道成就“登仙”后，每累计1秒实际获取仙灵力的时间判定一次。概率和下一枚收益随当前数量平滑衰减，全部仙晶增量加算且无硬上限。</p></div>
+                <div class="purchase-control"><span id="immortal-crystal-count">数量：0</span><small id="immortal-crystal-chance">每有效秒概率 5.00%</small><small id="immortal-crystal-effect">仙灵力倍率 ×1.000；下一枚 +0.001000</small></div>
+              </article>
+
               <article class="item-row" id="five-spirit-stone-treasure" hidden>
                 <div class="item-content"><h2>五灵石</h2><p>极意实际产生战力时，每累计1秒有效时间判定一次；数量永久保留，并提供独立 J 与战力来源。</p></div>
                 <div class="purchase-control"><span id="five-spirit-stone-count">数量：0</span><small id="five-spirit-stone-chance">每有效秒概率 0.05%</small><small id="five-spirit-stone-effect">独立 J +0/秒；独立战力 +0/秒</small></div>
@@ -493,7 +498,7 @@
                 <p class="section-label">突破限制</p>
                 <h1>挑战</h1>
               </div>
-              <p>开启挑战会重置行动、强化与体系进度；成功或退出只解除限制，不会再次重置。</p>
+              <p>开启挑战视为一次新转生：重置行动、强化、体系进度及本轮计时；成功或退出只解除限制，不会再次重置。</p>
             </div>
 
             <p class="challenge-active-state" id="challenge-active-state">当前未进行挑战</p>

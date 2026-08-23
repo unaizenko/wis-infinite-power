@@ -78,7 +78,7 @@
       "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
       "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
       "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased",
-      "superLollipopRollProgress", "fiveSpiritStoneRollProgress",
+      "superLollipopRollProgress", "fiveSpiritStoneRollProgress", "currentScaleElapsedSeconds",
       "ghostBackActive", "mana", "immortalPower",
       "explorationProgress", "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
       "minorTribulationExplorationLoad",

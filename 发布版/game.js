@@ -268,11 +268,14 @@
   }
 
   function advanceGameStep(elapsedSeconds, silentTreasureRolls) {
-    if (state.activeChallenge === "longevity") {
-      state.activeChallengeElapsedSeconds = Math.min(
-        CHALLENGE_DEFINITIONS.longevity.timeToLimitSeconds,
-        state.activeChallengeElapsedSeconds + elapsedSeconds
-      );
+    state.reincarnationElapsedSeconds += elapsedSeconds;
+    state.currentScaleElapsedSeconds += elapsedSeconds;
+    if (state.activeChallenge) {
+      const timeLimit = CHALLENGE_DEFINITIONS[state.activeChallenge]?.timeToLimitSeconds;
+      const nextElapsed = state.activeChallengeElapsedSeconds + elapsedSeconds;
+      state.activeChallengeElapsedSeconds = timeLimit
+        ? Math.min(timeLimit, nextElapsed)
+        : nextElapsed;
     }
     WIS.Core.Effects.beginTick(state);
     const activePowerSystem = WIS.Core.Registries.getActivePower(state);

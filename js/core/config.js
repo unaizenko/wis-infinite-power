@@ -116,10 +116,18 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.4.2", saveVersion: 43,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.4.3", saveVersion: 44,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
+    achievementEffects: Object.freeze({
+      timeScaleSeconds: 20 * 60,
+      stellarChallengePowerMultiplier: 15,
+      immortalCrystal: Object.freeze({ baseChance: 0.05, perItemAdditive: 0.001, decayScale: 100, decayExponent: -0.5 }),
+      goldenNatureExponentPerDoubling: 0.025,
+      utmostPuritySoftcapLossCoefficient: 0.08,
+      greatLuoManaExponentPerDoubling: 0.035
+    }),
     exploration: Object.freeze({
       baseMana: 50, minimumPowerCost: 1e6, standardPowerCost: 1e7, costExponentScale: 0.08,
       manaCurve: Object.freeze({ scale: 1e14, earlyExponent: 1, lateExponent: 0.15, sharpness: 12 }),
