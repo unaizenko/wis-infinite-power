@@ -65,14 +65,14 @@
       { id: "severGoodPowerLimit", name: "斩善尸", group: "斩三尸", target: "power", layer: "regionExponent", value: activeLimit(state, "severGoodCorpse") },
       { id: "severGoodManaLimit", name: "斩善尸", group: "斩三尸", target: "mana", layer: "regionExponent", value: activeLimit(state, "severGoodCorpse") },
       { id: "severGoodImmortalPowerLimit", name: "斩善尸", group: "斩三尸", target: "immortalPower", layer: "regionExponent", value: activeLimit(state, "severGoodCorpse") },
-      { id: "severEvilReward", name: "斩恶尸奖励", group: "斩三尸", target: "immortalPower", layer: "regionMultiplier", celestialFiveDecline: true, value: evilCorpseRewardMultiplier(state) },
+      { id: "severEvilReward", name: "斩恶尸奖励", group: "斩三尸", target: "immortalPower", layer: "regionMultiplier", celestialFiveDecline: true, dynamic: true, value: (current) => evilCorpseRewardMultiplier(current) },
       { id: "severGoodReward", name: "斩善尸奖励", group: "斩三尸", target: "immortalPower", layer: "regionExponent", celestialFiveDecline: true, value: reward(state, "severGoodCorpse", "rewardExponents") },
       { id: "fortuneFitnessReward", name: "福奖励", group: "挑战", target: "fitness", layer: "sourceExponent", celestialFiveDecline: true, value: reward(state, "innateDeficiency", "rewardExponents") },
       { id: "powerlessTrainingReward", name: "禄奖励", group: "挑战", target: "training", layer: "sourceExponent", celestialFiveDecline: true, value: reward(state, "powerless", "rewardExponents") },
       { id: "completeRealmUltimateReward", name: "完全境界奖励", group: "挑战", target: "ultimateIntent", layer: "sourceExponent", celestialFiveDecline: true, value: reward(state, "completeRealm", "rewardExponents") },
       { id: "moonlessRockReward", name: "无月奖励", group: "挑战", target: "rock", layer: "sourceExponent", celestialFiveDecline: true, value: reward(state, "moonless", "rewardExponents") }
-      ,{ id: "planetSuppressionJReward", name: "星球压制奖励", group: "挑战", target: "joules", layer: "regionExponent", celestialFiveDecline: true, value: planetSuppressionRewardExponent(state, "joules") }
-      ,{ id: "planetSuppressionPowerReward", name: "星球压制奖励", group: "挑战", target: "power", layer: "regionExponent", celestialFiveDecline: true, value: planetSuppressionRewardExponent(state, "power") }
+      ,{ id: "planetSuppressionJReward", name: "星球压制奖励", group: "挑战", target: "joules", layer: "regionExponent", celestialFiveDecline: true, dynamic: true, value: (current) => planetSuppressionRewardExponent(current, "joules") }
+      ,{ id: "planetSuppressionPowerReward", name: "星球压制奖励", group: "挑战", target: "power", layer: "regionExponent", celestialFiveDecline: true, dynamic: true, value: (current) => planetSuppressionRewardExponent(current, "power") }
     ];
   }
   WIS.Core.Effects.register("challenges", effects);

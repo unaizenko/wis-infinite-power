@@ -643,27 +643,27 @@
       : multiplier;
   }
 
-  function trinityImmortalPowerMultiplier() {
+  function trinityImmortalPowerMultiplier(currentJoules = state.joules) {
     if (!state.trinityUnlocked) return 1;
     const config = IMMORTAL_POWER_CONFIG.daluo;
-    const magnitude = Math.log10(1 + Math.max(0, Number(state.joules) || 0) / config.trinityJoulesScale);
+    const magnitude = Math.log10(1 + Math.max(0, Number(currentJoules) || 0) / config.trinityJoulesScale);
     return 1 + Math.pow(magnitude, config.trinityExponent);
   }
 
-  function unityWithDaoExponent() {
+  function unityWithDaoExponent(currentImmortalPower = state.immortalPower) {
     if (!state.unityWithDaoUnlocked) return 1;
     const config = IMMORTAL_POWER_CONFIG.daluo;
     const magnitude = Math.log10(
-      1 + Math.max(0, Number(state.immortalPower) || 0) /
+      1 + Math.max(0, Number(currentImmortalPower) || 0) /
         IMMORTAL_POWER_CONFIG.realmCosts.daluo
     );
     return 1 + config.unityWithDaoMaximumBonus * magnitude / (magnitude + config.unityWithDaoSaturation);
   }
 
-  function lawCrystalFilamentPowerExponent() {
+  function lawCrystalFilamentPowerExponent(currentMana = state.mana) {
     if (!state.lawCrystalFilamentUnlocked) return 1;
     const config = IMMORTAL_POWER_CONFIG.daluo;
-    const magnitude = Math.log10(Math.max(1, lawImmortalPowerMultiplier()));
+    const magnitude = Math.log10(Math.max(1, lawImmortalPowerMultiplier(currentMana)));
     return 1 + config.lawCrystalMaximumBonus * magnitude / (magnitude + config.lawCrystalSaturation);
   }
 
@@ -1494,15 +1494,20 @@
     return Math.max(0, state.power) * 0.1;
   }
 
+  let cachedExplorationPowerCost = NaN;
+  let cachedRawExplorationAmount = 0;
+
   function rawExplorationAmountForCost(powerCost) {
     const cost = Math.max(0, Number(powerCost) || 0);
     if (cost <= 0) return 0;
     if (!Number.isFinite(cost)) return Infinity;
+    if (cost === cachedExplorationPowerCost) return cachedRawExplorationAmount;
 
     const targetLogCost = Math.log10(cost);
     let lowerLogAmount = -323;
     let upperLogAmount = 308;
-    for (let iteration = 0; iteration < 80; iteration += 1) {
+    // 48 次已远高于 Number 双精度所需精度；同一 tick/UI 重复预览直接命中缓存。
+    for (let iteration = 0; iteration < 48; iteration += 1) {
       const middleLogAmount = (lowerLogAmount + upperLogAmount) / 2;
       const amount = Math.pow(10, middleLogAmount);
       const logOnePlusAmount = middleLogAmount > 16
@@ -1513,7 +1518,9 @@
       if (middleLogCost < targetLogCost) lowerLogAmount = middleLogAmount;
       else upperLogAmount = middleLogAmount;
     }
-    return Math.pow(10, (lowerLogAmount + upperLogAmount) / 2);
+    cachedExplorationPowerCost = cost;
+    cachedRawExplorationAmount = Math.pow(10, (lowerLogAmount + upperLogAmount) / 2);
+    return cachedRawExplorationAmount;
   }
 
   function explorationAmountForCost(powerCost) {

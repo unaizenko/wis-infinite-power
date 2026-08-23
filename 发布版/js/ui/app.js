@@ -708,13 +708,10 @@
   }
 
   function renderGlobal() {
-    const gain = automaticJPerSecond();
-    const passivePowerGain = automaticPowerPerSecond();
-    const automaticExplorationManaPreview = state.roamSpiritWorldUnlocked
-      ? automaticExplorationManaPerSecond()
-      : 0;
-    const passiveManaGain = Immortal.automaticBaseManaPerSecond() + automaticExplorationManaPreview;
-    const passiveImmortalPowerGain = immortalPowerPerSecond();
+    const gain = WIS.tmp.rates.joulesPerSecond;
+    const passivePowerGain = WIS.tmp.rates.powerPerSecond;
+    const passiveManaGain = WIS.tmp.rates.manaPerSecond;
+    const passiveImmortalPowerGain = WIS.tmp.rates.immortalPowerPerSecond;
     byId("game-version").textContent = `v${GAME_VERSION}`;
     byId("joules").textContent = format(state.joules);
     byId("power").textContent = format(state.power);
@@ -1185,7 +1182,7 @@
       : 0;
     const roamSpiritWorldManaPreview = roamSpiritWorldAvailable
       ? state.roamSpiritWorldUnlocked
-        ? automaticExplorationManaPerSecond()
+        ? WIS.tmp.rates.automaticExplorationManaPerSecond
         : explorationPotentialManaGain(
           currentExplorationPowerCost,
           state.mana,

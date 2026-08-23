@@ -47,8 +47,8 @@
       { id: "materialControl", name: "御物", group: "仙道", target: "magicTreasure", layer: "sourceMultiplier", value: state.materialControlUnlocked ? 5 : 1 },
       { id: "wanYaoFan", name: "仙道·万妖幡", group: "宝物", target: "magicTreasure", layer: "sourceMultiplier", celestialFiveDecline: true, value: 1 + (state.meta.treasures.wanYaoFan || 0) * 0.003 },
       { id: "trueSpiritTransformation", name: "真灵变", group: "仙道", target: "mana", layer: "regionMultiplier", value: 1 + 0.6 * state.trueSpiritTransformationLevel },
-      { id: "auraControl", name: "操控灵气", group: "仙道", target: "breathing", layer: "sourceMultiplier", value: state.auraControlUnlocked ? 1 + 1.5 * Math.log10(1 + Math.max(0, state.power) / 3.033e15) : 1 },
-      { id: "immortalRealmDivine", name: "仙界神通", group: "仙道", target: "breathing", layer: "sourceMultiplier", value: state.immortalRealmDivineAbilityUnlocked ? 1 + 0.75 * Math.log10(1 + Math.max(0, state.joules) / 2.092e20) : 1 },
+      { id: "auraControl", name: "操控灵气", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => current.auraControlUnlocked ? 1 + 1.5 * Math.log10(1 + Math.max(0, current.power) / 3.033e15) : 1 },
+      { id: "immortalRealmDivine", name: "仙界神通", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => current.immortalRealmDivineAbilityUnlocked ? 1 + 0.75 * Math.log10(1 + Math.max(0, current.joules) / 2.092e20) : 1 },
       { id: "voidRefiningToQi", name: "炼虚为气", group: "仙道", target: "breathing", layer: "sourceExponent", value: state.voidRefiningToQiUnlocked ? 1.06 : 1 },
       { id: "secondNascentSoul", name: "第二元婴", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.secondNascentSoulUnlocked ? 1.8 : 1 },
       { id: "silverTadpole", name: "银蝌文", group: "仙道", target: "exploration", layer: "sourceExponent", value: state.silverTadpoleScriptUnlocked ? 1.06 : 1 },
@@ -76,7 +76,7 @@
       { id: "demonRealmJourneyTreasure", name: "魔界之游", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", value: state.demonRealmJourneyUnlocked ? 3 : 1 },
       { id: "returnToOrigin", name: "返本归元", group: "仙道", target: "joules", layer: "regionExponent", value: state.returnToOriginUnlocked ? 1.02 : 1 },
       { id: "perfectedTechniqueCompletion", name: "功法圆满", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.perfectedTechniqueCompletionUnlocked ? 1.5 : 1 },
-      { id: "descendRealm", name: "降界", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", value: state.descendRealmUnlocked ? Math.min(10, 1 + 0.75 * Math.log10(1 + Math.max(0, state.power) / 8.368e22)) : 1 },
+      { id: "descendRealm", name: "降界", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", dynamic: true, value: (current) => current.descendRealmUnlocked ? Math.min(10, 1 + 0.75 * Math.log10(1 + Math.max(0, current.power) / 8.368e22)) : 1 },
       { id: "nascentSoulCompletion", name: "元婴大成", group: "仙道", target: "circulation", layer: "sourceExponent", value: state.nascentSoulCompletionUnlocked ? 1.08 : 1 },
       { id: "goldenSealScript", name: "金篆文", group: "仙道", target: "mana", layer: "regionMultiplier", value: state.goldenSealScriptUnlocked ? 8 : 1 },
       { id: "mysticHeavenSpiritSlayingSword", name: "仙道·玄天斩灵剑", group: "宝物", target: "magicTreasure", layer: "sourceExponent", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.mysticHeavenSpiritSlayingSwordExponent() },
@@ -85,15 +85,15 @@
       { id: "immortalAperturePower", name: "仙窍", group: "真仙", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.immortalApertureLevelMultiplier() },
       { id: "immortalApertureMilestonePower", name: "仙窍里程碑", group: "真仙", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.immortalApertureMilestoneMultiplier() },
       { id: "xuanImmortalBody", name: "玄仙之躯", group: "真仙", target: "brahmaDemonArt", layer: "sourceExponent", value: state.xuanImmortalBodyUnlocked ? 1.4 : 1 },
-      { id: "lawImmortalPower", name: "法则", group: "真仙", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.lawImmortalPowerMultiplier() },
-      { id: "spiritCaptureReturn", name: "摄灵返源", group: "金仙", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.spiritCaptureReturnMultiplier() },
+      { id: "lawImmortalPower", name: "法则", group: "真仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.lawImmortalPowerMultiplier(current.mana) },
+      { id: "spiritCaptureReturn", name: "摄灵返源", group: "金仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.spiritCaptureReturnMultiplier(current.immortalPower) },
       { id: "fiveElementsTreasurePower", name: "仙道·五行至宝", group: "宝物", target: "immortalPower", layer: "regionMultiplier", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.fiveElementsTreasureMultiplierBeforeDecline() },
       { id: "indestructibleDharmaBody", name: "法体不灭", group: "金仙", target: "brahmaDemonArt", layer: "sourceExponent", value: state.indestructibleDharmaBodyUnlocked ? 1.55 : 1 },
       { id: "spiritDomainWorldTransformation", name: "灵域化界", group: "太乙", target: "spiritDomain", layer: "sourceMultiplier", value: state.spiritDomainWorldTransformationUnlocked ? WIS.Core.Config.immortalPower.spiritDomain.worldMultiplier : 1 },
-      { id: "soulQualitativeChange", name: "神魂质变", group: "太乙", target: "breathing", layer: "sourceMultiplier", value: WIS.Cultivation.ImmortalLogic.soulQualitativeChangeMultiplier() }
-      ,{ id: "trinity", name: "三位一体", group: "大罗", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.trinityImmortalPowerMultiplier() }
-      ,{ id: "unityWithDao", name: "与道合真", group: "大罗", target: "immortalPower", layer: "regionExponent", value: WIS.Cultivation.ImmortalLogic.unityWithDaoExponent() }
-      ,{ id: "lawCrystalFilament", name: "法则晶丝", group: "大罗", target: "power", layer: "regionExponent", value: WIS.Cultivation.ImmortalLogic.lawCrystalFilamentPowerExponent() }
+      { id: "soulQualitativeChange", name: "神魂质变", group: "太乙", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.soulQualitativeChangeMultiplier(current.immortalPower) }
+      ,{ id: "trinity", name: "三位一体", group: "大罗", target: "immortalPower", layer: "regionMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.trinityImmortalPowerMultiplier(current.joules) }
+      ,{ id: "unityWithDao", name: "与道合真", group: "大罗", target: "immortalPower", layer: "regionExponent", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.unityWithDaoExponent(current.immortalPower) }
+      ,{ id: "lawCrystalFilament", name: "法则晶丝", group: "大罗", target: "power", layer: "regionExponent", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.lawCrystalFilamentPowerExponent(current.mana) }
     ];
   }
 
@@ -112,6 +112,7 @@
       passiveTreasureManaPerSecond: elapsedSeconds > 0 ? automaticMana.passiveMana / elapsedSeconds : 0,
       automaticExplorationManaPerSecond: elapsedSeconds > 0 ? automaticMana.explorationMana / elapsedSeconds : 0
     };
+    Object.assign(WIS.tmp.rates, rates);
     state.lifetimeTotalMana += mana;
     return { mana, immortalPower, immortalPowerActiveSeconds: automaticMana.immortalPowerActiveSeconds, rates };
   }

@@ -9,6 +9,12 @@
   const { compact: formatCompact, number: format, cost: formatCost } = WIS.UI.Format;
 
   let state = loadState();
+  // 状态字段集合在运行期固定，只排序一次，避免 requestRender 每 tick 扫描并排序整个 state。
+  const upgradeFlagKeys = Object.keys(state).filter((key) => key.endsWith("Purchased")).sort();
+  const cultivationFlagKeys = Object.keys(state)
+    .filter((key) => key.endsWith("Unlocked") || key.endsWith("Level"))
+    .sort();
+  const challengeKeys = Object.keys(CHALLENGE_DEFINITIONS);
   let lastTickAt = Date.now();
   let lastRenderAt = 0;
   const LOGIC_INTERVAL_MS = 100;
@@ -67,12 +73,16 @@
     ].join("|");
   }
 
-  function stateFlagSignature(suffixes) {
-    return Object.keys(state)
-      .filter((key) => suffixes.some((suffix) => key.endsWith(suffix)))
-      .sort()
-      .map((key) => `${key}:${state[key]}`)
-      .join("|");
+  function stateFlagSignature(keys) {
+    let signature = "";
+    for (const key of keys) signature += `|${state[key]}`;
+    return signature;
+  }
+
+  function recordSignature(record, keys) {
+    let signature = "";
+    for (const key of keys) signature += `|${Number(record?.[key]) || 0}`;
+    return signature;
   }
 
   function requestRender(pageName) {
@@ -82,13 +92,13 @@
     else markCurrentPageDirty();
 
     const nextUpgradeUnlockSignature = [state.highestScaleIndex, state.brickUnlocked, state.wallUnlocked,
-      stateFlagSignature(["Purchased"])].join("|");
+      stateFlagSignature(upgradeFlagKeys)].join("|");
     if (nextUpgradeUnlockSignature !== lastUpgradeUnlockSignature) {
       lastUpgradeUnlockSignature = nextUpgradeUnlockSignature;
       markPagesDirty("upgrades");
     }
     const nextCultivationUnlockSignature = [state.cultivation?.active, state.advancedRealmLevel,
-      stateFlagSignature(["Unlocked", "Level"])].join("|");
+      stateFlagSignature(cultivationFlagKeys)].join("|");
     if (nextCultivationUnlockSignature !== lastCultivationUnlockSignature) {
       const previousRealmLevel = Number(lastCultivationUnlockSignature.split("|")[1]) || 0;
       lastCultivationUnlockSignature = nextCultivationUnlockSignature;
@@ -98,13 +108,13 @@
     const nextTreasureSignature = [
       state.heavenlyTreasureLevel, state.mysticHeavenlyTreasureLevel,
       state.fiveElementsTreasureUnlocked, state.fiveSpiritStonePurchased,
-      JSON.stringify(state.treasureImprints || {})
+      recordSignature(state.treasureImprints, WIS.Meta.Treasures.keys)
     ].join("|");
     if (nextTreasureSignature !== lastTreasureSignature) {
       lastTreasureSignature = nextTreasureSignature;
       markPagesDirty("treasures");
     }
-    const nextChallengeSignature = `${state.activeChallenge}|${state.threeCorpseChallengesUnlocked}|${JSON.stringify(state.challengeCompletions || {})}`;
+    const nextChallengeSignature = `${state.activeChallenge}|${state.threeCorpseChallengesUnlocked}|${recordSignature(state.challengeCompletions, challengeKeys)}`;
     if (nextChallengeSignature !== lastChallengeSignature) {
       lastChallengeSignature = nextChallengeSignature;
       markPagesDirty("challenges");
@@ -264,6 +274,7 @@
         state.activeChallengeElapsedSeconds + elapsedSeconds
       );
     }
+    WIS.Core.Effects.beginTick(state);
     const activePowerSystem = WIS.Core.Registries.getActivePower(state);
     const activeCultivationSystem = WIS.Core.Registries.getActiveCultivation(state);
     activePowerSystem?.update(state, elapsedSeconds);
@@ -457,13 +468,13 @@
   lastUpgradeCostSortSignature = upgradeCostSortSignature();
   lastCultivationCostSortSignature = cultivationCostSortSignature();
   lastUpgradeUnlockSignature = [state.highestScaleIndex, state.brickUnlocked, state.wallUnlocked,
-    stateFlagSignature(["Purchased"])].join("|");
+    stateFlagSignature(upgradeFlagKeys)].join("|");
   lastCultivationUnlockSignature = [state.cultivation?.active, state.advancedRealmLevel,
-    stateFlagSignature(["Unlocked", "Level"])].join("|");
+    stateFlagSignature(cultivationFlagKeys)].join("|");
   lastTreasureSignature = [state.heavenlyTreasureLevel, state.mysticHeavenlyTreasureLevel,
     state.fiveElementsTreasureUnlocked, state.fiveSpiritStonePurchased,
-    JSON.stringify(state.treasureImprints || {})].join("|");
-  lastChallengeSignature = `${state.activeChallenge}|${state.threeCorpseChallengesUnlocked}|${JSON.stringify(state.challengeCompletions || {})}`;
+    recordSignature(state.treasureImprints, WIS.Meta.Treasures.keys)].join("|");
+  lastChallengeSignature = `${state.activeChallenge}|${state.threeCorpseChallengesUnlocked}|${recordSignature(state.challengeCompletions, challengeKeys)}`;
 
   let initialLoadComplete = false;
   async function finishInitialLoad() {

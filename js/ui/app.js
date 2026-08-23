@@ -779,7 +779,7 @@
     const jAfterExponent = applyGainExponent(jAfterRegion, currentCelestialDeclineExponent);
     const jSoftcapExponent = resourceSoftcapExponent(state.joules);
     const jPlanetSuppressionExponent = planetSuppressionSoftcapExponent(state.joules);
-    const jActual = applyResourceSoftcapEffectiveRate(jAfterExponent, state.joules);
+    const jActual = WIS.tmp.rates.joulesPerSecond;
 
     const jDebug = byId("debug-j-sources");
     if (jDebug) {
@@ -802,7 +802,7 @@
     const powerAfterExponent = applyGainExponent(powerAfterRegion, currentCelestialDeclineExponent);
     const powerSoftcapExponent = resourceSoftcapExponent(state.power);
     const powerPlanetSuppressionExponent = planetSuppressionSoftcapExponent(state.power);
-    const powerActual = automaticPowerPerSecond();
+    const powerActual = WIS.tmp.rates.powerPerSecond;
     const currentPowerGroups = powerMultiplierGroups();
     const ghostBrainAttenuation = Math.pow(
       1 + Math.max(0, state.highestPower) / CONFIG.ghostBrain.attenuationScale,
@@ -829,12 +829,11 @@
         explorationTribulationExponent
       );
     const automaticExplorationManaRate = renderValues.automaticExplorationManaPreview ??
-      automaticExplorationManaPerSecond();
+      WIS.tmp.rates.automaticExplorationManaPerSecond;
     const automaticExplorationAmountRate = state.roamSpiritWorldUnlocked
       ? debugExplorationAmount * AUTOMATIC_EXPLORATION_EFFICIENCY
       : 0;
-    const passiveManaGain = renderValues.passiveManaGain ??
-      Immortal.automaticBaseManaPerSecond() + automaticExplorationManaRate;
+    const passiveManaGain = renderValues.passiveManaGain ?? WIS.tmp.rates.manaPerSecond;
     const manaMultiplier = manaGainMultiplier();
     const breathingBase = baseBreathingManaGain();
     const breathingActual = Immortal.breathingManaGainProgressive();
@@ -878,7 +877,7 @@
         : state.immortalApertureLevel <= 360
           ? "108级后每级×1.03、每12级×1.10"
           : "360级后每级×1.0045、每60级×1.12";
-      immortalPowerDebug.textContent = `基础：(${format(state.mana)} 法力 / ${format(IMMORTAL_POWER_CONFIG.manaScale)}) ^${IMMORTAL_POWER_CONFIG.manaExponent.toFixed(2)} = ${format(immortalPowerBasePerSecond())}/秒；仙窍 ${state.immortalApertureLevel}/${immortalApertureCap()}级（${apertureRule}；等级倍率 ×${format(immortalApertureLevelMultiplier())}；里程碑 ×${format(immortalApertureMilestoneMultiplier())}）；法则原始指数 ^${lawImmortalPowerExponent().toFixed(2)}、动态衰减后指数 ^${lawImmortalPowerActualExponent().toFixed(3)}、实际倍率 ×${format(lawImmortalPowerMultiplier())}；摄灵返源 ×${format(spiritCaptureReturnMultiplier())}；五行至宝 ×${format(fiveElementsTreasureCount(), 0)}（原始 ×${fiveElementsTreasureRawMultiplier().toFixed(3)}，内部衰减 ^${fiveElementsTreasureInternalExponent().toFixed(3)}，五衰前 ×${fiveElementsTreasureMultiplierBeforeDecline().toFixed(3)}，五衰后 ×${applyCelestialFiveDeclineToMultiplier(fiveElementsTreasureMultiplierBeforeDecline()).toFixed(3)}）；区域倍率〔${formatMultiplierGroups(immortalPowerMultiplierGroups())}〕；区域指数〔${formatDebugEffectGroups("immortalPower", "regionExponent")}〕，当前合计 ^${immortalPowerRegionExponent().toFixed(4)}；最终 ${format(immortalPowerPerSecond())}/秒；下一境界进度 ${(immortalPowerProgressRatio() * 100).toFixed(2)}%；${immortalPowerDeclineSummary}`;
+      immortalPowerDebug.textContent = `基础：(${format(state.mana)} 法力 / ${format(IMMORTAL_POWER_CONFIG.manaScale)}) ^${IMMORTAL_POWER_CONFIG.manaExponent.toFixed(2)} = ${format(immortalPowerBasePerSecond())}/秒；仙窍 ${state.immortalApertureLevel}/${immortalApertureCap()}级（${apertureRule}；等级倍率 ×${format(immortalApertureLevelMultiplier())}；里程碑 ×${format(immortalApertureMilestoneMultiplier())}）；法则原始指数 ^${lawImmortalPowerExponent().toFixed(2)}、动态衰减后指数 ^${lawImmortalPowerActualExponent().toFixed(3)}、实际倍率 ×${format(lawImmortalPowerMultiplier())}；摄灵返源 ×${format(spiritCaptureReturnMultiplier())}；五行至宝 ×${format(fiveElementsTreasureCount(), 0)}（原始 ×${fiveElementsTreasureRawMultiplier().toFixed(3)}，内部衰减 ^${fiveElementsTreasureInternalExponent().toFixed(3)}，五衰前 ×${fiveElementsTreasureMultiplierBeforeDecline().toFixed(3)}，五衰后 ×${applyCelestialFiveDeclineToMultiplier(fiveElementsTreasureMultiplierBeforeDecline()).toFixed(3)}）；区域倍率〔${formatMultiplierGroups(immortalPowerMultiplierGroups())}〕；区域指数〔${formatDebugEffectGroups("immortalPower", "regionExponent")}〕，当前合计 ^${immortalPowerRegionExponent().toFixed(4)}；最终 ${format(WIS.tmp.rates.immortalPowerPerSecond)}/秒；下一境界进度 ${(immortalPowerProgressRatio() * 100).toFixed(2)}%；${immortalPowerDeclineSummary}`;
     }
   };
   // DEBUG RESOURCE BREAKDOWN: END
@@ -891,13 +890,10 @@
   }
 
   function renderGlobal() {
-    const gain = automaticJPerSecond();
-    const passivePowerGain = automaticPowerPerSecond();
-    const automaticExplorationManaPreview = state.roamSpiritWorldUnlocked
-      ? automaticExplorationManaPerSecond()
-      : 0;
-    const passiveManaGain = Immortal.automaticBaseManaPerSecond() + automaticExplorationManaPreview;
-    const passiveImmortalPowerGain = immortalPowerPerSecond();
+    const gain = WIS.tmp.rates.joulesPerSecond;
+    const passivePowerGain = WIS.tmp.rates.powerPerSecond;
+    const passiveManaGain = WIS.tmp.rates.manaPerSecond;
+    const passiveImmortalPowerGain = WIS.tmp.rates.immortalPowerPerSecond;
     byId("game-version").textContent = `v${GAME_VERSION}`;
     byId("joules").textContent = format(state.joules);
     byId("power").textContent = format(state.power);
@@ -1368,7 +1364,7 @@
       : 0;
     const roamSpiritWorldManaPreview = roamSpiritWorldAvailable
       ? state.roamSpiritWorldUnlocked
-        ? automaticExplorationManaPerSecond()
+        ? WIS.tmp.rates.automaticExplorationManaPerSecond
         : explorationPotentialManaGain(
           currentExplorationPowerCost,
           state.mana,

@@ -27,25 +27,14 @@
 
   function effects(state) {
     if (state.powerSystem?.active !== "scale") return [];
-    const godspeedExponent = state.godspeedPurchased
-      ? 1 + 0.05 * Math.log10(1 + Math.max(0, state.power) / 3.033e15)
-      : 1;
-    const gym = state.gymPurchased
-      ? (1.25 + Math.log10(1 + Math.max(0, state.power)) * 0.5)
-        * (state.breathingMethodPurchased ? 1.5 : 1)
-        * (state.sonicMovementPurchased ? Math.pow(3.8, godspeedExponent) : 1)
-      : 1;
-    const exercise = state.exercisePurchased
-      ? (1.1 + Math.log10(1 + Math.max(0, state.joules)) * 0.1) * (state.extremeExercisePurchased ? 1.5 : 1)
-      : 1;
     return [
-      { id: "gym", name: "跑步", group: "强化", target: "joules", layer: "regionMultiplier", value: gym },
-      { id: "exercise", name: "运动", group: "强化", target: "joules", layer: "regionMultiplier", value: exercise },
-      { id: "water", name: "击水", group: "强化", target: "joules", layer: "regionMultiplier", value: state.waterPurchased ? 1 + Math.log10(1 + Math.max(0, state.highestPower)) * 0.14 : 1 },
+      { id: "gym", name: "跑步", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, value: (current) => current.gymPurchased ? (1.25 + Math.log10(1 + Math.max(0, current.power)) * 0.5) * (current.breathingMethodPurchased ? 1.5 : 1) * (current.sonicMovementPurchased ? Math.pow(3.8, current.godspeedPurchased ? 1 + 0.05 * Math.log10(1 + Math.max(0, current.power) / 3.033e15) : 1) : 1) : 1 },
+      { id: "exercise", name: "运动", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, value: (current) => current.exercisePurchased ? (1.1 + Math.log10(1 + Math.max(0, current.joules)) * 0.1) * (current.extremeExercisePurchased ? 1.5 : 1) : 1 },
+      { id: "water", name: "击水", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, value: (current) => current.waterPurchased ? 1 + Math.log10(1 + Math.max(0, current.highestPower)) * 0.14 : 1 },
       { id: "ghostBackJ", name: "鬼背", group: "行动", target: "joules", layer: "regionMultiplier", value: state.ghostBackActive ? 0.75 : 1 },
       { id: "five", name: "战五渣", group: "量级论", target: "power", layer: "regionMultiplier", value: state.unlockedAchievements?.five ? 1.05 : 1 },
-      { id: "transcendent", name: "超凡之力", group: "量级论", target: "power", layer: "regionMultiplier", value: state.transcendentPurchased ? 1 + Math.log10(1 + Math.max(0, state.power)) * 0.15 : 1 },
-      { id: "naturalStrength", name: "天生神力", group: "量级论", target: "power", layer: "regionMultiplier", value: state.naturalStrengthPurchased ? 1 + Math.log10(1 + Math.max(0, state.joules)) * 0.15 : 1 },
+      { id: "transcendent", name: "超凡之力", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, value: (current) => current.transcendentPurchased ? 1 + Math.log10(1 + Math.max(0, current.power)) * 0.15 : 1 },
+      { id: "naturalStrength", name: "天生神力", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, value: (current) => current.naturalStrengthPurchased ? 1 + Math.log10(1 + Math.max(0, current.joules)) * 0.15 : 1 },
       { id: "ghostBackPower", name: "鬼背", group: "量级论", target: "power", layer: "regionMultiplier", value: state.ghostBackActive ? 1.75 : 1 },
       { id: "bulletTime", name: "子弹时间", group: "量级论", target: "power", layer: "regionMultiplier", value: state.bulletTimePurchased ? 1.5 : 1 },
       { id: "superpower", name: "异能", group: "量级论", target: "power", layer: "regionExponent", value: state.superpowerPurchased ? (state.superpowerEvolutionPurchased ? 1.06 : 1.05) : 1 },
@@ -53,14 +42,14 @@
       { id: "highSpeedMetabolism", name: "高速代谢", group: "量级论", target: "training", layer: "sourceMultiplier", value: state.highSpeedMetabolismPurchased ? 1.75 : 1 },
       { id: "superLollipop", name: "超级棒棒糖", group: "宝物", target: "training", layer: "sourceMultiplier", celestialFiveDecline: true, value: WIS.Power.ScaleLogic.superLollipopTrainingMultiplier() },
       { id: "focusRatio", name: "集中比例", group: "量级论", target: "focus", layer: "sourceMultiplier", value: 0.02 + (state.mentalPowerPurchased ? 0.01 : 0) + state.mindDivisionLevel * 0.005 },
-      { id: "intuition", name: "直感", group: "量级论", target: "focus", layer: "sourceMultiplier", value: state.intuitionPurchased ? 1 + Math.log10(1 + Math.max(0, state.power)) * 0.1 * (state.superPerceptionPurchased ? 1.5 : 1) : 1 },
+      { id: "intuition", name: "直感", group: "量级论", target: "focus", layer: "sourceMultiplier", dynamic: true, value: (current) => current.intuitionPurchased ? 1 + Math.log10(1 + Math.max(0, current.power)) * 0.1 * (current.superPerceptionPurchased ? 1.5 : 1) : 1 },
       { id: "dynamicFocus", name: "动态专注", group: "量级论", target: "focus", layer: "sourceMultiplier", value: state.dynamicFocusPurchased ? 1.5 : 1 },
       { id: "subtle", name: "入微", group: "量级论", target: "focus", layer: "sourceExponent", value: state.subtlePurchased ? 1.05 : 1 },
       { id: "rockStrike", name: "岩击", group: "量级论", target: "rock", layer: "sourceMultiplier", value: state.rockStrikePurchased ? 2 : 1 },
       { id: "mountainCollapse", name: "崩山/裂地", group: "量级论", target: "rock", layer: "sourceExponent", value: state.mountainCollapsePurchased ? (state.earthSplitPurchased ? 1.1 + 0.02 * Math.log10(1 + (state.unlockedAchievements?.scale7 ? Math.floor(state.rockLevel * 1.2) : state.rockLevel) / 10) : 1.1) : 1 },
       { id: "trueCity", name: "真爆城", group: "成就", target: "rock", layer: "sourceExponent", value: state.unlockedAchievements?.trueScale6 ? 1.06 : 1 },
       { id: "mentalDomain", name: "精神领域", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", value: state.mentalDomainPurchased ? 5 : 1 },
-      { id: "skySplit", name: "裂天", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", value: state.skySplitPurchased ? 1 + 0.5 * Math.log10(1 + Math.max(0, state.power) / 3.033e15) : 1 },
+      { id: "skySplit", name: "裂天", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", dynamic: true, value: (current) => current.skySplitPurchased ? 1 + 0.5 * Math.log10(1 + Math.max(0, current.power) / 3.033e15) : 1 },
       { id: "superSpeedThinking", name: "超速思维", group: "量级论", target: "killingIntent", layer: "sourceMultiplier", value: state.superSpeedThinkingPurchased ? 5 : 1 },
       { id: "biologicalQuantification", name: "生体量化", group: "量级论", target: "fitness", layer: "sourceMultiplier", value: state.biologicalQuantificationPurchased ? 12 : 1 },
       { id: "biologicalQuantificationCap", name: "生体量化", group: "量级论", target: "fitnessLevelCap", layer: "sourceAdditive", value: state.biologicalQuantificationPurchased ? 30 : 0 },
@@ -70,20 +59,20 @@
       { id: "energyCycle", name: "能量循环", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", value: state.energyCyclePurchased ? 12 : 1 },
       { id: "mountainShatter", name: "崩岳", group: "量级论", target: "power", layer: "regionExponent", value: state.mountainShatterPurchased ? 1.015 : 1 },
       { id: "bioenergy", name: "生物能源", group: "量级论", target: "joules", layer: "regionMultiplier", value: state.bioenergyPurchased ? 3 : 1 },
-      { id: "continentCollapse", name: "大陆崩溃", group: "量级论", target: "rock", layer: "sourceExponent", value: state.continentCollapsePurchased ? Math.min(1.5, 1 + 0.18 * Math.log10(1 + Math.max(0, state.power) / 8.368e22)) : 1 },
+      { id: "continentCollapse", name: "大陆崩溃", group: "量级论", target: "rock", layer: "sourceExponent", dynamic: true, value: (current) => current.continentCollapsePurchased ? Math.min(1.5, 1 + 0.18 * Math.log10(1 + Math.max(0, current.power) / 8.368e22)) : 1 },
       { id: "skyCrystal", name: "天晶", group: "宝物", target: "rock", layer: "sourceMultiplier", celestialFiveDecline: true, value: 1 + (state.meta.treasures.skyCrystal || 0) * 0.05 },
       { id: "waveEye", name: "波动眼", group: "量级论", target: "killingIntent", layer: "sourceExponent", value: state.waveEyePurchased ? 1.75 : 1 },
       { id: "elementalAwakening", name: "元素觉醒", group: "量级论", target: "elementalization", layer: "sourceExponent", value: state.elementalAwakeningPurchased ? 1.52 : 1 },
       { id: "moonfall", name: "月落", group: "量级论", target: "rock", layer: "sourceMultiplier", value: state.moonfallPurchased ? 50 : 1 },
-      { id: "flowState", name: "心流", group: "量级论", target: "ultimateIntent", layer: "sourceMultiplier", value: () => state.flowStatePurchased ? WIS.Power.ScaleLogic.flowUltimateIntentMultiplier() : 1 },
+      { id: "flowState", name: "心流", group: "量级论", target: "ultimateIntent", layer: "sourceMultiplier", dynamic: true, value: (current) => current.flowStatePurchased ? WIS.Power.ScaleLogic.flowUltimateIntentMultiplier() : 1 },
       { id: "selfhood", name: "自我", group: "量级论", target: "ultimateIntent", layer: "sourceExponent", value: state.selfhoodPurchased ? 1.04 : 1 },
       { id: "freedom", name: "自在", group: "量级论", target: "ultimateIntent", layer: "sourceExponent", value: state.freedomPurchased ? 1.03 : 1 },
       { id: "chicxulubMeteorite", name: "希克苏鲁伯陨石", group: "量级论", target: "power", layer: "regionMultiplier", value: state.chicxulubMeteoritePurchased ? 10 : 1 }
-      ,{ id: "planetWill", name: "星球意志", group: "爆星", target: "elementalization", layer: "sourceMultiplier", value: WIS.Power.ScaleLogic.planetWillElementalizationMultiplier() }
+      ,{ id: "planetWill", name: "星球意志", group: "爆星", target: "elementalization", layer: "sourceMultiplier", dynamic: true, value: (current) => WIS.Power.ScaleLogic.planetWillElementalizationMultiplier(current.joules) }
       ,{ id: "starShatter", name: "碎星", group: "爆星", target: "rock", layer: "sourceMultiplier", value: WIS.Power.ScaleLogic.starShatterRockMultiplier() }
       ,{ id: "selfless", name: "无我", group: "爆星", target: "ultimateIntent", layer: "sourceMultiplier", value: state.selflessPurchased ? WIS.Core.Config.starEnhancements.selfless.ultimateIntentMultiplier : 1 }
-      ,{ id: "supernaturalFire", name: "超自然发火", group: "爆星", target: "power", layer: "regionMultiplier", value: WIS.Power.ScaleLogic.supernaturalFirePowerMultiplier() }
-      ,{ id: "selfSuppression", name: "自我抑制", group: "爆星", target: "joules", layer: "regionExponent", value: WIS.Power.ScaleLogic.selfSuppressionJExponent() }
+      ,{ id: "supernaturalFire", name: "超自然发火", group: "爆星", target: "power", layer: "regionMultiplier", dynamic: true, value: (current) => current.supernaturalFirePurchased ? WIS.Power.ScaleLogic.supernaturalFirePowerMultiplier() : 1 }
+      ,{ id: "selfSuppression", name: "自我抑制", group: "爆星", target: "joules", layer: "regionExponent", dynamic: true, value: (current) => WIS.Power.ScaleLogic.selfSuppressionJExponent(current.joules) }
     ];
   }
 
@@ -94,15 +83,17 @@
 
   function update(state, elapsedSeconds) {
     const safeElapsed = Math.max(0, Number(elapsedSeconds) || 0);
+    const jRateProfile = WIS.Power.ScaleLogic.createAutomaticJRateProfile();
     const passiveJ = applyResourceSoftcapDynamicRateOverTime(
       (evaluationJoules) =>
-        WIS.Power.ScaleLogic.automaticJRawPerSecondAt(evaluationJoules),
+        WIS.Power.ScaleLogic.automaticJRawPerSecondAt(evaluationJoules, jRateProfile),
       state.joules,
       safeElapsed
     );
+    const powerRateProfile = WIS.Power.ScaleLogic.createAutomaticPowerRateProfile();
     const passivePower = applyResourceSoftcapDynamicRateOverTime(
       (evaluationPower) =>
-        WIS.Power.ScaleLogic.automaticPowerRawPerSecondAt(evaluationPower),
+        WIS.Power.ScaleLogic.automaticPowerRawPerSecondAt(evaluationPower, powerRateProfile),
       state.power,
       safeElapsed
     );
@@ -110,6 +101,7 @@
       joulesPerSecond: safeElapsed > 0 ? passiveJ / safeElapsed : 0,
       powerPerSecond: safeElapsed > 0 ? passivePower / safeElapsed : 0
     };
+    Object.assign(WIS.tmp.rates, rates);
     WIS.Core.Resources.add("joules", passiveJ);
     WIS.Core.Resources.add("power", passivePower);
     state.lifetimeTotalJ += passiveJ;

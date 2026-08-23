@@ -40,6 +40,10 @@
   const RESOURCE_SOFTCAP_STAGES = CONFIG.softcaps;
   const RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP = 0.01;
   const RESOURCE_SOFTCAP_MAX_ITERATIONS = 16384;
+  const RESOURCE_SOFTCAP_DYNAMIC_MAX_EVALUATIONS = 32;
+  const RESOURCE_SOFTCAP_DYNAMIC_LOG_STEP = 0.05;
+  const RESOURCE_SOFTCAP_CHALLENGE_LOG_STEP = 0.5;
+  const RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS = 24;
   const CHALLENGE_DEFINITIONS = CONFIG.challenges;
   const GHOST_BRAIN_CONFIG = CONFIG.ghostBrain;
   const FOCUS_SOURCE_CURVE_CONFIG = CONFIG.focus.sourceCurve;
@@ -301,47 +305,153 @@
       || !(remainingTime > 0)
       || !Number.isFinite(initialAmount)) return 0;
     if (!Number.isFinite(remainingTime)) return Infinity;
+    const dynamicLogStep = state.activeChallenge === "planetSuppression"
+      ? RESOURCE_SOFTCAP_CHALLENGE_LOG_STEP
+      : RESOURCE_SOFTCAP_DYNAMIC_LOG_STEP;
+
+    const cellStart = (amount) => {
+      if (!(amount > 0) || !hasStartedUnremovedResourceSoftcap(amount)) return amount;
+      const index = Math.floor(Math.log10(amount) / dynamicLogStep + 1e-12);
+      return Math.max(Math.pow(10, index * dynamicLogStep), latestStartedResourceSoftcapThreshold(amount));
+    };
+    const nextAdaptiveBoundary = (amount) => {
+      const nextThreshold = nextResourceSoftcapThreshold(amount);
+      if (state.activeChallenge === "planetSuppression" && !(amount > 0)) return Math.min(nextThreshold, 1);
+      if (!(amount > 0) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
+      const index = Math.floor(Math.log10(amount) / dynamicLogStep + 1e-12) + 1;
+      let boundary = Math.pow(10, index * dynamicLogStep);
+      if (!(boundary > amount)) boundary = Math.pow(10, (index + 1) * dynamicLogStep);
+      return Math.min(nextThreshold, boundary);
+    };
 
     let settledAmount = initialAmount;
     let settledGain = 0;
-    for (
-      let iteration = 0;
-      iteration < RESOURCE_SOFTCAP_MAX_ITERATIONS && remainingTime > 0;
-      iteration += 1
-    ) {
-      const evaluationAmount = resourceSoftcapIntegrationEvaluationAmount(settledAmount);
-      const rawRate = Math.max(0, Number(rawRateAtAmount(evaluationAmount)) || 0);
-      if (!Number.isFinite(rawRate)) return Infinity;
-      const actualRate = applyResourceSoftcapSettlement(rawRate, evaluationAmount);
-      if (!(actualRate > 0)) break;
-      const nextBoundary = nextResourceSoftcapIntegrationBoundary(settledAmount);
-      if (!Number.isFinite(nextBoundary)) {
-        settledGain += actualRate * remainingTime;
+    let lastRate = 0;
+    let previousSample = null;
+    let lastSample = null;
+    let evaluations = 0;
+    const rateAt = (amount) => {
+      evaluations += 1;
+      const rawRate = Math.max(0, Number(rawRateAtAmount(amount)) || 0);
+      const rate = Number.isFinite(rawRate)
+        ? applyResourceSoftcapSettlement(rawRate, amount)
+        : Infinity;
+      previousSample = lastSample;
+      lastSample = { amount, rawRate, rate };
+      return rate;
+    };
+    while (evaluations < RESOURCE_SOFTCAP_DYNAMIC_MAX_EVALUATIONS && remainingTime > 0) {
+      const lowerAmount = cellStart(settledAmount);
+      const boundary = nextAdaptiveBoundary(settledAmount);
+      if (!Number.isFinite(boundary)) {
+        lastRate = rateAt(settledAmount);
+        if (!Number.isFinite(lastRate)) return Infinity;
+        settledGain += lastRate * remainingTime;
         remainingTime = 0;
         break;
       }
-
-      const neededActualGain = Math.max(0, nextBoundary - settledAmount);
-      if (!(neededActualGain > 0)) break;
-      const timeToBoundary = neededActualGain / actualRate;
-      const tolerance = Math.max(1, timeToBoundary) * Number.EPSILON * 16;
-      if (!Number.isFinite(timeToBoundary) || remainingTime + tolerance < timeToBoundary) {
-        settledGain += actualRate * remainingTime;
+      // 每个固定对数单元只采样一次；0.4 位置用于贴近旧 0.01 网格的左端积分结果，
+      // 同时把跨越多少单元映射为自适应采样数。
+      const evaluationAmount = lowerAmount > 0
+        ? lowerAmount * Math.pow(boundary / lowerAmount, 0.4)
+        : 0;
+      lastRate = rateAt(evaluationAmount);
+      if (!Number.isFinite(lastRate)) return Infinity;
+      if (!(lastRate > 0)) break;
+      const timeToBoundary = (boundary - settledAmount) / lastRate;
+      if (!(timeToBoundary > 0) || !Number.isFinite(timeToBoundary) || timeToBoundary >= remainingTime) {
+        settledGain += lastRate * remainingTime;
         remainingTime = 0;
         break;
       }
-
-      settledAmount = nextBoundary;
-      settledGain += neededActualGain;
-      remainingTime = Math.max(0, remainingTime - timeToBoundary);
-      if (remainingTime <= tolerance) remainingTime = 0;
+      settledAmount = boundary;
+      settledGain += lastRate * timeToBoundary;
+      remainingTime -= timeToBoundary;
     }
+    if (remainingTime > 0 && lastRate > 0 && lastSample) {
+      // 完整收益公式达到采样上限后，只外推“软上限前”的局部趋势；每个尾段仍按
+      // 新资源位置重新结算软上限。这样 provider/effect 动态部分仍最多求值 32 次，
+      // 同时不会把最后一个已结算速率直接线性铺满剩余时间。
+      const rawLogSlope = previousSample
+        && previousSample.amount > 0
+        && lastSample.amount > previousSample.amount
+        && previousSample.rawRate > 0
+        && lastSample.rawRate > 0
+        ? Math.log(lastSample.rawRate / previousSample.rawRate) /
+          Math.log(lastSample.amount / previousSample.amount)
+        : 0;
+      const extrapolatedRawRate = (amount) => {
+        if (!(lastSample.rawRate > 0)) return 0;
+        if (!(amount > 0) || !(lastSample.amount > 0) || !Number.isFinite(rawLogSlope)) {
+          return lastSample.rawRate;
+        }
+        const logRate = Math.log(lastSample.rawRate) +
+          rawLogSlope * Math.log(amount / lastSample.amount);
+        if (logRate >= Math.log(Number.MAX_VALUE)) return Infinity;
+        if (logRate <= Math.log(Number.MIN_VALUE)) return 0;
+        return Math.exp(logRate);
+      };
+      const tailBoundary = (amount, logStep) => {
+        const nextThreshold = nextResourceSoftcapThreshold(amount);
+        if (state.activeChallenge === "planetSuppression" && !(amount > 0)) {
+          return Math.min(nextThreshold, 1);
+        }
+        if (!(amount > 0) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
+        const logBoundary = Math.pow(10, Math.log10(amount) + logStep);
+        return Math.min(nextThreshold, logBoundary);
+      };
 
-    if (remainingTime > 0) {
-      const evaluationAmount = resourceSoftcapIntegrationEvaluationAmount(settledAmount);
-      const rawRate = Math.max(0, Number(rawRateAtAmount(evaluationAmount)) || 0);
-      if (!Number.isFinite(rawRate)) return Infinity;
-      settledGain += applyResourceSoftcapSettlement(rawRate, evaluationAmount) * remainingTime;
+      for (let segment = 0;
+        segment < RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS && remainingTime > 0;
+        segment += 1) {
+        const startRawRate = extrapolatedRawRate(settledAmount);
+        const startRate = Number.isFinite(startRawRate)
+          ? applyResourceSoftcapSettlement(startRawRate, settledAmount)
+          : Infinity;
+        if (!Number.isFinite(startRate)) return Infinity;
+        if (!(startRate > 0)) break;
+        const remainingSegments = RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS - segment;
+        const projectedOrders = settledAmount > 0
+          ? Math.max(0, Math.log10(1 + startRate * remainingTime / settledAmount))
+          : dynamicLogStep;
+        const adaptiveLogStep = Math.max(
+          dynamicLogStep,
+          Math.min(64, projectedOrders * 1.25 / Math.max(1, remainingSegments - 1))
+        );
+        const boundary = tailBoundary(settledAmount, adaptiveLogStep);
+        if (!Number.isFinite(boundary)) {
+          const projectedAmount = settledAmount + startRate * remainingTime;
+          const evaluationAmount = settledAmount > 0 && Number.isFinite(projectedAmount)
+            ? Math.sqrt(settledAmount * projectedAmount)
+            : settledAmount;
+          const rawRate = extrapolatedRawRate(evaluationAmount);
+          const rate = Number.isFinite(rawRate)
+            ? applyResourceSoftcapSettlement(rawRate, evaluationAmount)
+            : Infinity;
+          if (!Number.isFinite(rate)) return Infinity;
+          settledGain += rate * remainingTime;
+          remainingTime = 0;
+          break;
+        }
+        const evaluationAmount = settledAmount > 0
+          ? settledAmount * Math.pow(boundary / settledAmount, 0.4)
+          : 0;
+        const rawRate = extrapolatedRawRate(evaluationAmount);
+        const rate = Number.isFinite(rawRate)
+          ? applyResourceSoftcapSettlement(rawRate, evaluationAmount)
+          : Infinity;
+        if (!Number.isFinite(rate)) return Infinity;
+        if (!(rate > 0)) break;
+        const timeToBoundary = (boundary - settledAmount) / rate;
+        if (!(timeToBoundary > 0) || !Number.isFinite(timeToBoundary) || timeToBoundary >= remainingTime) {
+          settledGain += rate * remainingTime;
+          remainingTime = 0;
+          break;
+        }
+        settledAmount = boundary;
+        settledGain += rate * timeToBoundary;
+        remainingTime -= timeToBoundary;
+      }
     }
     return Math.max(0, settledGain);
   }
@@ -570,9 +680,9 @@
     return WIS.Core.Effects.product("joules", "regionExponent", state);
   }
 
-  function selfSuppressionJExponent() {
+  function selfSuppressionJExponent(currentJoules = state.joules) {
     if (!state.selfSuppressionPurchased) return 1;
-    const softcapExponent = Math.max(0, Math.min(1, resourceSoftcapExponent(state.joules)));
+    const softcapExponent = Math.max(0, Math.min(1, resourceSoftcapExponent(currentJoules)));
     if (softcapExponent >= 1) return 1;
     return 1 + STAR_ENHANCEMENT_CONFIG.selfSuppression.softcapLossConversion
       * (1 - softcapExponent);
@@ -635,13 +745,34 @@
     return preSoftcapJGainFromSources(jSourceGains());
   }
 
-  function automaticJRawPerSecondAt(joulesAmount) {
+  function createAutomaticJRateProfile() {
+    const fixedSources = {
+      achievement: achievementJBonus(),
+      killingIntent: killingIntentJBonus(),
+      registered: WIS.Core.Sources.values("joules", state)
+    };
+    return {
+      rawRate() {
+        return preSoftcapJGainFromSources([
+          1,
+          fitnessJBonus(),
+          fixedSources.achievement,
+          fixedSources.killingIntent,
+          elementalizationJSource(),
+          ...fixedSources.registered
+        ]);
+      }
+    };
+  }
+
+  function automaticJRawPerSecondAt(joulesAmount, profile = null) {
     const evaluationJoules = Math.max(0, Number(joulesAmount) || 0);
     if (!Number.isFinite(evaluationJoules)) return automaticJRawPerSecond();
+    const rateProfile = profile || createAutomaticJRateProfile();
     const previousJoules = state.joules;
     state.joules = evaluationJoules;
     try {
-      return automaticJRawPerSecond();
+      return WIS.Core.Effects.withState(state, () => rateProfile.rawRate());
     } finally {
       state.joules = previousJoules;
     }
@@ -672,12 +803,12 @@
     });
   }
 
-  function planetWillElementalizationMultiplier() {
+  function planetWillElementalizationMultiplier(currentJoules = state.joules) {
     if (!state.planetWillPurchased) return 1;
     const config = STAR_ENHANCEMENT_CONFIG.planetWill;
     return Math.min(
       config.maximumMultiplier,
-      Math.pow(1 + Math.max(0, Number(state.joules) || 0) / config.joulesScale, config.exponent)
+      Math.pow(1 + Math.max(0, Number(currentJoules) || 0) / config.joulesScale, config.exponent)
     );
   }
 
@@ -1015,9 +1146,29 @@
     return preSoftcapPowerGainFromSources(automaticPowerSourceGains());
   }
 
-  function automaticPowerRawPerSecondAt(powerAmount) {
+  function createAutomaticPowerRateProfile() {
+    const fitnessSource = fitnessJBonus();
+    const registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessSource })
+      .map((source) => ({ id: source.id, value: source.value }));
+    return {
+      rawRate() {
+        const dynamicSources = [
+          [focusPowerPerSecond(), "focus"],
+          [rockPowerPerSecond(), "rock"],
+          [ghostBrainPowerSource(), "ghostBrain"],
+          [ultimateIntentPowerSource(), "ultimateIntent"]
+        ].map(([value, id]) => challengeAdjustedPowerSource(value, id));
+        const fixedSources = registeredSources.map((source) =>
+          challengeAdjustedPowerSource(source.value, source.id));
+        return preSoftcapPowerGainFromSources([...dynamicSources, ...fixedSources]);
+      }
+    };
+  }
+
+  function automaticPowerRawPerSecondAt(powerAmount, profile = null) {
     const evaluationPower = Math.max(0, Number(powerAmount) || 0);
     if (!Number.isFinite(evaluationPower)) return automaticPowerRawPerSecond();
+    const rateProfile = profile || createAutomaticPowerRateProfile();
     const previousPower = state.power;
     const previousHighestPower = state.highestPower;
     const historicalHighestPower = Number(previousHighestPower) > Number(previousPower)
@@ -1026,7 +1177,7 @@
     state.power = evaluationPower;
     state.highestPower = Math.max(historicalHighestPower, evaluationPower);
     try {
-      return automaticPowerRawPerSecond();
+      return WIS.Core.Effects.withState(state, () => rateProfile.rawRate());
     } finally {
       state.power = previousPower;
       state.highestPower = previousHighestPower;
@@ -1685,8 +1836,8 @@
     completedChallengeLayers, treasureChanceMultiplier,
     fiveSpiritStoneCount, fiveSpiritStoneChance, fiveSpiritStoneJSource, fiveSpiritStonePowerSource,
     rollFiveSpiritStoneAttempts,
-    automaticJRawPerSecond, automaticJRawPerSecondAt, preSoftcapJGainFromSources,
-    automaticPowerRawPerSecond, automaticPowerRawPerSecondAt,
+    automaticJRawPerSecond, automaticJRawPerSecondAt, createAutomaticJRateProfile, preSoftcapJGainFromSources,
+    automaticPowerRawPerSecond, automaticPowerRawPerSecondAt, createAutomaticPowerRateProfile,
     preSoftcapPowerGainFromSources,
     flowUltimateIntentMultiplier, supernaturalFirePowerMultiplier,
     activePowerSourceChallengeExponent, challengeAdjustedPowerSource,
