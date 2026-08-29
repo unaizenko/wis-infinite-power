@@ -9,6 +9,7 @@
     add(state, key, amount = 1) {
       if (!Object.prototype.hasOwnProperty.call(state.meta.treasures, key)) throw new Error(`未知宝物：${key}`);
       state.meta.treasures[key] = this.count(state, key) + Math.max(0, Math.floor(Number(amount) || 0));
+      WIS.Core.Effects?.invalidate?.();
       return state.meta.treasures[key];
     }
   });

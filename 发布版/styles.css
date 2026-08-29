@@ -79,6 +79,21 @@ button { font: inherit; }
 .scale-progress { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .scale-progress small { color: var(--muted); font-size: 10px; }
 
+/* DEBUG SPEED CONTROL: START（与另外两处同名区块一起删除可彻底清理） */
+.debug-speed-button {
+  min-width: 76px;
+  height: 32px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.debug-speed-button:hover { color: var(--text); background: var(--subtle); }
+/* DEBUG SPEED CONTROL: END */
+
 .settings-button {
   width: 36px;
   height: 36px;
@@ -127,6 +142,32 @@ button { font: inherit; }
 .resource-value { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; }
 .resource-value strong { font-size: 24px; overflow-wrap: anywhere; }
 .resource-value small { color: var(--accent); font-size: 12px; font-weight: 700; white-space: nowrap; }
+#immortal-power-source-note { flex-basis: 100%; color: var(--muted); font-size: 9px; font-weight: 400; line-height: 1.3; white-space: normal; }
+
+/* DEBUG RESOURCE BREAKDOWN: START（与HTML、JS同名区块一起删除可彻底清理） */
+.resource-panel { flex-wrap: wrap; }
+.resource-debug-breakdown {
+  flex: 1 0 100%;
+  display: grid;
+  gap: 5px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.formula-details-toggle {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.formula-details-toggle:hover { color: var(--text); background: var(--panel); }
+.resource-debug-breakdown p { display: flex; gap: 10px; margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.resource-debug-breakdown b { flex: 0 0 54px; color: var(--text); font-weight: 650; }
+.resource-debug-breakdown span { overflow-wrap: anywhere; }
+/* DEBUG RESOURCE BREAKDOWN: END */
 
 .navigation { display: grid; gap: 4px; }
 .nav-item {
@@ -459,6 +500,7 @@ button { font: inherit; }
   }
   .app-header p { display: block; font-size: 11px; }
   .scale-progress small { font-size: 9px; }
+  .debug-speed-button { min-width: 66px; height: 30px; padding: 0 8px; font-size: 11px; }
   .settings-button { width: 32px; height: 32px; font-size: 17px; }
   .app-body { display: block; }
   .sidebar { padding: 14px 16px; }
@@ -493,7 +535,8 @@ button { font: inherit; }
   .brand-title { gap: 5px; }
   .app-header .game-version { padding: 2px 5px; font-size: 9px; }
   .header-actions { gap: 6px; }
-  .scale-progress small { display: none; }
+  .scale-progress small { display: block; font-size: 9px; white-space: normal; line-height: 1.3; }
+  .debug-speed-button { min-width: 60px; padding: 0 6px; }
   .resource-value strong { font-size: 16px; }
   .settings-row { flex-direction: column; align-items: stretch; gap: 12px; }
   .settings-row > button,

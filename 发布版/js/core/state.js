@@ -1,12 +1,15 @@
 (function defineStateFactory(WIS) {
   "use strict";
 
+  const { BN, ZERO, isDecimal, max: maxBN, gte } = WIS.Core.BigNum;
+  const greatest = (...values) => values.reduce((result, value) => maxBN(result, value), ZERO);
+
   const defaults = Object.freeze({
-    joules: 0, power: 0, highestPower: 0, lifetimeHighestJ: 0, lifetimeHighestPower: 0,
-    lifetimeHighestScaleIndex: 0, lifetimeTotalJ: 0, lifetimeTotalPower: 0,
-    lifetimeHighestMana: 0, lifetimeTotalMana: 0, lifetimeHighestCultivationRealmLevel: 0,
+    joules: ZERO, power: ZERO, highestPower: ZERO, lifetimeHighestJ: ZERO, lifetimeHighestPower: ZERO,
+    lifetimeHighestScaleIndex: 0, lifetimeTotalJ: ZERO, lifetimeTotalPower: ZERO,
+    lifetimeHighestMana: ZERO, lifetimeTotalMana: ZERO, lifetimeHighestCultivationRealmLevel: 0,
     immortalSelectionCount: 0, totalElapsedSeconds: 0, reincarnationElapsedSeconds: 0,
-    currentScaleElapsedSeconds: 0, totalPower: 0, maxSinglePowerGain: 0,
+    currentScaleElapsedSeconds: 0, totalPower: ZERO, maxSinglePowerGain: ZERO,
     brickUnlocked: false, wallUnlocked: false, highestScaleIndex: 0, runningLevel: 0,
     gymPurchased: false, exercisePurchased: false, transcendentPurchased: false,
     focusPurchased: false, breathingMethodPurchased: false, extremeExercisePurchased: false,
@@ -19,7 +22,7 @@
     superpowerPurchased: false, superSpeedThinkingPurchased: false, mountainCollapsePurchased: false,
     mindDivisionLevel: 0, hyperRegenerationPurchased: false, superpowerEvolutionPurchased: false,
     earthSplitPurchased: false, godspeedPurchased: false, subtlePurchased: false,
-    mentalDomainPurchased: false, skySplitPurchased: false, ghostBackActive: false,
+    mentalDomainPurchased: false, skySplitPurchased: false, ghostBackPurchased: false, ghostBackActive: false,
     biologicalQuantificationPurchased: false, ghostManTransformationPurchased: false,
     destroyCountryPurchased: false, humanGhostTransformationPurchased: false,
     killingIntentSubstancePurchased: false, energyCyclePurchased: false,
@@ -34,10 +37,10 @@
     starShatterPurchased: false, spaceQuakePurchased: false, selflessPurchased: false,
     supernaturalFirePurchased: false, fiveSpiritStonePurchased: false, selfSuppressionPurchased: false,
     superLollipopRollProgress: 0, fiveSpiritStoneRollProgress: 0,
-    cultivationSystem: null, mana: 0, immortalPower: 0, qiRefiningUnlocked: false, immortalLifeUnlocked: false,
+    cultivationSystem: null, mana: ZERO, immortalPower: ZERO, qiRefiningUnlocked: false, immortalLifeUnlocked: false,
     qiSpellLevel: 0, foundationUnlocked: false, goldenCoreUnlocked: false, advancedRealmLevel: 0,
     circulationUnlocked: false, minorTechniqueUnlocked: false, flyingEscapeUnlocked: false,
-    longevity800Level: 0, explorationProgress: 0, manaLiquefactionUnlocked: false,
+    longevity800Level: 0, explorationProgress: ZERO, manaLiquefactionUnlocked: false,
     longevityLevel: 0, goldenCoreLongevityLevel: 0, manaSolidificationUnlocked: false,
     techniqueUnlocked: false, foundationSpellLevel: 0, magicTreasureUnlocked: false,
     scatterRebuildLevel: 0, scatterRetentionLevel: 0, reincarnationLevel: 0,
@@ -68,8 +71,11 @@
     trinityUnlocked: false, unityWithDaoUnlocked: false, lawOriginUnlocked: false,
     lawCrystalFilamentUnlocked: false, severThreeCorpsesUnlocked: false,
     ultimateImmortalApertureUnlocked: false,
+    daoLawUnityUnlocked: false, daoDomainUnlocked: false, daoPowerUnlocked: false,
+    daoTimeLawUnlocked: false, daoAssimilationUnlocked: false,
     fiveElementsTreasureRollProgress: 0, immortalCrystalRollProgress: 0, minorTribulationExplorationLoad: 0,
     activeChallenge: null, activeChallengeElapsedSeconds: 0, threeCorpseChallengesUnlocked: false,
+    currentQiLayer: 1, bestQiLayer: 0,
     hideUnlockedAchievements: false,
     immortalAbilityAutomationEnabled: true, immortalRealmAutomationEnabled: true,
     scaleUpgradeAutomationEnabled: true, scaleActionAutomationEnabled: true,
@@ -97,7 +103,7 @@
   function scaleIndexForPower(power) {
     let index = 0;
     config.scales.forEach((scale, candidate) => {
-      if (power >= scale.power) index = candidate;
+      if (gte(power, scale.power)) index = candidate;
     });
     return index;
   }
@@ -107,7 +113,7 @@
     const migratedRunningLevel = Number.isFinite(Number(source.runningLevel))
       ? Number(source.runningLevel)
       : source.runningPurchased ? 1 : 0;
-    const power = Math.max(0, Number(source.power) || 0);
+    const power = maxBN(ZERO, BN(source.power));
     const savedScaleIndex = Number.isFinite(Number(source.highestScaleIndex))
       ? Math.floor(Number(source.highestScaleIndex))
       : source.wallUnlocked ? 2 : source.brickUnlocked ? 1 : 0;
@@ -125,12 +131,12 @@
     const savedMinorTribulationExplorationLoad = Number.isFinite(Number(source.minorTribulationExplorationLoad))
       ? Number(source.minorTribulationExplorationLoad)
       : Number(source.minorTribulationExplorationAmountSum);
-    const mana = qiRefiningUnlocked ? Math.max(0, Number(source.mana) || 0) : 0;
+    const mana = qiRefiningUnlocked ? maxBN(ZERO, BN(source.mana)) : ZERO;
     const currentCultivationRealmLevel = goldenCoreUnlocked
       ? 3 + advancedRealmLevel
       : foundationUnlocked ? 2 : qiRefiningUnlocked ? 1 : 0;
-    const maxSinglePowerGain = Math.max(0, Math.floor(Number(source.maxSinglePowerGain) || 0));
-    const totalPower = Math.max(power, Number(source.totalPower) || 0);
+    const maxSinglePowerGain = maxBN(ZERO, BN(source.maxSinglePowerGain)).floor();
+    const totalPower = maxBN(power, BN(source.totalPower));
     const totalElapsedSeconds = Math.max(0, Number(source.totalElapsedSeconds) || 0);
     const unlockedAchievements = {};
     if (source.unlockedAchievements && typeof source.unlockedAchievements === "object") {
@@ -138,10 +144,10 @@
         if (unlocked === true) unlockedAchievements[key] = true;
       });
     }
-    if (totalPower >= 1) unlockedAchievements.powerOne = true;
-    if (totalPower >= 5) unlockedAchievements.five = true;
+    if (gte(totalPower, 1)) unlockedAchievements.powerOne = true;
+    if (gte(totalPower, 5)) unlockedAchievements.five = true;
     if (highestScaleIndex >= 1) unlockedAchievements.brick = true;
-    if (maxSinglePowerGain >= 200) unlockedAchievements.trueBrick = true;
+    if (gte(maxSinglePowerGain, 200)) unlockedAchievements.trueBrick = true;
     if (qiRefiningUnlocked) unlockedAchievements.aspireImmortality = true;
     if (foundationUnlocked) unlockedAchievements.daoFoundation = true;
     if (goldenCoreUnlocked) unlockedAchievements.goldenCore = true;
@@ -151,12 +157,13 @@
     if (advancedRealmLevel >= 7 || Number(source.lifetimeHighestCultivationRealmLevel) >= 10) unlockedAchievements.goldenNature = true;
     if (advancedRealmLevel >= 8 || Number(source.lifetimeHighestCultivationRealmLevel) >= 11) unlockedAchievements.utmostPurity = true;
     if (advancedRealmLevel >= 9 || Number(source.lifetimeHighestCultivationRealmLevel) >= 12) unlockedAchievements.greatLuo = true;
+    if (advancedRealmLevel >= 10 || Number(source.lifetimeHighestCultivationRealmLevel) >= 13) unlockedAchievements.selfSeveringSlash = true;
     if (totalElapsedSeconds >= 600) unlockedAchievements.trainingUp = true;
-    if (Math.max(power, Number(source.highestPower) || 0, Number(source.lifetimeHighestPower) || 0) >= 1e100) unlockedAchievements.googol = true;
+    if (gte(greatest(power, source.highestPower, source.lifetimeHighestPower), "1e100")) unlockedAchievements.googol = true;
     config.scales.slice(2).forEach((scale, offset) => {
       const scaleIndex = offset + 2;
       if (highestScaleIndex >= scaleIndex) unlockedAchievements[`scale${scaleIndex}`] = true;
-      if (maxSinglePowerGain >= scale.power) unlockedAchievements[`trueScale${scaleIndex}`] = true;
+      if (gte(maxSinglePowerGain, scale.power)) unlockedAchievements[`trueScale${scaleIndex}`] = true;
     });
     const achievementScaleIndex = config.scales.reduce((maximum, _scale, index) => (
       index >= 2 && unlockedAchievements[`scale${index}`] ? index : maximum
@@ -179,7 +186,7 @@
     const migratedReincarnationLevel = legacyChallengeClearedReincarnation
       ? 0
       : Math.max(0, Math.min(3, Math.floor(Number(source.reincarnationLevel) || 0)));
-    const joules = Math.max(0, Number(source.joules) || 0);
+    const joules = maxBN(ZERO, BN(source.joules));
     const treasureImprints = {
       tianNiPearl: Math.max(0, Math.floor(Number(source.treasureImprints?.tianNiPearl) || 0)),
       mysteriousGreenBottle: Math.max(0, Math.floor(Number(source.treasureImprints?.mysteriousGreenBottle) || 0)),
@@ -207,23 +214,22 @@
       highestScaleIndex,
       Math.min(config.scales.length - 1, Math.floor(Number(source.lifetimeHighestScaleIndex) || 0))
     );
-    const lifetimeHighestPower = Math.max(
-      power,
-      Number(source.highestPower) || 0,
-      Number(source.lifetimeHighestPower) || 0,
+    const lifetimeHighestPower = greatest(
+      power, source.highestPower, source.lifetimeHighestPower,
       config.scales[achievementScaleIndex].power
     );
+    const ghostBackPurchased = source.ghostBackPurchased === true;
     return {
       joules,
       power,
-      highestPower: Math.max(power, Number(source.highestPower) || 0),
-      lifetimeHighestJ: Math.max(joules, Number(source.lifetimeHighestJ) || 0),
+      highestPower: maxBN(power, BN(source.highestPower)),
+      lifetimeHighestJ: maxBN(joules, BN(source.lifetimeHighestJ)),
       lifetimeHighestPower,
       lifetimeHighestScaleIndex: Math.max(lifetimeHighestScaleIndex, achievementScaleIndex),
-      lifetimeTotalJ: Math.max(joules, Number(source.lifetimeHighestJ) || 0, Number(source.lifetimeTotalJ) || 0),
-      lifetimeTotalPower: Math.max(totalPower, lifetimeHighestPower, Number(source.lifetimeTotalPower) || 0),
-      lifetimeHighestMana: Math.max(mana, Number(source.lifetimeHighestMana) || 0),
-      lifetimeTotalMana: Math.max(mana, Number(source.lifetimeHighestMana) || 0, Number(source.lifetimeTotalMana) || 0),
+      lifetimeTotalJ: greatest(joules, source.lifetimeHighestJ, source.lifetimeTotalJ),
+      lifetimeTotalPower: greatest(totalPower, lifetimeHighestPower, source.lifetimeTotalPower),
+      lifetimeHighestMana: maxBN(mana, BN(source.lifetimeHighestMana)),
+      lifetimeTotalMana: greatest(mana, source.lifetimeHighestMana, source.lifetimeTotalMana),
       lifetimeHighestCultivationRealmLevel: Math.min(
         3 + config.realms.length,
         Math.max(currentCultivationRealmLevel, Math.floor(Number(source.lifetimeHighestCultivationRealmLevel) || 0))
@@ -304,29 +310,31 @@
       supernaturalFirePurchased: source.supernaturalFirePurchased === true,
       fiveSpiritStonePurchased: source.fiveSpiritStonePurchased === true || treasureImprints.fiveSpiritStone > 0,
       selfSuppressionPurchased: source.selfSuppressionPurchased === true,
+      ghostBackPurchased,
       superLollipopRollProgress: Number.isFinite(Number(source.superLollipopRollProgress))
         ? Math.max(0, Number(source.superLollipopRollProgress)) % 1
         : 0,
       fiveSpiritStoneRollProgress: Number.isFinite(Number(source.fiveSpiritStoneRollProgress))
         ? Math.max(0, Number(source.fiveSpiritStoneRollProgress)) % 1
         : 0,
-      ghostBackActive: highestScaleIndex >= 3 && source.ghostBackActive === true,
+      ghostBackActive: ghostBackPurchased && source.ghostBackActive === true,
       cultivationSystem,
       mana,
       immortalPower: advancedRealmLevel >= config.immortalPower.unlockAdvancedRealmLevel
-        ? Math.max(0, Number(source.immortalPower) || 0)
-        : 0,
+        ? maxBN(ZERO, BN(source.immortalPower))
+        : ZERO,
       qiRefiningUnlocked,
       immortalLifeUnlocked: source.immortalLifeUnlocked === true,
       qiSpellLevel: Math.max(0, Math.min(3, Math.floor(Number(source.qiSpellLevel) || 0))),
       foundationUnlocked,
       goldenCoreUnlocked,
       advancedRealmLevel,
+      currentQiLayer: Math.max(1, Math.floor(Number(source.currentQiLayer) || 1)),
       circulationUnlocked: source.circulationUnlocked === true,
       minorTechniqueUnlocked: source.minorTechniqueUnlocked === true,
       flyingEscapeUnlocked: source.flyingEscapeUnlocked === true,
       longevity800Level: Math.max(0, Math.min(4, Math.floor(Number(source.longevity800Level) || 0))),
-      explorationProgress: Math.max(0, Number(source.explorationProgress) || 0),
+      explorationProgress: maxBN(ZERO, BN(source.explorationProgress)),
       manaLiquefactionUnlocked: source.manaLiquefactionUnlocked === true,
       longevityLevel: Math.max(0, Math.min(2, Math.floor(Number(source.longevityLevel) || 0))),
       goldenCoreLongevityLevel: Math.max(0, Math.min(2, Math.floor(Number(source.goldenCoreLongevityLevel) || 0))),
@@ -391,7 +399,7 @@
       nascentSoulCompletionUnlocked: source.nascentSoulCompletionUnlocked === true,
       spiritTravelVoidUnlocked: source.spiritTravelVoidUnlocked === true,
       goldenSealScriptUnlocked: source.goldenSealScriptUnlocked === true,
-      immortalSpiritPowerUnlocked: source.immortalSpiritPowerUnlocked === true,
+      immortalSpiritPowerUnlocked: advancedRealmLevel >= config.immortalPower.unlockAdvancedRealmLevel,
       undyingPrimordialSpiritUnlocked: source.undyingPrimordialSpiritUnlocked === true,
       immortalApertureLevel: Math.max(0, Math.min(
         source.ultimateImmortalApertureUnlocked === true
@@ -422,6 +430,11 @@
       lawCrystalFilamentUnlocked: source.lawCrystalFilamentUnlocked === true,
       severThreeCorpsesUnlocked: source.severThreeCorpsesUnlocked === true,
       ultimateImmortalApertureUnlocked: source.ultimateImmortalApertureUnlocked === true,
+      daoLawUnityUnlocked: source.daoLawUnityUnlocked === true,
+      daoDomainUnlocked: source.daoDomainUnlocked === true,
+      daoPowerUnlocked: source.daoPowerUnlocked === true,
+      daoTimeLawUnlocked: source.daoTimeLawUnlocked === true,
+      daoAssimilationUnlocked: source.daoAssimilationUnlocked === true,
       fiveElementsTreasureRollProgress: Number.isFinite(Number(source.fiveElementsTreasureRollProgress))
         ? Math.max(0, Number(source.fiveElementsTreasureRollProgress)) % 1
         : 0,
@@ -445,6 +458,7 @@
         key,
         Math.max(0, Math.min(challenge.maxCompletions, Math.floor(Number(source.challengeCompletions?.[key]) || 0)))
       ])),
+      bestQiLayer: Math.max(0, Math.floor(Number(source.bestQiLayer) || 0)),
       threeCorpseChallengesUnlocked: source.threeCorpseChallengesUnlocked === true ||
         ["severEvilCorpse", "severGoodCorpse", "severSelfCorpse"].some((key) =>
           (Number(source.challengeCompletions?.[key]) || 0) > 0
@@ -490,11 +504,12 @@
       "waveEyePurchased", "elementalAwakeningPurchased", "moonfallPurchased", "flowStatePurchased",
       "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
       "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
-      "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased"
+      "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased",
+      "ghostBackPurchased"
     ],
     "cultivation.systems.immortal.resources": ["mana", "immortalPower"],
     "cultivation.systems.immortal.progress": [
-      "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel", "explorationProgress",
+      "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel", "currentQiLayer", "explorationProgress",
       "minorTribulationExplorationLoad", "fiveElementsTreasureRollProgress", "immortalCrystalRollProgress"
     ],
     "cultivation.systems.immortal.abilities": [
@@ -518,7 +533,9 @@
       "flawlessJadeBodyUnlocked", "spiritDomainWorldTransformationUnlocked", "immortalApertureVUnlocked",
       "immortalApertureVIUnlocked", "immortalApertureVIIUnlocked", "soulQualitativeChangeUnlocked",
       "trinityUnlocked", "unityWithDaoUnlocked", "lawOriginUnlocked", "lawCrystalFilamentUnlocked",
-      "severThreeCorpsesUnlocked", "ultimateImmortalApertureUnlocked"
+      "severThreeCorpsesUnlocked", "ultimateImmortalApertureUnlocked",
+      "daoLawUnityUnlocked", "daoDomainUnlocked", "daoPowerUnlocked",
+      "daoTimeLawUnlocked", "daoAssimilationUnlocked"
     ],
     "cultivation.systems.immortal.persistent": [
       "scatterRebuildLevel", "scatterRetentionLevel", "reincarnationLevel", "permanentRootLevel",
@@ -529,7 +546,7 @@
       "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana",
       "lifetimeHighestCultivationRealmLevel", "immortalSelectionCount"
     ],
-    "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "challengeCompletions", "threeCorpseChallengesUnlocked"],
+    "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "challengeCompletions", "threeCorpseChallengesUnlocked", "bestQiLayer"],
     "meta": ["unlockedAchievements", "treasureImprints", "symbolicPowerMilestones"]
   });
 
@@ -557,7 +574,8 @@
     "waveEyePurchased", "elementalAwakeningPurchased", "moonfallPurchased", "flowStatePurchased",
     "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
     "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
-    "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased"
+    "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased",
+    "ghostBackPurchased"
   ]);
   const trackedImmortalAbilityKeys = Object.freeze([
     "qiSpellLevel", "immortalLifeUnlocked", "longevityLevel", "foundationSpellLevel", "circulationUnlocked",
@@ -584,13 +602,14 @@
   ]);
 
   function clone(value) {
+    if (isDecimal(value)) return BN(value);
     if (Array.isArray(value)) return value.map(clone);
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clone(entry)]));
     return value;
   }
 
   function isRecord(value) {
-    return value !== null && typeof value === "object" && !Array.isArray(value);
+    return value !== null && typeof value === "object" && !Array.isArray(value) && !isDecimal(value);
   }
 
   function mergeKnown(target, source) {
@@ -618,7 +637,7 @@
       core: { resources: {}, runtime: {}, preferences: {} },
       powerSystem: { active: "scale", systems: { scale: { progress: {}, actions: {}, upgrades: {}, history: { manualUpgrades: {} } } } },
       cultivation: { active: null, systems: { immortal: { resources: {}, progress: {}, abilities: {}, persistent: {}, history: { manualAbilities: {}, manualRealmLevel: 0 } } } },
-      meta: { achievements: {}, treasures: {}, milestones: {}, statistics: {}, challenges: {}, infinity: { currency: 0, upgrades: {} } }
+      meta: { achievements: {}, treasures: {}, milestones: {}, statistics: {}, challenges: {}, infinity: { currency: ZERO, upgrades: {} } }
     };
   }
 
@@ -648,6 +667,7 @@
     domain.meta.challenges.activeChallenge = flat.activeChallenge ?? null;
     domain.meta.challenges.activeChallengeElapsedSeconds = flat.activeChallengeElapsedSeconds || 0;
     domain.meta.challenges.challengeCompletions = clone(flat.challengeCompletions || {});
+    domain.meta.challenges.bestQiLayer = Math.max(0, Math.floor(Number(flat.bestQiLayer) || 0));
     domain.powerSystem.systems.scale.history.manualUpgrades = Object.fromEntries(
       trackedScaleUpgradeKeys.filter((key) => Number(flat[key]) > 0 || flat[key] === true).map((key) => [key, true])
     );
@@ -733,7 +753,7 @@
         : normalizedKnown.cultivation.active;
 
     const infinity = isRecord(source.meta?.infinity) ? clone(source.meta.infinity) : {};
-    infinity.currency = Math.max(0, Number(infinity.currency) || 0);
+    infinity.currency = maxBN(ZERO, BN(infinity.currency));
     if (!isRecord(infinity.upgrades)) infinity.upgrades = {};
     domain.meta.infinity = infinity;
     return attachLegacyAliases(domain);
@@ -768,12 +788,21 @@
       : normalizeLegacy(data),
     44: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
       ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    45: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    46: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    47: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
       : normalizeLegacy(data)
   });
 
   function migrate(schemaVersion, data) {
     const version = Number(schemaVersion) || 36;
-    const migration = migrations[version] || migrations[Math.min(version, 44)] || migrations[36];
+    const migration = migrations[version] || migrations[Math.min(version, 47)] || migrations[36];
     return migration(data);
   }
 

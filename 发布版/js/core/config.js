@@ -1,11 +1,25 @@
 (function defineConfig(WIS) {
   "use strict";
 
-  const costs = Object.freeze({
+  const { BN } = WIS.Core.BigNum;
+  const decimalTree = (value, key = "") => {
+    if (key === "immortalApertureCap") return value;
+    if (Array.isArray(value)) return Object.freeze(value.map((entry) => decimalTree(entry)));
+    if (value && typeof value === "object") {
+      return Object.freeze(Object.fromEntries(Object.entries(value).map(([entryKey, entry]) => [entryKey, decimalTree(entry, entryKey)])));
+    }
+    return typeof value === "number" || typeof value === "string" ? BN(value) : value;
+  };
+  const decimalRecord = (record) => Object.freeze(Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [key, BN(value)])
+  ));
+
+  const rawCosts = Object.freeze({
     power: Object.freeze({
       gym: 20, exercise: 50, transcendent: 500, focus: 150, breathingMethod: 750,
       extremeExercise: 1000, water: 20000, ghostBrain: 50000, naturalStrength: 10000,
       mentalPower: 100000, lifePower: 200000, myStyle: 2e7, intuition: 5e7,
+      ghostBack: 8e7,
       sonicMovement: 1e8, carbonLimit: 1.5e8, killingIntent: 3e8, rockStrike: 6e8,
       highSpeedMetabolism: 1.5e9, enduranceEnhancement: 4e9, bulletTime: 1e10,
       dynamicFocus: 2e10, superPerception: 5e10, invulnerable: 8e10,
@@ -52,6 +66,7 @@
       immortalApertureCap: 36
     })
   });
+  const costs = decimalTree(rawCosts);
 
   const realms = Object.freeze([
     { key: "nascentSoul", slug: "nascent-soul", name: "元婴", baseCost: 2e7 },
@@ -64,7 +79,7 @@
     { key: "taiyi", slug: "taiyi", name: "太乙", baseCost: 1.5e26 },
     { key: "daluo", slug: "daluo", name: "大罗", baseCost: 1e28 },
     { key: "daoAncestor", slug: "dao-ancestor", name: "道祖", baseCost: 1e37 }
-  ].map(Object.freeze));
+  ].map((realm) => Object.freeze({ ...realm, baseCost: BN(realm.baseCost) })));
 
   const scales = Object.freeze([
     ["普通人", 0], ["爆砖", 200], ["爆墙", 4184], ["爆屋", 8368000],
@@ -72,7 +87,7 @@
     ["爆国", 2.092e20], ["爆大陆", 8.368e22], ["地表", 3.2e25],
     ["爆星", 2.24e31], ["恒星", 2.28e40], ["星系", 3e52],
     ["超星系团", 2.565e57], ["宇宙结构", 3e68]
-  ].map(([name, power]) => Object.freeze({ name, power })));
+  ].map(([name, power]) => Object.freeze({ name, power: BN(power) })));
 
   const softcaps = Object.freeze([
     ["爆墙", 4184, 0.04, 0.012, 1, "炼气"], ["爆屋", 8368000, 0.055, 0.014, 2, "筑基"],
@@ -82,7 +97,7 @@
     ["爆星", 2.24e31, 0.22, 0.04, 12, "大罗"], ["恒星", 2.28e40, 0.24, 0.044, 13, "道祖"],
     ["星系", 3e52, 0.26, 0.048, null, null], ["超星系团", 2.565e57, 0.28, 0.052, null, null],
     ["宇宙结构", 3e68, 0.3, 0.056, null, null]
-  ].map(([name, threshold, strength, growth, removedAtRealm, removedBy]) => Object.freeze({ name, threshold, strength, growth, removedAtRealm, removedBy })));
+  ].map(([name, threshold, strength, growth, removedAtRealm, removedBy]) => Object.freeze({ name, threshold: BN(threshold), strength, growth, removedAtRealm, removedBy })));
 
   const challenges = Object.freeze({
     innateDeficiency: Object.freeze({ name: "福", maxCompletions: 3, limitExponents: [0.85, 0.7, 0.55], rewardExponents: [1.05, 1.08, 1.15], requiredScaleIndices: [2, 3, 4], resourceName: "J", rewardSourceName: "健身" }),
@@ -92,9 +107,15 @@
     completeRealm: Object.freeze({ name: "完全境界", maxCompletions: 3, sourceExponents: [0.85, 0.75, 0.65], rewardExponents: [1.1, 1.15, 1.2], requiredScaleIndex: 9, resourceName: "非极意战力来源", rewardSourceName: "极意", unlockAchievementKey: "trueScale8" }),
     moonless: Object.freeze({ name: "无月", maxCompletions: 3, sourceExponents: [0.85, 0.75, 0.65], rewardExponents: [1.05, 1.08, 1.15], requiredScaleIndex: 9, resourceName: "非打岩战力来源", rewardSourceName: "打岩", unlockAchievementKey: "trueScale9" }),
     planetSuppression: Object.freeze({ name: "星球压制", maxCompletions: 1, requiredScaleIndex: 10, resourceName: "额外爆星级动态软上限", unlockAchievementKey: "trueScale10" }),
-    severEvilCorpse: Object.freeze({ name: "斩恶尸", maxCompletions: 1, limitExponents: [0.85], requiredScaleIndex: 11, resourceName: "J、战力、法力与仙灵力", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 1 }),
-    severGoodCorpse: Object.freeze({ name: "斩善尸", maxCompletions: 1, limitExponents: [0.7], rewardExponents: [1.02], requiredScaleIndex: 11, resourceName: "J、战力、法力与仙灵力", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 2 }),
-    severSelfCorpse: Object.freeze({ name: "斩自我尸", maxCompletions: 1, targetAdvancedRealmLevel: 9, resourceName: "法则失效；仙灵力额外倒数指数", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 3 })
+    severEvilCorpse: Object.freeze({ name: "斩恶尸", maxCompletions: 1, requiredScaleIndex: 11, resourceName: "J、战力、法力与仙灵力", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 1, minimumDynamicExponent: 0.80 }),
+    severGoodCorpse: Object.freeze({ name: "斩善尸", maxCompletions: 1, limitExponents: [0.77], rewardExponents: [1.02], requiredScaleIndex: 11, resourceName: "J、战力、法力与仙灵力", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 2 }),
+    severSelfCorpse: Object.freeze({ name: "斩自我尸", maxCompletions: 1, targetAdvancedRealmLevel: 9, resourceName: "法则失效；仙灵力额外倒数指数", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 3 }),
+    qiRefiningHundredThousandYears: Object.freeze({
+      name: "炼气十万年", maxCompletions: 1, targetQiLayer: 100000,
+      resourceName: "境界固定炼气，以无限炼气层数推进", system: "immortal",
+      catalogSystem: "仙道", unlockAchievementKey: "selfSeveringSlash",
+      repeatable: true, manualCompletion: true
+    })
   });
 
   const scatterRetainedUpgradeTiers = Object.freeze(["", "普通人", "爆砖及之前", "爆墙及之前"]);
@@ -116,12 +137,14 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.4.3", saveVersion: 44,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.4.5", saveVersion: 47,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
     achievementEffects: Object.freeze({
       timeScaleSeconds: 20 * 60,
+      goldenNatureTimeScaleSeconds: 10 * 60,
+      greatLuoTimeScaleSeconds: 10 * 60,
       stellarChallengePowerMultiplier: 15,
       immortalCrystal: Object.freeze({ baseChance: 0.05, perItemAdditive: 0.001, decayScale: 100, decayExponent: -0.5 }),
       goldenNatureExponentPerDoubling: 0.025,
@@ -129,19 +152,19 @@
       greatLuoManaExponentPerDoubling: 0.035
     }),
     exploration: Object.freeze({
-      baseMana: 50, minimumPowerCost: 1e6, standardPowerCost: 1e7, costExponentScale: 0.08,
-      manaCurve: Object.freeze({ scale: 1e14, earlyExponent: 1, lateExponent: 0.15, sharpness: 12 }),
+      baseMana: BN(50), minimumPowerCost: BN(1e6), standardPowerCost: BN(1e7), costExponentScale: 0.08,
+      manaCurve: Object.freeze({ scale: BN(1e14), earlyExponent: 1, lateExponent: 0.15, sharpness: 12 }),
       automaticEfficiency: 0.0002,
       spiritWorldAscensionMultiplier: 8
     }),
     immortalPower: Object.freeze({
       unlockAdvancedRealmLevel: 6,
-      manaScale: 1e20,
+      manaScale: BN(1e20),
       manaExponent: 0.5,
       realmProgressStep: 0.01,
       manaSuppressionStrength: 0.3,
-      realmCosts: Object.freeze({ goldenImmortal: 1e11, taiyi: 1e16, daluo: 5e20, daoAncestor: 1e26 }),
-      abilityCosts: Object.freeze({
+      realmCosts: decimalRecord({ goldenImmortal: 1e11, taiyi: 1e16, daluo: 5e20, daoAncestor: 1e26 }),
+      abilityCosts: decimalRecord({
         undyingPrimordialSpirit: 4e8,
         xuanImmortalBody: 6.67e8,
         law: 1.2e9,
@@ -165,10 +188,15 @@
         lawOrigin: 5e20,
         lawCrystalFilament: 1.5e21,
         severThreeCorpses: 5e21,
-        ultimateImmortalAperture: 1.5e22
+        ultimateImmortalAperture: 1.5e22,
+        daoLawUnity: 1e24,
+        daoDomain: 3e24,
+        daoPower: 1e25,
+        daoTimeLaw: 3e25,
+        daoAssimilation: 1e26
       }),
       immortalAperture: Object.freeze({
-        baseCost: 4e6,
+        baseCost: BN(4e6),
         growth: 1.14,
         cap: 1800,
         baseCap: 36,
@@ -187,17 +215,17 @@
         ultimateMilestoneMultiplier: 1.12
       }),
       law: Object.freeze({
-        manaScale: 1e24,
+        manaScale: BN(1e24),
         logExponent: 2,
         upgradeExponentMultiplier: 1.1,
         limitingExponent: 0.8,
         decayScale: 10,
         decayExponent: 0.75
       }),
-      spiritDomain: Object.freeze({ baseJoules: 1e28, immortalPowerScale: 1e11, exponent: 0.6, worldMultiplier: 100 }),
+      spiritDomain: Object.freeze({ baseJoules: BN(1e28), immortalPowerScale: BN(1e11), exponent: 0.6, worldMultiplier: 100 }),
       spiritCaptureReturn: Object.freeze({
-        immortalPowerScale: 1e11,
-        targetImmortalPower: 1e16,
+        immortalPowerScale: BN(1e11),
+        targetImmortalPower: BN(1e16),
         exponent: 1.2,
         maximumMultiplier: 3
       }),
@@ -215,33 +243,54 @@
         internalExponentRange: 0.25,
         internalExponentScale: 1000
       }),
-      soulQualitativeChange: Object.freeze({ immortalPowerScale: 1e16, exponent: 0.4 }),
+      soulQualitativeChange: Object.freeze({ immortalPowerScale: BN(1e16), exponent: 0.4 }),
       daluo: Object.freeze({
-        trinityJoulesScale: 1e29,
+        trinityJoulesScale: BN(1e29),
         trinityExponent: 0.75,
         unityWithDaoMaximumBonus: 0.025,
         unityWithDaoSaturation: 5,
         lawOriginExponent: 1.2,
-        lawCrystalMaximumBonus: 0.02,
+        lawCrystalMaximumBonus: 0.20,
         lawCrystalSaturation: 1,
-        selfCorpseScale: 1e16,
-        selfCorpseCoefficient: 0.03
+        selfCorpseScale: BN(1e16),
+        selfCorpseCoefficient: 0.12
+      }),
+      daoAncestor: Object.freeze({
+        timeLawCoefficient: 0.12,
+        lawMultiplierExponent: 1.6,
+        powerBase: BN(1e54),
+        powerExponent: 1.6,
+        assimilationCoefficient: 0.4,
+        domainBaseExponent: 1.35,
+        domainGrowthCoefficient: 0.2
       })
+    }),
+    qiRefiningChallenge: Object.freeze({
+      targetLayer: 100000,
+      targetLogRequirement: 100,
+      requirementCurveExponent: 1.05,
+      manaLayerCoefficient: 0.000128,
+      manaSourceCoefficient: 0.000192,
+      globalSoftcapCurveExponent: 0.8,
+      globalSoftcapResistanceCoefficient: 0.32,
+      manaSoftcapResistanceCoefficient: 1.28,
+      rewardLog10Maximum: 6,
+      rewardCurveExponent: 0.5
     }),
     ghostBrain: Object.freeze({
       highestPowerExponent: 0.6,
       divisor: 250,
-      attenuationScale: 1e30,
+      attenuationScale: BN(1e30),
       attenuationExponent: 0.17
     }),
     magicTreasure: Object.freeze({
       manaCurve: Object.freeze({
-        scale: 1e24, baseEarlyExponent: 0.65, earlyExponent: 0.8,
+        scale: BN(1e24), baseEarlyExponent: 0.65, earlyExponent: 0.8,
         lateExponent: 0.76, sharpness: 4
       })
     }),
     focus: Object.freeze({
-      sourceCurve: Object.freeze({ scale: 5e13, earlyExponent: 1, lateExponent: 0.75, sharpness: 6 })
+      sourceCurve: Object.freeze({ scale: BN(5e13), earlyExponent: 1, lateExponent: 0.75, sharpness: 6 })
     }),
     treasureManaDiminishing: Object.freeze({
       tianNiPearlCoefficient: 0.25,
@@ -249,13 +298,13 @@
     }),
     training: Object.freeze({ decayScale: 1e6, decayLogDivisor: 9, decayPower: 3 }),
     starEnhancements: Object.freeze({
-      planetWill: Object.freeze({ joulesScale: 1e29, exponent: 0.75, maximumMultiplier: 1e8 }),
+      planetWill: Object.freeze({ joulesScale: BN(1e29), exponent: 0.75, maximumMultiplier: BN(1e8) }),
       starSpirit: Object.freeze({ perChallengeMultiplier: 1.06 }),
       starShatter: Object.freeze({ maximumOrders: 5, levelScale: 5000 }),
       spaceQuake: Object.freeze({ remainingPressureMultiplier: 0.97 }),
       selfless: Object.freeze({ ultimateIntentMultiplier: 1e5 }),
-      supernaturalFire: Object.freeze({ numerator: 2, saturation: 20 }),
-      selfSuppression: Object.freeze({ softcapLossConversion: 0.15 })
+      supernaturalFire: Object.freeze({ exponent: 0.15 }),
+      selfSuppression: Object.freeze({ softcapLossConversion: 0.30 })
     }),
     starSoftcapAchievement: Object.freeze({
       remainingPressureMultiplier: 0.95,

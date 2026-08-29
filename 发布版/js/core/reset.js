@@ -1,8 +1,10 @@
 (function defineResetProfiles(WIS) {
   "use strict";
 
+  const { BN, isDecimal } = WIS.Core.BigNum;
   const profiles = new Map();
   const clone = (value) => {
+    if (isDecimal(value)) return BN(value);
     if (Array.isArray(value)) return value.map(clone);
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clone(entry)]));
     return value;
@@ -53,7 +55,7 @@
     "lifetimeHighestJ", "lifetimeHighestPower", "lifetimeHighestScaleIndex", "lifetimeTotalJ",
     "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana", "lifetimeHighestCultivationRealmLevel",
     "immortalSelectionCount", "totalElapsedSeconds", "unlockedAchievements", "symbolicPowerMilestones",
-    "treasureImprints", "challengeCompletions", "hideUnlockedAchievements",
+    "treasureImprints", "challengeCompletions", "bestQiLayer", "hideUnlockedAchievements",
     "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
     "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "theme"
   ]);
@@ -78,8 +80,9 @@
       "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
       "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
       "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased",
+      "ghostBackPurchased",
       "superLollipopRollProgress", "fiveSpiritStoneRollProgress", "currentScaleElapsedSeconds",
-      "ghostBackActive", "mana", "immortalPower",
+      "ghostBackActive", "immortalSpiritPowerUnlocked", "mana", "immortalPower",
       "explorationProgress", "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
       "minorTribulationExplorationLoad",
       ...(nextScatterLevel < 2 ? ["transcendentPurchased", "focusPurchased", "breathingMethodPurchased", "extremeExercisePurchased"] : []),

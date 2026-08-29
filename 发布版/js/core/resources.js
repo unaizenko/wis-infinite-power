@@ -1,6 +1,7 @@
 (function defineResourceAPI(WIS) {
   "use strict";
 
+  const { BN, ZERO, add: addBN, sub, max, gte, isFiniteBN, isNaNBN } = WIS.Core.BigNum;
   const commonKeys = Object.freeze({ joules: "joules", power: "power" });
   let readState = null;
 
@@ -33,51 +34,62 @@
   }
 
   function get(resource) {
-    return Math.max(0, Number(state().core.resources[resolveCommon(resource)]) || 0);
+    return sanitize(state().core.resources[resolveCommon(resource)]);
   }
 
   function set(resource, amount) {
-    state().core.resources[resolveCommon(resource)] = Math.max(0, Number(amount) || 0);
+    state().core.resources[resolveCommon(resource)] = sanitize(amount);
     return get(resource);
   }
 
   function add(resource, amount) {
-    return set(resource, get(resource) + (Number(amount) || 0));
+    return set(resource, addBN(get(resource), sanitizeSigned(amount)));
   }
 
   function canAfford(resource, cost) {
-    return get(resource) >= Math.max(0, Number(cost) || 0);
+    return gte(get(resource), sanitize(cost));
   }
 
   function spend(resource, cost) {
-    const safeCost = Math.max(0, Number(cost) || 0);
+    const safeCost = sanitize(cost);
     if (!canAfford(resource, safeCost)) return false;
-    set(resource, get(resource) - safeCost);
+    set(resource, sub(get(resource), safeCost));
+    WIS.Core.Effects?.invalidate?.();
     return true;
   }
 
   function getSystem(system, resource) {
-    return Math.max(0, Number(systemResources(system)[resolveSystem(system, resource)]) || 0);
+    return sanitize(systemResources(system)[resolveSystem(system, resource)]);
   }
 
   function setSystem(system, resource, amount) {
-    systemResources(system)[resolveSystem(system, resource)] = Math.max(0, Number(amount) || 0);
+    systemResources(system)[resolveSystem(system, resource)] = sanitize(amount);
     return getSystem(system, resource);
   }
 
   function addSystem(system, resource, amount) {
-    return setSystem(system, resource, getSystem(system, resource) + (Number(amount) || 0));
+    return setSystem(system, resource, addBN(getSystem(system, resource), sanitizeSigned(amount)));
   }
 
   function canAffordSystem(system, resource, cost) {
-    return getSystem(system, resource) >= Math.max(0, Number(cost) || 0);
+    return gte(getSystem(system, resource), sanitize(cost));
   }
 
   function spendSystem(system, resource, cost) {
-    const safeCost = Math.max(0, Number(cost) || 0);
+    const safeCost = sanitize(cost);
     if (!canAffordSystem(system, resource, safeCost)) return false;
-    setSystem(system, resource, getSystem(system, resource) - safeCost);
+    setSystem(system, resource, sub(getSystem(system, resource), safeCost));
+    WIS.Core.Effects?.invalidate?.();
     return true;
+  }
+
+  function sanitizeSigned(value) {
+    const result = BN(value);
+    return isFiniteBN(result) && !isNaNBN(result) ? result : ZERO;
+  }
+
+  function sanitize(value) {
+    return max(ZERO, sanitizeSigned(value));
   }
 
   function snapshot() {

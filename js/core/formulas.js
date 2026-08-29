@@ -1,19 +1,23 @@
 (function defineFormulaEngine(WIS) {
   "use strict";
 
+  const {
+    BN, ZERO, ONE, isDecimal, add, sub, mul, div, pow, sqrt, log10,
+    max, gt, lte, isFiniteBN, isNaNBN, sum, product, toNumber
+  } = WIS.Core.BigNum;
+
   function effectValue(effect) {
-    return typeof effect === "object" && effect !== null
-      ? Number(effect.value) || 0
-      : Number(effect) || 0;
+    const value = BN(!isDecimal(effect) && typeof effect === "object" && effect !== null ? effect.value : effect);
+    return isFiniteBN(value) && !isNaNBN(value) ? value : ZERO;
   }
 
   function multiply(effects = []) {
-    return effects.reduce((product, effect) => product * effectValue(effect), 1);
+    return product(effects.map(effectValue), ONE);
   }
 
   function applyExponent(value, exponent) {
-    if (value <= 0) return 0;
-    return Math.pow(value, exponent);
+    if (lte(value, ZERO)) return ZERO;
+    return pow(value, toNumber(exponent, 0));
   }
 
   function applySoftcaps(value, softcaps = []) {
@@ -21,60 +25,51 @@
   }
 
   function smoothPowerSoftcap(value, scale, earlyExponent, lateExponent, sharpness) {
-    const numericValue = Number(value);
-    const numericScale = Number(scale);
+    const decimalValue = BN(value);
+    const decimalScale = BN(scale);
     const numericEarlyExponent = Number(earlyExponent);
     const numericLateExponent = Number(lateExponent);
     const numericSharpness = Number(sharpness);
-    if (Number.isNaN(numericValue) || numericValue <= 0) return 0;
-    if (!Number.isFinite(numericScale) || numericScale <= 0 ||
+    if (isNaNBN(decimalValue) || lte(decimalValue, ZERO)) return ZERO;
+    if (!isFiniteBN(decimalScale) || lte(decimalScale, ZERO) ||
         !Number.isFinite(numericEarlyExponent) || numericEarlyExponent < 0 ||
         !Number.isFinite(numericLateExponent) || numericLateExponent < 0 ||
-        !Number.isFinite(numericSharpness) || numericSharpness <= 0) return 0;
-    if (numericValue === Infinity) {
-      if (numericLateExponent > 0) return Infinity;
-      return Math.pow(numericScale, numericEarlyExponent - numericLateExponent);
-    }
+        !Number.isFinite(numericSharpness) || numericSharpness <= 0) return ZERO;
 
-    const logValue = Math.log(numericValue);
-    const transitionLog = numericSharpness * (logValue - Math.log(numericScale));
-    const smoothTransition = transitionLog > 50
-      ? transitionLog
-      : Math.log1p(Math.exp(transitionLog));
-    const resultLog = numericEarlyExponent * logValue -
-      ((numericEarlyExponent - numericLateExponent) / numericSharpness) * smoothTransition;
-    if (resultLog >= Math.log(Number.MAX_VALUE)) return Infinity;
-    if (resultLog <= Math.log(Number.MIN_VALUE)) return 0;
-    return Math.exp(resultLog);
-  }
-
-  function diminishingMultiplierExponent(multiplier, coefficient) {
-    const numericMultiplier = Number(multiplier);
-    const numericCoefficient = Number(coefficient);
-    if (Number.isNaN(numericMultiplier) || numericMultiplier <= 1) return 1;
-    if (!Number.isFinite(numericCoefficient) || numericCoefficient <= 0) return 1;
-    if (numericMultiplier === Infinity) return 0;
-    return 1 / Math.sqrt(1 + numericCoefficient * Math.log10(1 + numericMultiplier));
-  }
-
-  function applyDiminishingMultiplier(multiplier, coefficient) {
-    const numericMultiplier = Number(multiplier);
-    if (Number.isNaN(numericMultiplier) || numericMultiplier <= 1) return 1;
-    if (numericMultiplier === Infinity) return Infinity;
-    return 1 + Math.pow(
-      numericMultiplier - 1,
-      diminishingMultiplierExponent(numericMultiplier, coefficient)
+    const transition = add(ONE, pow(div(decimalValue, decimalScale), numericSharpness));
+    return div(
+      pow(decimalValue, numericEarlyExponent),
+      pow(transition, (numericEarlyExponent - numericLateExponent) / numericSharpness)
     );
   }
 
+  function diminishingMultiplierExponent(multiplier, coefficient) {
+    const decimalMultiplier = BN(multiplier);
+    const numericCoefficient = Number(coefficient);
+    if (isNaNBN(decimalMultiplier) || lte(decimalMultiplier, ONE)) return 1;
+    if (!Number.isFinite(numericCoefficient) || numericCoefficient <= 0) return 1;
+    const logarithm = toNumber(log10(add(ONE, decimalMultiplier)), Infinity);
+    if (!Number.isFinite(logarithm)) return 0;
+    return 1 / Math.sqrt(1 + numericCoefficient * logarithm);
+  }
+
+  function applyDiminishingMultiplier(multiplier, coefficient) {
+    const decimalMultiplier = BN(multiplier);
+    if (isNaNBN(decimalMultiplier) || lte(decimalMultiplier, ONE)) return ONE;
+    return add(ONE, pow(
+      sub(decimalMultiplier, ONE),
+      diminishingMultiplierExponent(decimalMultiplier, coefficient)
+    ));
+  }
+
   function source({ base = 0, additive = 0, multipliers = [], exponents = [], softcaps = [] } = {}) {
-    const multiplied = Math.max(0, base + additive) * multiply(multipliers);
+    const multiplied = mul(max(ZERO, add(base, additive)), multiply(multipliers));
     return applySoftcaps(applyExponent(multiplied, multiply(exponents)), softcaps);
   }
 
   function region(sourceGains, { multipliers = [], exponents = [], softcaps = [] } = {}) {
-    const sourceSum = sourceGains.reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
-    const multiplied = sourceSum * multiply(multipliers);
+    const sourceSum = sum(sourceGains.map((value) => max(ZERO, value)), ZERO);
+    const multiplied = mul(sourceSum, multiply(multipliers));
     return applySoftcaps(applyExponent(multiplied, multiply(exponents)), softcaps);
   }
 

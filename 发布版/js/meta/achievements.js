@@ -5,6 +5,7 @@
   const runtime = WIS.Core.Runtime;
   const state = runtime.state;
   const SCALE_THRESHOLDS = WIS.Core.Config.scales;
+  const { gte } = WIS.Core.BigNum;
   const { challengeCompletionCount, reachedPowerMilestone } = WIS.Power.ScaleLogic;
   const format = (...args) => runtime.call("format", ...args);
   const showAchievementNotice = (...args) => runtime.call("showAchievementNotice", ...args);
@@ -70,13 +71,13 @@
 
   function achievementDefinitions() {
     const definitions = [
-      { key: "powerOne", name: "战力 1", description: "获得至少 1 战力。", reward: "解锁强化界面", completed: completedAchievement("powerOne", state.totalPower >= 1) },
-      { key: "five", name: "战五渣", description: "累计获得 5 战力。", reward: "战力获取倍率 ×1.05", completed: completedAchievement("five", state.totalPower >= 5) },
+      { key: "powerOne", name: "战力 1", description: "获得至少 1 战力。", reward: "解锁强化界面", completed: completedAchievement("powerOne", gte(state.totalPower, 1)) },
+      { key: "five", name: "战五渣", description: "累计获得 5 战力。", reward: "战力获取倍率 ×1.05", completed: completedAchievement("five", gte(state.totalPower, 5)) },
       { key: "brick", name: "爆砖", description: "拥有 200 战力。", reward: "每个已达成成就提供 +0.1 J/秒", completed: completedAchievement("brick", state.brickUnlocked) },
-      { key: "trueBrick", name: "真爆砖", description: "一次锻炼获得 200 战力。", reward: "健身等级上限 +20", completed: completedAchievement("trueBrick", state.maxSinglePowerGain >= 200) },
+      { key: "trueBrick", name: "真爆砖", description: "一次锻炼获得 200 战力。", reward: "健身等级上限 +20", completed: completedAchievement("trueBrick", gte(state.maxSinglePowerGain, 200)) },
       { key: "lightningFiveWhip", name: "闪电五连鞭", description: "2 秒内连续点击 5 次锻炼。", reward: "可以通过长按代替点击", completed: completedAchievement("lightningFiveWhip", false) },
       { key: "trainingUp", name: "练起来", description: "游戏时间达到10 分钟。", reward: "解锁统计界面", completed: completedAchievement("trainingUp", state.totalElapsedSeconds >= 600) },
-      { key: "aspireImmortality", name: "我欲成仙", description: "解锁炼气。", reward: "每个已解锁仙道境界使法力获取倍率 ×1.2", completed: completedAchievement("aspireImmortality", state.qiRefiningUnlocked) },
+      { key: "aspireImmortality", system: "仙道", name: "我欲成仙", description: "解锁炼气。", reward: "每个已解锁仙道境界使法力获取倍率 ×1.2", completed: completedAchievement("aspireImmortality", state.qiRefiningUnlocked) },
       { key: "daoFoundation", system: "仙道", name: "道基", description: "解锁筑基。", reward: "解锁宝物烙印·仙道·天逆珠", completed: completedAchievement("daoFoundation", state.foundationUnlocked) },
       { key: "goldenCore", system: "仙道", name: "一颗金丹吞入腹", description: "解锁结丹。", reward: "解锁宝物烙印·仙道·神秘绿瓶", completed: completedAchievement("goldenCore", state.goldenCoreUnlocked) },
       { key: "infantSpirit", system: "仙道", name: "婴灵", description: "突破元婴。", reward: "自动升级曾手动升级过的仙道能力（默认开启，可关闭）", completed: completedAchievement("infantSpirit", state.advancedRealmLevel >= 1) },
@@ -85,15 +86,13 @@
       { key: "bodyIntegration", system: "仙道", name: "合体", description: "达到仙道·合体。", reward: "自动突破曾手动突破过的仙道境界（默认开启，可关闭）", completed: completedAchievement("bodyIntegration", state.advancedRealmLevel >= 4 || state.lifetimeHighestCultivationRealmLevel >= 7) },
       { key: "mahayana", system: "仙道", name: "大乘", description: "达到仙道·大乘。", reward: "选择仙道后自动获得3次转世重修效果", completed: completedAchievement("mahayana", state.advancedRealmLevel >= 5 || state.lifetimeHighestCultivationRealmLevel >= 8) },
       { key: "ascendImmortal", system: "仙道", name: "登仙", description: "抵达仙道·真仙。", reward: "解锁永久宝物烙印·仙晶", completed: completedAchievement("ascendImmortal", state.advancedRealmLevel >= 6 || state.lifetimeHighestCultivationRealmLevel >= 9) },
-      { key: "goldenNature", system: "仙道", name: "金性", description: "抵达仙道·金仙。", reward: "本次转生每经过20分钟，按 0.025×log2(1+t/20分钟) 提升仙灵力获取指数", completed: completedAchievement("goldenNature", state.advancedRealmLevel >= 7 || state.lifetimeHighestCultivationRealmLevel >= 10) },
+      { key: "goldenNature", system: "仙道", name: "金性", description: "抵达仙道·金仙。", reward: "本次转生中，随时间提升仙灵力指数", completed: completedAchievement("goldenNature", state.advancedRealmLevel >= 7 || state.lifetimeHighestCultivationRealmLevel >= 10) },
       { key: "utmostPurity", system: "仙道", name: "至净", description: "抵达仙道·太乙。", reward: "按当前量级停留时间渐近弱化下一量级的J、战力软上限，跨量级后重新计时", completed: completedAchievement("utmostPurity", state.advancedRealmLevel >= 8 || state.lifetimeHighestCultivationRealmLevel >= 11) },
-      { key: "greatLuo", system: "仙道", name: "大罗", description: "抵达仙道·大罗。", reward: "斩三尸挑战中按 0.035×log2(1+t/20分钟) 提升法力获取指数", completed: completedAchievement("greatLuo", state.advancedRealmLevel >= 9 || state.lifetimeHighestCultivationRealmLevel >= 12) },
+      { key: "greatLuo", system: "仙道", name: "大罗", description: "抵达仙道·大罗。", reward: "斩三尸挑战中（斩恶尸、斩善尸、斩自我尸），随时间提升法力、仙灵力指数", completed: completedAchievement("greatLuo", state.advancedRealmLevel >= 9 || state.lifetimeHighestCultivationRealmLevel >= 12) },
+      { key: "selfSeveringSlash", system: "仙道", name: "自斩一刀", description: "首次抵达仙道·道祖。", reward: "解锁仙道挑战·炼气十万年", completed: completedAchievement("selfSeveringSlash", state.advancedRealmLevel >= 10 || state.lifetimeHighestCultivationRealmLevel >= 13) },
       { key: "threeDeficiencies", name: "三缺", description: "福、禄、寿三种挑战各完成1次。", reward: "非挑战转生类重置后获得1000 战力", completed: completedAchievement("threeDeficiencies", threeDeficienciesCompleted()) },
       { key: "fiveMisfortunesThreeDeficiencies", name: "五弊三缺", description: "福、禄、寿、五弊挑战全部完成3次。", reward: "纪念性成就", completed: completedAchievement("fiveMisfortunesThreeDeficiencies", allFortuneChallengesCompleted()) },
-      { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
-      { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
-      { key: "tree3", name: "树", description: "战力达到 TREE(3)。", reward: "纪念性成就", completed: completedAchievement("tree3", reachedPowerMilestone("tree3")) },
-      { key: "seizeFoundation", name: "夺基", description: "每累计 1 有效探寻量进行一次1% 判定。", reward: "下品灵根失效，获得中品灵根", completed: completedAchievement("seizeFoundation", false) }
+      { key: "seizeFoundation", system: "仙道", name: "夺基", description: "每累计 1 有效探寻量进行一次1% 判定。", reward: "下品灵根失效，获得中品灵根", completed: completedAchievement("seizeFoundation", false) }
     ];
 
     SCALE_THRESHOLDS.slice(2).forEach((scale, offset) => {
@@ -149,10 +148,16 @@
             : scaleIndex === 10
               ? "永久解锁挑战·星球压制"
               : "奖励：后续加入",
-          completed: completedAchievement(`trueScale${scaleIndex}`, state.maxSinglePowerGain >= scale.power)
+          completed: completedAchievement(`trueScale${scaleIndex}`, gte(state.maxSinglePowerGain, scale.power))
         }
       );
     });
+
+    definitions.push(
+      { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
+      { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
+      { key: "tree3", name: "树", description: "战力达到 TREE(3)。", reward: "纪念性成就", completed: completedAchievement("tree3", reachedPowerMilestone("tree3")) }
+    );
 
     return definitions;
   }
@@ -191,6 +196,7 @@
     },
     record(state, key) {
       state.meta.achievements[key] = true;
+      WIS.Core.Effects?.invalidate?.();
     },
     unlockedKeys(state) {
       return Object.keys(state.meta.achievements || {}).filter((key) => state.meta.achievements[key]);

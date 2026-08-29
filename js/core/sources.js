@@ -1,6 +1,8 @@
 (function defineSourceCollector(WIS) {
   "use strict";
 
+  const { BN, ZERO, isFiniteBN, isNaNBN } = WIS.Core.BigNum;
+
   const providers = new Map();
 
   function register(id, provider) {
@@ -21,8 +23,8 @@
 
   function values(target, state, context = {}) {
     return collect(target, state, context).map((source) => {
-      const value = Number(source.value);
-      return Number.isFinite(value) ? value : 0;
+      const value = BN(source.value);
+      return isFiniteBN(value) && !isNaNBN(value) ? value : ZERO;
     });
   }
 

@@ -1,6 +1,8 @@
 (function defineEffectCollector(WIS) {
   "use strict";
 
+  const { BN, ONE, isDecimal, isFiniteBN, isNaNBN, mul } = WIS.Core.BigNum;
+
   const providers = new Map();
   let tickSnapshot = null;
   let evaluationState = null;
@@ -65,6 +67,7 @@
     tickSnapshot = null;
     evaluationState = null;
     evaluationValues = null;
+    Object.keys(WIS.tmp.rates).forEach((key) => { WIS.tmp.rates[key] = 0; });
   }
 
   function snapshotFor(state) {
@@ -154,6 +157,33 @@
     }
   }
 
+  function withIsolatedState(state, callback) {
+    if (!state || typeof callback !== "function") return undefined;
+    const previousSnapshot = tickSnapshot;
+    const previousState = evaluationState;
+    const previousValues = evaluationValues;
+    tickSnapshot = {
+      state,
+      ready: false,
+      all: [],
+      byId: new Map(),
+      byTargetLayer: new Map(),
+      values: new Map(),
+      groups: new Map(),
+      products: new Map(),
+      providerCalls: 0
+    };
+    evaluationState = null;
+    evaluationValues = null;
+    try {
+      return callback();
+    } finally {
+      tickSnapshot = previousSnapshot;
+      evaluationState = previousState;
+      evaluationValues = previousValues;
+    }
+  }
+
   function collect(target, layer, state) {
     const snapshot = ensureSnapshot(state);
     if (snapshot) {
@@ -179,6 +209,10 @@
     const dynamic = snapshot?.byTargetLayer.get(key)?.some((effect) => effect._dynamic) === true;
     if (snapshot && !evaluationState && !dynamic && snapshot.values.has(key)) return snapshot.values.get(key);
     const result = collect(target, layer, state).map((effect) => {
+      if (isDecimal(effect.value) || typeof effect.value === "string") {
+        const value = BN(effect.value);
+        return isFiniteBN(value) && !isNaNBN(value) ? value : neutral;
+      }
       const value = Number(effect.value);
       return Number.isFinite(value) ? value : neutral;
     });
@@ -205,7 +239,7 @@
     const key = `${target}\u0000${layer}`;
     const dynamic = snapshot?.byTargetLayer.get(key)?.some((effect) => effect._dynamic) === true;
     if (snapshot && !evaluationState && !dynamic && snapshot.products.has(key)) return snapshot.products.get(key);
-    const result = values(target, layer, state).reduce((total, value) => total * value, 1);
+    const result = values(target, layer, state).reduce((total, value) => mul(total, value), ONE);
     if (snapshot && !evaluationState && !dynamic) snapshot.products.set(key, result);
     return result;
   }
@@ -215,17 +249,27 @@
     if (snapshot) {
       const effect = snapshot.byId.get(id);
       if (!effect) return neutral;
-      const result = Number((evaluationState
+      const result = (evaluationState
         ? resolveForEvaluation(effect)
-        : effect._dynamic ? resolveDynamic(effect, state) : resolveBase(effect, state)).value);
-      return Number.isFinite(result) ? result : neutral;
+        : effect._dynamic ? resolveDynamic(effect, state) : resolveBase(effect, state)).value;
+      if (isDecimal(result) || typeof result === "string") {
+        const decimal = BN(result);
+        return isFiniteBN(decimal) && !isNaNBN(decimal) ? decimal : neutral;
+      }
+      const numeric = Number(result);
+      return Number.isFinite(numeric) ? numeric : neutral;
     }
     for (const [providerId, provider] of providers.entries()) {
       statistics.providerCalls += 1;
       const effect = (provider(state) || []).find((candidate) => candidate.id === id);
       if (!effect) continue;
-      const result = Number(resolvedEffect(effect, state).value);
-      return Number.isFinite(result) ? result : neutral;
+      const result = resolvedEffect(effect, state).value;
+      if (isDecimal(result) || typeof result === "string") {
+        const decimal = BN(result);
+        return isFiniteBN(decimal) && !isNaNBN(decimal) ? decimal : neutral;
+      }
+      const numeric = Number(result);
+      return Number.isFinite(numeric) ? numeric : neutral;
     }
     return neutral;
   }
@@ -245,7 +289,7 @@
   }
 
   WIS.Core.Effects = Object.freeze({
-    register, beginTick, invalidate, withState,
+    register, beginTick, invalidate, withState, withIsolatedState,
     collect, values, groups, product, value,
     getStatistics, resetStatistics
   });

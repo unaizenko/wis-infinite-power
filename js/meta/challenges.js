@@ -3,6 +3,7 @@
 
   const definitions = WIS.Core.Config.challenges;
   const immortalPowerRealmCosts = WIS.Core.Config.immortalPower.realmCosts;
+  const { ZERO, ONE, add, div, log10, max: maxBN, gt, toNumber } = WIS.Core.BigNum;
   function completionCount(state, key) { return Math.max(0, Number(state.meta.challenges.challengeCompletions?.[key]) || 0); }
   function totalCompletionCount(state) {
     return Object.keys(definitions).reduce((total, key) => total + completionCount(state, key), 0);
@@ -28,6 +29,26 @@
     const progress = Math.max(0, Math.min(1, state.meta.challenges.activeChallengeElapsedSeconds / challenge.timeToLimitSeconds));
     return 1 - (1 - limit) * progress;
   }
+  const evilCorpseResourceScales = Object.freeze({
+    joules: 1e29,
+    power: 2.24e31,
+    mana: 1e29,
+    immortalPower: immortalPowerRealmCosts.daluo
+  });
+  function evilCorpseRawLimitExponent(state, resourceKey) {
+    const scale = evilCorpseResourceScales[resourceKey];
+    if (!gt(scale, ZERO)) return 1;
+    const magnitude = toNumber(log10(add(ONE, div(maxBN(ZERO, state[resourceKey]), scale))), Infinity);
+    return 1 / (1 + 0.501 * Math.pow(magnitude, 0.13));
+  }
+  function evilCorpseAdjustedLimitExponent(state, resourceKey) {
+    return Math.max(definitions.severEvilCorpse.minimumDynamicExponent, evilCorpseRawLimitExponent(state, resourceKey));
+  }
+  function evilCorpseLimitExponent(state, resourceKey) {
+    return state.activeChallenge === "severEvilCorpse"
+      ? evilCorpseAdjustedLimitExponent(state, resourceKey)
+      : 1;
+  }
   function evilCorpseRewardMultiplier(state) {
     if (!systemActive(state, "severEvilCorpse") || completionCount(state, "severEvilCorpse") < 1) return 1;
     const terms = [
@@ -37,7 +58,7 @@
       [state.immortalPower, immortalPowerRealmCosts.daluo]
     ];
     return 1 + 0.25 * terms.reduce((sum, [value, scale]) =>
-      sum + Math.sqrt(Math.log10(1 + Math.max(0, Number(value) || 0) / scale)), 0
+      sum + Math.sqrt(toNumber(log10(add(ONE, div(maxBN(ZERO, value), scale))), Infinity)), 0
     );
   }
   function planetSuppressionRewardExponent(state, resource) {
@@ -58,10 +79,10 @@
       { id: "powerlessLimit", name: "禄", group: "挑战", target: "power", layer: "regionExponent", value: activeLimit(state, "powerless") },
       { id: "longevityPowerLimit", name: "寿", group: "挑战", target: "power", layer: "regionExponent", value: activeLimit(state, "longevity") },
       { id: "fivePowerReward", name: "五弊奖励", group: "挑战", target: "power", layer: "regionExponent", celestialFiveDecline: true, value: fiveReward },
-      { id: "severEvilJLimit", name: "斩恶尸", group: "斩三尸", target: "joules", layer: "regionExponent", value: activeLimit(state, "severEvilCorpse") },
-      { id: "severEvilPowerLimit", name: "斩恶尸", group: "斩三尸", target: "power", layer: "regionExponent", value: activeLimit(state, "severEvilCorpse") },
-      { id: "severEvilManaLimit", name: "斩恶尸", group: "斩三尸", target: "mana", layer: "regionExponent", value: activeLimit(state, "severEvilCorpse") },
-      { id: "severEvilImmortalPowerLimit", name: "斩恶尸", group: "斩三尸", target: "immortalPower", layer: "regionExponent", value: activeLimit(state, "severEvilCorpse") },
+      { id: "severEvilJLimit", name: "斩恶尸", group: "斩三尸", target: "joules", layer: "regionExponent", dynamic: true, value: (current) => evilCorpseLimitExponent(current, "joules") },
+      { id: "severEvilPowerLimit", name: "斩恶尸", group: "斩三尸", target: "power", layer: "regionExponent", dynamic: true, value: (current) => evilCorpseLimitExponent(current, "power") },
+      { id: "severEvilManaLimit", name: "斩恶尸", group: "斩三尸", target: "mana", layer: "regionExponent", dynamic: true, value: (current) => evilCorpseLimitExponent(current, "mana") },
+      { id: "severEvilImmortalPowerLimit", name: "斩恶尸", group: "斩三尸", target: "immortalPower", layer: "regionExponent", dynamic: true, value: (current) => evilCorpseLimitExponent(current, "immortalPower") },
       { id: "severGoodJLimit", name: "斩善尸", group: "斩三尸", target: "joules", layer: "regionExponent", value: activeLimit(state, "severGoodCorpse") },
       { id: "severGoodPowerLimit", name: "斩善尸", group: "斩三尸", target: "power", layer: "regionExponent", value: activeLimit(state, "severGoodCorpse") },
       { id: "severGoodManaLimit", name: "斩善尸", group: "斩三尸", target: "mana", layer: "regionExponent", value: activeLimit(state, "severGoodCorpse") },
@@ -118,7 +139,11 @@
 
   function resetForChallenge(challengeKey) {
     updateLifetimeStatistics();
+    const challengeOverrides = challengeKey === "qiRefiningHundredThousandYears"
+      ? { cultivationSystem: "仙道", qiRefiningUnlocked: true, currentQiLayer: 1 }
+      : {};
     runtime.setState(WIS.Core.Reset.apply("challenge", state, freshDefaultState, { overrides: {
+      ...challengeOverrides,
       activeChallenge: challengeKey,
       activeChallengeElapsedSeconds: 0,
       reincarnationElapsedSeconds: 0,
@@ -131,10 +156,13 @@
 
   function startChallenge(challengeKey) {
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
-    if (!challenge || !challengeUnlocked(challengeKey) || !systemActive(state, challengeKey) || state.activeChallenge || challengeCompletionCount(challengeKey) >= challenge.maxCompletions) return;
-    const nextCompletion = challengeCompletionCount(challengeKey) + 1;
-    if (!window.confirm(`开启「${challenge.name}」第${nextCompletion}次挑战将重置行动、强化与体系进度，并把本轮散功、转世次数重置为0；永久灵根与挑战完成次数保留，之后可重新散功和转世。挑战成功或退出时不会再次重置。确定开启吗？`)) return;
+    if (!challenge || !challengeUnlocked(challengeKey) || !systemActive(state, challengeKey) || state.activeChallenge) return;
+    const completed = challengeCompletionCount(challengeKey);
+    const rewardlessRepeat = completed >= challenge.maxCompletions;
+    const runLabel = rewardlessRepeat ? "重复挑战（不再获得完成奖励）" : `第${completed + 1}次挑战`;
+    if (!window.confirm(`开启「${challenge.name}」${runLabel}将重置行动、强化与体系进度，并把本轮散功、转世次数重置为0；永久灵根与挑战完成次数保留。挑战成功或退出时不会再次重置。确定开启吗？`)) return;
     resetForChallenge(challengeKey);
+    WIS.Core.Effects.invalidate();
     switchPage("challenges");
     saveState();
     render();
@@ -143,9 +171,17 @@
 
   function exitChallenge() {
     if (!state.activeChallenge) return;
-    const challengeName = CHALLENGE_DEFINITIONS[state.activeChallenge].name;
+    const challengeKey = state.activeChallenge;
+    const challengeName = CHALLENGE_DEFINITIONS[challengeKey].name;
+    if (challengeKey === "qiRefiningHundredThousandYears") {
+      state.bestQiLayer = Math.max(state.bestQiLayer, state.currentQiLayer);
+      if (state.currentQiLayer >= CHALLENGE_DEFINITIONS[challengeKey].targetQiLayer) {
+        state.challengeCompletions[challengeKey] = 1;
+      }
+    }
     state.activeChallenge = null;
     state.activeChallengeElapsedSeconds = 0;
+    WIS.Core.Effects.invalidate();
     saveState();
     render();
     showNotice(`已退出挑战：${challengeName}`);
@@ -155,16 +191,20 @@
     if (!state.activeChallenge) return false;
     const challengeKey = state.activeChallenge;
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
-    if (!challenge || !systemActive(state, challengeKey)) return false;
+    if (!challenge || !systemActive(state, challengeKey) || challenge.manualCompletion) return false;
     const targetReached = Number.isFinite(challenge.targetAdvancedRealmLevel)
       ? state.advancedRealmLevel >= challenge.targetAdvancedRealmLevel
       : state.highestScaleIndex >= challengeRequiredScaleIndex(challengeKey);
     if (!targetReached) return false;
-    state.challengeCompletions[challengeKey] = Math.min(challenge.maxCompletions, challengeCompletionCount(challengeKey) + 1);
+    const previousCompletions = challengeCompletionCount(challengeKey);
+    state.challengeCompletions[challengeKey] = Math.min(challenge.maxCompletions, previousCompletions + 1);
     state.activeChallenge = null;
     state.activeChallengeElapsedSeconds = 0;
+    WIS.Core.Effects.invalidate();
     saveState();
-    showNotice(`挑战成功：${challenge.name} ${state.challengeCompletions[challengeKey]} / ${challenge.maxCompletions}`);
+    showNotice(previousCompletions >= challenge.maxCompletions
+      ? `重复挑战成功：${challenge.name}（无额外奖励）`
+      : `挑战成功：${challenge.name} ${state.challengeCompletions[challengeKey]} / ${challenge.maxCompletions}`);
     return true;
   }
 
@@ -174,7 +214,8 @@
     completionCount, totalCompletionCount, systemRequirementSatisfied, systemActive,
     isActive(state, key) { return state.meta.challenges.activeChallenge === key; },
     getEffects: effects,
-    evilCorpseRewardMultiplier, planetSuppressionRewardExponent,
+    evilCorpseRawLimitExponent, evilCorpseAdjustedLimitExponent,
+    evilCorpseLimitExponent, evilCorpseRewardMultiplier, planetSuppressionRewardExponent,
     challengeUnlocked, challengeRequiredScaleIndex,
     resetForChallenge, startChallenge, exitChallenge, checkActiveChallengeCompletion
   });

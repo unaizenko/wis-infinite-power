@@ -2,6 +2,7 @@
   "use strict";
 
   const realms = WIS.Core.Config.realms;
+  const { ZERO, ONE, add, div, log10, max: maxBN, gt, toNumber } = WIS.Core.BigNum;
 
   function realmLevel(state) {
     if (state.goldenCoreUnlocked) return 3 + state.advancedRealmLevel;
@@ -47,8 +48,10 @@
       { id: "materialControl", name: "御物", group: "仙道", target: "magicTreasure", layer: "sourceMultiplier", value: state.materialControlUnlocked ? 5 : 1 },
       { id: "wanYaoFan", name: "仙道·万妖幡", group: "宝物", target: "magicTreasure", layer: "sourceMultiplier", celestialFiveDecline: true, value: 1 + (state.meta.treasures.wanYaoFan || 0) * 0.003 },
       { id: "trueSpiritTransformation", name: "真灵变", group: "仙道", target: "mana", layer: "regionMultiplier", value: 1 + 0.6 * state.trueSpiritTransformationLevel },
-      { id: "auraControl", name: "操控灵气", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => current.auraControlUnlocked ? 1 + 1.5 * Math.log10(1 + Math.max(0, current.power) / 3.033e15) : 1 },
-      { id: "immortalRealmDivine", name: "仙界神通", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => current.immortalRealmDivineAbilityUnlocked ? 1 + 0.75 * Math.log10(1 + Math.max(0, current.joules) / 2.092e20) : 1 },
+      { id: "qiChallengeMana", name: "炼气层数", group: "炼气十万年", target: "mana", layer: "regionMultiplier", value: state.activeChallenge === "qiRefiningHundredThousandYears" ? WIS.Cultivation.ImmortalLogic.qiLayerManaMultiplier() : 1 },
+      { id: "qiChallengeReward", name: "炼气十万年奖励", group: "仙道挑战", target: "breathing", layer: "sourceMultiplier", value: WIS.Cultivation.ImmortalLogic.qiChallengeReward() },
+      { id: "auraControl", name: "操控灵气", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => current.auraControlUnlocked ? 1 + 1.5 * toNumber(log10(add(ONE, div(maxBN(ZERO, current.power), "3.033e15"))), 0) : 1 },
+      { id: "immortalRealmDivine", name: "仙界神通", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => current.immortalRealmDivineAbilityUnlocked ? 1 + 0.75 * toNumber(log10(add(ONE, div(maxBN(ZERO, current.joules), "2.092e20"))), 0) : 1 },
       { id: "voidRefiningToQi", name: "炼虚为气", group: "仙道", target: "breathing", layer: "sourceExponent", value: state.voidRefiningToQiUnlocked ? 1.06 : 1 },
       { id: "secondNascentSoul", name: "第二元婴", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.secondNascentSoulUnlocked ? 1.8 : 1 },
       { id: "silverTadpole", name: "银蝌文", group: "仙道", target: "exploration", layer: "sourceExponent", value: state.silverTadpoleScriptUnlocked ? 1.06 : 1 },
@@ -76,7 +79,7 @@
       { id: "demonRealmJourneyTreasure", name: "魔界之游", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", value: state.demonRealmJourneyUnlocked ? 3 : 1 },
       { id: "returnToOrigin", name: "返本归元", group: "仙道", target: "joules", layer: "regionExponent", value: state.returnToOriginUnlocked ? 1.02 : 1 },
       { id: "perfectedTechniqueCompletion", name: "功法圆满", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.perfectedTechniqueCompletionUnlocked ? 1.5 : 1 },
-      { id: "descendRealm", name: "降界", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", dynamic: true, value: (current) => current.descendRealmUnlocked ? Math.min(10, 1 + 0.75 * Math.log10(1 + Math.max(0, current.power) / 8.368e22)) : 1 },
+      { id: "descendRealm", name: "降界", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", dynamic: true, value: (current) => current.descendRealmUnlocked ? Math.min(10, 1 + 0.75 * toNumber(log10(add(ONE, div(maxBN(ZERO, current.power), "8.368e22"))), 0)) : 1 },
       { id: "nascentSoulCompletion", name: "元婴大成", group: "仙道", target: "circulation", layer: "sourceExponent", value: state.nascentSoulCompletionUnlocked ? 1.08 : 1 },
       { id: "goldenSealScript", name: "金篆文", group: "仙道", target: "mana", layer: "regionMultiplier", value: state.goldenSealScriptUnlocked ? 8 : 1 },
       { id: "mysticHeavenSpiritSlayingSword", name: "仙道·玄天斩灵剑", group: "宝物", target: "magicTreasure", layer: "sourceExponent", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.mysticHeavenSpiritSlayingSwordExponent() },
@@ -103,23 +106,51 @@
   let passiveManaRollAccumulator = 0;
   let baLingChiRollAccumulator = 0;
 
-  function update(state, elapsedSeconds) {
-    const automaticMana = WIS.Cultivation.ImmortalLogic.automaticManaGainProgressive(elapsedSeconds);
+  function resultFromSettlement(state, automaticMana, { writeRates = true } = {}) {
     const mana = automaticMana.mana;
     const immortalPower = automaticMana.immortalPower;
+    const processedSeconds = Math.max(0, Number(automaticMana.processedSeconds) || 0);
     const rates = {
-      manaPerSecond: elapsedSeconds > 0 ? mana / elapsedSeconds : 0,
-      immortalPowerPerSecond: elapsedSeconds > 0 ? immortalPower / elapsedSeconds : 0,
-      passiveTreasureManaPerSecond: elapsedSeconds > 0 ? automaticMana.passiveMana / elapsedSeconds : 0,
-      automaticExplorationManaPerSecond: elapsedSeconds > 0 ? automaticMana.explorationMana / elapsedSeconds : 0
+      manaPerSecond: processedSeconds > 0 ? div(mana, processedSeconds) : ZERO,
+      immortalPowerPerSecond: processedSeconds > 0 ? div(immortalPower, processedSeconds) : ZERO,
+      passiveTreasureManaPerSecond: processedSeconds > 0 ? div(automaticMana.passiveMana, processedSeconds) : ZERO,
+      automaticExplorationManaPerSecond: processedSeconds > 0 ? div(automaticMana.explorationMana, processedSeconds) : ZERO
     };
-    Object.assign(WIS.tmp.rates, rates);
-    state.lifetimeTotalMana += mana;
-    return { mana, immortalPower, immortalPowerActiveSeconds: automaticMana.immortalPowerActiveSeconds, rates };
+    if (writeRates) Object.assign(WIS.tmp.rates, rates);
+    state.lifetimeTotalMana = add(state.lifetimeTotalMana, mana);
+    return {
+      mana,
+      immortalPower,
+      immortalPowerActiveSeconds: automaticMana.immortalPowerActiveSeconds,
+      processedSeconds,
+      remainingSeconds: automaticMana.remainingSeconds,
+      eventCommitted: automaticMana.eventCommitted === true,
+      discreteEvent: automaticMana.event ?? automaticMana.instantEvent ?? null,
+      rates
+    };
+  }
+
+  function planAutomaticGain(_state, elapsedSeconds, projectedContext = {}) {
+    return WIS.Cultivation.ImmortalLogic.planAutomaticManaGain(elapsedSeconds, projectedContext);
+  }
+
+  function commitAutomaticGain(state, plan, options = {}) {
+    return resultFromSettlement(
+      state,
+      WIS.Cultivation.ImmortalLogic.commitAutomaticManaGain(plan),
+      plan?.instantEvent ? { ...options, writeRates: false } : options
+    );
+  }
+
+  function update(state, elapsedSeconds, options = {}) {
+    return resultFromSettlement(
+      state,
+      WIS.Cultivation.ImmortalLogic.automaticManaGainProgressive(elapsedSeconds, options)
+    );
   }
 
   function rollPassiveManaTreasure(elapsedSeconds, _passiveManaRate, silentTreasureRolls = false) {
-    if (!(WIS.Cultivation.ImmortalLogic.circulationManaPerSecond() > 0)) {
+    if (!gt(WIS.Cultivation.ImmortalLogic.circulationManaPerSecond(), ZERO)) {
       passiveManaRollAccumulator = 0;
       return 0;
     }
@@ -130,7 +161,7 @@
   }
 
   function rollCirculationTreasure(state, elapsedSeconds, silentTreasureRolls = false) {
-    if (WIS.Cultivation.ImmortalLogic.circulationManaPerSecond() <= 0 || state.heavenlyTreasureLevel < 2) {
+    if (!gt(WIS.Cultivation.ImmortalLogic.circulationManaPerSecond(), ZERO) || state.heavenlyTreasureLevel < 2) {
       baLingChiRollAccumulator = 0;
       return 0;
     }
@@ -169,7 +200,7 @@
     getResources: (state) => ({ mana: state.mana, immortalPower: state.immortalPower }),
     getActions: WIS.Cultivation.ImmortalLogic.getActionIds,
     getAbilities: WIS.Cultivation.ImmortalLogic.getAbilityIds,
-    getEffects: effects,
+    getEffects: effects, planAutomaticGain, commitAutomaticGain,
     getState: (state) => WIS.Core.State.domainView(state).cultivation.systems.immortal,
     reset: (type) => WIS.Core.Reset.describe(type),
     rollPassiveManaTreasure, rollCirculationTreasure, rollImmortalPowerTreasure, resetTransient,

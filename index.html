@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="WIS-无限战力系统网页试玩版" />
     <title>WIS-无限战力系统</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=0.1.4.5-dev" />
   </head>
   <body>
     <div class="app">
@@ -13,7 +13,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.4.3</small>
+          <small id="game-version" class="game-version">v0.1.4.5</small>
         </div>
         <div class="header-actions">
           <div class="scale-progress">
@@ -21,7 +21,7 @@
             <small id="next-scale-progress">下一量级：爆砖（需要 200 战力）</small>
           </div>
           <!-- DEBUG SPEED CONTROL: START（删除本区块即可安全停用调速） -->
-          <button id="debug-speed-button" class="debug-speed-button" type="button" data-multiplier="1" aria-label="调整调试速度" title="调试速度，仅本次打开页面有效">速度 ×1</button>
+          <button id="debug-speed-button" class="debug-speed-button" type="button" data-multiplier="1" aria-label="调整调试速度" title="调试速度，仅本次打开页面有效（Alt+S）" hidden>速度 ×1</button>
           <!-- DEBUG SPEED CONTROL: END -->
           <button id="open-settings" class="settings-button" type="button" aria-label="打开设置" title="设置">⚙</button>
         </div>
@@ -52,15 +52,17 @@
             </div>
           </div>
           <div class="resource-row" id="immortal-power-resource" hidden>
-            <span>仙灵力</span>
+            <span title="根据当前法力自动获得，不消耗法力">仙灵力</span>
             <div class="resource-value">
               <strong id="immortal-power">0</strong>
               <small id="immortal-power-rate" hidden>（+0/秒）</small>
+              <small id="immortal-power-source-note">根据当前法力自动获得，不消耗法力</small>
             </div>
           </div>
         </div>
         <!-- DEBUG RESOURCE BREAKDOWN: START（删除本区块即可安全停用资源来源显示） -->
-        <div class="resource-debug-breakdown" aria-label="资源获取来源调试信息">
+        <button id="formula-details-toggle" class="formula-details-toggle" type="button" aria-expanded="false" hidden>来源公式详情</button>
+        <div class="resource-debug-breakdown" aria-label="资源获取来源调试信息" hidden>
           <p><b>J来源</b><span id="debug-j-sources">正在计算……</span></p>
           <p><b>战力来源</b><span id="debug-power-sources">正在计算……</span></p>
           <p id="debug-mana-source-row" hidden><b>法力来源</b><span id="debug-mana-sources">正在计算……</span></p>
@@ -87,11 +89,11 @@
             <button class="nav-item" data-page="challenges" type="button" hidden>
               <span>挑战</span>
             </button>
-            <button class="nav-item" data-page="statistics" type="button" hidden>
-              <span>统计</span>
-            </button>
             <button class="nav-item" data-page="achievements" type="button" hidden>
               <span>成就</span>
+            </button>
+            <button class="nav-item" data-page="statistics" type="button" hidden>
+              <span>统计</span>
             </button>
           </nav>
         </aside>
@@ -172,7 +174,7 @@
               <article class="item-row" id="exploration-action" hidden>
                 <div class="item-content">
                   <h2>探寻</h2>
-                  <p>消耗当前 10% 战力；投入越多，获得的原始探寻量、法力与宝物判定越多，所需战力按探寻规模动态增长。</p>
+                  <p>消耗当前 10% 战力获得一定探寻量、探寻量提供法力与宝物判定。</p>
                 </div>
                 <div class="action-control">
                   <span id="exploration-preview">单次探寻至少消耗 1M 战力</span>
@@ -216,7 +218,7 @@
 
               <details class="upgrade-group" id="house-upgrades" hidden>
                 <summary>
-                  <span><b>量级 · 爆屋</b><small>我流、直感、音速移动、碳基界限、杀气</small></span>
+                  <span><b>量级 · 爆屋</b><small>我流、直感、鬼背、音速移动、碳基界限、杀气</small></span>
                 </summary>
 <div class="item-list" id="house-upgrade-list" data-sort-by-cost></div>
               </details>
@@ -357,6 +359,17 @@
 
                   <div class="realm-ability-groups" id="advanced-realm-ability-groups"></div>
 
+                  <details class="upgrade-group" id="dao-ancestor-abilities" hidden>
+                    <summary><span><b>道祖</b><small>时间法则、大道归一、道祖威能、天道同化、界域</small></span></summary>
+                    <div class="item-list">
+                      <article class="item-row" id="dao-law-unity-ability"><div class="item-content"><h2>大道归一</h2><p>使法则及法则本源结算后的最终法则倍率 ^1.60，不修改法则内部指数。</p></div><div class="purchase-control"><span id="dao-law-unity-preview">解锁后：最终法则倍率 ^1.60</span><small>消耗 1e24 仙灵力</small><button id="unlock-dao-law-unity" class="primary-button" type="button">解锁</button></div></article>
+                      <article class="item-row" id="dao-domain-ability"><div class="item-content"><h2>界域</h2><p>令 L=log10(1+I/R)，以 E=1.35+0.20×log10(1+L) 无上限指数提升灵域J来源本身，再进入J区域及量级软上限。</p></div><div class="purchase-control"><span id="dao-domain-preview">解锁后：灵域来源获得无上限指数</span><small>消耗 3e24 仙灵力</small><button id="unlock-dao-domain" class="primary-button" type="button">解锁</button></div></article>
+                      <article class="item-row" id="dao-power-ability"><div class="item-content"><h2>道祖威能</h2><p>根据当前仙灵力生成独立战力来源，之后正常进入公共战力乘区、战力区域及量级软上限。</p></div><div class="purchase-control"><span id="dao-power-preview">解锁后：生成独立战力来源</span><small>消耗 1e25 仙灵力</small><button id="unlock-dao-power" class="primary-button" type="button">解锁</button></div></article>
+                      <article class="item-row" id="dao-time-law-ability"><div class="item-content"><h2>时间法则</h2><p>按本次转生实际经过时间，无上限指数提升J、战力、法力与仙灵力获取，并在量级软上限前结算。</p></div><div class="purchase-control"><span id="dao-time-law-preview">解锁后：按本次转生时间提升四类资源</span><small>消耗 3e25 仙灵力</small><button id="unlock-dao-time-law" class="primary-button" type="button">解锁</button></div></article>
+                      <article class="item-row" id="dao-assimilation-ability"><div class="item-content"><h2>天道同化</h2><p>令 L=log10(1+I/R)、Q=1/[1+0.40×log10(1+L)]，逐层弱化所有仍生效的正常量级软上限；不影响挑战及其他特殊软上限。</p></div><div class="purchase-control"><span id="dao-assimilation-preview">解锁后：逐层弱化正常量级软上限</span><small>消耗 1e26 仙灵力</small><button id="unlock-dao-assimilation" class="primary-button" type="button">解锁</button></div></article>
+                    </div>
+                  </details>
+
                   <details class="upgrade-group" id="spirit-transformation-abilities" hidden>
                     <summary><span><b>化神</b><small>炼虚瓶颈、飞升灵界、操控灵气、寿与天齐、小天劫、五行俱全、灵气充沛、通天灵宝</small></span></summary>
 <div class="item-list" id="spirit-transformation-ability-list" data-sort-by-cost></div>
@@ -424,7 +437,7 @@
               <article class="item-row" id="super-lollipop-treasure" hidden>
                 <div class="item-content">
                   <h2>超级棒棒糖</h2>
-                  <p>健身实际产生 J 时，每累计1秒有效时间判定一次；每个使锻炼来源倍率提高2%。</p>
+                  <p>健身试剂产生J时概率获得，每个使锻炼来源倍率提高2%。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="super-lollipop-count">数量：0</span>
@@ -476,12 +489,12 @@
               </article>
 
               <article class="item-row" id="five-elements-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·五行至宝</h2><p>解锁对应能力后，每累计1秒实际获取仙灵力的时间判定一次；数量无上限，并提供带内部衰减的仙灵力倍率。</p></div>
+                <div class="item-content"><h2>仙道·五行至宝</h2><p>解锁对应能力后，每累计1秒实际获取仙灵力的时间判定一次。</p></div>
                 <div class="purchase-control"><span id="five-elements-treasure-count">数量：0</span><small id="five-elements-treasure-chance">每有效秒概率 2.00%</small><small id="five-elements-treasure-effect">实际仙灵力倍率 ×1.000</small></div>
               </article>
 
               <article class="item-row" id="immortal-crystal-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙晶</h2><p>达成仙道成就“登仙”后，每累计1秒实际获取仙灵力的时间判定一次。概率和下一枚收益随当前数量平滑衰减，全部仙晶增量加算且无硬上限。</p></div>
+                <div class="item-content"><h2>仙晶</h2><p>达成仙道成就“登仙”后，每累计1秒实际获取仙灵力的时间判定一次。</p></div>
                 <div class="purchase-control"><span id="immortal-crystal-count">数量：0</span><small id="immortal-crystal-chance">每有效秒概率 5.00%</small><small id="immortal-crystal-effect">仙灵力倍率 ×1.000；下一枚 +0.001000</small></div>
               </article>
 
@@ -498,7 +511,7 @@
                 <p class="section-label">突破限制</p>
                 <h1>挑战</h1>
               </div>
-              <p>开启挑战视为一次新转生：重置行动、强化、体系进度及本轮计时；成功或退出只解除限制，不会再次重置。</p>
+              <p>开启挑战视为一次新转生：重置行动、强化、体系进度及本轮计时；成功或退出只解除限制，不会再次重置。已全部完成的挑战可重复游玩，但不再获得完成奖励。</p>
             </div>
 
             <p class="challenge-active-state" id="challenge-active-state">当前未进行挑战</p>
@@ -601,18 +614,28 @@
               </article>
 
               <article class="item-row" id="sever-evil-corpse-challenge" data-challenge-key="severEvilCorpse" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>斩恶尸</h2><p>J、战力、法力、仙灵力获取均 ^0.85；达到恒星量级即完成。</p></div>
-                <div class="purchase-control"><span id="sever-evil-corpse-progress">完成：0/1次</span><small id="sever-evil-corpse-limit">限制：四类资源获取 ^0.85</small><small id="sever-evil-corpse-target">目标：达到恒星</small><small id="sever-evil-corpse-reward">当前奖励：仙灵力 ×1</small><button id="toggle-sever-evil-corpse" class="primary-button" type="button">开启挑战</button></div>
+                <div class="item-content"><h2>斩恶尸</h2><p>J、战力、法力、仙灵力分别随当前资源值受到动态获取指数压制；达到恒星量级即完成。</p></div>
+                <div class="purchase-control"><span id="sever-evil-corpse-progress">完成：0/1次</span><small id="sever-evil-corpse-limit">当前指数：J ^1.000；战力 ^1.000；法力 ^1.000；仙灵力 ^1.000</small><small id="sever-evil-corpse-target">目标：达到恒星</small><small id="sever-evil-corpse-reward">当前奖励：仙灵力 ×1</small><button id="toggle-sever-evil-corpse" class="primary-button" type="button">开启挑战</button></div>
               </article>
 
               <article class="item-row" id="sever-good-corpse-challenge" data-challenge-key="severGoodCorpse" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>斩善尸</h2><p>四类资源获取均 ^0.70；完成斩恶尸后开放，达到恒星量级即完成。</p></div>
-                <div class="purchase-control"><span id="sever-good-corpse-progress">完成：0/1次</span><small id="sever-good-corpse-limit">限制：四类资源获取 ^0.70</small><small id="sever-good-corpse-target">目标：达到恒星</small><small id="sever-good-corpse-reward">当前奖励：仙灵力区域 ^1.000</small><button id="toggle-sever-good-corpse" class="primary-button" type="button">开启挑战</button></div>
+                <div class="item-content"><h2>斩善尸</h2><p>四类资源获取均 ^0.77；完成斩恶尸后开放，达到恒星量级即完成。</p></div>
+                <div class="purchase-control"><span id="sever-good-corpse-progress">完成：0/1次</span><small id="sever-good-corpse-limit">限制：四类资源获取 ^0.77</small><small id="sever-good-corpse-target">目标：达到恒星</small><small id="sever-good-corpse-reward">当前奖励：仙灵力区域 ^1.000</small><button id="toggle-sever-good-corpse" class="primary-button" type="button">开启挑战</button></div>
               </article>
 
               <article class="item-row" id="sever-self-corpse-challenge" data-challenge-key="severSelfCorpse" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效，仙灵力受到动态倒数指数；完成斩善尸后开放。</p></div>
-                <div class="purchase-control"><span id="sever-self-corpse-progress">完成：0/1次</span><small id="sever-self-corpse-limit">限制：法则失效；仙灵力额外动态压制</small><small id="sever-self-corpse-target">目标：重新达到大罗</small><small id="sever-self-corpse-reward">奖励：永久取得突破道祖资格</small><button id="toggle-sever-self-corpse" class="primary-button" type="button">开启挑战</button></div>
+                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效，仙灵力受到 E=1/[1+0.12×log10(1+I/1e16)] 的额外动态指数；完成斩善尸后开放。</p></div>
+                <div class="purchase-control"><span id="sever-self-corpse-progress">完成：0/1次</span><small id="sever-self-corpse-limit">限制：法则与法则本源失效；仙灵力额外动态压制</small><small id="sever-self-corpse-target">目标：重新达到大罗</small><small id="sever-self-corpse-reward">奖励：永久取得突破道祖资格</small><button id="toggle-sever-self-corpse" class="primary-button" type="button">开启挑战</button></div>
+              </article>
+
+              <article class="item-row" id="qi-refining-hundred-thousand-years-challenge" data-challenge-key="qiRefiningHundredThousandYears" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>炼气十万年</h2><p>放弃筑基及以上境界，只依靠无限炼气层数强化法力、法力J、法力战力并逐层弱化正常量级软上限。</p></div>
+                <div class="purchase-control">
+                  <span id="qi-refining-hundred-thousand-years-progress">最高：炼气1层</span>
+                  <small id="qi-refining-hundred-thousand-years-limit">本轮：炼气1层</small>
+                  <small id="qi-refining-hundred-thousand-years-reward">永久吐纳法力倍率 ×1</small>
+                  <button id="toggle-qi-refining-hundred-thousand-years" class="primary-button" type="button">开启挑战</button>
+                </div>
               </article>
             </div>
           </section>
@@ -727,26 +750,29 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" role="status" aria-live="polite"></div>
-    <script src="js/core/namespace.js"></script>
-    <script src="js/core/config.js"></script>
-    <script src="js/core/registry.js"></script>
-    <script src="js/core/formulas.js"></script>
-    <script src="js/core/runtime.js"></script>
-    <script src="js/core/state.js"></script>
-    <script src="js/core/save.js"></script>
-    <script src="js/core/resources.js"></script>
-    <script src="js/core/effects.js"></script>
-    <script src="js/core/sources.js"></script>
-    <script src="js/core/reset.js"></script>
-    <script src="js/power/scale-logic.js"></script>
-    <script src="js/power/scale.js"></script>
-    <script src="js/cultivation/immortal-logic.js"></script>
-    <script src="js/cultivation/immortal.js"></script>
-    <script src="js/meta/achievements.js"></script>
-    <script src="js/meta/treasures.js"></script>
-    <script src="js/meta/challenges.js"></script>
-    <script src="js/ui/cards.js"></script>
-    <script src="js/ui/app.js"></script>
-    <script src="game.js"></script>
+    <script src="js/core/build-config.js?v=0.1.4.5-dev"></script>
+    <script src="js/vendor/break_eternity.min.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/namespace.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/bignum.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/config.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/registry.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/formulas.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/runtime.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/state.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/save.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/resources.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/effects.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/sources.js?v=0.1.4.5-dev"></script>
+    <script src="js/core/reset.js?v=0.1.4.5-dev"></script>
+    <script src="js/power/scale-logic.js?v=0.1.4.5-dev"></script>
+    <script src="js/power/scale.js?v=0.1.4.5-dev"></script>
+    <script src="js/cultivation/immortal-logic.js?v=0.1.4.5-dev"></script>
+    <script src="js/cultivation/immortal.js?v=0.1.4.5-dev"></script>
+    <script src="js/meta/achievements.js?v=0.1.4.5-dev"></script>
+    <script src="js/meta/treasures.js?v=0.1.4.5-dev"></script>
+    <script src="js/meta/challenges.js?v=0.1.4.5-dev"></script>
+    <script src="js/ui/cards.js?v=0.1.4.5-dev"></script>
+    <script src="js/ui/app.js?v=0.1.4.5-dev"></script>
+    <script src="game.js?v=0.1.4.5-dev"></script>
   </body>
 </html>
