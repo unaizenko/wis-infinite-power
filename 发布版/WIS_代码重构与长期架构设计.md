@@ -1125,7 +1125,7 @@ cultivation.active = [
 
 # 23. Decimal 大数底层
 
-当前开发版与发布版均采用本地 `break_eternity.js`，正式发布版本为 `0.1.4.5`，由 `js/core/bignum.js` 统一适配，当前存档 Schema 为 47。J、战力、法力、仙灵力、累计资源、资源来源、费用、需求、量级阈值与软上限数值均使用 Decimal；JSON 存档将其写为字符串，旧 Number 存档继续兼容。
+开发版 `0.1.4.6-dev` 与发布版 `0.1.4.6` 均采用本地 `break_eternity.js`，由 `js/core/bignum.js` 统一适配，当前存档 Schema 为 47。J、战力、法力、仙灵力、累计资源、资源来源、费用、需求、量级阈值与软上限数值均使用 Decimal；JSON 存档将其写为字符串，旧 Number 存档继续兼容。
 
 等级、炼气层数、挑战完成次数、时间、概率、指数参数、ID、UI 索引和布尔状态继续使用 Number。任何领域模块都不得把 Decimal 转为 Number 后继续做资源算术；只有对数数量级、概率、积分分段和循环计数等明确的控制量可以通过适配层转换。
 
@@ -1141,6 +1141,8 @@ core/build-config.js
 ```
 
 开发版与发布版均支持 `1e368`、`1e1000`、`1e1000000` 等有限大数，并为更高 break_eternity layer 预留底层能力。两者核心运行逻辑基本一致；`build-config.js` 仅控制开发版开启调速和来源公式详情、发布版关闭这两项开发功能。
+
+未来符号进度仍可能包括：
 
 未来可能包括：
 
@@ -1160,7 +1162,7 @@ core/build-config.js
 
 > Decimal 负责可计算的大数量值。  
 > Number 负责控制参数。  
-> Progression / Magnitude 系统负责符号量级。
+> Progression / Magnitude 系统负责不宜直接按普通资源解释的符号量级。
 
 ---
 

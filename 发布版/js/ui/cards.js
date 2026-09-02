@@ -1,7 +1,7 @@
 (function defineCardUI(WIS) {
   "use strict";
 
-  const { BN, abs: absBN, div: divBN, gte, isFiniteBN, isNaNBN, toNumber } = WIS.Core.BigNum;
+  const { BN, abs: absBN, div: divBN, gt, gte, isFiniteBN, isNaNBN, toNumber } = WIS.Core.BigNum;
   const powerCosts = WIS.Core.Config.costs.power;
   const immortalCosts = WIS.Core.Config.costs.immortal;
   const achievementAutomationConfigs = Object.freeze({
@@ -92,8 +92,23 @@
     });
   }
 
+  function formatSmallMultiplier(value, maximumFractionDigits = 5) {
+    const decimal = BN(value);
+    if (!isFiniteBN(decimal) || isNaNBN(decimal)) return "0";
+    const absolute = absBN(decimal);
+    if (!gt(absolute, 0)) return "0";
+    return gte(absolute, "1e-4")
+      ? formatNumber(decimal, maximumFractionDigits)
+      : formatLargeDecimal(decimal);
+  }
+
   const formatCost = (value) => formatNumber(value, 0);
-  WIS.UI.Format = Object.freeze({ compact: formatCompact, number: formatNumber, cost: formatCost });
+  WIS.UI.Format = Object.freeze({
+    compact: formatCompact,
+    number: formatNumber,
+    cost: formatCost,
+    smallMultiplier: formatSmallMultiplier
+  });
 
   function sortByCost(root = document) {
     root.querySelectorAll("[data-sort-by-cost]").forEach((list) => {
@@ -241,6 +256,26 @@
       { id: "supernatural-fire", name: "超自然发火", description: "根据集中最终实际自动战力来源持续提高战力区域倍率，无硬上限。", previewId: "supernatural-fire-preview", preview: "解锁后：战力区域获得无上限集中联动倍率", cost: powerCosts.supernaturalFire, resource: "战力" },
       { id: "five-spirit-stone", name: "五灵石", description: "解锁永久宝物烙印·五灵石的获取资格。", previewId: "five-spirit-stone-preview", preview: "解锁后：极意有效时每秒判定五灵石", cost: powerCosts.fiveSpiritStone, resource: "战力" },
       { id: "self-suppression", name: "自我抑制", description: "将空间震修正前的正常J量级软上限损失的30%转化为额外J区域指数；未触发软上限时无效果。", previewId: "self-suppression-preview", preview: "解锁后：根据基础J软上限指数提高J区域指数", cost: powerCosts.selfSuppression, resource: "战力" }
+    ]),
+    stellar: Object.freeze([
+      { id: "stellar-furnace", name: "恒星熔炉", description: "使公共 J 区域倍率 ×1e12。", previewId: "stellar-furnace-preview", preview: "解锁后：J 区域 ×1e12", cost: powerCosts.stellarFurnace },
+      { id: "stellar-treasure-seeking", name: "星核寻珍", description: "使所有正式宝物的最终获得概率 ×1.5，仍受100%上限限制。", previewId: "stellar-treasure-seeking-preview", preview: "解锁后：所有宝物概率 ×1.5", cost: powerCosts.stellarTreasureSeeking },
+      { id: "gravitational-collapse", name: "引力坍缩", description: "使公共战力区域倍率 ×1e12。", previewId: "gravitational-collapse-preview", preview: "解锁后：战力区域 ×1e12", cost: powerCosts.gravitationalCollapse }
+    ]),
+    galaxy: Object.freeze([
+      { id: "galactic-return", name: "银河回流", description: "使公共 J 区域倍率 ×1e12。", previewId: "galactic-return-preview", preview: "解锁后：J 区域 ×1e12", cost: powerCosts.galacticReturn },
+      { id: "stellar-sea-gift", name: "星海馈赠", description: "成功获得可堆叠宝物时，获得数量 ×2；不增加判定次数。", previewId: "stellar-sea-gift-preview", preview: "解锁后：可堆叠宝物获得数量 ×2", cost: powerCosts.stellarSeaGift },
+      { id: "stellar-resonance", name: "群星共振", description: "使公共战力区域倍率 ×1e4。", previewId: "stellar-resonance-preview", preview: "解锁后：战力区域 ×1e4", cost: powerCosts.stellarResonance }
+    ]),
+    supercluster: Object.freeze([
+      { id: "great-attractor", name: "巨引源", description: "使公共 J 区域指数 ^1.02。", previewId: "great-attractor-preview", preview: "解锁后：J 区域 ^1.02", cost: powerCosts.greatAttractor },
+      { id: "large-scale-adaptation", name: "大尺度适应", description: "使统一古戈尔惩罚强度 ×0.95。", previewId: "large-scale-adaptation-preview", preview: "解锁后：古戈尔惩罚强度 ×0.95", cost: powerCosts.largeScaleAdaptation },
+      { id: "supercluster-collapse", name: "超团坍缩", description: "使公共战力区域指数 ^1.02。", previewId: "supercluster-collapse-preview", preview: "解锁后：战力区域 ^1.02", cost: powerCosts.superclusterCollapse }
+    ]),
+    cosmic: Object.freeze([
+      { id: "cosmic-web", name: "宇宙网", description: "使公共 J 区域指数 ^1.03。", previewId: "cosmic-web-preview", preview: "解锁后：J 区域 ^1.03", cost: powerCosts.cosmicWeb },
+      { id: "scale-unification", name: "尺度统一", description: "使统一古戈尔惩罚强度 ×0.85，并与其他强度修正乘算。", previewId: "scale-unification-preview", preview: "解锁后：古戈尔惩罚强度 ×0.85", cost: powerCosts.scaleUnification },
+      { id: "spacetime-framework", name: "时空骨架", description: "使公共战力区域指数 ^1.03。", previewId: "spacetime-framework-preview", preview: "解锁后：战力区域 ^1.03", cost: powerCosts.spacetimeFramework }
     ])
   });
 

@@ -39,6 +39,10 @@
       planetWill: 3e29, starSpirit: 1e30, starShatter: 3e30,
       spaceQuake: 1e31, selfless: 3e31, supernaturalFire: 1e32,
       fiveSpiritStone: 3e32, selfSuppression: 1e33,
+      stellarFurnace: "1e43", stellarTreasureSeeking: "1e46", gravitationalCollapse: "1e50",
+      galacticReturn: "1e53", stellarSeaGift: "3e54", stellarResonance: "5e56",
+      greatAttractor: "1e59", largeScaleAdaptation: "1e63", superclusterCollapse: "1e67",
+      cosmicWeb: "1e70", scaleUnification: "1e74", spacetimeFramework: "1e78",
       rockBase: 2000
     }),
     immortal: Object.freeze({
@@ -110,6 +114,23 @@
     severEvilCorpse: Object.freeze({ name: "斩恶尸", maxCompletions: 1, requiredScaleIndex: 11, resourceName: "J、战力、法力与仙灵力", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 1, minimumDynamicExponent: 0.80 }),
     severGoodCorpse: Object.freeze({ name: "斩善尸", maxCompletions: 1, limitExponents: [0.77], rewardExponents: [1.02], requiredScaleIndex: 11, resourceName: "J、战力、法力与仙灵力", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 2 }),
     severSelfCorpse: Object.freeze({ name: "斩自我尸", maxCompletions: 1, targetAdvancedRealmLevel: 9, resourceName: "法则失效；仙灵力额外倒数指数", system: "immortal", catalogSystem: "仙道", threeCorpseOrder: 3 }),
+    solarPower: Object.freeze({
+      name: "太阳之力", maxCompletions: 1, requiredScaleIndex: 11,
+      resourceName: "J与战力相互压制最终获取指数",
+      unlockAchievementKey: "trueScale11",
+      requiresJAndPower: true
+    }),
+    galaxy: Object.freeze({
+      name: "银河", maxCompletions: 1, requiredScaleIndex: 12,
+      resourceName: "根据当前J、当前战力获得收益的强化",
+      unlockAchievementKey: "trueScale12",
+      dynamicResourceExponent: 1.10
+    }),
+    blackHole: Object.freeze({
+      name: "黑洞", maxCompletions: 1, requiredScaleIndex: 14,
+      resourceName: "J与战力自身获取指数及下一量级需求",
+      unlockAchievementKey: "trueScale13"
+    }),
     qiRefiningHundredThousandYears: Object.freeze({
       name: "炼气十万年", maxCompletions: 1, targetQiLayer: 100000,
       resourceName: "境界固定炼气，以无限炼气层数推进", system: "immortal",
@@ -137,15 +158,21 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.4.5", saveVersion: 47,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.4.6", saveVersion: 47,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
+    googolPenalty: Object.freeze({
+      threshold: BN("1e100"),
+      defaultStrength: BN(1),
+      resources: decimalRecord({ joules: 0.90, power: 0.90, mana: 0.95, immortalPower: 0.97 })
+    }),
     achievementEffects: Object.freeze({
       timeScaleSeconds: 20 * 60,
       goldenNatureTimeScaleSeconds: 10 * 60,
       greatLuoTimeScaleSeconds: 10 * 60,
       stellarChallengePowerMultiplier: 15,
+      galaxyChallengeJMultiplier: 75,
       immortalCrystal: Object.freeze({ baseChance: 0.05, perItemAdditive: 0.001, decayScale: 100, decayExponent: -0.5 }),
       goldenNatureExponentPerDoubling: 0.025,
       utmostPuritySoftcapLossCoefficient: 0.08,
@@ -312,7 +339,13 @@
     }),
     scaleTreasures: Object.freeze({
       superLollipop: Object.freeze({ baseChance: 0.0005, chanceDecay: 0.98, perItemMultiplier: 0.02 }),
-      fiveSpiritStone: Object.freeze({ baseChance: 0.0005, chanceDecay: 0.99, joulesBase: 10, joulesExponent: 1.2, powerBase: 5, powerExponent: 1.25 })
+      fiveSpiritStone: Object.freeze({ baseChance: 0.0005, chanceDecay: 0.99, joulesBase: 10, joulesExponent: 1.2, powerBase: 5, powerExponent: 1.25 }),
+      cosmicFiber: Object.freeze({
+        baseChance: 0.003, chanceDecayScale: 20, chanceDecayExponent: 0.65,
+        galaxyBaseExponent: 1.10, galaxyPerItemExponent: 0.005,
+        galaxyDecayScale: 20, galaxyDecayExponent: 0.55
+      }),
+      cosmicWill: Object.freeze({ baseChance: 0.005, chanceDecayScale: 10, chanceDecayExponent: 0.5 })
     })
   });
 }(window.WIS));

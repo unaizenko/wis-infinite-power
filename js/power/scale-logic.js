@@ -39,17 +39,25 @@
   const STAR_SHATTER_COST = POWER_COSTS.starShatter, SPACE_QUAKE_COST = POWER_COSTS.spaceQuake;
   const SELFLESS_COST = POWER_COSTS.selfless, SUPERNATURAL_FIRE_COST = POWER_COSTS.supernaturalFire;
   const FIVE_SPIRIT_STONE_COST = POWER_COSTS.fiveSpiritStone, SELF_SUPPRESSION_COST = POWER_COSTS.selfSuppression;
+  const STELLAR_FURNACE_COST = POWER_COSTS.stellarFurnace, STELLAR_TREASURE_SEEKING_COST = POWER_COSTS.stellarTreasureSeeking;
+  const GRAVITATIONAL_COLLAPSE_COST = POWER_COSTS.gravitationalCollapse, GALACTIC_RETURN_COST = POWER_COSTS.galacticReturn;
+  const STELLAR_SEA_GIFT_COST = POWER_COSTS.stellarSeaGift, STELLAR_RESONANCE_COST = POWER_COSTS.stellarResonance;
+  const GREAT_ATTRACTOR_COST = POWER_COSTS.greatAttractor, LARGE_SCALE_ADAPTATION_COST = POWER_COSTS.largeScaleAdaptation;
+  const SUPERCLUSTER_COLLAPSE_COST = POWER_COSTS.superclusterCollapse, COSMIC_WEB_COST = POWER_COSTS.cosmicWeb;
+  const SCALE_UNIFICATION_COST = POWER_COSTS.scaleUnification, SPACETIME_FRAMEWORK_COST = POWER_COSTS.spacetimeFramework;
   const ROCK_BASE_LEVEL_CAP = CONFIG.rockBaseLevelCap;
   const TRAINING_J_DECAY_SCALE = CONFIG.training.decayScale, TRAINING_J_DECAY_LOG_DIVISOR = CONFIG.training.decayLogDivisor, TRAINING_J_DECAY_POWER = CONFIG.training.decayPower;
   const SCATTER_RETAINED_UPGRADE_TIERS = CONFIG.scatterRetainedUpgradeTiers;
   const SCALE_THRESHOLDS = CONFIG.scales;
   const RESOURCE_SOFTCAP_STAGES = CONFIG.softcaps;
   const RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP = 0.01;
-  const RESOURCE_SOFTCAP_MAX_ITERATIONS = 16384;
+  // Progressive settlement gets a fixed continuous-integration budget. Stage crossings
+  // may use one additional segment per configured stage, so cost never follows magnitude.
+  const RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS = 60;
   const RESOURCE_SOFTCAP_DYNAMIC_MAX_EVALUATIONS = 32;
   const RESOURCE_SOFTCAP_DYNAMIC_LOG_STEP = 0.05;
   const RESOURCE_SOFTCAP_CHALLENGE_LOG_STEP = 0.5;
-  const RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS = 24;
+  const RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS = 48;
   const CHALLENGE_DEFINITIONS = CONFIG.challenges;
   const GHOST_BRAIN_CONFIG = CONFIG.ghostBrain;
   const FOCUS_SOURCE_CURVE_CONFIG = CONFIG.focus.sourceCurve;
@@ -373,6 +381,30 @@
     return sub(pow(add(ONE, gain), 1 / exponent), ONE);
   }
 
+  function logarithmicAmountSpan(startAmount, endAmount) {
+    const start = maxBN(ONE, startAmount);
+    const end = maxBN(start, endAmount);
+    return Math.max(0, toNumber(sub(log10(end), log10(start)), 0));
+  }
+
+  function logarithmicAmountInterpolation(startAmount, endAmount, position = 0.5) {
+    const start = maxBN(ZERO, startAmount);
+    const end = maxBN(start, endAmount);
+    if (!gt(end, start)) return start;
+    if (!gt(start, ZERO)) return mul(end, Math.max(0, Math.min(1, position)));
+    return mul(start, pow(div(end, start), Math.max(0, Math.min(1, position))));
+  }
+
+  function refinedProgressiveSettlement(rawGain, currentAmount) {
+    let estimate = applyResourceSoftcapSettlement(rawGain, currentAmount);
+    for (let iteration = 0; iteration < 2; iteration += 1) {
+      const projectedEnd = add(currentAmount, maxBN(ZERO, estimate));
+      const evaluationAmount = logarithmicAmountInterpolation(currentAmount, projectedEnd, 0.5);
+      estimate = applyResourceSoftcapSettlement(rawGain, evaluationAmount);
+    }
+    return maxBN(ZERO, estimate);
+  }
+
   function applyResourceSoftcapProgressive(rawGain, currentAmount) {
     let remainingRawGain = maxBN(ZERO, rawGain);
     const initialAmount = maxBN(ZERO, currentAmount);
@@ -380,26 +412,66 @@
 
     let settledAmount = initialAmount;
     let settledGain = ZERO;
-    for (
-      let iteration = 0;
-      iteration < RESOURCE_SOFTCAP_MAX_ITERATIONS && gt(remainingRawGain, ZERO);
-      iteration += 1
-    ) {
-      const exponent = resourceSoftcapSettlementExponent(settledAmount);
-      if (!(exponent > 0)) break;
-      const nextBoundary = nextResourceSoftcapIntegrationBoundary(settledAmount);
-      if (!nextBoundary) {
-        settledGain = add(settledGain, applyResourceSoftcapSettlement(remainingRawGain, settledAmount));
+    let continuousSegments = 0;
+    let exactStageSegments = 0;
+    const maximumSegments = RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS + RESOURCE_SOFTCAP_STAGES.length;
+    for (let segment = 0; segment < maximumSegments && gt(remainingRawGain, ZERO); segment += 1) {
+      const projectedGain = applyResourceSoftcapSettlement(remainingRawGain, settledAmount);
+      const projectedEnd = add(settledAmount, maxBN(ZERO, projectedGain));
+      const nextStageBoundary = nextResourceSoftcapThreshold(settledAmount);
+      const canCrossStage = nextStageBoundary && gt(projectedEnd, nextStageBoundary);
+      if (continuousSegments >= RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS &&
+          !(canCrossStage && exactStageSegments < RESOURCE_SOFTCAP_STAGES.length)) {
+        // The fixed-point logarithmic midpoint settles every last unit of raw gain.
+        // It is deliberately not a final left-end exponent extrapolation.
+        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
         remainingRawGain = ZERO;
         break;
       }
 
+      const remainingBudget = Math.max(1,
+        RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS - continuousSegments);
+      const projectedLogSpan = logarithmicAmountSpan(settledAmount, projectedEnd);
+      const highPrecision = projectedLogSpan <= remainingBudget * RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP;
+      let nextBoundary;
+      let evaluationAmount = settledAmount;
+      if (canCrossStage && (!highPrecision || remainingBudget <= 1)) {
+        nextBoundary = nextStageBoundary;
+        evaluationAmount = logarithmicAmountInterpolation(settledAmount, nextBoundary, 0.5);
+      } else if (highPrecision || !gt(settledAmount, ZERO) || !hasStartedUnremovedResourceSoftcap(settledAmount)) {
+        nextBoundary = nextResourceSoftcapIntegrationBoundary(settledAmount);
+      } else {
+        // Large spans divide their remaining logarithmic distance over the remaining
+        // fixed budget. There is intentionally no maximum log-step clamp.
+        const adaptiveLogStep = Math.max(
+          RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP,
+          projectedLogSpan / remainingBudget
+        );
+        const adaptiveBoundary = mul(settledAmount, pow10(adaptiveLogStep));
+        nextBoundary = nextStageBoundary ? minBN(nextStageBoundary, adaptiveBoundary) : adaptiveBoundary;
+        evaluationAmount = logarithmicAmountInterpolation(settledAmount, nextBoundary, 0.5);
+      }
+      if (!nextBoundary || !gt(nextBoundary, settledAmount) || !gt(projectedEnd, nextBoundary)) {
+        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
+        remainingRawGain = ZERO;
+        break;
+      }
+
+      const exponent = resourceSoftcapSettlementExponent(evaluationAmount);
+      if (!(exponent > 0)) {
+        remainingRawGain = ZERO;
+        break;
+      }
       const neededActualGain = maxBN(ZERO, sub(nextBoundary, settledAmount));
-      if (!gt(neededActualGain, ZERO)) break;
+      if (!gt(neededActualGain, ZERO)) {
+        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
+        remainingRawGain = ZERO;
+        break;
+      }
       const neededRawGain = rawGainForSoftcappedActualGain(neededActualGain, exponent);
       const tolerance = neededRawGain ? mul(maxBN(ONE, neededRawGain), Number.EPSILON * 16) : ZERO;
       if (!neededRawGain || !isFiniteBN(neededRawGain) || lt(add(remainingRawGain, tolerance), neededRawGain)) {
-        settledGain = add(settledGain, applyResourceSoftcapSettlement(remainingRawGain, settledAmount));
+        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
         remainingRawGain = ZERO;
         break;
       }
@@ -408,10 +480,11 @@
       settledGain = add(settledGain, neededActualGain);
       remainingRawGain = maxBN(ZERO, sub(remainingRawGain, neededRawGain));
       if (lte(remainingRawGain, tolerance)) remainingRawGain = ZERO;
+      continuousSegments += 1;
+      if (nextStageBoundary && eq(nextBoundary, nextStageBoundary)) exactStageSegments += 1;
     }
-
     if (gt(remainingRawGain, ZERO)) {
-      settledGain = add(settledGain, applyResourceSoftcapSettlement(remainingRawGain, settledAmount));
+      settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
     }
     return maxBN(ZERO, settledGain);
   }
@@ -483,7 +556,10 @@
         : ZERO;
       lastRate = rateAt(evaluationAmount);
       if (!isFiniteBN(lastRate)) return ZERO;
-      if (!gt(lastRate, ZERO)) break;
+      if (!gt(lastRate, ZERO)) {
+        remainingTime = 0;
+        break;
+      }
       const timeToBoundary = toNumber(div(sub(boundary, settledAmount), lastRate), Infinity);
       if (!(timeToBoundary > 0) || !Number.isFinite(timeToBoundary) || timeToBoundary >= remainingTime) {
         settledGain = add(settledGain, mul(lastRate, remainingTime));
@@ -533,12 +609,43 @@
         if (!isFiniteBN(startRate)) return ZERO;
         if (!gt(startRate, ZERO)) break;
         const remainingSegments = RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS - segment;
+        if (remainingSegments === 1) {
+          // The final budget segment always covers all remaining time. Use a short
+          // fixed-point midpoint correction rather than a stale left-end rate, while
+          // leaving an exact stage crossing for the stage pass below.
+          let evaluationAmount = settledAmount;
+          let representativeRate = startRate;
+          for (let correction = 0; correction < 3; correction += 1) {
+            const rawRate = extrapolatedRawRate(evaluationAmount);
+            representativeRate = isFiniteBN(rawRate)
+              ? settleRate(rawRate, evaluationAmount)
+              : ZERO;
+            if (!isFiniteBN(representativeRate) || !gt(representativeRate, ZERO)) break;
+            const projectedAmount = add(settledAmount, mul(representativeRate, remainingTime));
+            evaluationAmount = logarithmicAmountInterpolation(settledAmount, projectedAmount, 0.5);
+          }
+          if (!isFiniteBN(representativeRate) || !gt(representativeRate, ZERO)) break;
+          const nextStageBoundary = nextResourceSoftcapThreshold(settledAmount);
+          const projectedGain = mul(representativeRate, remainingTime);
+          if (nextStageBoundary && gte(add(settledAmount, projectedGain), nextStageBoundary)) {
+            const timeToStage = toNumber(div(sub(nextStageBoundary, settledAmount), representativeRate), Infinity);
+            if (timeToStage > 0 && Number.isFinite(timeToStage) && timeToStage < remainingTime) {
+              settledGain = add(settledGain, sub(nextStageBoundary, settledAmount));
+              settledAmount = nextStageBoundary;
+              remainingTime -= timeToStage;
+              break;
+            }
+          }
+          settledGain = add(settledGain, projectedGain);
+          remainingTime = 0;
+          break;
+        }
         const projectedOrders = gt(settledAmount, ZERO)
           ? Math.max(0, toNumber(log10(add(ONE, div(mul(startRate, remainingTime), settledAmount))), 0))
           : dynamicLogStep;
         const adaptiveLogStep = Math.max(
           dynamicLogStep,
-          Math.min(64, projectedOrders * 1.25 / Math.max(1, remainingSegments - 1))
+          projectedOrders * 1.1 / remainingSegments
         );
         const boundary = tailBoundary(settledAmount, adaptiveLogStep);
         if (!boundary) {
@@ -563,7 +670,10 @@
           ? settleRate(rawRate, evaluationAmount)
           : ZERO;
         if (!isFiniteBN(rate)) return ZERO;
-        if (!gt(rate, ZERO)) break;
+        if (!gt(rate, ZERO)) {
+          remainingTime = 0;
+          break;
+        }
         const timeToBoundary = toNumber(div(sub(boundary, settledAmount), rate), Infinity);
         if (!(timeToBoundary > 0) || !Number.isFinite(timeToBoundary) || timeToBoundary >= remainingTime) {
           settledGain = add(settledGain, mul(rate, remainingTime));
@@ -574,6 +684,48 @@
         settledGain = add(settledGain, mul(rate, timeToBoundary));
         remainingTime -= timeToBoundary;
       }
+      let tailStagePasses = 0;
+      while (remainingTime > 0 && tailStagePasses <= RESOURCE_SOFTCAP_STAGES.length) {
+        let evaluationAmount = settledAmount;
+        let finalRate = ZERO;
+        for (let correction = 0; correction < 3; correction += 1) {
+          const rawRate = extrapolatedRawRate(evaluationAmount);
+          finalRate = isFiniteBN(rawRate) ? settleRate(rawRate, evaluationAmount) : ZERO;
+          if (!isFiniteBN(finalRate) || !gt(finalRate, ZERO)) break;
+          const projectedAmount = add(settledAmount, mul(finalRate, remainingTime));
+          evaluationAmount = logarithmicAmountInterpolation(settledAmount, projectedAmount, 0.5);
+        }
+        if (!isFiniteBN(finalRate) || !gt(finalRate, ZERO)) {
+          remainingTime = 0;
+          break;
+        }
+        const nextStageBoundary = nextResourceSoftcapThreshold(settledAmount);
+        const projectedGain = mul(finalRate, remainingTime);
+        if (nextStageBoundary && gte(add(settledAmount, projectedGain), nextStageBoundary)) {
+          const timeToStage = toNumber(div(sub(nextStageBoundary, settledAmount), finalRate), Infinity);
+          if (timeToStage > 0 && Number.isFinite(timeToStage) && timeToStage < remainingTime) {
+            settledGain = add(settledGain, sub(nextStageBoundary, settledAmount));
+            settledAmount = nextStageBoundary;
+            remainingTime -= timeToStage;
+            tailStagePasses += 1;
+            continue;
+          }
+        }
+        settledGain = add(settledGain, projectedGain);
+        remainingTime = 0;
+      }
+    }
+    if (remainingTime > 0) {
+      // Defensive completeness path: reuse the final sampled raw rate so elapsed time
+      // can never be dropped even if an extreme Decimal edge case exits the tail early.
+      const fallbackRawRate = lastSample?.rawRate || ZERO;
+      const fallbackRate = isFiniteBN(fallbackRawRate)
+        ? settleRate(fallbackRawRate, settledAmount)
+        : ZERO;
+      if (isFiniteBN(fallbackRate) && gt(fallbackRate, ZERO)) {
+        settledGain = add(settledGain, mul(fallbackRate, remainingTime));
+      }
+      remainingTime = 0;
     }
     return maxBN(ZERO, settledGain);
   }
@@ -612,7 +764,8 @@
   }
 
   function gymPotentialMultiplier() {
-    return (1.25 + toNumber(log10(add(ONE, maxBN(ZERO, state.power))), 0) * 0.5) * breathingMethodGymMultiplier();
+    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
+    return (1.25 + toNumber(log10(add(ONE, maxBN(ZERO, currentPower))), 0) * 0.5) * breathingMethodGymMultiplier();
   }
 
   function gymMultiplier() {
@@ -628,7 +781,8 @@
   }
 
   function godspeedPotentialExponent() {
-    return 1 + 0.05 * toNumber(log10(add(ONE, div(maxBN(ZERO, state.power), "3.033e15"))), 0);
+    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
+    return 1 + 0.05 * toNumber(log10(add(ONE, div(maxBN(ZERO, currentPower), "3.033e15"))), 0);
   }
 
   function breathingMethodGymMultiplier() {
@@ -637,6 +791,39 @@
 
   function scaleIndexForPower(power) {
     return WIS.Core.Registries.powerSystems.get("scale").tierIndexForPower(power);
+  }
+
+  function scaleRequirementDetails(scaleIndex, source = state) {
+    const scale = SCALE_THRESHOLDS[scaleIndex];
+    if (!scale) return null;
+    const baseRequirement = BN(scale.power);
+    const Challenges = WIS.Meta.Challenges;
+    const rewardRequirement = Challenges?.blackHoleRewardRequirement
+      ? Challenges.blackHoleRewardRequirement(source, scaleIndex, baseRequirement)
+      : baseRequirement;
+    const lossDetails = source.activeChallenge === "blackHole"
+      ? blackHoleGainLossDetails()
+      : {
+          joulesBefore: ZERO, joulesAfter: ZERO, powerBefore: ZERO, powerAfter: ZERO,
+          joulesLossOrders: ZERO, powerLossOrders: ZERO, lossOrders: ZERO,
+          requirementMultiplier: ONE
+        };
+    const blackHoleMultiplier = source.activeChallenge === "blackHole"
+      ? lossDetails.requirementMultiplier
+      : ONE;
+    return {
+      scaleIndex,
+      baseRequirement,
+      rewardRequirement,
+      rewardMultiplier: div(rewardRequirement, baseRequirement),
+      blackHoleMultiplier,
+      actualRequirement: mul(rewardRequirement, blackHoleMultiplier),
+      lossDetails
+    };
+  }
+
+  function scaleRequirement(scaleIndex, source = state) {
+    return scaleRequirementDetails(scaleIndex, source)?.actualRequirement ?? ZERO;
   }
 
   function updateScaleProgress(notify = true) {
@@ -661,7 +848,12 @@
       attempts,
       () => hasAchievement("scale5") && fitnessJBonus() > 0,
       fitnessMembershipCardChance,
-      () => { WIS.Meta.Treasures.add(state, "fitnessMembershipCard"); }
+      () => { WIS.Meta.Treasures.add(state, "fitnessMembershipCard"); },
+      {
+        probabilityAtOffset: (offset) => fitnessMembershipCardChance(fitnessMembershipCardCount() + offset),
+        treasureKey: "fitnessMembershipCard",
+        awardMany: (count) => WIS.Meta.Treasures.add(state, "fitnessMembershipCard", count)
+      }
     );
 
     if (!silent && gained > 0) {
@@ -675,10 +867,10 @@
     return state.treasureImprints?.superLollipop || 0;
   }
 
-  function superLollipopChance() {
+  function superLollipopChance(count = superLollipopCount()) {
     const config = SCALE_TREASURE_CONFIG.superLollipop;
     return Math.min(1,
-      config.baseChance * Math.pow(config.chanceDecay, superLollipopCount()) * treasureChanceMultiplier()
+      config.baseChance * Math.pow(config.chanceDecay, Math.max(0, Number(count) || 0)) * treasureChanceMultiplier()
     );
   }
 
@@ -691,7 +883,12 @@
       attempts,
       () => hasAchievement("scale8"),
       superLollipopChance,
-      () => { WIS.Meta.Treasures.add(state, "superLollipop"); }
+      () => { WIS.Meta.Treasures.add(state, "superLollipop"); },
+      {
+        probabilityAtOffset: (offset) => superLollipopChance(superLollipopCount() + offset),
+        treasureKey: "superLollipop",
+        awardMany: (count) => WIS.Meta.Treasures.add(state, "superLollipop", count)
+      }
     );
     if (!silent && gained > 0) showNotice(`获得永久宝物：超级棒棒糖 +${gained}`);
     return gained;
@@ -701,10 +898,16 @@
     return state.treasureImprints?.skyCrystal || 0;
   }
 
-  function skyCrystalChance() {
+  function treasureQuantityDecay(count, scale, exponent) {
+    const numericCount = Number(count);
+    const safeCount = Number.isFinite(numericCount) ? Math.max(0, numericCount) : Number.MAX_VALUE;
+    return Math.pow(1 + safeCount / scale, -exponent);
+  }
+
+  function skyCrystalChance(count = skyCrystalCount()) {
     return Math.min(1,
       0.005 * (1 + Math.log10(1 + effectiveRockLevel() / 1000)) /
-        Math.sqrt(1 + skyCrystalCount() / 10) * treasureChanceMultiplier()
+        Math.sqrt(1 + Math.max(0, Number(count) || 0) / 10) * treasureChanceMultiplier()
     );
   }
 
@@ -717,7 +920,12 @@
       attempts,
       () => hasAchievement("scale9") && gt(rockPowerPerSecond(), ZERO),
       skyCrystalChance,
-      () => { WIS.Meta.Treasures.add(state, "skyCrystal"); }
+      () => { WIS.Meta.Treasures.add(state, "skyCrystal"); },
+      {
+        probabilityAtOffset: (offset) => skyCrystalChance(skyCrystalCount() + offset),
+        treasureKey: "skyCrystal",
+        awardMany: (count) => WIS.Meta.Treasures.add(state, "skyCrystal", count)
+      }
     );
     if (!silent && gained > 0) {
       saveState();
@@ -726,8 +934,85 @@
     return gained;
   }
 
+  function cosmicFiberCount() {
+    return state.treasureImprints?.cosmicFiber || 0;
+  }
+
+  function cosmicFiberAvailable(source = state) {
+    return source.highestScaleIndex >= 13 && source.unlockedAchievements?.scale13 === true;
+  }
+
+  function cosmicFiberDecayedChance(count = cosmicFiberCount()) {
+    const config = SCALE_TREASURE_CONFIG.cosmicFiber;
+    return config.baseChance * treasureQuantityDecay(count, config.chanceDecayScale, config.chanceDecayExponent);
+  }
+
+  function cosmicFiberChance(count = cosmicFiberCount()) {
+    return Math.min(1, cosmicFiberDecayedChance(count) * treasureChanceMultiplier());
+  }
+
+  function rollCosmicFiberAttempts(attempts, silent = false) {
+    const gained = rollDynamicAttempts(
+      attempts,
+      () => cosmicFiberAvailable(),
+      cosmicFiberChance,
+      () => { WIS.Meta.Treasures.add(state, "cosmicFiber"); },
+      {
+        probabilityAtOffset: (offset) => cosmicFiberChance(cosmicFiberCount() + offset),
+        treasureKey: "cosmicFiber",
+        awardMany: (count) => WIS.Meta.Treasures.add(state, "cosmicFiber", count)
+      }
+    );
+    if (!silent && gained > 0) {
+      saveState();
+      showNotice(`获得永久宝物：宇宙纤维 +${gained}`);
+    }
+    return gained;
+  }
+
+  function cosmicWillCount() {
+    return state.treasureImprints?.cosmicWill || 0;
+  }
+
+  function cosmicWillAvailable(source = state) {
+    return source.highestScaleIndex >= 14 && source.unlockedAchievements?.scale14 === true;
+  }
+
+  function cosmicWillDecayedChance(count = cosmicWillCount()) {
+    const config = SCALE_TREASURE_CONFIG.cosmicWill;
+    return config.baseChance * treasureQuantityDecay(count, config.chanceDecayScale, config.chanceDecayExponent);
+  }
+
+  function cosmicWillChance(count = cosmicWillCount()) {
+    return Math.min(1, cosmicWillDecayedChance(count) * treasureChanceMultiplier());
+  }
+
+  function rollCosmicWillAttempts(attempts, silent = false) {
+    const gained = rollDynamicAttempts(
+      attempts,
+      () => cosmicWillAvailable(),
+      cosmicWillChance,
+      () => { WIS.Meta.Treasures.add(state, "cosmicWill"); },
+      {
+        probabilityAtOffset: (offset) => cosmicWillChance(cosmicWillCount() + offset),
+        treasureKey: "cosmicWill",
+        awardMany: (count) => WIS.Meta.Treasures.add(state, "cosmicWill", count)
+      }
+    );
+    if (!silent && gained > 0) {
+      saveState();
+      showNotice(`获得永久宝物：宇宙意志 +${gained}`);
+    }
+    return gained;
+  }
+
+  function galaxyEffectiveExponent(source = state) {
+    return WIS.Core.Effects.galaxyDynamicResourceExponent(source);
+  }
+
   function exercisePotentialMultiplier() {
-    return 1.1 + toNumber(log10(add(ONE, maxBN(ZERO, state.joules))), 0) * 0.1;
+    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
+    return 1.1 + toNumber(log10(add(ONE, maxBN(ZERO, currentJoules))), 0) * 0.1;
   }
 
   function exerciseMultiplier() {
@@ -735,7 +1020,8 @@
   }
 
   function transcendentPotentialMultiplier() {
-    return 1 + toNumber(log10(add(ONE, maxBN(ZERO, state.power))), 0) * 0.15;
+    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
+    return 1 + toNumber(log10(add(ONE, maxBN(ZERO, currentPower))), 0) * 0.15;
   }
 
   function transcendentMultiplier() {
@@ -747,7 +1033,8 @@
   }
 
   function naturalStrengthPotentialMultiplier() {
-    return 1 + toNumber(log10(add(ONE, maxBN(ZERO, state.joules))), 0) * 0.15;
+    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
+    return 1 + toNumber(log10(add(ONE, maxBN(ZERO, currentJoules))), 0) * 0.15;
   }
 
   function powerMultiplierGroups() {
@@ -809,7 +1096,9 @@
       * (1 - softcapExponent);
   }
 
-  function selfSuppressionJExponent(currentJoules = state.joules) {
+  function selfSuppressionJExponent(
+    currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules")
+  ) {
     if (!state.selfSuppressionPurchased) return 1;
     return selfSuppressionJExponentFromBase(resourceSoftcapBaseExponent(currentJoules));
   }
@@ -929,7 +1218,9 @@
     const previousJoules = state.joules;
     state.joules = evaluationJoules;
     try {
-      return WIS.Core.Effects.withState(state, () => rateProfile.settledRate());
+      return WIS.Core.Effects.withState(state, () => WIS.Core.Penalties.applyGoogolPenalty(
+        "joules", evaluationJoules, rateProfile.settledRate(), state
+      ));
     } finally {
       state.joules = previousJoules;
     }
@@ -947,7 +1238,8 @@
   }
 
   function continentPowerMagnitude() {
-    return toNumber(log10(add(ONE, div(maxBN(ZERO, state.power), CONTINENT_REFERENCE_POWER))), 0);
+    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
+    return toNumber(log10(add(ONE, div(maxBN(ZERO, currentPower), CONTINENT_REFERENCE_POWER))), 0);
   }
 
   function elementalizationJSource() {
@@ -960,7 +1252,9 @@
     });
   }
 
-  function planetWillElementalizationMultiplier(currentJoules = state.joules) {
+  function planetWillElementalizationMultiplier(
+    currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules")
+  ) {
     if (!state.planetWillPurchased) return 1;
     const config = STAR_ENHANCEMENT_CONFIG.planetWill;
     return minBN(
@@ -998,7 +1292,8 @@
   }
 
   function myStylePotentialFitnessMultiplier() {
-    const jMagnitude = toNumber(log10(add(ONE, maxBN(ZERO, state.joules))), 0);
+    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
+    const jMagnitude = toNumber(log10(add(ONE, maxBN(ZERO, currentJoules))), 0);
     return 1 + 0.18 * Math.pow(jMagnitude, 0.85);
   }
 
@@ -1007,7 +1302,8 @@
   }
 
   function carbonLimitPotentialFitnessBonus() {
-    const jMagnitude = toNumber(log10(add(ONE, maxBN(ZERO, state.joules))), 0);
+    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
+    const jMagnitude = toNumber(log10(add(ONE, maxBN(ZERO, currentJoules))), 0);
     return 0.8 * Math.pow(jMagnitude, 1.2);
   }
 
@@ -1032,9 +1328,9 @@
     return fitnessMembershipCardCount() * 0.002;
   }
 
-  function fitnessMembershipCardChance() {
+  function fitnessMembershipCardChance(count = fitnessMembershipCardCount()) {
     return Math.min(1,
-      0.005 * Math.pow(0.97, fitnessMembershipCardCount()) * treasureChanceMultiplier()
+      0.005 * Math.pow(0.97, Math.max(0, Number(count) || 0)) * treasureChanceMultiplier()
     );
   }
 
@@ -1113,13 +1409,37 @@
     return WIS.Core.Effects.value("highSpeedMetabolism", state);
   }
 
+  let conversionGainCache = null;
   function conversionGain() {
-    return applyResourceSoftcapProgressive(
+    const cacheKey = {
+      effectsRevision: WIS.Core.Effects.getRevision?.() || 0,
+      joules: state.joules,
+      power: state.power,
+      mana: state.mana,
+      immortalPower: state.immortalPower,
+      highestPower: state.highestPower,
+      totalElapsedSeconds: state.totalElapsedSeconds,
+      activeChallengeElapsedSeconds: state.activeChallengeElapsedSeconds
+    };
+    if (conversionGainCache &&
+        conversionGainCache.effectsRevision === cacheKey.effectsRevision &&
+        eq(conversionGainCache.joules, cacheKey.joules) &&
+        eq(conversionGainCache.power, cacheKey.power) &&
+        eq(conversionGainCache.mana, cacheKey.mana) &&
+        eq(conversionGainCache.immortalPower, cacheKey.immortalPower) &&
+        eq(conversionGainCache.highestPower, cacheKey.highestPower) &&
+        conversionGainCache.totalElapsedSeconds === cacheKey.totalElapsedSeconds &&
+        conversionGainCache.activeChallengeElapsedSeconds === cacheKey.activeChallengeElapsedSeconds) {
+      return conversionGainCache.value;
+    }
+    const value = applyResourceSoftcapProgressive(
       preSoftcapPowerGainFromSources([
         challengeAdjustedPowerSource(trainingPowerSource(), "training")
       ]),
       state.power
     );
+    conversionGainCache = { ...cacheKey, value };
+    return value;
   }
 
   function ghostBrainPotentialPowerBonus() {
@@ -1145,7 +1465,8 @@
   }
 
   function skySplitPotentialMultiplier() {
-    return 1 + 0.5 * toNumber(log10(add(ONE, div(maxBN(ZERO, state.power), "3.033e15"))), 0);
+    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
+    return 1 + 0.5 * toNumber(log10(add(ONE, div(maxBN(ZERO, currentPower), "3.033e15"))), 0);
   }
 
   function skySplitMultiplier() {
@@ -1252,7 +1573,8 @@
   }
 
   function intuitionPotentialFocusMultiplier() {
-    const dynamicBonus = toNumber(log10(add(ONE, maxBN(ZERO, state.power))), 0) * 0.1;
+    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
+    const dynamicBonus = toNumber(log10(add(ONE, maxBN(ZERO, currentPower))), 0) * 0.1;
     return 1 + dynamicBonus * (state.superPerceptionPurchased ? 1.5 : 1);
   }
 
@@ -1335,6 +1657,19 @@
     return createAutomaticPowerRateProfile().rawRate();
   }
 
+  function currentAutomaticPowerSourceGains() {
+    const fitnessSource = fitnessJBonus();
+    const dynamicSources = [
+      [focusPowerPerSecond(), "focus"],
+      [rockPowerPerSecond(), "rock"],
+      [ghostBrainPowerSource(), "ghostBrain"],
+      [ultimateIntentPowerSource(), "ultimateIntent"]
+    ].map(([value, id]) => challengeAdjustedPowerSource(value, id));
+    const registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessSource })
+      .map((source) => challengeAdjustedPowerSource(source.value, source.id));
+    return [...dynamicSources, ...registeredSources];
+  }
+
   function createAutomaticPowerRateProfile() {
     const fitnessSource = fitnessJBonus();
     const registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessSource })
@@ -1404,7 +1739,9 @@
     state.power = evaluationPower;
     state.highestPower = maxBN(historicalHighestPower, evaluationPower);
     try {
-      return WIS.Core.Effects.withState(state, () => rateProfile.settledRate());
+      return WIS.Core.Effects.withState(state, () => WIS.Core.Penalties.applyGoogolPenalty(
+        "power", evaluationPower, rateProfile.settledRate(), state
+      ));
     } finally {
       state.power = previousPower;
       state.highestPower = previousHighestPower;
@@ -1470,20 +1807,25 @@
     return WIS.Meta.Challenges?.totalCompletionCount?.(state) || 0;
   }
 
-  function treasureChanceMultiplier() {
-    return state.starSpiritPurchased
+  function treasureChanceMultiplier(source = state) {
+    const starSpiritMultiplier = source.starSpiritPurchased
       ? Math.pow(STAR_ENHANCEMENT_CONFIG.starSpirit.perChallengeMultiplier, completedChallengeLayers())
       : 1;
+    return starSpiritMultiplier * (source.stellarTreasureSeekingPurchased ? 1.5 : 1);
+  }
+
+  function treasureAwardMultiplier(source = state) {
+    return source.stellarSeaGiftPurchased ? 2 : 1;
   }
 
   function fiveSpiritStoneCount() {
     return Math.max(0, Math.floor(Number(state.treasureImprints?.fiveSpiritStone) || 0));
   }
 
-  function fiveSpiritStoneChance() {
+  function fiveSpiritStoneChance(count = fiveSpiritStoneCount()) {
     const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
     return Math.min(1,
-      config.baseChance * Math.pow(config.chanceDecay, fiveSpiritStoneCount()) * treasureChanceMultiplier()
+      config.baseChance * Math.pow(config.chanceDecay, Math.max(0, Number(count) || 0)) * treasureChanceMultiplier()
     );
   }
 
@@ -1502,7 +1844,12 @@
       attempts,
       () => state.fiveSpiritStonePurchased && gt(ultimateIntentPowerSource(), ZERO),
       fiveSpiritStoneChance,
-      () => { WIS.Meta.Treasures.add(state, "fiveSpiritStone"); }
+      () => { WIS.Meta.Treasures.add(state, "fiveSpiritStone"); },
+      {
+        probabilityAtOffset: (offset) => fiveSpiritStoneChance(fiveSpiritStoneCount() + offset),
+        treasureKey: "fiveSpiritStone",
+        awardMany: (count) => WIS.Meta.Treasures.add(state, "fiveSpiritStone", count)
+      }
     );
     if (!silent && gained > 0) showNotice(`获得永久宝物：五灵石 +${gained}`);
     return gained;
@@ -1552,6 +1899,46 @@
       preSoftcapPowerGainFromSources(sourceGains, regionMultiplier),
       state.power
     );
+  }
+
+  function blackHoleGainLossDetails() {
+    const Challenges = WIS.Meta.Challenges;
+    if (state.activeChallenge !== "blackHole" || !Challenges?.blackHoleLimitExponent) {
+      return {
+        joulesBefore: ZERO, joulesAfter: ZERO, powerBefore: ZERO, powerAfter: ZERO,
+        joulesLossOrders: ZERO, powerLossOrders: ZERO, lossOrders: ZERO,
+        requirementMultiplier: ONE
+      };
+    }
+    const jLimit = Challenges.blackHoleLimitExponent(state, "joules");
+    const powerLimit = Challenges.blackHoleLimitExponent(state, "power");
+    const jExponent = WIS.Core.Effects.product("joules", "regionExponent", state);
+    const powerExponent = WIS.Core.Effects.product("power", "regionExponent", state);
+    const jExponentBefore = gt(jLimit, ZERO) ? div(jExponent, jLimit) : jExponent;
+    const powerExponentBefore = gt(powerLimit, ZERO) ? div(powerExponent, powerLimit) : powerExponent;
+    const jSources = jSourceGains();
+    const powerSources = currentAutomaticPowerSourceGains();
+    const joulesBefore = calculateRegionGain(jSources, {
+      multipliers: [jMultiplier()], exponents: [jExponentBefore]
+    });
+    const joulesAfter = calculateRegionGain(jSources, {
+      multipliers: [jMultiplier()], exponents: [jExponent]
+    });
+    const currentPowerMultiplier = powerMultiplier();
+    const powerBefore = calculateRegionGain(powerSources, {
+      multipliers: [currentPowerMultiplier], exponents: [powerExponentBefore]
+    });
+    const powerAfter = calculateRegionGain(powerSources, {
+      multipliers: [currentPowerMultiplier], exponents: [powerExponent]
+    });
+    const joulesLossOrders = Challenges.blackHoleLossOrders(joulesBefore, joulesAfter);
+    const powerLossOrders = Challenges.blackHoleLossOrders(powerBefore, powerAfter);
+    const lossOrders = maxBN(joulesLossOrders, powerLossOrders);
+    return {
+      joulesBefore, joulesAfter, powerBefore, powerAfter,
+      joulesLossOrders, powerLossOrders, lossOrders,
+      requirementMultiplier: Challenges.blackHoleRequirementMultiplierFromLoss(lossOrders)
+    };
   }
 
   function mindDivisionCost() {
@@ -1643,6 +2030,18 @@
       { historyKey: "supernaturalFirePurchased", cost: () => SUPERNATURAL_FIRE_COST, available: () => state.highestScaleIndex >= 10 && !state.supernaturalFirePurchased, apply: () => { state.supernaturalFirePurchased = true; } },
       { historyKey: "fiveSpiritStonePurchased", cost: () => FIVE_SPIRIT_STONE_COST, available: () => state.highestScaleIndex >= 10 && !state.fiveSpiritStonePurchased, apply: () => { state.fiveSpiritStonePurchased = true; } }
       ,{ historyKey: "selfSuppressionPurchased", cost: () => SELF_SUPPRESSION_COST, available: () => state.highestScaleIndex >= 10 && !state.selfSuppressionPurchased, apply: () => { state.selfSuppressionPurchased = true; } }
+      ,{ historyKey: "stellarFurnacePurchased", cost: () => STELLAR_FURNACE_COST, available: () => state.highestScaleIndex >= 11 && !state.stellarFurnacePurchased, apply: () => { state.stellarFurnacePurchased = true; } }
+      ,{ historyKey: "stellarTreasureSeekingPurchased", cost: () => STELLAR_TREASURE_SEEKING_COST, available: () => state.highestScaleIndex >= 11 && !state.stellarTreasureSeekingPurchased, apply: () => { state.stellarTreasureSeekingPurchased = true; } }
+      ,{ historyKey: "gravitationalCollapsePurchased", cost: () => GRAVITATIONAL_COLLAPSE_COST, available: () => state.highestScaleIndex >= 11 && !state.gravitationalCollapsePurchased, apply: () => { state.gravitationalCollapsePurchased = true; } }
+      ,{ historyKey: "galacticReturnPurchased", cost: () => GALACTIC_RETURN_COST, available: () => state.highestScaleIndex >= 12 && !state.galacticReturnPurchased, apply: () => { state.galacticReturnPurchased = true; } }
+      ,{ historyKey: "stellarSeaGiftPurchased", cost: () => STELLAR_SEA_GIFT_COST, available: () => state.highestScaleIndex >= 12 && !state.stellarSeaGiftPurchased, apply: () => { state.stellarSeaGiftPurchased = true; } }
+      ,{ historyKey: "stellarResonancePurchased", cost: () => STELLAR_RESONANCE_COST, available: () => state.highestScaleIndex >= 12 && !state.stellarResonancePurchased, apply: () => { state.stellarResonancePurchased = true; } }
+      ,{ historyKey: "greatAttractorPurchased", cost: () => GREAT_ATTRACTOR_COST, available: () => state.highestScaleIndex >= 13 && !state.greatAttractorPurchased, apply: () => { state.greatAttractorPurchased = true; } }
+      ,{ historyKey: "largeScaleAdaptationPurchased", cost: () => LARGE_SCALE_ADAPTATION_COST, available: () => state.highestScaleIndex >= 13 && !state.largeScaleAdaptationPurchased, apply: () => { state.largeScaleAdaptationPurchased = true; } }
+      ,{ historyKey: "superclusterCollapsePurchased", cost: () => SUPERCLUSTER_COLLAPSE_COST, available: () => state.highestScaleIndex >= 13 && !state.superclusterCollapsePurchased, apply: () => { state.superclusterCollapsePurchased = true; } }
+      ,{ historyKey: "cosmicWebPurchased", cost: () => COSMIC_WEB_COST, available: () => state.highestScaleIndex >= 14 && !state.cosmicWebPurchased, apply: () => { state.cosmicWebPurchased = true; } }
+      ,{ historyKey: "scaleUnificationPurchased", cost: () => SCALE_UNIFICATION_COST, available: () => state.highestScaleIndex >= 14 && !state.scaleUnificationPurchased, apply: () => { state.scaleUnificationPurchased = true; } }
+      ,{ historyKey: "spacetimeFrameworkPurchased", cost: () => SPACETIME_FRAMEWORK_COST, available: () => state.highestScaleIndex >= 14 && !state.spacetimeFrameworkPurchased, apply: () => { state.spacetimeFrameworkPurchased = true; } }
     ];
     [...candidates, ...starEnhancementCandidates].forEach((candidate) => {
       if (!candidate.historyKey) return;
@@ -1677,6 +2076,7 @@
     WIS.Core.Resources.add("power", gained);
     state.totalPower = add(state.totalPower, gained);
     state.lifetimeTotalPower = add(state.lifetimeTotalPower, gained);
+    state.currentRebirthTotalPower = add(state.currentRebirthTotalPower, gained);
     state.maxSinglePowerGain = maxBN(state.maxSinglePowerGain, gained);
     updateScaleProgress();
     saveState();
@@ -2002,6 +2402,18 @@
   function buySupernaturalFire() { return buyStarPowerOneTime("supernaturalFirePurchased", SUPERNATURAL_FIRE_COST); }
   function buyFiveSpiritStone() { return buyStarPowerOneTime("fiveSpiritStonePurchased", FIVE_SPIRIT_STONE_COST); }
   function buySelfSuppression() { return buyStarPowerOneTime("selfSuppressionPurchased", SELF_SUPPRESSION_COST); }
+  function buyStellarFurnace() { return buyStarPowerOneTime("stellarFurnacePurchased", STELLAR_FURNACE_COST, 11); }
+  function buyStellarTreasureSeeking() { return buyStarPowerOneTime("stellarTreasureSeekingPurchased", STELLAR_TREASURE_SEEKING_COST, 11); }
+  function buyGravitationalCollapse() { return buyStarPowerOneTime("gravitationalCollapsePurchased", GRAVITATIONAL_COLLAPSE_COST, 11); }
+  function buyGalacticReturn() { return buyStarPowerOneTime("galacticReturnPurchased", GALACTIC_RETURN_COST, 12); }
+  function buyStellarSeaGift() { return buyStarPowerOneTime("stellarSeaGiftPurchased", STELLAR_SEA_GIFT_COST, 12); }
+  function buyStellarResonance() { return buyStarPowerOneTime("stellarResonancePurchased", STELLAR_RESONANCE_COST, 12); }
+  function buyGreatAttractor() { return buyStarPowerOneTime("greatAttractorPurchased", GREAT_ATTRACTOR_COST, 13); }
+  function buyLargeScaleAdaptation() { return buyStarPowerOneTime("largeScaleAdaptationPurchased", LARGE_SCALE_ADAPTATION_COST, 13); }
+  function buySuperclusterCollapse() { return buyStarPowerOneTime("superclusterCollapsePurchased", SUPERCLUSTER_COLLAPSE_COST, 13); }
+  function buyCosmicWeb() { return buyStarPowerOneTime("cosmicWebPurchased", COSMIC_WEB_COST, 14); }
+  function buyScaleUnification() { return buyStarPowerOneTime("scaleUnificationPurchased", SCALE_UNIFICATION_COST, 14); }
+  function buySpacetimeFramework() { return buyStarPowerOneTime("spacetimeFrameworkPurchased", SPACETIME_FRAMEWORK_COST, 14); }
 
   function buyGhostBack() {
     return buyPowerOneTime("ghostBackPurchased", GHOST_BACK_COST, true, 3);
@@ -2020,19 +2432,79 @@
     if (probability <= 0) return Infinity;
     const denominator = Math.log1p(-probability);
     if (!Number.isFinite(denominator) || denominator === 0) return Infinity;
-    return Math.floor(Math.log1p(-Math.random()) / denominator) + 1;
+    return Math.floor(Math.log1p(-WIS.Core.Runtime.random()) / denominator) + 1;
   }
 
-  function rollDynamicAttempts(attempts, available, probability, award) {
-    let remainingAttempts = Math.max(0, Math.floor(Number(attempts) || 0));
+  function expectedAttemptsForTreasureBatch(successes, probabilityAtOffset) {
+    const count = Math.max(0, Math.floor(Number(successes) || 0));
+    if (count <= 0) return 0;
+    const reciprocalProbability = (offset) => {
+      const chance = Math.max(0, Math.min(1, Number(probabilityAtOffset(offset)) || 0));
+      return chance > 0 ? 1 / chance : Infinity;
+    };
+    const midpoint = Math.floor((count - 1) * 0.5);
+    return count / 6 * (
+      reciprocalProbability(0) +
+      4 * reciprocalProbability(midpoint) +
+      reciprocalProbability(count - 1)
+    );
+  }
+
+  function batchTreasureSuccessEstimate(attempts, probabilityAtOffset) {
+    let lower = 0;
+    let upper = 1;
+    for (let expansion = 0; expansion < 53 && upper < Number.MAX_SAFE_INTEGER; expansion += 1) {
+      if (expectedAttemptsForTreasureBatch(upper, probabilityAtOffset) > attempts) break;
+      lower = upper;
+      upper = Math.min(Number.MAX_SAFE_INTEGER, upper * 2);
+    }
+    for (let iteration = 0; iteration < 48 && upper - lower > 1; iteration += 1) {
+      const middle = Math.floor((lower + upper) * 0.5);
+      if (expectedAttemptsForTreasureBatch(middle, probabilityAtOffset) <= attempts) lower = middle;
+      else upper = middle;
+    }
+    return lower;
+  }
+
+  function rollDynamicAttempts(attempts, available, probability, award, options = {}) {
+    const numericAttempts = Number(attempts);
+    let remainingAttempts = Number.isFinite(numericAttempts)
+      ? Math.max(0, Math.floor(numericAttempts))
+      : Number.MAX_SAFE_INTEGER;
     if (remainingAttempts <= 0 || !available()) return 0;
+    const awardMultiplier = options.treasureKey
+      ? WIS.Meta.Treasures.getTreasureAwardMultiplier(state, options.treasureKey)
+      : 1;
+    const initialProbability = Math.max(0, Math.min(1, Number(probability()) || 0));
+    const expectedAtStart = remainingAttempts * initialProbability;
+    if (typeof options.awardMany === "function" && typeof options.probabilityAtOffset === "function" &&
+        (!Number.isFinite(expectedAtStart) || expectedAtStart > 64)) {
+      let gained = batchTreasureSuccessEstimate(
+        remainingAttempts,
+        (offset) => options.probabilityAtOffset(offset * awardMultiplier)
+      );
+      if (gained > 0) {
+        if (Number.isFinite(expectedAtStart) && expectedAtStart <= 1e6) {
+          const firstRandom = Math.max(Number.MIN_VALUE, WIS.Core.Runtime.random());
+          const secondRandom = WIS.Core.Runtime.random();
+          const normal = Math.sqrt(-2 * Math.log(firstRandom)) * Math.cos(2 * Math.PI * secondRandom);
+          gained = Math.max(0, Math.floor(gained + normal * Math.sqrt(Math.max(1, gained)) * 0.35));
+        } else {
+          gained = Math.max(0, gained + (WIS.Core.Runtime.random() < 0.25 ? -1 : WIS.Core.Runtime.random() > 0.75 ? 1 : 0));
+        }
+        gained = Math.min(gained, remainingAttempts);
+        options.awardMany(gained);
+        WIS.Core.Effects.invalidate();
+      }
+      return gained * awardMultiplier;
+    }
     let gained = 0;
     while (remainingAttempts > 0 && available()) {
       const attemptsUntilSuccess = geometricAttemptsUntilSuccess(probability());
       if (!Number.isFinite(attemptsUntilSuccess) || attemptsUntilSuccess > remainingAttempts) break;
       remainingAttempts -= attemptsUntilSuccess;
       award();
-      gained += 1;
+      gained += awardMultiplier;
     }
     return gained;
   }
@@ -2083,7 +2555,12 @@
     chicxulubMeteorite: "buyChicxulubMeteorite", planetWill: "buyPlanetWill",
     starSpirit: "buyStarSpirit", starShatter: "buyStarShatter", spaceQuake: "buySpaceQuake",
     selfless: "buySelfless", supernaturalFire: "buySupernaturalFire", fiveSpiritStone: "buyFiveSpiritStone",
-    selfSuppression: "buySelfSuppression"
+    selfSuppression: "buySelfSuppression", stellarFurnace: "buyStellarFurnace",
+    stellarTreasureSeeking: "buyStellarTreasureSeeking", gravitationalCollapse: "buyGravitationalCollapse",
+    galacticReturn: "buyGalacticReturn", stellarSeaGift: "buyStellarSeaGift", stellarResonance: "buyStellarResonance",
+    greatAttractor: "buyGreatAttractor", largeScaleAdaptation: "buyLargeScaleAdaptation",
+    superclusterCollapse: "buySuperclusterCollapse", cosmicWeb: "buyCosmicWeb",
+    scaleUnification: "buyScaleUnification", spacetimeFramework: "buySpacetimeFramework"
   });
   function performAction(id, ...args) { const name = actions[id]; return name ? api[name](...args) : false; }
   function buyUpgrade(id, ...args) { const name = upgrades[id]; return name ? api[name](...args) : false; }
@@ -2104,9 +2581,13 @@
     nextResourceSoftcapIntegrationBoundary, resourceSoftcapIntegrationEvaluationAmount,
     formatSoftcapExponent,
     activeSoftcapStages, removedSoftcapStages,
+    scaleRequirement, scaleRequirementDetails, blackHoleGainLossDetails,
     superLollipopCount, superLollipopChance, superLollipopTrainingMultiplier, rollSuperLollipopAttempts,
     skyCrystalCount, skyCrystalChance, skyCrystalRockMultiplier, rollSkyCrystalAttempts,
-    completedChallengeLayers, treasureChanceMultiplier,
+    cosmicFiberCount, cosmicFiberAvailable, cosmicFiberDecayedChance, cosmicFiberChance, rollCosmicFiberAttempts,
+    cosmicWillCount, cosmicWillAvailable, cosmicWillDecayedChance, cosmicWillChance, rollCosmicWillAttempts,
+    galaxyEffectiveExponent,
+    completedChallengeLayers, treasureChanceMultiplier, treasureAwardMultiplier,
     fiveSpiritStoneCount, fiveSpiritStoneChance, fiveSpiritStoneJSource, fiveSpiritStonePowerSource,
     rollFiveSpiritStoneAttempts,
     automaticJRawPerSecond, automaticJRawPerSecondAt, automaticJSettledPerSecondAt,
@@ -2118,6 +2599,10 @@
     activePowerSourceChallengeExponent, challengeAdjustedPowerSource,
     buyWaveEye, buyElementalAwakening, buyMoonfall, buyFlowState, buySelfhood, buyFreedom, buyChicxulubMeteorite,
     buyPlanetWill, buyStarSpirit, buyStarShatter, buySpaceQuake, buySelfless, buySupernaturalFire, buyFiveSpiritStone, buySelfSuppression,
+    buyStellarFurnace, buyStellarTreasureSeeking, buyGravitationalCollapse,
+    buyGalacticReturn, buyStellarSeaGift, buyStellarResonance,
+    buyGreatAttractor, buyLargeScaleAdaptation, buySuperclusterCollapse,
+    buyCosmicWeb, buyScaleUnification, buySpacetimeFramework,
     planetWillElementalizationMultiplier, starShatterRockMultiplier,
     selfSuppressionJExponentFromBase, selfSuppressionJExponent,
     planetSuppressionRewardExponent, utmostPuritySoftcapExponent,

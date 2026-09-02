@@ -1,7 +1,7 @@
 (function defineResourceAPI(WIS) {
   "use strict";
 
-  const { BN, ZERO, add: addBN, sub, max, gte, isFiniteBN, isNaNBN } = WIS.Core.BigNum;
+  const { BN, ZERO, add: addBN, sub, max, gt, gte, isFiniteBN, isNaNBN } = WIS.Core.BigNum;
   const commonKeys = Object.freeze({ joules: "joules", power: "power" });
   let readState = null;
 
@@ -37,13 +37,39 @@
     return sanitize(state().core.resources[resolveCommon(resource)]);
   }
 
+  function residualKeyFor(container, resourceKey) {
+    const residualKey = `${resourceKey}GainResidual`;
+    return Object.prototype.hasOwnProperty.call(container, residualKey) ? residualKey : null;
+  }
+
+  function accumulate(container, resourceKey, amount) {
+    const gain = sanitizeSigned(amount);
+    const current = sanitize(container[resourceKey]);
+    const residualKey = residualKeyFor(container, resourceKey);
+    if (!residualKey || !gt(gain, ZERO)) {
+      container[resourceKey] = sanitize(addBN(current, gain));
+      return container[resourceKey];
+    }
+    const pending = addBN(sanitize(container[residualKey]), gain);
+    const next = sanitize(addBN(current, pending));
+    const applied = max(ZERO, sub(next, current));
+    container[resourceKey] = next;
+    container[residualKey] = max(ZERO, sub(pending, applied));
+    return next;
+  }
+
   function set(resource, amount) {
-    state().core.resources[resolveCommon(resource)] = sanitize(amount);
+    const resources = state().core.resources;
+    const key = resolveCommon(resource);
+    resources[key] = sanitize(amount);
+    const residualKey = residualKeyFor(resources, key);
+    if (residualKey) resources[residualKey] = ZERO;
     return get(resource);
   }
 
   function add(resource, amount) {
-    return set(resource, addBN(get(resource), sanitizeSigned(amount)));
+    const resources = state().core.resources;
+    return accumulate(resources, resolveCommon(resource), amount);
   }
 
   function canAfford(resource, cost) {
@@ -53,7 +79,8 @@
   function spend(resource, cost) {
     const safeCost = sanitize(cost);
     if (!canAfford(resource, safeCost)) return false;
-    set(resource, sub(get(resource), safeCost));
+    const resources = state().core.resources;
+    resources[resolveCommon(resource)] = sanitize(sub(get(resource), safeCost));
     WIS.Core.Effects?.invalidate?.();
     return true;
   }
@@ -63,12 +90,17 @@
   }
 
   function setSystem(system, resource, amount) {
-    systemResources(system)[resolveSystem(system, resource)] = sanitize(amount);
+    const resources = systemResources(system);
+    const key = resolveSystem(system, resource);
+    resources[key] = sanitize(amount);
+    const residualKey = residualKeyFor(resources, key);
+    if (residualKey) resources[residualKey] = ZERO;
     return getSystem(system, resource);
   }
 
   function addSystem(system, resource, amount) {
-    return setSystem(system, resource, addBN(getSystem(system, resource), sanitizeSigned(amount)));
+    const resources = systemResources(system);
+    return accumulate(resources, resolveSystem(system, resource), amount);
   }
 
   function canAffordSystem(system, resource, cost) {
@@ -78,7 +110,8 @@
   function spendSystem(system, resource, cost) {
     const safeCost = sanitize(cost);
     if (!canAffordSystem(system, resource, safeCost)) return false;
-    setSystem(system, resource, sub(getSystem(system, resource), safeCost));
+    const resources = systemResources(system);
+    resources[resolveSystem(system, resource)] = sanitize(sub(getSystem(system, resource), safeCost));
     WIS.Core.Effects?.invalidate?.();
     return true;
   }
@@ -108,6 +141,8 @@
   WIS.Core.Resources = Object.freeze({
     bind, get, set, add, spend, canAfford,
     getSystem, setSystem, addSystem, spendSystem, canAffordSystem,
+    accumulateResourceGain: add,
+    accumulateSystemResourceGain: addSystem,
     snapshot
   });
 }(window.WIS));

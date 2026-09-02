@@ -122,6 +122,12 @@
               ? "J、战力量级软上限损失 ×0.95"
             : scaleIndex === 11
               ? "挑战中战力获取倍率 ×15"
+            : scaleIndex === 12
+              ? "任意挑战中J获取倍率 ×75"
+            : scaleIndex === 13
+              ? "解锁宝物·宇宙纤维"
+            : scaleIndex === 14
+              ? "解锁宝物·宇宙意志"
               : "奖励：后续加入",
           completed: completedAchievement(`scale${scaleIndex}`, state.highestScaleIndex >= scaleIndex)
         },
@@ -147,7 +153,15 @@
               ? "解锁挑战·无月"
             : scaleIndex === 10
               ? "永久解锁挑战·星球压制"
-              : "奖励：后续加入",
+            : scaleIndex === 11
+              ? "永久解锁挑战·太阳之力"
+            : scaleIndex === 12
+              ? "永久解锁挑战·银河"
+              : scaleIndex === 13
+                ? "永久解锁挑战·黑洞"
+                : scaleIndex === 14
+                  ? "奖励：后续加入"
+                  : "奖励：后续加入",
           completed: completedAchievement(`trueScale${scaleIndex}`, gte(state.maxSinglePowerGain, scale.power))
         }
       );

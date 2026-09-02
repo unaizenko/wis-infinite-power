@@ -318,6 +318,17 @@ button { font: inherit; }
 .achievement.completed .achievement-state { color: #fff; background: var(--accent); }
 .achievement.completed .achievement-reward > strong { color: var(--accent); }
 
+.statistics-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.statistics-tabs .secondary-button[aria-selected="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 .statistics-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

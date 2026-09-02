@@ -1,13 +1,85 @@
 (function defineEffectCollector(WIS) {
   "use strict";
 
-  const { BN, ONE, isDecimal, isFiniteBN, isNaNBN, mul } = WIS.Core.BigNum;
+  const { BN, ZERO, ONE, isDecimal, isFiniteBN, isNaNBN, add, mul, div, pow, max: maxBN } = WIS.Core.BigNum;
 
   const providers = new Map();
   let tickSnapshot = null;
   let evaluationState = null;
   let evaluationValues = null;
   const statistics = { providerCalls: 0, dynamicEvaluations: 0 };
+  const dynamicResourceKeys = new Set(["joules", "power"]);
+  const dynamicReadStates = new WeakMap();
+
+  function activeChallenge(state) {
+    return state?.meta?.challenges?.activeChallenge ?? state?.activeChallenge ?? null;
+  }
+
+  function galaxyCompletionCount(state) {
+    const completions = state?.meta?.challenges?.challengeCompletions ?? state?.challengeCompletions;
+    return Math.max(0, Number(completions?.galaxy) || 0);
+  }
+
+  function galaxyDynamicResourceExponent(source = WIS.Core.Runtime?.getState?.()) {
+    const treasureConfig = WIS.Core.Config.scaleTreasures?.cosmicFiber;
+    const fallback = Number(WIS.Core.Config.challenges?.galaxy?.dynamicResourceExponent);
+    if (!treasureConfig) return Number.isFinite(fallback) && fallback > 0 ? BN(fallback) : ONE;
+    const rawCount = source?.meta?.treasures?.cosmicFiber ?? source?.treasureImprints?.cosmicFiber;
+    const numericCount = Number(rawCount);
+    const count = BN(Number.isFinite(numericCount) ? Math.max(0, Math.floor(numericCount)) : Number.MAX_VALUE);
+    const diminishing = pow(add(ONE, div(count, treasureConfig.galaxyDecayScale)), treasureConfig.galaxyDecayExponent);
+    return add(
+      treasureConfig.galaxyBaseExponent,
+      div(mul(treasureConfig.galaxyPerItemExponent, count), diminishing)
+    );
+  }
+
+  function dynamicResourceValue(state, resourceKey) {
+    const alreadyResolved = state && typeof state === "object"
+      ? dynamicReadStates.get(state)
+      : null;
+    if (alreadyResolved?.has(resourceKey)) return state?.[resourceKey] ?? ZERO;
+    const rawValue = state?.[resourceKey] ?? ZERO;
+    if (!dynamicResourceKeys.has(resourceKey)) return rawValue;
+    if (activeChallenge(state) === "galaxy") return ZERO;
+    if (galaxyCompletionCount(state) < 1) return rawValue;
+    return pow(maxBN(ZERO, rawValue), galaxyDynamicResourceExponent(state));
+  }
+
+  function effectDynamicResources(effect) {
+    if (!Array.isArray(effect?.dynamicResources)) return [];
+    return [...new Set(effect.dynamicResources.filter((key) => dynamicResourceKeys.has(key)))];
+  }
+
+  function dynamicReadState(effect, state) {
+    const resources = effectDynamicResources(effect);
+    if (resources.length === 0 || !state || typeof state !== "object") return state;
+    const resourceSet = new Set(resources);
+    const view = new Proxy(state, {
+      get(target, property, receiver) {
+        return resourceSet.has(property)
+          ? dynamicResourceValue(target, property)
+          : Reflect.get(target, property, receiver);
+      }
+    });
+    dynamicReadStates.set(view, resourceSet);
+    return view;
+  }
+
+  function neutralEffectValue(effect) {
+    if (effect?.dynamicNeutralValue !== undefined) return effect.dynamicNeutralValue;
+    return effect?.layer?.endsWith("Additive") ? 0 : ONE;
+  }
+
+  function evaluateEffectValue(effect, state, provider = effect?.value) {
+    if (typeof provider !== "function") return provider;
+    const resources = effectDynamicResources(effect);
+    if (resources.length > 0 && activeChallenge(state) === "galaxy" &&
+      effect.disableWhenDynamicResourcesSuppressed === true) {
+      return neutralEffectValue(effect);
+    }
+    return provider(dynamicReadState(effect, state));
+  }
 
   function register(id, provider) {
     if (!id || typeof provider !== "function" || providers.has(id)) throw new Error(`效果提供器无效或重复：${id}`);
@@ -15,7 +87,7 @@
   }
 
   function resolvedEffect(effect, state) {
-    const rawValue = typeof effect.value === "function" ? effect.value(state) : effect.value;
+    const rawValue = evaluateEffectValue(effect, state);
     const adjust = WIS.Cultivation?.ImmortalLogic?.applyCelestialFiveDeclineToMultiplier;
     const value = effect.celestialFiveDecline === true && typeof adjust === "function"
       ? adjust(rawValue, state?.immortalPower)
@@ -29,7 +101,10 @@
       && previous.power === state?.power
       && previous.highestPower === state?.highestPower
       && previous.mana === state?.mana
-      && previous.immortalPower === state?.immortalPower;
+      && previous.immortalPower === state?.immortalPower
+      && previous.activeChallenge === activeChallenge(state)
+      && previous.galaxyCompletions === galaxyCompletionCount(state)
+      && previous.cosmicFiberCount === (state?.meta?.treasures?.cosmicFiber ?? state?.treasureImprints?.cosmicFiber ?? 0);
   }
 
   function liveResources(state) {
@@ -38,7 +113,10 @@
       power: state?.power,
       highestPower: state?.highestPower,
       mana: state?.mana,
-      immortalPower: state?.immortalPower
+      immortalPower: state?.immortalPower,
+      activeChallenge: activeChallenge(state),
+      galaxyCompletions: galaxyCompletionCount(state),
+      cosmicFiberCount: state?.meta?.treasures?.cosmicFiber ?? state?.treasureImprints?.cosmicFiber ?? 0
     };
   }
 
@@ -63,11 +141,17 @@
     return snapshot;
   }
 
+  let invalidationRevision = 0;
   function invalidate() {
+    invalidationRevision += 1;
     tickSnapshot = null;
     evaluationState = null;
     evaluationValues = null;
     Object.keys(WIS.tmp.rates).forEach((key) => { WIS.tmp.rates[key] = 0; });
+  }
+
+  function getRevision() {
+    return invalidationRevision;
   }
 
   function snapshotFor(state) {
@@ -89,7 +173,8 @@
           provider: providerId,
           ...effect,
           _valueProvider: typeof effect.value === "function" ? effect.value : null,
-          _dynamic: effect.dynamic === true || effect.celestialFiveDecline === true,
+          _dynamic: effect.dynamic === true || effect.celestialFiveDecline === true ||
+            effectDynamicResources(effect).length > 0,
           _dynamicState: null,
           _dynamicResolved: null,
           _resolved: false
@@ -118,9 +203,8 @@
   function resolveDynamic(effect, state, cache = true) {
     if (cache && sameLiveResources(effect._dynamicState, state)) return effect._dynamicResolved;
     statistics.dynamicEvaluations += 1;
-    const rawValue = typeof effect._valueProvider === "function"
-      ? effect._valueProvider(state)
-      : effect.value;
+    const rawValue = evaluateEffectValue(effect, state,
+      typeof effect._valueProvider === "function" ? effect._valueProvider : effect.value);
     const adjust = WIS.Cultivation?.ImmortalLogic?.applyCelestialFiveDeclineToMultiplier;
     const value = effect.celestialFiveDecline === true && typeof adjust === "function"
       ? adjust(rawValue, state?.immortalPower)
@@ -289,7 +373,8 @@
   }
 
   WIS.Core.Effects = Object.freeze({
-    register, beginTick, invalidate, withState, withIsolatedState,
+    register, beginTick, invalidate, getRevision, withState, withIsolatedState,
+    dynamicResourceValue, galaxyDynamicResourceExponent,
     collect, values, groups, product, value,
     getStatistics, resetStatistics
   });

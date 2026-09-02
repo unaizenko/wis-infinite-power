@@ -4,7 +4,11 @@
   let getState = null;
   let replaceState = null;
   let projectedState = null;
+  let projectionDepth = 0;
+  let treasurePredictionDepth = 0;
+  let randomSource = null;
   let hooks = {};
+  const PROJECTION_SIDE_EFFECT_HOOK = /^(save|render|show|mark|notify|play|request|flush)/;
 
   function currentState() {
     return projectedState || getState?.();
@@ -58,7 +62,53 @@
     }
   }
 
+  function withProjection(callback) {
+    if (typeof callback !== "function") return undefined;
+    projectionDepth += 1;
+    try {
+      return callback();
+    } finally {
+      projectionDepth = Math.max(0, projectionDepth - 1);
+    }
+  }
+
+  function isProjection() {
+    return projectionDepth > 0;
+  }
+
+  function isTreasurePrediction() {
+    return treasurePredictionDepth > 0;
+  }
+
+  function withRandomSource(source, callback) {
+    if (typeof callback !== "function") return undefined;
+    const previous = randomSource;
+    randomSource = typeof source === "function" ? source : null;
+    try {
+      return callback();
+    } finally {
+      randomSource = previous;
+    }
+  }
+
+  function withTreasurePrediction(source, callback) {
+    projectionDepth += 1;
+    treasurePredictionDepth += 1;
+    try {
+      return withRandomSource(source, callback);
+    } finally {
+      treasurePredictionDepth = Math.max(0, treasurePredictionDepth - 1);
+      projectionDepth = Math.max(0, projectionDepth - 1);
+    }
+  }
+
+  function random() {
+    if (randomSource) return randomSource();
+    return isProjection() ? 1 - Number.EPSILON : Math.random();
+  }
+
   function call(name, ...args) {
+    if (isProjection() && PROJECTION_SIDE_EFFECT_HOOK.test(name)) return undefined;
     const hook = hooks[name];
     if (typeof hook !== "function") throw new Error(`Runtime hook 未绑定：${name}`);
     return hook(...args);
@@ -68,5 +118,9 @@
     return typeof hooks[name] === "function";
   }
 
-  WIS.Core.Runtime = Object.freeze({ state, bind, setState, withState, call, has, getState: currentState });
+  WIS.Core.Runtime = Object.freeze({
+    state, bind, setState, withState, withProjection, withRandomSource, withTreasurePrediction,
+    isProjection, isTreasurePrediction, random,
+    call, has, getState: currentState
+  });
 }(window.WIS));

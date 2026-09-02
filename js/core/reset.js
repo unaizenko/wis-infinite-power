@@ -3,6 +3,13 @@
 
   const { BN, isDecimal } = WIS.Core.BigNum;
   const profiles = new Map();
+  const REBIRTH_LEVEL = Object.freeze({ SYSTEM: 1, CHALLENGE: 2, INFINITE: 3 });
+  const currentRebirthStatistics = Object.freeze([
+    "currentRebirthHighestJ", "currentRebirthTotalJ", "currentRebirthHighestPower",
+    "currentRebirthTotalPower", "currentRebirthHighestScaleIndex", "currentRebirthHighestMana",
+    "currentRebirthTotalMana", "currentRebirthHighestImmortalPower",
+    "currentRebirthTotalImmortalPower", "currentRebirthHighestCultivationRealmLevel"
+  ]);
   const clone = (value) => {
     if (isDecimal(value)) return BN(value);
     if (Array.isArray(value)) return value.map(clone);
@@ -19,7 +26,17 @@
 
   function register(id, profile) {
     if (!id || profiles.has(id)) throw new Error(`重置配置重复或无效：${id}`);
-    profiles.set(id, Object.freeze({ id, base: "fresh", preserve: [], clear: [], preservePaths: [], clearPaths: [], ...profile }));
+    profiles.set(id, Object.freeze({
+      id,
+      base: "fresh",
+      rebirthLevel: null,
+      rebirthType: null,
+      preserve: [],
+      clear: [],
+      preservePaths: [],
+      clearPaths: [],
+      ...profile
+    }));
   }
 
   function describe(id) {
@@ -44,6 +61,10 @@
     preservePaths.forEach((path) => setPath(result, path, getPath(currentDomain, path)));
     const clearPaths = typeof profile.clearPaths === "function" ? profile.clearPaths(currentDomain, context) : profile.clearPaths;
     clearPaths.forEach((path) => setPath(result, path, getPath(freshDomain, path)));
+    if (profile.rebirthLevel) {
+      currentRebirthStatistics.forEach((key) => { result[key] = clone(fresh[key]); });
+      result.reincarnationElapsedSeconds = clone(fresh.reincarnationElapsedSeconds);
+    }
     Object.entries(overrides).forEach(([key, value]) => {
       if (key.includes(".")) setPath(result, key, value);
       else result[key] = clone(value);
@@ -53,7 +74,8 @@
 
   const metaAndStatistics = Object.freeze([
     "lifetimeHighestJ", "lifetimeHighestPower", "lifetimeHighestScaleIndex", "lifetimeTotalJ",
-    "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana", "lifetimeHighestCultivationRealmLevel",
+    "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana", "lifetimeHighestImmortalPower",
+    "lifetimeTotalImmortalPower", "lifetimeHighestCultivationRealmLevel",
     "immortalSelectionCount", "totalElapsedSeconds", "unlockedAchievements", "symbolicPowerMilestones",
     "treasureImprints", "challengeCompletions", "bestQiLayer", "hideUnlockedAchievements",
     "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
@@ -62,8 +84,11 @@
 
   register("scatter", {
     base: "current",
+    rebirthLevel: REBIRTH_LEVEL.SYSTEM,
+    rebirthType: "scatter",
     clear: (_state, { nextScatterLevel = 1 }) => [
-      "joules", "power", "highestPower", "totalPower", "maxSinglePowerGain", "brickUnlocked", "wallUnlocked",
+      "joules", "joulesGainResidual", "power", "powerGainResidual",
+      "highestPower", "totalPower", "maxSinglePowerGain", "brickUnlocked", "wallUnlocked",
       "highestScaleIndex", "runningLevel", "rockLevel", "myStylePurchased", "intuitionPurchased",
       "sonicMovementPurchased", "carbonLimitPurchased", "killingIntentPurchased", "rockStrikePurchased",
       "highSpeedMetabolismPurchased", "enduranceEnhancementPurchased", "bulletTimePurchased",
@@ -80,9 +105,14 @@
       "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
       "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
       "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased",
+      "stellarFurnacePurchased", "stellarTreasureSeekingPurchased", "gravitationalCollapsePurchased",
+      "galacticReturnPurchased", "stellarSeaGiftPurchased", "stellarResonancePurchased",
+      "greatAttractorPurchased", "largeScaleAdaptationPurchased", "superclusterCollapsePurchased",
+      "cosmicWebPurchased", "scaleUnificationPurchased", "spacetimeFrameworkPurchased",
       "ghostBackPurchased",
       "superLollipopRollProgress", "fiveSpiritStoneRollProgress", "currentScaleElapsedSeconds",
-      "ghostBackActive", "immortalSpiritPowerUnlocked", "mana", "immortalPower",
+      "ghostBackActive", "immortalSpiritPowerUnlocked",
+      "mana", "manaGainResidual", "immortalPower", "immortalPowerGainResidual",
       "explorationProgress", "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
       "minorTribulationExplorationLoad",
       ...(nextScatterLevel < 2 ? ["transcendentPurchased", "focusPurchased", "breathingMethodPurchased", "extremeExercisePurchased"] : []),
@@ -90,17 +120,23 @@
     ]
   });
   register("reincarnation", {
+    rebirthLevel: REBIRTH_LEVEL.SYSTEM,
+    rebirthType: "reincarnation",
     preserve: [...metaAndStatistics, "activeChallenge", "activeChallengeElapsedSeconds", "reincarnationManaJRewardLevel"],
     preservePaths: ["meta", "powerSystem.systems.scale.history", "cultivation.systems.immortal.history"]
   });
   register("challenge", {
+    rebirthLevel: REBIRTH_LEVEL.CHALLENGE,
+    rebirthType: "challenge",
     preserve: [...metaAndStatistics, "permanentRootLevel"],
     preservePaths: ["meta", "powerSystem.systems.scale.history", "cultivation.systems.immortal.history"]
   });
   register("infinity", {
+    rebirthLevel: REBIRTH_LEVEL.INFINITE,
+    rebirthType: "infinite",
     preserve: [...metaAndStatistics],
     preservePaths: ["meta"]
   });
 
-  WIS.Core.Reset = Object.freeze({ register, describe, apply });
+  WIS.Core.Reset = Object.freeze({ REBIRTH_LEVEL, register, describe, apply });
 }(window.WIS));

@@ -5,9 +5,16 @@
   const greatest = (...values) => values.reduce((result, value) => maxBN(result, value), ZERO);
 
   const defaults = Object.freeze({
-    joules: ZERO, power: ZERO, highestPower: ZERO, lifetimeHighestJ: ZERO, lifetimeHighestPower: ZERO,
+    joules: ZERO, joulesGainResidual: ZERO, power: ZERO, powerGainResidual: ZERO,
+    highestPower: ZERO, lifetimeHighestJ: ZERO, lifetimeHighestPower: ZERO,
     lifetimeHighestScaleIndex: 0, lifetimeTotalJ: ZERO, lifetimeTotalPower: ZERO,
-    lifetimeHighestMana: ZERO, lifetimeTotalMana: ZERO, lifetimeHighestCultivationRealmLevel: 0,
+    lifetimeHighestMana: ZERO, lifetimeTotalMana: ZERO, lifetimeHighestImmortalPower: ZERO,
+    lifetimeTotalImmortalPower: ZERO, lifetimeHighestCultivationRealmLevel: 0,
+    currentRebirthHighestJ: ZERO, currentRebirthTotalJ: ZERO,
+    currentRebirthHighestPower: ZERO, currentRebirthTotalPower: ZERO,
+    currentRebirthHighestScaleIndex: 0, currentRebirthHighestMana: ZERO, currentRebirthTotalMana: ZERO,
+    currentRebirthHighestImmortalPower: ZERO, currentRebirthTotalImmortalPower: ZERO,
+    currentRebirthHighestCultivationRealmLevel: 0,
     immortalSelectionCount: 0, totalElapsedSeconds: 0, reincarnationElapsedSeconds: 0,
     currentScaleElapsedSeconds: 0, totalPower: ZERO, maxSinglePowerGain: ZERO,
     brickUnlocked: false, wallUnlocked: false, highestScaleIndex: 0, runningLevel: 0,
@@ -36,8 +43,16 @@
     chicxulubMeteoritePurchased: false, planetWillPurchased: false, starSpiritPurchased: false,
     starShatterPurchased: false, spaceQuakePurchased: false, selflessPurchased: false,
     supernaturalFirePurchased: false, fiveSpiritStonePurchased: false, selfSuppressionPurchased: false,
+    stellarFurnacePurchased: false, stellarTreasureSeekingPurchased: false,
+    gravitationalCollapsePurchased: false, galacticReturnPurchased: false,
+    stellarSeaGiftPurchased: false, stellarResonancePurchased: false,
+    greatAttractorPurchased: false, largeScaleAdaptationPurchased: false,
+    superclusterCollapsePurchased: false, cosmicWebPurchased: false,
+    scaleUnificationPurchased: false, spacetimeFrameworkPurchased: false,
     superLollipopRollProgress: 0, fiveSpiritStoneRollProgress: 0,
-    cultivationSystem: null, mana: ZERO, immortalPower: ZERO, qiRefiningUnlocked: false, immortalLifeUnlocked: false,
+    cultivationSystem: null, mana: ZERO, manaGainResidual: ZERO,
+    immortalPower: ZERO, immortalPowerGainResidual: ZERO,
+    qiRefiningUnlocked: false, immortalLifeUnlocked: false,
     qiSpellLevel: 0, foundationUnlocked: false, goldenCoreUnlocked: false, advancedRealmLevel: 0,
     circulationUnlocked: false, minorTechniqueUnlocked: false, flyingEscapeUnlocked: false,
     longevity800Level: 0, explorationProgress: ZERO, manaLiquefactionUnlocked: false,
@@ -92,7 +107,8 @@
         tianNiPearl: 0, mysteriousGreenBottle: 0, fuBao: 0, fitnessMembershipCard: 0,
         superLollipop: 0, skyCrystal: 0, xuTianDing: 0, baLingChi: 0, wanYaoFan: 0,
         phantomHeavenMirror: 0, mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0,
-        fiveElementsTreasure: 0, immortalCrystal: 0, fiveSpiritStone: 0
+        fiveElementsTreasure: 0, immortalCrystal: 0, fiveSpiritStone: 0,
+        cosmicFiber: 0, cosmicWill: 0
       },
       lastUpdateAt: Date.now()
     };
@@ -119,7 +135,9 @@
       : source.wallUnlocked ? 2 : source.brickUnlocked ? 1 : 0;
     const highestScaleIndex = Math.max(0, Math.min(
       config.scales.length - 1,
-      Math.max(savedScaleIndex, scaleIndexForPower(power))
+      source.activeChallenge === "blackHole"
+        ? savedScaleIndex
+        : Math.max(savedScaleIndex, scaleIndexForPower(power))
     ));
     const cultivationSystem = source.cultivationSystem === "仙道" ? "仙道" : null;
     const qiRefiningUnlocked = cultivationSystem === "仙道" && source.qiRefiningUnlocked === true;
@@ -132,6 +150,10 @@
       ? Number(source.minorTribulationExplorationLoad)
       : Number(source.minorTribulationExplorationAmountSum);
     const mana = qiRefiningUnlocked ? maxBN(ZERO, BN(source.mana)) : ZERO;
+    const immortalPower =
+      advancedRealmLevel >= config.immortalPower.unlockAdvancedRealmLevel
+        ? maxBN(ZERO, BN(source.immortalPower))
+        : ZERO;
     const currentCultivationRealmLevel = goldenCoreUnlocked
       ? 3 + advancedRealmLevel
       : foundationUnlocked ? 2 : qiRefiningUnlocked ? 1 : 0;
@@ -202,7 +224,9 @@
       immortalCrystal: Math.max(0, Math.floor(Number(source.treasureImprints?.immortalCrystal) || 0)),
       superLollipop: Math.max(0, Math.floor(Number(source.treasureImprints?.superLollipop) || 0)),
       skyCrystal: Math.max(0, Math.floor(Number(source.treasureImprints?.skyCrystal) || 0)),
-      fiveSpiritStone: Math.max(0, Math.floor(Number(source.treasureImprints?.fiveSpiritStone) || 0))
+      fiveSpiritStone: Math.max(0, Math.floor(Number(source.treasureImprints?.fiveSpiritStone) || 0)),
+      cosmicFiber: Math.max(0, Math.floor(Number(source.treasureImprints?.cosmicFiber) || 0)),
+      cosmicWill: Math.max(0, Math.floor(Number(source.treasureImprints?.cosmicWill) || 0))
     };
     const imprintedHeavenlyTreasureLevel = treasureImprints.wanYaoFan > 0
       ? 3
@@ -221,7 +245,15 @@
     const ghostBackPurchased = source.ghostBackPurchased === true;
     return {
       joules,
+      joulesGainResidual: maxBN(ZERO, BN(source.joulesGainResidual)),
       power,
+      powerGainResidual: maxBN(ZERO, BN(source.powerGainResidual)),
+      manaGainResidual: qiRefiningUnlocked
+        ? maxBN(ZERO, BN(source.manaGainResidual))
+        : ZERO,
+      immortalPowerGainResidual: advancedRealmLevel >= config.immortalPower.unlockAdvancedRealmLevel
+        ? maxBN(ZERO, BN(source.immortalPowerGainResidual))
+        : ZERO,
       highestPower: maxBN(power, BN(source.highestPower)),
       lifetimeHighestJ: maxBN(joules, BN(source.lifetimeHighestJ)),
       lifetimeHighestPower,
@@ -230,9 +262,45 @@
       lifetimeTotalPower: greatest(totalPower, lifetimeHighestPower, source.lifetimeTotalPower),
       lifetimeHighestMana: maxBN(mana, BN(source.lifetimeHighestMana)),
       lifetimeTotalMana: greatest(mana, source.lifetimeHighestMana, source.lifetimeTotalMana),
+      lifetimeHighestImmortalPower: maxBN(immortalPower, BN(source.lifetimeHighestImmortalPower)),
+      lifetimeTotalImmortalPower: greatest(
+        immortalPower,
+        source.lifetimeHighestImmortalPower,
+        source.lifetimeTotalImmortalPower
+      ),
       lifetimeHighestCultivationRealmLevel: Math.min(
         3 + config.realms.length,
         Math.max(currentCultivationRealmLevel, Math.floor(Number(source.lifetimeHighestCultivationRealmLevel) || 0))
+      ),
+      currentRebirthHighestJ: maxBN(joules, BN(source.currentRebirthHighestJ)),
+      currentRebirthTotalJ: greatest(joules, source.currentRebirthHighestJ, source.currentRebirthTotalJ),
+      currentRebirthHighestPower: greatest(power, source.highestPower, source.currentRebirthHighestPower),
+      currentRebirthTotalPower: greatest(
+        totalPower,
+        source.currentRebirthHighestPower,
+        source.currentRebirthTotalPower
+      ),
+      currentRebirthHighestScaleIndex: Math.max(
+        highestScaleIndex,
+        Math.min(config.scales.length - 1, Math.floor(Number(source.currentRebirthHighestScaleIndex) || 0))
+      ),
+      currentRebirthHighestMana: maxBN(mana, BN(source.currentRebirthHighestMana)),
+      currentRebirthTotalMana: greatest(mana, source.currentRebirthHighestMana, source.currentRebirthTotalMana),
+      currentRebirthHighestImmortalPower: maxBN(
+        immortalPower,
+        BN(source.currentRebirthHighestImmortalPower)
+      ),
+      currentRebirthTotalImmortalPower: greatest(
+        immortalPower,
+        source.currentRebirthHighestImmortalPower,
+        source.currentRebirthTotalImmortalPower
+      ),
+      currentRebirthHighestCultivationRealmLevel: Math.min(
+        3 + config.realms.length,
+        Math.max(
+          currentCultivationRealmLevel,
+          Math.floor(Number(source.currentRebirthHighestCultivationRealmLevel) || 0)
+        )
       ),
       immortalSelectionCount: Math.max(cultivationSystem === "仙道" ? 1 : 0, Math.floor(Number(source.immortalSelectionCount) || 0)),
       totalElapsedSeconds,
@@ -310,6 +378,18 @@
       supernaturalFirePurchased: source.supernaturalFirePurchased === true,
       fiveSpiritStonePurchased: source.fiveSpiritStonePurchased === true || treasureImprints.fiveSpiritStone > 0,
       selfSuppressionPurchased: source.selfSuppressionPurchased === true,
+      stellarFurnacePurchased: source.stellarFurnacePurchased === true,
+      stellarTreasureSeekingPurchased: source.stellarTreasureSeekingPurchased === true,
+      gravitationalCollapsePurchased: source.gravitationalCollapsePurchased === true,
+      galacticReturnPurchased: source.galacticReturnPurchased === true,
+      stellarSeaGiftPurchased: source.stellarSeaGiftPurchased === true,
+      stellarResonancePurchased: source.stellarResonancePurchased === true,
+      greatAttractorPurchased: source.greatAttractorPurchased === true,
+      largeScaleAdaptationPurchased: source.largeScaleAdaptationPurchased === true,
+      superclusterCollapsePurchased: source.superclusterCollapsePurchased === true,
+      cosmicWebPurchased: source.cosmicWebPurchased === true,
+      scaleUnificationPurchased: source.scaleUnificationPurchased === true,
+      spacetimeFrameworkPurchased: source.spacetimeFrameworkPurchased === true,
       ghostBackPurchased,
       superLollipopRollProgress: Number.isFinite(Number(source.superLollipopRollProgress))
         ? Math.max(0, Number(source.superLollipopRollProgress)) % 1
@@ -320,9 +400,7 @@
       ghostBackActive: ghostBackPurchased && source.ghostBackActive === true,
       cultivationSystem,
       mana,
-      immortalPower: advancedRealmLevel >= config.immortalPower.unlockAdvancedRealmLevel
-        ? maxBN(ZERO, BN(source.immortalPower))
-        : ZERO,
+      immortalPower,
       qiRefiningUnlocked,
       immortalLifeUnlocked: source.immortalLifeUnlocked === true,
       qiSpellLevel: Math.max(0, Math.min(3, Math.floor(Number(source.qiSpellLevel) || 0))),
@@ -478,7 +556,7 @@
   }
 
   const fieldGroups = Object.freeze({
-    "core.resources": ["joules", "power"],
+    "core.resources": ["joules", "joulesGainResidual", "power", "powerGainResidual"],
     "core.runtime": ["totalElapsedSeconds", "reincarnationElapsedSeconds", "currentScaleElapsedSeconds", "lastUpdateAt"],
     "core.preferences": [
       "hideUnlockedAchievements", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
@@ -505,9 +583,15 @@
       "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
       "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
       "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased",
+      "stellarFurnacePurchased", "stellarTreasureSeekingPurchased", "gravitationalCollapsePurchased",
+      "galacticReturnPurchased", "stellarSeaGiftPurchased", "stellarResonancePurchased",
+      "greatAttractorPurchased", "largeScaleAdaptationPurchased", "superclusterCollapsePurchased",
+      "cosmicWebPurchased", "scaleUnificationPurchased", "spacetimeFrameworkPurchased",
       "ghostBackPurchased"
     ],
-    "cultivation.systems.immortal.resources": ["mana", "immortalPower"],
+    "cultivation.systems.immortal.resources": [
+      "mana", "manaGainResidual", "immortalPower", "immortalPowerGainResidual"
+    ],
     "cultivation.systems.immortal.progress": [
       "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel", "currentQiLayer", "explorationProgress",
       "minorTribulationExplorationLoad", "fiveElementsTreasureRollProgress", "immortalCrystalRollProgress"
@@ -543,8 +627,12 @@
     ],
     "meta.statistics": [
       "lifetimeHighestJ", "lifetimeHighestPower", "lifetimeHighestScaleIndex", "lifetimeTotalJ",
-      "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana",
-      "lifetimeHighestCultivationRealmLevel", "immortalSelectionCount"
+      "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana", "lifetimeHighestImmortalPower",
+      "lifetimeTotalImmortalPower", "lifetimeHighestCultivationRealmLevel", "immortalSelectionCount",
+      "currentRebirthHighestJ", "currentRebirthTotalJ", "currentRebirthHighestPower",
+      "currentRebirthTotalPower", "currentRebirthHighestScaleIndex", "currentRebirthHighestMana",
+      "currentRebirthTotalMana", "currentRebirthHighestImmortalPower",
+      "currentRebirthTotalImmortalPower", "currentRebirthHighestCultivationRealmLevel"
     ],
     "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "challengeCompletions", "threeCorpseChallengesUnlocked", "bestQiLayer"],
     "meta": ["unlockedAchievements", "treasureImprints", "symbolicPowerMilestones"]
@@ -575,6 +663,10 @@
     "selfhoodPurchased", "freedomPurchased", "chicxulubMeteoritePurchased",
     "planetWillPurchased", "starSpiritPurchased", "starShatterPurchased", "spaceQuakePurchased",
     "selflessPurchased", "supernaturalFirePurchased", "fiveSpiritStonePurchased", "selfSuppressionPurchased",
+    "stellarFurnacePurchased", "stellarTreasureSeekingPurchased", "gravitationalCollapsePurchased",
+    "galacticReturnPurchased", "stellarSeaGiftPurchased", "stellarResonancePurchased",
+    "greatAttractorPurchased", "largeScaleAdaptationPurchased", "superclusterCollapsePurchased",
+    "cosmicWebPurchased", "scaleUnificationPurchased", "spacetimeFrameworkPurchased",
     "ghostBackPurchased"
   ]);
   const trackedImmortalAbilityKeys = Object.freeze([

@@ -1125,7 +1125,7 @@ cultivation.active = [
 
 # 23. Decimal 大数底层
 
-开发版 `0.1.4.5-dev` 与发布版 `0.1.4.5` 均采用本地 `break_eternity.js`，由 `js/core/bignum.js` 统一适配，当前存档 Schema 为 47。J、战力、法力、仙灵力、累计资源、资源来源、费用、需求、量级阈值与软上限数值均使用 Decimal；JSON 存档将其写为字符串，旧 Number 存档继续兼容。
+开发版 `0.1.4.6-dev` 与发布版 `0.1.4.6` 均采用本地 `break_eternity.js`，由 `js/core/bignum.js` 统一适配，当前存档 Schema 为 47。J、战力、法力、仙灵力、累计资源、资源来源、费用、需求、量级阈值与软上限数值均使用 Decimal；JSON 存档将其写为字符串，旧 Number 存档继续兼容。
 
 等级、炼气层数、挑战完成次数、时间、概率、指数参数、ID、UI 索引和布尔状态继续使用 Number。任何领域模块都不得把 Decimal 转为 Number 后继续做资源算术；只有对数数量级、概率、积分分段和循环计数等明确的控制量可以通过适配层转换。
 

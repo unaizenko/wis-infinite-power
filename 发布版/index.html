@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="WIS-无限战力系统网页试玩版" />
     <title>WIS-无限战力系统</title>
-    <link rel="stylesheet" href="styles.css?v=0.1.4.5" />
+    <link rel="stylesheet" href="styles.css?v=0.1.4.6" />
   </head>
   <body>
     <div class="app">
@@ -13,7 +13,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.4.5</small>
+          <small id="game-version" class="game-version">v0.1.4.6</small>
         </div>
         <div class="header-actions">
           <div class="scale-progress">
@@ -261,6 +261,23 @@
                 <summary><span><b>量级 · 爆星</b><small>星球意志、星灵、碎星、空间震、无我、超自然发火、五灵石、自我抑制</small></span></summary>
                 <div class="item-list" id="star-upgrade-list" data-sort-by-cost></div>
               </details>
+
+              <details class="upgrade-group" id="stellar-upgrades" hidden>
+                <summary><span><b>量级 · 恒星</b><small>恒星熔炉、星核寻珍、引力坍缩</small></span></summary>
+                <div class="item-list" id="stellar-upgrade-list" data-sort-by-cost></div>
+              </details>
+              <details class="upgrade-group" id="galaxy-upgrades" hidden>
+                <summary><span><b>量级 · 星系</b><small>银河回流、星海馈赠、群星共振</small></span></summary>
+                <div class="item-list" id="galaxy-upgrade-list" data-sort-by-cost></div>
+              </details>
+              <details class="upgrade-group" id="supercluster-upgrades" hidden>
+                <summary><span><b>量级 · 超星系团</b><small>巨引源、大尺度适应、超团坍缩</small></span></summary>
+                <div class="item-list" id="supercluster-upgrade-list" data-sort-by-cost></div>
+              </details>
+              <details class="upgrade-group" id="cosmic-upgrades" hidden>
+                <summary><span><b>量级 · 宇宙结构</b><small>宇宙网、尺度统一、时空骨架</small></span></summary>
+                <div class="item-list" id="cosmic-upgrade-list" data-sort-by-cost></div>
+              </details>
             </div>
           </section>
 
@@ -458,6 +475,33 @@
                 </div>
               </article>
 
+              <article class="item-row" id="cosmic-fiber-treasure" hidden>
+                <div class="item-content">
+                  <h2>宇宙纤维</h2>
+                  <p>达到超星系团后每秒概率获得，数量越多获取概率越低。每个宇宙纤维强化「银河」挑战奖励。</p>
+                </div>
+                <div class="purchase-control">
+                  <span id="cosmic-fiber-count">数量：0</span>
+                  <small id="cosmic-fiber-base-chance">基础概率 0.30%/秒</small>
+                  <small id="cosmic-fiber-decayed-chance">数量衰减后 0.30%/秒</small>
+                  <small id="cosmic-fiber-final-chance">最终宝物概率 0.30%/秒</small>
+                  <small id="cosmic-fiber-effect">当前银河视为指数 ^1.100000</small>
+                </div>
+              </article>
+
+              <article class="item-row" id="cosmic-will-treasure" hidden>
+                <div class="item-content">
+                  <h2>宇宙意志</h2>
+                  <p>达到宇宙结构后每秒概率获得，持有数量越多，获取概率越低。当前暂无效果。</p>
+                </div>
+                <div class="purchase-control">
+                  <span id="cosmic-will-count">数量：0</span>
+                  <small id="cosmic-will-decayed-chance">数量衰减后 0.50%/秒</small>
+                  <small id="cosmic-will-final-chance">最终宝物概率 0.50%/秒</small>
+                  <small id="cosmic-will-effect">当前暂无效果</small>
+                </div>
+              </article>
+
               <article class="item-row" id="xu-tian-ding-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content"><h2>仙道·虚天鼎</h2><p>每累计 1 有效探寻量可能获得；每枚使天材地宝倍率提高0.5%。</p></div>
                 <div class="purchase-control"><span id="xu-tian-ding-count">数量：0</span><small id="xu-tian-ding-chance">每 1 有效探寻量概率 0.02%</small><small id="xu-tian-ding-effect">天材地宝倍率 ×1.000</small></div>
@@ -637,6 +681,45 @@
                   <button id="toggle-qi-refining-hundred-thousand-years" class="primary-button" type="button">开启挑战</button>
                 </div>
               </article>
+              <article class="item-row" id="solar-power-challenge" data-challenge-key="solarPower" hidden>
+                <div class="item-content">
+                  <h2>太阳之力</h2>
+                  <p>真恒星后解锁。J与战力根据对方在爆星至恒星之间的进度，相互压制最终获取指数。同时受到福、禄、寿初级挑战限制。</p>
+                </div>
+                <div class="purchase-control">
+                  <span id="solar-power-progress">完成：0/1次</span>
+                  <small id="solar-power-limit">限制：双方最终获取指数最低 ^0.72</small>
+                  <small id="solar-power-target">目标：J与战力均达到恒星</small>
+                  <small id="solar-power-reward">奖励·阴阳相生：根据对方资源永久提高获取指数</small>
+                  <button id="toggle-solar-power" class="primary-button" type="button">开启挑战</button>
+                </div>
+              </article>
+              <article class="item-row" id="galaxy-challenge" data-challenge-key="galaxy" hidden>
+                <div class="item-content">
+                  <h2>银河</h2>
+                  <p>真星系后解锁。根据当前J、当前战力获得收益的强化失效，固定效果保持不变。同时受到福、禄、寿中级挑战限制。</p>
+                </div>
+                <div class="purchase-control">
+                  <span id="galaxy-progress">完成：0/1次</span>
+                  <small id="galaxy-limit">限制：根据当前J、当前战力获得收益的强化无效</small>
+                  <small id="galaxy-target">目标：抵达星系</small>
+                  <small id="galaxy-reward">奖励：动态强化读取的当前J、战力视为获得基础 ^1.10 提升；宇宙纤维可继续强化</small>
+                  <button id="toggle-galaxy" class="primary-button" type="button">开启挑战</button>
+                </div>
+              </article>
+              <article class="item-row" id="black-hole-challenge" data-challenge-key="blackHole" hidden>
+                <div class="item-content">
+                  <h2>黑洞</h2>
+                  <p>真超星系团后解锁。J与战力从挑战开始便会随自身数值提高而降低获取效率；黑洞吞噬的收益会提高当前下一量级需求。</p>
+                </div>
+                <div class="purchase-control">
+                  <span id="black-hole-progress">完成：0/1次</span>
+                  <small id="black-hole-limit">限制：J与战力从挑战开始便随自身数值提高而降低获取效率；黑洞吞噬的收益会提高当前下一量级需求</small>
+                  <small id="black-hole-target">目标：抵达宇宙结构</small>
+                  <small id="black-hole-reward">奖励：降低超星系团之后的量级突破需求</small>
+                  <button id="toggle-black-hole" class="primary-button" type="button">开启挑战</button>
+                </div>
+              </article>
             </div>
           </section>
 
@@ -649,6 +732,12 @@
               <p>记录本存档曾经达到的最高数值与经过时间。</p>
             </div>
 
+            <div class="statistics-tabs" role="tablist" aria-label="统计范围">
+              <button id="statistics-total-tab" class="secondary-button" type="button" role="tab" aria-selected="true" aria-controls="statistics-total-panel">总统计</button>
+              <button id="statistics-current-tab" class="secondary-button" type="button" role="tab" aria-selected="false" aria-controls="statistics-current-panel">当前转生统计</button>
+            </div>
+
+            <div id="statistics-total-panel" role="tabpanel" aria-labelledby="statistics-total-tab">
             <div class="statistics-grid">
               <article class="statistics-card">
                 <span>最高J</span>
@@ -683,6 +772,14 @@
                 <strong id="statistics-total-mana">0</strong>
               </article>
               <article class="statistics-card">
+                <span>最高仙灵力</span>
+                <strong id="statistics-highest-immortal-power">0</strong>
+              </article>
+              <article class="statistics-card">
+                <span>累计仙灵力</span>
+                <strong id="statistics-total-immortal-power">0</strong>
+              </article>
+              <article class="statistics-card">
                 <span>选择仙道次数</span>
                 <strong id="statistics-immortal-selections">0</strong>
               </article>
@@ -691,6 +788,57 @@
                 <strong id="statistics-game-time">0小时</strong>
                 <small>现实累计 <b id="statistics-real-time">0秒</b>；现实1秒等于游戏内1小时，按30日/月、12月/年换算。</small>
               </article>
+            </div>
+            </div>
+
+            <div id="statistics-current-panel" role="tabpanel" aria-labelledby="statistics-current-tab" hidden>
+              <div class="statistics-grid">
+                <article class="statistics-card">
+                  <span>最高J</span>
+                  <strong id="statistics-current-highest-j">0</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>累计J</span>
+                  <strong id="statistics-current-total-j">0</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>最高战力</span>
+                  <strong id="statistics-current-highest-power">0</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>累计战力</span>
+                  <strong id="statistics-current-total-power">0</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>最高量级</span>
+                  <strong id="statistics-current-highest-scale">普通人</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>最高修行境界</span>
+                  <strong id="statistics-current-highest-realm">未踏入仙道</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>最高法力</span>
+                  <strong id="statistics-current-highest-mana">0</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>累计法力</span>
+                  <strong id="statistics-current-total-mana">0</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>最高仙灵力</span>
+                  <strong id="statistics-current-highest-immortal-power">0</strong>
+                </article>
+                <article class="statistics-card">
+                  <span>累计仙灵力</span>
+                  <strong id="statistics-current-total-immortal-power">0</strong>
+                </article>
+                <article class="statistics-card statistics-time-card">
+                  <span>当前转生经过时间</span>
+                  <strong id="statistics-current-elapsed-time">0秒</strong>
+                  <small>从最近一次体系转生、挑战转生或无限转生完成后开始计算。</small>
+                </article>
+              </div>
             </div>
           </section>
         </main>
@@ -750,29 +898,37 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=0.1.4.5"></script>
-    <script src="js/vendor/break_eternity.min.js?v=0.1.4.5"></script>
-    <script src="js/core/namespace.js?v=0.1.4.5"></script>
-    <script src="js/core/bignum.js?v=0.1.4.5"></script>
-    <script src="js/core/config.js?v=0.1.4.5"></script>
-    <script src="js/core/registry.js?v=0.1.4.5"></script>
-    <script src="js/core/formulas.js?v=0.1.4.5"></script>
-    <script src="js/core/runtime.js?v=0.1.4.5"></script>
-    <script src="js/core/state.js?v=0.1.4.5"></script>
-    <script src="js/core/save.js?v=0.1.4.5"></script>
-    <script src="js/core/resources.js?v=0.1.4.5"></script>
-    <script src="js/core/effects.js?v=0.1.4.5"></script>
-    <script src="js/core/sources.js?v=0.1.4.5"></script>
-    <script src="js/core/reset.js?v=0.1.4.5"></script>
-    <script src="js/power/scale-logic.js?v=0.1.4.5"></script>
-    <script src="js/power/scale.js?v=0.1.4.5"></script>
-    <script src="js/cultivation/immortal-logic.js?v=0.1.4.5"></script>
-    <script src="js/cultivation/immortal.js?v=0.1.4.5"></script>
-    <script src="js/meta/achievements.js?v=0.1.4.5"></script>
-    <script src="js/meta/treasures.js?v=0.1.4.5"></script>
-    <script src="js/meta/challenges.js?v=0.1.4.5"></script>
-    <script src="js/ui/cards.js?v=0.1.4.5"></script>
-    <script src="js/ui/app.js?v=0.1.4.5"></script>
-    <script src="game.js?v=0.1.4.5"></script>
+    <script src="js/core/build-config.js?v=0.1.4.6"></script>
+    <script src="js/vendor/break_eternity.min.js?v=0.1.4.6"></script>
+    <script src="js/core/namespace.js?v=0.1.4.6"></script>
+    <script src="js/core/bignum.js?v=0.1.4.6"></script>
+    <script src="js/core/config.js?v=0.1.4.6"></script>
+    <script src="js/core/registry.js?v=0.1.4.6"></script>
+    <script src="js/core/formulas.js?v=0.1.4.6"></script>
+    <script src="js/core/penalties.js?v=0.1.4.6"></script>
+    <script src="js/core/integration.js?v=0.1.4.6"></script>
+    <script src="js/core/runtime.js?v=0.1.4.6"></script>
+    <script src="js/core/state.js?v=0.1.4.6"></script>
+    <script src="js/core/save.js?v=0.1.4.6"></script>
+    <script src="js/core/resources.js?v=0.1.4.6"></script>
+    <script src="js/core/effects.js?v=0.1.4.6"></script>
+    <script src="js/core/sources.js?v=0.1.4.6"></script>
+    <script src="js/core/reset.js?v=0.1.4.6"></script>
+    <script src="js/power/scale-logic.js?v=0.1.4.6"></script>
+    <script src="js/power/scale.js?v=0.1.4.6"></script>
+    <script src="js/cultivation/immortal-logic.js?v=0.1.4.6"></script>
+    <script src="js/cultivation/immortal.js?v=0.1.4.6"></script>
+    <script src="js/meta/achievements.js?v=0.1.4.6"></script>
+    <script src="js/meta/treasures.js?v=0.1.4.6"></script>
+    <script src="js/meta/challenges.js?v=0.1.4.6"></script>
+    <script src="js/simulation/automation.js?v=0.1.4.6"></script>
+    <script src="js/simulation/step.js?v=0.1.4.6"></script>
+    <script src="js/simulation/treasure-events.js?v=0.1.4.6"></script>
+    <script src="js/simulation/projection.js?v=0.1.4.6"></script>
+    <script src="js/simulation/offline.js?v=0.1.4.6"></script>
+    <script src="js/simulation/loop.js?v=0.1.4.6"></script>
+    <script src="js/ui/cards.js?v=0.1.4.6"></script>
+    <script src="js/ui/app.js?v=0.1.4.6"></script>
+    <script src="game.js?v=0.1.4.6"></script>
   </body>
 </html>
