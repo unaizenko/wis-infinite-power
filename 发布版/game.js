@@ -3,7 +3,7 @@
 
   const CONFIG = WIS.Core.Config;
   const BUILD = WIS.Core.Build;
-  const GAME_VERSION = BUILD.mode === "development" ? `${CONFIG.gameVersion}-dev` : CONFIG.gameVersion;
+  const GAME_VERSION = CONFIG.gameVersion;
   const LOGIC_INTERVAL_MS = 100;
   const RENDER_INTERVAL_MS = 250;
   const SIMULATION_STEP_SECONDS = 0.1;
@@ -32,6 +32,7 @@
   const {
     autoBreakthroughImmortalRealms, autoUpgradeImmortalAbilities, breathe, chooseCultivation,
     baLingChiCount, cultivationRealmLevel, explore, grantThreeDeficienciesResetReward,
+    reconcileMahayanaReincarnationEffects,
     minorTribulationPowerExponent, celestialDeclineExponent, tianNiPearlCount, phantomHeavenMirrorCount,
     mysticHeavenSacredTreeCount, mysticHeavenSpiritSlayingSwordCount,
     tianNiPearlChance, mysteriousGreenBottleChance, fuBaoChance, naturalTreasureUpgradeChance,
@@ -41,6 +42,7 @@
     automaticExplorationAmountPerSecond, circulationManaPerSecond, immortalPowerPerSecond
   } = Immortal;
 
+  let savedOfflineRecovery = null;
   let state = loadState();
   let initialLoadComplete = false;
   let automationSimulation;
@@ -77,6 +79,8 @@
     setState: setStateDirect
   });
   WIS.Core.Resources.bind(() => state);
+  reconcileMahayanaReincarnationEffects();
+  WIS.Meta.TreasureProgress.ensure(state);
 
   const flatStateKeys = Object.keys(WIS.Core.State.toFlat(state));
   const upgradeFlagKeys = flatStateKeys.filter((key) => key.endsWith("Purchased")).sort();
@@ -103,6 +107,7 @@
   function loadState() {
     try {
       const saved = WIS.Core.Save.read();
+      savedOfflineRecovery = saved?.offlineRecovery ?? null;
       return saved ? WIS.Core.State.migrate(saved.schemaVersion, saved.data) : freshDefaultState();
     } catch (error) {
       console.error("WIS save migration or state normalization failed; using a fresh state.", error);
@@ -137,7 +142,10 @@
 
   function recordSignature(record, keys) {
     let signature = "";
-    for (const key of keys) signature += `|${Number(record?.[key]) || 0}`;
+    for (const key of keys) {
+      const value = record?.[key];
+      signature += `|${value === null || value === undefined ? 0 : value}`;
+    }
     return signature;
   }
 
@@ -198,23 +206,25 @@
     return true;
   }
 
-  function persistStateNow() {
+  function persistStateNow(options = {}) {
     if (recordCurrentAchievements()) markAchievementsDirty();
     updateLifetimeStatistics();
-    const pendingClockSeconds = offlineSimulation?.getPendingCatchUpClockSeconds?.() || 0;
-    const onlineClockSeconds = simulationLoop?.getSimulationClockAccumulator?.() || 0;
-    state.lastUpdateAt = Math.max(0, Date.now() - (pendingClockSeconds + onlineClockSeconds) * 1000);
-    WIS.Core.Save.write(state);
+    const onlineClockSeconds = simulationLoop?.getUnprocessedOnlineClockSeconds?.() || 0;
+    // Recovery debt is stored alongside this exact resource checkpoint, not backdated
+    // into the wall clock (which would also award time spent waiting for recovery).
+    state.lastUpdateAt = Math.max(0, Date.now() - onlineClockSeconds * 1000);
+    WIS.Core.Save.write(state, options);
   }
 
-  function saveState() {
+  function saveState(options = {}) {
     if (WIS.Core.Runtime.isProjection()) return;
+    if (options.closing === true) return persistStateNow(options);
     if (stepSimulation) stepSimulation.requestSave();
     else persistStateNow();
   }
 
   function multiplyEffects(effects) {
-    return WIS.Core.Formulas.multiply(effects.map(multiplierEffectValue));
+    return WIS.Core.Formulas.multiply(effects);
   }
 
   function multiplierEffectValue(effect) {
@@ -271,7 +281,9 @@
   }
 
   function formatGameCalendar(totalRealSeconds) {
-    let totalHours = Math.max(0, Math.floor(totalRealSeconds));
+    // Statistics display only: one elapsed real second represents one game minute.
+    const totalMinutes = Math.max(0, Math.floor(totalRealSeconds));
+    let totalHours = Math.floor(totalMinutes / 60);
     const hoursPerDay = 24;
     const hoursPerMonth = hoursPerDay * 30;
     const hoursPerYear = hoursPerMonth * 12;
@@ -285,16 +297,30 @@
     if (years > 0) parts.push(`${format(years, 0)}年`);
     if (months > 0 || years > 0) parts.push(`${months}月`);
     if (days > 0 || months > 0 || years > 0) parts.push(`${days}日`);
-    parts.push(`${hours}小时`);
+    if (hours > 0 || parts.length > 0) parts.push(`${hours}小时`);
+    parts.push(`${totalMinutes % 60}分钟`);
     return parts.join("");
   }
 
   const simulateOfflineProgress = (...args) => offlineSimulation.simulateOfflineProgress(...args);
   const cancelCatchUp = (...args) => offlineSimulation.cancelCatchUp(...args);
+  const abandonCatchUp = (...args) => offlineSimulation.abandonCatchUp(...args);
+  const retryCatchUp = (...args) => offlineSimulation.retryCatchUp(...args);
+  const pauseCatchUpByPlayer = () => offlineSimulation.pauseCatchUpByPlayer();
+  const acknowledgeCatchUp = (...args) => offlineSimulation.acknowledgeCatchUp(...args);
+  const getCatchUpStatus = (...args) => offlineSimulation.getCatchUpStatus(...args);
+  const subscribeCatchUpStatus = (...args) => offlineSimulation.subscribeCatchUpStatus(...args);
   const setLastTickAt = (value) => simulationLoop?.setLastTickAt(value);
+  function restoreOfflineRecovery(snapshot) {
+    return offlineSimulation.restorePersistenceSnapshot(
+      snapshot,
+      snapshot?.closedAt > 0 ? Math.max(0, Date.now() - snapshot.closedAt) / 1000 : 0
+    );
+  }
 
   const UI = WIS.UI.App.create({
-    saveState, simulateOfflineProgress, cancelCatchUp, achievementStates, recordCurrentAchievements,
+    saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, retryCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
+    getCatchUpStatus, subscribeCatchUpStatus, restoreOfflineRecovery, achievementStates, recordCurrentAchievements,
     updateLifetimeStatistics, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost,
     multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain,
     formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent,
@@ -401,7 +427,30 @@
     formatElapsedTime,
     format,
     setLastTickAt,
+    checkpoint: persistStateNow,
+    snapshotTransient: () => ({
+      power: WIS.Core.Registries.getActivePower(state)?.snapshotTreasureTransient?.(),
+      cultivation: WIS.Core.Registries.getActiveCultivation(state)?.snapshotTreasureTransient?.()
+    }),
+    restoreTransient: (snapshot) => {
+      WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(snapshot.power);
+      WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivation);
+    },
     resetOnlineAccumulators: () => simulationLoop?.resetAccumulators(),
+    snapshotState: () => {
+      const powerSystem = WIS.Core.Registries.getActivePower(state);
+      const cultivationSystem = WIS.Core.Registries.getActiveCultivation(state);
+      return {
+        domain: WIS.Core.State.toSerializable(state),
+        powerTransient: powerSystem?.snapshotTreasureTransient?.(),
+        cultivationTransient: cultivationSystem?.snapshotTreasureTransient?.()
+      };
+    },
+    restoreState: (snapshot) => {
+      setStateDirect(WIS.Core.State.cloneForSimulation(snapshot.domain));
+      WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(snapshot.powerTransient);
+      WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivationTransient);
+    },
     tianNiPearlCount,
     fitnessMembershipCardCount,
     superLollipopCount,
@@ -435,6 +484,7 @@
     maxDiscreteEventsPerStep: MAX_DISCRETE_EVENTS_PER_STEP,
     logicIntervalMs: LOGIC_INTERVAL_MS
   });
+  WIS.Core.Save.bindOfflineRecovery((options) => offlineSimulation.getPersistenceSnapshot(options));
 
   WIS.Core.Runtime.bind({
     state: () => state,
@@ -477,7 +527,9 @@
 
   UI.bindEvents();
   const initialAchievementStates = achievementStates();
-  const initialOfflineElapsedSeconds = (Date.now() - state.lastUpdateAt) / 1000;
+  const restoredOfflineRecovery = restoreOfflineRecovery(savedOfflineRecovery);
+  const initialOfflineElapsedSeconds = restoredOfflineRecovery
+    ? 0 : Math.max(0, Date.now() - state.lastUpdateAt) / 1000;
 
   WIS.Game = Object.freeze({
     version: GAME_VERSION,
@@ -498,7 +550,11 @@
       advanceGameStep: stepSimulation.advanceGameStep,
       advanceGame: stepSimulation.advanceGame,
       simulateOfflineProgress,
-      cancelCatchUp
+      cancelCatchUp,
+      abandonCatchUp,
+      retryCatchUp,
+      acknowledgeCatchUp,
+      getCatchUpStatus
     })
   });
 

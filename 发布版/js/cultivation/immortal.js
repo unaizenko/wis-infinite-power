@@ -2,7 +2,7 @@
   "use strict";
 
   const realms = WIS.Core.Config.realms;
-  const { ZERO, ONE, add, div, log10, max: maxBN, gt, toNumber } = WIS.Core.BigNum;
+  const { ZERO, ONE, add, mul, div, gt } = WIS.Core.BigNum;
 
   function realmLevel(state) {
     if (state.goldenCoreUnlocked) return 3 + state.advancedRealmLevel;
@@ -33,7 +33,8 @@
 
   function effects(state) {
     if (state.cultivation?.active !== "immortal") return [];
-    return [
+    if (WIS.Cultivation.Xiuzhen?.sealed(state)) state = WIS.Cultivation.Xiuzhen.abilityView(state);
+    const list = [
       { id: "immortalLife", name: "仙道贵生", group: "仙道", target: "power", layer: "regionMultiplier", value: state.immortalLifeUnlocked ? 0.95 : 1 },
       { id: "techniqueJoules", name: "功法", group: "仙道", target: "joules", layer: "regionMultiplier", value: state.techniqueUnlocked ? 1.5 : 1 },
       { id: "qiSpell", name: "炼气法术", group: "仙道", target: "power", layer: "regionMultiplier", value: levelMultiplier(state.qiSpellLevel, 1.08) },
@@ -46,18 +47,18 @@
       { id: "immortalFitnessLevelCap", name: "仙道健身上限", group: "仙道", target: "fitnessLevelCap", layer: "sourceAdditive", value: WIS.Cultivation.ImmortalLogic.immortalFitnessLevelCapBonus() },
       { id: "minorTribulationPower", name: "小天劫", group: "仙道", target: "power", layer: "regionExponent", value: WIS.Cultivation.ImmortalLogic.minorTribulationPowerExponent() },
       { id: "materialControl", name: "御物", group: "仙道", target: "magicTreasure", layer: "sourceMultiplier", value: state.materialControlUnlocked ? 5 : 1 },
-      { id: "wanYaoFan", name: "仙道·万妖幡", group: "宝物", target: "magicTreasure", layer: "sourceMultiplier", celestialFiveDecline: true, value: 1 + (state.meta.treasures.wanYaoFan || 0) * 0.003 },
+      { id: "wanYaoFan", name: "仙道·万妖幡", group: "宝物", target: "magicTreasure", layer: "sourceMultiplier", celestialFiveDecline: true, value: add(ONE, mul(state.treasureImprints.wanYaoFan, 0.003)) },
       { id: "trueSpiritTransformation", name: "真灵变", group: "仙道", target: "mana", layer: "regionMultiplier", value: 1 + 0.6 * state.trueSpiritTransformationLevel },
       { id: "qiChallengeMana", name: "炼气层数", group: "炼气十万年", target: "mana", layer: "regionMultiplier", value: state.activeChallenge === "qiRefiningHundredThousandYears" ? WIS.Cultivation.ImmortalLogic.qiLayerManaMultiplier() : 1 },
       { id: "qiChallengeReward", name: "炼气十万年奖励", group: "仙道挑战", target: "breathing", layer: "sourceMultiplier", value: WIS.Cultivation.ImmortalLogic.qiChallengeReward() },
-      { id: "auraControl", name: "操控灵气", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.auraControlUnlocked ? 1 + 1.5 * toNumber(log10(add(ONE, div(maxBN(ZERO, current.power), "3.033e15"))), 0) : 1 },
-      { id: "immortalRealmDivine", name: "仙界神通", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => current.immortalRealmDivineAbilityUnlocked ? 1 + 0.75 * toNumber(log10(add(ONE, div(maxBN(ZERO, current.joules), "2.092e20"))), 0) : 1 },
+      { id: "auraControl", name: "操控灵气", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.auraControlUnlocked ? WIS.Cultivation.ImmortalLogic.auraControlPotentialMultiplier(current.power) : 1 },
+      { id: "immortalRealmDivine", name: "仙界神通", group: "仙道", target: "breathing", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => current.immortalRealmDivineAbilityUnlocked ? WIS.Cultivation.ImmortalLogic.immortalRealmDivineAbilityPotentialMultiplier(current.joules) : 1 },
       { id: "voidRefiningToQi", name: "炼虚为气", group: "仙道", target: "breathing", layer: "sourceExponent", value: state.voidRefiningToQiUnlocked ? 1.06 : 1 },
       { id: "secondNascentSoul", name: "第二元婴", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.secondNascentSoulUnlocked ? 1.8 : 1 },
       { id: "silverTadpole", name: "银蝌文", group: "仙道", target: "exploration", layer: "sourceExponent", value: state.silverTadpoleScriptUnlocked ? 1.06 : 1 },
       { id: "spiritWorldAscension", name: "飞升灵界", group: "仙道", target: "exploration", layer: "regionMultiplier", value: state.spiritWorldAscensionUnlocked ? WIS.Core.Config.exploration.spiritWorldAscensionMultiplier : 1 },
       { id: "flyingEscape", name: "飞遁", group: "仙道", target: "exploration", layer: "sourceMultiplier", value: state.flyingEscapeUnlocked ? 10 : 1 },
-      { id: "mysteriousGreenBottle", name: "仙道·神秘绿瓶", group: "宝物", target: "exploration", layer: "sourceMultiplier", celestialFiveDecline: true, value: 1 + (state.meta.treasures.mysteriousGreenBottle || 0) * 0.02 },
+      { id: "mysteriousGreenBottle", name: "仙道·神秘绿瓶", group: "宝物", target: "exploration", layer: "sourceMultiplier", celestialFiveDecline: true, value: add(ONE, mul(state.treasureImprints.mysteriousGreenBottle, 0.02)) },
       { id: "divineSense", name: "神识", group: "仙道", target: "explorationAmount", layer: "sourceMultiplier", value: state.divineSenseUnlocked ? 1.25 : 1 },
       { id: "spiritRefiningArt", name: "炼神术", group: "仙道", target: "manaJ", layer: "sourceExponent", value: state.spiritRefiningArtUnlocked ? 1.06 : 1 },
       { id: "realmMana", name: "境界奖励", group: "境界", target: "mana", layer: "regionMultiplier", value: state.qiRefiningUnlocked ? Math.pow(1.2, realmLevel(state)) : 1 },
@@ -79,7 +80,7 @@
       { id: "demonRealmJourneyTreasure", name: "魔界之游", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", value: state.demonRealmJourneyUnlocked ? 3 : 1 },
       { id: "returnToOrigin", name: "返本归元", group: "仙道", target: "joules", layer: "regionExponent", value: state.returnToOriginUnlocked ? 1.02 : 1 },
       { id: "perfectedTechniqueCompletion", name: "功法圆满", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.perfectedTechniqueCompletionUnlocked ? 1.5 : 1 },
-      { id: "descendRealm", name: "降界", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.descendRealmUnlocked ? Math.min(10, 1 + 0.75 * toNumber(log10(add(ONE, div(maxBN(ZERO, current.power), "8.368e22"))), 0)) : 1 },
+      { id: "descendRealm", name: "降界", group: "仙道", target: "immortalTreasureChance", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.descendRealmUnlocked ? WIS.Cultivation.ImmortalLogic.descendRealmPotentialTreasureMultiplier(current.power) : 1 },
       { id: "nascentSoulCompletion", name: "元婴大成", group: "仙道", target: "circulation", layer: "sourceExponent", value: state.nascentSoulCompletionUnlocked ? 1.08 : 1 },
       { id: "goldenSealScript", name: "金篆文", group: "仙道", target: "mana", layer: "regionMultiplier", value: state.goldenSealScriptUnlocked ? 8 : 1 },
       { id: "mysticHeavenSpiritSlayingSword", name: "仙道·玄天斩灵剑", group: "宝物", target: "magicTreasure", layer: "sourceExponent", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.mysticHeavenSpiritSlayingSwordExponent() },
@@ -99,9 +100,13 @@
       ,{ id: "unityWithDao", name: "与道合真", group: "大罗", target: "immortalPower", layer: "regionExponent", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.unityWithDaoExponent(current.immortalPower) }
       ,{ id: "lawCrystalFilament", name: "法则晶丝", group: "大罗", target: "power", layer: "regionExponent", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.lawCrystalFilamentPowerExponent(current.mana) }
     ];
+    return WIS.Cultivation.Xiuzhen?.sealed(state)
+      ? list.filter(e => ["宝物", "灵根", "境界", "炼气十万年", "仙道挑战"].includes(e.group) || e.id === "minorTribulationPower")
+      : list;
   }
 
   WIS.Core.Effects.register("immortal", effects);
+  WIS.Core.Effects.register("xiuzhen", state => WIS.Cultivation.Xiuzhen?.effects(state) ?? []);
 
   let passiveManaRollAccumulator = 0;
   let baLingChiRollAccumulator = 0;
@@ -134,15 +139,24 @@
   }
 
   function planAutomaticGain(_state, elapsedSeconds, projectedContext = {}) {
-    return WIS.Cultivation.ImmortalLogic.planAutomaticManaGain(elapsedSeconds, projectedContext);
+    const result = WIS.Cultivation.ImmortalLogic.planAutomaticManaGain(elapsedSeconds, projectedContext);
+    // All Xiuzhen sources sample the same pre-commit state. Feedback starts on the next logical frame.
+    if (WIS.Cultivation.Xiuzhen && !result.instantEvent)
+      result.xiuzhen = WIS.Cultivation.Xiuzhen.plan(_state, result.processedSeconds || 0);
+    return result;
   }
 
   function commitAutomaticGain(state, plan, options = {}) {
-    return resultFromSettlement(
+    const xiuzhen = WIS.Cultivation.Xiuzhen?.prepare(state, plan.xiuzhen);
+    const result = resultFromSettlement(
       state,
-      WIS.Cultivation.ImmortalLogic.commitAutomaticManaGain(plan),
+      WIS.Cultivation.ImmortalLogic.commitAutomaticManaGain(plan, options),
       plan?.instantEvent ? { ...options, writeRates: false } : options
     );
+    if (xiuzhen && xiuzhen !== state.cultivation.systems.immortal.xiuzhen) {
+      state.cultivation.systems.immortal.xiuzhen = xiuzhen; WIS.Core.Effects.invalidate();
+    }
+    return { ...result, xiuzhen: plan.xiuzhen };
   }
 
   function update(state, elapsedSeconds, options = {}) {
@@ -153,44 +167,23 @@
   }
 
   function rollPassiveManaTreasure(elapsedSeconds, _passiveManaRate, silentTreasureRolls = false) {
-    if (!gt(WIS.Cultivation.ImmortalLogic.circulationManaPerSecond(), ZERO)) {
-      passiveManaRollAccumulator = 0;
-      return 0;
-    }
-    passiveManaRollAccumulator += elapsedSeconds;
-    const attempts = Math.floor(passiveManaRollAccumulator);
-    passiveManaRollAccumulator -= attempts;
-    return WIS.Cultivation.ImmortalLogic.rollTianNiPearlAttempts(attempts, silentTreasureRolls);
+    if (!gt(WIS.Cultivation.ImmortalLogic.circulationManaPerSecond(), ZERO)) return ZERO;
+    return WIS.Cultivation.ImmortalLogic.rollTianNiPearlAttempts(elapsedSeconds, silentTreasureRolls);
   }
 
   function rollCirculationTreasure(state, elapsedSeconds, silentTreasureRolls = false) {
-    if (!gt(WIS.Cultivation.ImmortalLogic.circulationManaPerSecond(), ZERO) || state.heavenlyTreasureLevel < 2) {
-      baLingChiRollAccumulator = 0;
-      return 0;
-    }
-    baLingChiRollAccumulator += elapsedSeconds;
-    const attempts = Math.floor(baLingChiRollAccumulator);
-    baLingChiRollAccumulator -= attempts;
-    return WIS.Cultivation.ImmortalLogic.rollBaLingChiAttempts(attempts, silentTreasureRolls);
+    if (!gt(WIS.Cultivation.ImmortalLogic.circulationManaPerSecond(), ZERO) || state.heavenlyTreasureLevel < 2) return ZERO;
+    return WIS.Cultivation.ImmortalLogic.rollBaLingChiAttempts(elapsedSeconds, silentTreasureRolls);
   }
 
   function rollImmortalPowerTreasure(state, activeSeconds, silentTreasureRolls = false) {
+    WIS.Meta.TreasureProgress.ensure(state);
     const elapsed = Math.max(0, Number(activeSeconds) || 0);
-    if (!(elapsed > 0)) return 0;
-    let gained = 0;
-    if (WIS.Meta.Achievements.has(state, "ascendImmortal")) {
-      const crystalTotal = Math.max(0, Number(state.immortalCrystalRollProgress) || 0) + elapsed;
-      const crystalAttempts = Math.floor(crystalTotal + 1e-10);
-      state.immortalCrystalRollProgress = Math.max(0, crystalTotal - crystalAttempts);
-      gained += WIS.Cultivation.ImmortalLogic.rollImmortalCrystalAttempts(crystalAttempts, silentTreasureRolls);
-    }
-    if (state.fiveElementsTreasureUnlocked) {
-      const treasureTotal = Math.max(0, Number(state.fiveElementsTreasureRollProgress) || 0) + elapsed;
-      const treasureAttempts = Math.floor(treasureTotal + 1e-10);
-      state.fiveElementsTreasureRollProgress = Math.max(0, treasureTotal - treasureAttempts);
-      gained += WIS.Cultivation.ImmortalLogic.rollFiveElementsTreasureAttempts(treasureAttempts, silentTreasureRolls);
-    }
-    return gained;
+    if (!(elapsed > 0)) return ZERO;
+    return add(
+      WIS.Cultivation.ImmortalLogic.rollImmortalCrystalAttempts(elapsed, silentTreasureRolls),
+      WIS.Cultivation.ImmortalLogic.rollFiveElementsTreasureAttempts(elapsed, silentTreasureRolls)
+    );
   }
 
   function resetTransient() {

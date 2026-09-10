@@ -104,6 +104,10 @@
   ].map(([name, threshold, strength, growth, removedAtRealm, removedBy]) => Object.freeze({ name, threshold: BN(threshold), strength, growth, removedAtRealm, removedBy })));
 
   const challenges = Object.freeze({
+    mortalTransformation: Object.freeze({ name: "化凡", maxCompletions: 1, targetAdvancedRealmLevel: 2,
+      system: "immortal", catalogSystem: "仙道", unlockAchievementKey: "qiPathComplete" }),
+    yinVoidYangReal: Object.freeze({ name: "阴虚阳实", maxCompletions: 1, targetXiuzhenRealm: 3,
+      system: "immortal", catalogSystem: "仙道" }),
     innateDeficiency: Object.freeze({ name: "福", maxCompletions: 3, limitExponents: [0.85, 0.7, 0.55], rewardExponents: [1.05, 1.08, 1.15], requiredScaleIndices: [2, 3, 4], resourceName: "J", rewardSourceName: "健身" }),
     powerless: Object.freeze({ name: "禄", maxCompletions: 3, limitExponents: [0.85, 0.72, 0.6], rewardExponents: [1.05, 1.08, 1.12], requiredScaleIndices: [3, 4, 5], resourceName: "战力", rewardSourceName: "锻炼" }),
     longevity: Object.freeze({ name: "寿", maxCompletions: 3, limitExponents: [0.8, 0.75, 0.69], rewardMultipliers: [10, 25, 100], requiredScaleIndices: [4, 5, 6], resourceName: "J与战力", timeToLimitSeconds: 600, unlockAchievementKey: "trueScale4" }),
@@ -158,7 +162,7 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.4.6", saveVersion: 47,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.5.0", saveVersion: 54,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
@@ -345,7 +349,7 @@
         galaxyBaseExponent: 1.10, galaxyPerItemExponent: 0.005,
         galaxyDecayScale: 20, galaxyDecayExponent: 0.55
       }),
-      cosmicWill: Object.freeze({ baseChance: 0.005, chanceDecayScale: 10, chanceDecayExponent: 0.5 })
+      cosmicWill: Object.freeze({ baseChance: 0.001, chanceDecayScale: 10, chanceDecayExponent: 0.85 })
     })
   });
 }(window.WIS));

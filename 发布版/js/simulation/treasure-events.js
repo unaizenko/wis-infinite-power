@@ -17,13 +17,32 @@
         immortalCrystalChance, fiveElementsTreasureChance, immortalTreasureChanceMultiplier,
         automaticExplorationAmountPerSecond, circulationManaPerSecond, immortalPowerPerSecond
       } = context;
-      const { ZERO, div, log10, gt } = WIS.Core.BigNum;
+      const { ZERO, ONE, sub, div, log10, gt, gte, lt } = WIS.Core.BigNum;
       const epsilon = context.epsilon;
       const simulationStepSeconds = context.simulationStepSeconds;
       const boundaryBisections = context.boundaryBisections;
       const maxDiscreteEventsPerStep = context.maxDiscreteEventsPerStep;
-      const relativeBucketLog = Math.log(1.0025);
       const relativeBucketLog10 = Math.log10(1.0025);
+      const monotonicNow = typeof context.clockNow === "function"
+        ? context.clockNow
+        : () => typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+
+      function predictionBudgetExpired(options = {}) {
+        const deadlineMs = Number(options.deadlineMs);
+        return Number.isFinite(deadlineMs) && monotonicNow() >= deadlineMs;
+      }
+
+      function beginPredictionUnit(options) {
+        const budget = options.workBudget;
+        if (budget && budget.operations >= budget.maximumOperations) return false;
+        if (predictionBudgetExpired(options) && !(budget?.ensureProgress && budget.operations === 0)) {
+          return false;
+        }
+        if (budget) budget.operations += 1;
+        return true;
+      }
 
       function createOfflineTaskRandom(seedValue) {
         let value = (Math.floor(Math.max(0, Math.min(1, Number(seedValue) || 0)) * 0x100000000) >>> 0) || 0x6d2b79f5;
@@ -43,10 +62,10 @@
       }
 
       function relativeTreasureChanceBucket(value) {
-        const probability = Number(value);
-        if (!(probability > 0)) return "zero";
-        if (!Number.isFinite(probability) || probability >= 1 - epsilon) return "cap";
-        return Math.floor(Math.log(probability) / relativeBucketLog);
+        const probability = WIS.Core.Probability.clamp(value);
+        if (!gt(probability, ZERO)) return "zero";
+        if (gte(probability, sub(ONE, epsilon))) return "cap";
+        return relativeTreasureRateBucket(probability);
       }
 
       function treasureChanceDriver(available, chance) {
@@ -58,7 +77,7 @@
         return div(log10(value), relativeBucketLog10).floor().toString();
       }
 
-      function treasureDriverSignature(source = getState()) {
+      function treasureDriverSnapshot(source = getState()) {
         const treasureSystemAvailable = treasuresUnlocked();
         const fitnessSourceActive = gt(fitnessJBonus(), ZERO);
         const fitnessTreasureAvailable = hasAchievement("scale5") && fitnessSourceActive;
@@ -72,7 +91,7 @@
         const mysteriousGreenBottleAvailable = immortalSystemActive && treasureSystemAvailable && hasAchievement("goldenCore");
         const fuBaoAvailable = immortalSystemActive && hasAchievement("trueScale3");
         const naturalTreasureAvailable = immortalSystemActive && source.goldenCoreUnlocked &&
-          source.naturalTreasureLevel < naturalTreasureLevelCap();
+          lt(source.naturalTreasureLevel, naturalTreasureLevelCap());
         const xuTianDingAvailable = immortalSystemActive && source.heavenlyTreasureLevel >= 1;
         const baLingChiAvailable = immortalSystemActive && source.heavenlyTreasureLevel >= 2;
         const wanYaoFanAvailable = immortalSystemActive && source.heavenlyTreasureLevel >= 3;
@@ -105,10 +124,23 @@
         ].filter(([active]) => active);
         const immortalTreasureChanceBucket = activeImmortalChanceDrivers.length === 0
           ? "inactive"
-          : activeImmortalChanceDrivers.every(([, chance]) => chance() >= 1 - epsilon)
+          : activeImmortalChanceDrivers.every(([, chance]) =>
+            gte(WIS.Core.Probability.clamp(chance()), sub(ONE, epsilon)))
             ? "cap"
             : relativeTreasureRateBucket(immortalTreasureChanceMultiplier());
-        return [
+        const activeChanceDrivers = [
+          [fitnessTreasureAvailable, fitnessMembershipCardChance],
+          [superLollipopActive, superLollipopChance],
+          [skyCrystalAvailable, skyCrystalChance],
+          [fiveSpiritStoneAvailable, fiveSpiritStoneChance],
+          [cosmicFiberActive, cosmicFiberChance],
+          [cosmicWillActive, cosmicWillChance],
+          ...activeImmortalChanceDrivers
+        ];
+        const active = activeChanceDrivers.some(([driverActive, chance]) =>
+          driverActive && gt(WIS.Core.Probability.clamp(chance()), ZERO)) ||
+          (immortalSystemActive && explorationActive && !hasAchievement("seizeFoundation"));
+        const signature = [
           source.cultivation?.active || "none",
           `system:${Number(treasureSystemAvailable)}`,
           `fitness:${treasureChanceDriver(fitnessTreasureAvailable, fitnessMembershipCardChance)}`,
@@ -131,42 +163,81 @@
           ].map(Number).join("")}`,
           `seizeFoundation:${Number(hasAchievement("seizeFoundation"))}`
         ].join("|");
+        return { active, signature };
+      }
+
+      function treasureDriverSignature(source = getState()) {
+        return treasureDriverSnapshot(source).signature;
       }
 
       function treasureEventSignature(source = getState()) {
         return [
           recordSignature(source.treasureImprints, WIS.Meta.Treasures.keys),
+          JSON.stringify(source.meta?.treasureStockResidual || {}),
           Number(source.naturalTreasureLevel) || 0,
           source.unlockedAchievements?.seizeFoundation === true
         ].join("|");
       }
 
-      function runTreasurePrediction(serializedState, elapsedSeconds, randomState) {
+      function runTreasurePrediction(serializedState, elapsedSeconds, randomState, options = {}) {
+        if (!WIS.Core.Runtime.isOfflineExecution()) {
+          return WIS.Core.Runtime.withOfflineExecution(() =>
+            runTreasurePrediction(serializedState, elapsedSeconds, randomState, options));
+        }
         const liveState = getState();
         const livePowerSystem = WIS.Core.Registries.getActivePower(liveState);
         const liveCultivationSystem = WIS.Core.Registries.getActiveCultivation(liveState);
         const powerTransient = livePowerSystem?.snapshotTreasureTransient?.();
         const cultivationTransient = liveCultivationSystem?.snapshotTreasureTransient?.();
-        const predictionState = WIS.Core.State.normalizeDomain(serializedState);
+        const inputKey = JSON.stringify(serializedState);
+        const seconds = Math.max(0, Number(elapsedSeconds) || 0);
+        const integrationMethod = options.integrationMethod || "end";
+        const resumable = options.continuation;
+        const work = resumable?.kind === "treasure-prediction-v2" &&
+          resumable.inputKey === inputKey && resumable.seconds === seconds &&
+          resumable.initialRandomState === randomState && resumable.integrationMethod === integrationMethod
+          ? resumable
+          : {
+            kind: "treasure-prediction-v2", inputKey, seconds, initialRandomState: randomState, integrationMethod,
+            state: WIS.Core.State.normalizeDomain(serializedState),
+            remaining: seconds, eventPasses: 0, randomState,
+            powerTransient, cultivationTransient
+          };
+        const predictionState = work.state;
         const predictionRandom = createOfflineTaskRandom(0);
-        predictionRandom.restore(randomState);
+        predictionRandom.restore(work.randomState);
         let completed = true;
+        let budgetExhausted = false;
         setStateDirect(predictionState);
         try {
+          livePowerSystem?.restoreTreasureTransient?.(work.powerTransient);
+          liveCultivationSystem?.restoreTreasureTransient?.(work.cultivationTransient);
           return WIS.Core.Runtime.withTreasurePrediction(
             () => predictionRandom.next(),
             () => WIS.Core.Effects.withIsolatedState(predictionState, () => {
-              let remaining = Math.max(0, Number(elapsedSeconds) || 0);
-              let eventPasses = 0;
-              while (remaining > epsilon && eventPasses < maxDiscreteEventsPerStep * 4) {
-                const result = advanceGameStep(remaining, true, { skipTreasureRolls: false, projection: true });
-                const processed = Math.max(0, Math.min(remaining, Number(result.processedSeconds) || 0));
-                remaining = Math.max(0, remaining - processed);
-                eventPasses += 1;
+              while (work.remaining > epsilon && work.eventPasses < maxDiscreteEventsPerStep * 4) {
+                if (!beginPredictionUnit(options)) {
+                  completed = false;
+                  budgetExhausted = true;
+                  break;
+                }
+                const result = advanceGameStep(work.remaining, true, {
+                  skipTreasureRolls: false, projection: true, offline: true, integrationMethod
+                });
+                const processed = Math.max(0, Math.min(work.remaining, Number(result.processedSeconds) || 0));
+                work.remaining = Math.max(0, work.remaining - processed);
+                work.eventPasses += 1;
                 if (!(processed > 0) && !result.eventCommitted) break;
               }
-              if (remaining > epsilon) completed = false;
-              return { completed, signature: treasureEventSignature(getState()) };
+              if (work.remaining > epsilon) completed = false;
+              work.state = getState();
+              work.randomState = predictionRandom.snapshot();
+              work.powerTransient = livePowerSystem?.snapshotTreasureTransient?.();
+              work.cultivationTransient = liveCultivationSystem?.snapshotTreasureTransient?.();
+              return {
+                completed, budgetExhausted, signature: treasureEventSignature(getState()),
+                continuation: budgetExhausted ? work : null
+              };
             })
           );
         } finally {
@@ -177,38 +248,125 @@
         }
       }
 
-      function nextEffectiveTreasureEventSeconds(task, maximumSeconds, denseEventThreshold = 0) {
+      function nextEffectiveTreasureEventSeconds(task, maximumSeconds, denseEventThreshold = 0, options = {}) {
         const state = getState();
         const safeMaximum = Math.max(0, Number(maximumSeconds) || 0);
         if (safeMaximum <= simulationStepSeconds + epsilon) return null;
-        if (!treasuresUnlocked() && state.cultivation?.active !== "immortal") return null;
-        const serializedState = WIS.Core.State.toSerializable(state);
-        const initialSignature = treasureEventSignature(state);
-        const randomState = task.random.snapshot();
         const safeDenseThreshold = Math.min(safeMaximum, Math.max(0, Number(denseEventThreshold) || 0));
-        let densePrediction = null;
-        if (safeDenseThreshold > simulationStepSeconds + epsilon) {
-          densePrediction = runTreasurePrediction(serializedState, safeDenseThreshold, randomState);
-          if (densePrediction.completed && densePrediction.signature !== initialSignature) {
-            return { seconds: safeDenseThreshold, randomState, resultingSignature: densePrediction.signature, dense: true };
+        // Short catch-up jobs used to probe only one 0.1 s tick. Any treasure
+        // detected after that then paid for a full 16-pass boundary search on
+        // nearly every outer step. Probe up to one real second once instead:
+        // dense streams can be handed to the probability engine's batch path,
+        // while sparse streams still retain exact event-boundary searching.
+        const shortDenseProbeSeconds = safeMaximum <= 60 + epsilon
+          ? Math.min(safeMaximum, Math.max(simulationStepSeconds * 4, 1))
+          : 0;
+        const denseProbeSeconds = Math.min(
+          safeMaximum,
+          Math.max(safeDenseThreshold, shortDenseProbeSeconds)
+        );
+        const resumable = options.continuation;
+        const sourceKey = options.sourceKey ?? JSON.stringify([
+          WIS.Core.State.toSerializable(state),
+          WIS.Core.Registries.getActivePower(state)?.snapshotTreasureTransient?.(),
+          WIS.Core.Registries.getActiveCultivation(state)?.snapshotTreasureTransient?.()
+        ], (key, value) => key === "lastUpdateAt" ? undefined : value);
+        const randomState = task.random?.snapshot?.();
+        const integrationMethod = options.integrationMethod || "end";
+        const continuationMatches = resumable?.kind === "treasure-event-search-v2" &&
+          resumable.sourceKey === sourceKey && resumable.randomState === randomState &&
+          resumable.integrationMethod === integrationMethod &&
+          Math.abs(resumable.maximum - safeMaximum) <= epsilon &&
+          Math.abs(resumable.denseProbeSeconds - denseProbeSeconds) <= epsilon;
+        if (!continuationMatches && !treasureDriverSnapshot(state).active) return null;
+        const work = continuationMatches ? resumable : {
+          kind: "treasure-event-search-v2",
+          sourceKey,
+          maximum: safeMaximum,
+          denseProbeSeconds,
+          serializedState: WIS.Core.State.toSerializable(state),
+          initialSignature: treasureEventSignature(state),
+          randomState,
+          integrationMethod,
+          phase: denseProbeSeconds > simulationStepSeconds + epsilon ? "dense" : "full",
+          densePrediction: null,
+          fullPrediction: null,
+          lowerSeconds: denseProbeSeconds,
+          upperSeconds: safeMaximum,
+          iteration: 0,
+          partialPrediction: null
+        };
+        const pause = () => ({
+          budgetExhausted: true,
+          reason: "treasure-event-budget",
+          seconds: simulationStepSeconds,
+          continuation: work
+        });
+        if (work.phase === "dense") {
+          work.densePrediction = runTreasurePrediction(
+            work.serializedState,
+            work.denseProbeSeconds,
+            work.randomState,
+            { ...options, continuation: work.partialPrediction }
+          );
+          work.partialPrediction = work.densePrediction.continuation;
+          if (work.densePrediction.budgetExhausted) return pause();
+          if (work.densePrediction.completed && work.densePrediction.signature !== work.initialSignature) {
+            return {
+              seconds: denseProbeSeconds,
+              randomState: work.randomState,
+              resultingSignature: work.densePrediction.signature,
+              dense: true,
+              batchSeconds: denseProbeSeconds
+            };
           }
+          work.phase = Math.abs(work.denseProbeSeconds - work.maximum) <= epsilon
+            ? "evaluate-full"
+            : "full";
         }
-        const fullPrediction = densePrediction && Math.abs(safeDenseThreshold - safeMaximum) <= epsilon
-          ? densePrediction
-          : runTreasurePrediction(serializedState, safeMaximum, randomState);
-        if (!fullPrediction.completed || fullPrediction.signature === initialSignature) return null;
-        let lowerSeconds = safeDenseThreshold;
-        let upperSeconds = safeMaximum;
-        for (let iteration = 0; iteration < boundaryBisections; iteration += 1) {
-          const middleSeconds = (lowerSeconds + upperSeconds) / 2;
-          const prediction = runTreasurePrediction(serializedState, middleSeconds, randomState);
-          if (prediction.completed && prediction.signature !== initialSignature) upperSeconds = middleSeconds;
-          else lowerSeconds = middleSeconds;
+
+        if (work.phase === "full") {
+          work.fullPrediction = runTreasurePrediction(
+            work.serializedState,
+            work.maximum,
+            work.randomState,
+            { ...options, continuation: work.partialPrediction }
+          );
+          work.partialPrediction = work.fullPrediction.continuation;
+          if (work.fullPrediction.budgetExhausted) return pause();
+          work.phase = "evaluate-full";
+        }
+
+        if (work.phase === "evaluate-full") {
+          if (!work.fullPrediction) work.fullPrediction = work.densePrediction;
+          if (!work.fullPrediction?.completed ||
+              work.fullPrediction.signature === work.initialSignature) return null;
+          work.phase = "bisect";
+        }
+
+        while (work.iteration < boundaryBisections) {
+          const middleSeconds = (work.lowerSeconds + work.upperSeconds) / 2;
+          const prediction = runTreasurePrediction(
+            work.serializedState,
+            middleSeconds,
+            work.randomState,
+            { ...options, continuation: work.partialPrediction }
+          );
+          work.partialPrediction = prediction.continuation;
+          if (prediction.budgetExhausted) {
+            return pause();
+          }
+          if (prediction.completed && prediction.signature !== work.initialSignature) {
+            work.upperSeconds = middleSeconds;
+          } else {
+            work.lowerSeconds = middleSeconds;
+          }
+          work.iteration += 1;
         }
         return {
-          seconds: Math.min(safeMaximum, Math.max(simulationStepSeconds, upperSeconds)),
-          randomState,
-          resultingSignature: fullPrediction.signature
+          seconds: Math.min(work.maximum, Math.max(simulationStepSeconds, work.upperSeconds)),
+          randomState: work.randomState,
+          resultingSignature: work.fullPrediction.signature
         };
       }
 

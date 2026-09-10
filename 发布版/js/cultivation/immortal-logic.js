@@ -5,10 +5,15 @@
   const state = runtime.state;
   const CONFIG = WIS.Core.Config;
   const {
-    BN, ZERO, ONE, add, sub, mul, div, pow, pow10, sqrt, log10,
+    BN, ZERO, ONE, add, sub, mul, div, pow, pow10, sqrt, log10, abs,
     max: maxBN, min: minBN, gt, gte, lt, lte, eq,
     isFiniteBN, isNaNBN, sum: sumBN, product: productBN, toNumber
   } = WIS.Core.BigNum;
+  const {
+    decayingChance, multipliedChance, formatPercent,
+    geometricAttemptsUntilSuccess,
+    rollDynamicAttempts: rollProbabilityAttempts
+  } = WIS.Core.Probability;
   const { applyGoogolPenalty } = WIS.Core.Penalties;
   const GOOGOL_PENALTY_THRESHOLD = CONFIG.googolPenalty.threshold;
   const IMMORTAL_COSTS = CONFIG.costs.immortal;
@@ -16,6 +21,10 @@
   const FOUNDATION_BASE_COST = IMMORTAL_COSTS.foundation;
   const GOLDEN_CORE_BASE_COST = IMMORTAL_COSTS.goldenCore;
   const ADVANCED_REALMS = CONFIG.realms;
+  const MAHAYANA_REALM_INDEX = ADVANCED_REALMS.findIndex((realm) => realm.key === "mahayana");
+  const MAHAYANA_ADVANCED_REALM_LEVEL = MAHAYANA_REALM_INDEX >= 0
+    ? MAHAYANA_REALM_INDEX + 1
+    : 5;
   const IMMORTAL_LIFE_COST = IMMORTAL_COSTS.immortalLife;
   const CIRCULATION_COST = IMMORTAL_COSTS.circulation;
   const MINOR_TECHNIQUE_COST = IMMORTAL_COSTS.minorTechnique;
@@ -110,6 +119,14 @@
   const canAffordMana = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "mana", cost);
   const canAffordImmortalPower = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "immortalPower", cost);
 
+  function treasureCount(key) {
+    return maxBN(ZERO, BN(state.treasureImprints?.[key] ?? ZERO)).floor();
+  }
+
+  function resourceMagnitude(value, scale = ONE) {
+    return log10(add(ONE, div(maxBN(ZERO, value), scale)));
+  }
+
   function applyGainExponent(value, exponent) {
     return gt(value, ZERO) ? pow(value, exponent) : ZERO;
   }
@@ -162,26 +179,29 @@
   }
 
   function daoAssimilationQ(currentImmortalPower = state.immortalPower) {
-    if (!daoAncestorActive() || !state.daoAssimilationUnlocked) return 1;
-    const magnitude = toNumber(log10(add(ONE, daoImmortalPowerRatio(currentImmortalPower))), Infinity);
-    if (!Number.isFinite(magnitude)) return 0;
-    const compressedMagnitude = Math.log10(1 + magnitude);
-    return 1 / (1 + DAO_ANCESTOR_CONFIG.assimilationCoefficient * compressedMagnitude);
+    if (!daoAncestorActive() || !state.daoAssimilationUnlocked) return ONE;
+    const magnitude = log10(add(ONE, daoImmortalPowerRatio(currentImmortalPower)));
+    const compressedMagnitude = log10(add(ONE, magnitude));
+    return div(ONE, add(
+      ONE,
+      mul(DAO_ANCESTOR_CONFIG.assimilationCoefficient, compressedMagnitude)
+    ));
   }
 
   function daoAdjustedSoftcapExponent(exponent, currentImmortalPower = state.immortalPower) {
-    const original = Math.max(0, Math.min(1, Number(exponent) || 0));
+    const original = minBN(ONE, maxBN(ZERO, exponent));
     return daoAncestorActive() && state.daoAssimilationUnlocked
-      ? 1 - (1 - original) * daoAssimilationQ(currentImmortalPower)
+      ? sub(ONE, mul(sub(ONE, original), daoAssimilationQ(currentImmortalPower)))
       : original;
   }
 
   function daoDomainExponent(currentImmortalPower = state.immortalPower) {
-    if (!daoAncestorActive() || !state.daoDomainUnlocked) return 1;
-    const magnitude = toNumber(log10(add(ONE, daoImmortalPowerRatio(currentImmortalPower))), Infinity);
-    return DAO_ANCESTOR_CONFIG.domainBaseExponent +
-      DAO_ANCESTOR_CONFIG.domainGrowthCoefficient *
-        Math.log10(1 + magnitude);
+    if (!daoAncestorActive() || !state.daoDomainUnlocked) return ONE;
+    const magnitude = log10(add(ONE, daoImmortalPowerRatio(currentImmortalPower)));
+    return add(
+      DAO_ANCESTOR_CONFIG.domainBaseExponent,
+      mul(DAO_ANCESTOR_CONFIG.domainGrowthCoefficient, log10(add(ONE, magnitude)))
+    );
   }
 
   function qiLayerRequirement(layer) {
@@ -298,12 +318,18 @@
   }
 
   function qiAdjustedSoftcapExponent(exponent, manaSource = false, layer = state.currentQiLayer) {
-    const original = Math.max(0, Math.min(1, Number(exponent) || 0));
-    if (!qiRefiningChallengeActive()) return original;
-    const globalAdjusted = 1 - (1 - original) * qiGlobalSoftcapQ(layer);
-    return manaSource
-      ? 1 - (1 - globalAdjusted) * qiManaSoftcapQ(layer)
-      : globalAdjusted;
+    const original = minBN(ONE, maxBN(ZERO, exponent));
+    let adjusted = original;
+    if (qiRefiningChallengeActive()) {
+      adjusted = sub(ONE, mul(sub(ONE, original), qiGlobalSoftcapQ(layer)));
+      if (manaSource) {
+        adjusted = sub(ONE, mul(sub(ONE, adjusted), qiManaSoftcapQ(layer)));
+      }
+    }
+    const numeric = adjusted.toNumber();
+    return Number.isFinite(numeric) && (numeric > 0 || !gt(adjusted, ZERO))
+      ? numeric
+      : adjusted;
   }
 
   function qiChallengeReward(layer = state.bestQiLayer) {
@@ -352,11 +378,11 @@
   }
 
   function baLingChiCount() {
-    return state.treasureImprints?.baLingChi || 0;
+    return treasureCount("baLingChi");
   }
 
   function baLingChiFitnessMultiplier() {
-    return immortalCultivationActive() ? 1 + baLingChiCount() * 0.002 : 1;
+    return immortalCultivationActive() ? add(ONE, mul(baLingChiCount(), 0.002)) : ONE;
   }
 
   function immortalFitnessLevelCapBonus() {
@@ -474,13 +500,13 @@
         baseChance: 0.01,
         currentCount: tianNiPearlCount,
         decayRatio: 0.99,
-        probabilityAtOffset: (offset) => Math.min(1, 0.01 * Math.pow(0.99, tianNiPearlCount() + offset) * immortalTreasureChanceMultiplier()),
+        probabilityAtOffset: (offset) => tianNiPearlChance(add(tianNiPearlCount(), offset)),
         treasureKey: "tianNiPearl",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "tianNiPearl", count)
       }
     );
 
-    if (!silent && gained > 0) {
+    if (!silent && gt(gained, ZERO)) {
       saveState();
       showNotice(`获得宝物烙印：仙道·天逆珠 +${gained}`);
     }
@@ -497,16 +523,12 @@
         baseChance: FIVE_ELEMENTS_TREASURE_CONFIG.baseChance,
         currentCount: fiveElementsTreasureCount,
         decayRatio: FIVE_ELEMENTS_TREASURE_CONFIG.chanceDecay,
-        probabilityAtOffset: (offset) => Math.min(1,
-          FIVE_ELEMENTS_TREASURE_CONFIG.baseChance *
-          Math.pow(FIVE_ELEMENTS_TREASURE_CONFIG.chanceDecay, fiveElementsTreasureCount() + offset) *
-          immortalTreasureChanceMultiplier()
-        ),
+        probabilityAtOffset: (offset) => fiveElementsTreasureChance(add(fiveElementsTreasureCount(), offset)),
         treasureKey: "fiveElementsTreasure",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "fiveElementsTreasure", count)
       }
     );
-    if (!silent && gained > 0) {
+    if (!silent && gt(gained, ZERO)) {
       saveState();
       showNotice(`获得宝物烙印：仙道·五行至宝 +${gained}`);
     }
@@ -520,12 +542,12 @@
       immortalCrystalChance,
       () => { WIS.Meta.Treasures.add(state, "immortalCrystal"); },
       {
-        probabilityAtOffset: (offset) => immortalCrystalChance(immortalCrystalCount() + offset),
+        probabilityAtOffset: (offset) => immortalCrystalChance(add(immortalCrystalCount(), offset)),
         treasureKey: "immortalCrystal",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "immortalCrystal", count)
       }
     );
-    if (!silent && gained > 0) {
+    if (!silent && gt(gained, ZERO)) {
       saveState();
       showNotice(`获得宝物烙印：仙晶 +${gained}`);
     }
@@ -568,12 +590,12 @@
     ));
   }
 
-  function baLingChiChance() {
-    return Math.min(1, 0.002 * Math.pow(0.9, baLingChiCount()) * immortalTreasureChanceMultiplier());
+  function baLingChiChance(count = baLingChiCount()) {
+    return decayingChance(0.002, 0.9, count, immortalTreasureChanceMultiplierBN());
   }
 
   function immortalTreasureChanceMultiplier() {
-    return toNumber(immortalTreasureChanceMultiplierBN(), Infinity);
+    return immortalTreasureChanceMultiplierBN();
   }
 
   function immortalTreasureChanceMultiplierBN() {
@@ -606,6 +628,20 @@
 
   function effectiveScatterRebuildLevel() {
     return Math.max(state.scatterRebuildLevel, state.reincarnationEffectLevel);
+  }
+
+  function hasReachedMahayanaThisRun() {
+    return immortalCultivationActive() && state.advancedRealmLevel >= MAHAYANA_ADVANCED_REALM_LEVEL;
+  }
+
+  function canScatterAndRebuild() {
+    return immortalCultivationActive() && state.goldenCoreUnlocked &&
+      !hasReachedMahayanaThisRun() && effectiveScatterRebuildLevel() < 3;
+  }
+
+  function canReincarnate() {
+    return immortalCultivationActive() && state.advancedRealmLevel >= 1 &&
+      !hasReachedMahayanaThisRun() && state.reincarnationLevel < 3;
   }
 
   function nextRealmRequirementStackCount() {
@@ -686,6 +722,7 @@
   }
 
   function breathingManaDecayMultiplier(currentMana = state.mana) {
+    if (!manaRealmBottleneckActive()) return ONE;
     const { manaScale } = breathingRealmConfig();
     return pow(add(ONE, div(maxBN(ZERO, currentMana), manaScale)), -0.25);
   }
@@ -693,8 +730,8 @@
   function rawBaseBreathingManaGain(currentMana = state.mana) {
     if (lt(state.joules, 3000)) return ZERO;
     const { base } = breathingRealmConfig();
-    const jMagnitude = toNumber(log10(div(state.joules, 3000)), 0);
-    const jCurve = pow(1 + jMagnitude, breathingJCurveExponent());
+    const jMagnitude = log10(div(state.joules, 3000));
+    const jCurve = pow(add(ONE, jMagnitude), breathingJCurveExponent());
     return mul(mul(base, jCurve), breathingManaDecayMultiplier(currentMana));
   }
 
@@ -742,22 +779,30 @@
     return WIS.Core.Effects.value("voidRefiningToQi", state);
   }
 
-  function auraControlPotentialMultiplier() {
-    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
-    return 1 + 1.5 * toNumber(log10(add(ONE, div(maxBN(ZERO, currentPower), "3.033e15"))), 0);
+  function auraControlPotentialMultiplier(
+    currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power")
+  ) {
+    return add(ONE, mul("1.5", resourceMagnitude(currentPower, "3.033e15")));
   }
 
   function auraControlMultiplier() {
     return WIS.Core.Effects.value("auraControl", state);
   }
 
-  function immortalRealmDivineAbilityPotentialMultiplier() {
-    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
-    return 1 + 0.75 * toNumber(log10(add(ONE, div(maxBN(ZERO, currentJoules), "2.092e20"))), 0);
+  function immortalRealmDivineAbilityPotentialMultiplier(
+    currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules")
+  ) {
+    return add(ONE, mul("0.75", resourceMagnitude(currentJoules, "2.092e20")));
   }
 
   function immortalRealmDivineAbilityMultiplier() {
     return WIS.Core.Effects.value("immortalRealmDivine", state);
+  }
+
+  function descendRealmPotentialTreasureMultiplier(
+    currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power")
+  ) {
+    return minBN(10, add(ONE, mul("0.75", resourceMagnitude(currentPower, "8.368e22"))));
   }
 
   function manaMultiplierGroups(currentMana = state.mana) {
@@ -793,6 +838,7 @@
   }
 
   function immortalPowerManaSuppressionExponent(currentImmortalPower = state.immortalPower) {
+    if (WIS.Cultivation.Xiuzhen?.yinYang(state)) return celestialFiveDeclineExponent(currentImmortalPower);
     if (!immortalPowerUnlocked()) return 1;
     if (state.advancedRealmLevel >= 7) {
       return celestialFiveDeclineExponent(currentImmortalPower);
@@ -852,19 +898,20 @@
 
   function selfCorpseImmortalPowerLimitExponent(currentImmortalPower = state.immortalPower) {
     const config = IMMORTAL_POWER_CONFIG.daluo;
-    const progress = toNumber(log10(
-      add(ONE, div(maxBN(ZERO, currentImmortalPower), config.selfCorpseScale))
-    ), Infinity);
-    return 1 / (1 + config.selfCorpseCoefficient * progress);
+    const progress = resourceMagnitude(currentImmortalPower, config.selfCorpseScale);
+    return div(ONE, add(ONE, mul(config.selfCorpseCoefficient, progress)));
   }
 
   function immortalPowerRegionExponent() {
-    const registeredExponent = toNumber(WIS.Core.Effects.product("immortalPower", "regionExponent", state), 1);
+    const registeredExponent = WIS.Core.Effects.product("immortalPower", "regionExponent", state);
     let challengeAdjustedExponent = registeredExponent;
     if (state.activeChallenge === "severSelfCorpse") {
-      challengeAdjustedExponent *= selfCorpseImmortalPowerLimitExponent();
+      challengeAdjustedExponent = mul(challengeAdjustedExponent, selfCorpseImmortalPowerLimitExponent());
     }
-    return challengeAdjustedExponent + goldenNatureImmortalPowerExponentBonus() + greatLuoManaExponentBonus();
+    return add(
+      add(challengeAdjustedExponent, goldenNatureImmortalPowerExponentBonus()),
+      greatLuoManaExponentBonus()
+    );
   }
 
   function immortalPowerBeforeGoogolPenaltyPerSecond(currentMana = state.mana) {
@@ -939,70 +986,88 @@
 
   function lawImmortalPowerActualExponent(currentMana = state.mana) {
     const config = IMMORTAL_POWER_CONFIG.law;
-    const progress = toNumber(log10(add(ONE, div(maxBN(ZERO, currentMana), config.manaScale))), Infinity);
-    const decay = Math.pow(progress / config.decayScale, config.decayExponent);
-    return config.limitingExponent +
-      (lawImmortalPowerExponent() - config.limitingExponent) / (1 + decay);
+    const progress = resourceMagnitude(currentMana, config.manaScale);
+    const decay = pow(div(progress, config.decayScale), config.decayExponent);
+    return add(
+      config.limitingExponent,
+      div(
+        sub(lawImmortalPowerExponent(), config.limitingExponent),
+        add(ONE, decay)
+      )
+    );
+  }
+
+  function lawImmortalPowerPotentialMultiplier(currentMana = state.mana) {
+    const progress = resourceMagnitude(currentMana, IMMORTAL_POWER_CONFIG.law.manaScale);
+    const multiplier = add(ONE, pow(progress, lawImmortalPowerActualExponent(currentMana)));
+    const finalMultiplier = state.lawOriginUnlocked
+      ? pow(multiplier, IMMORTAL_POWER_CONFIG.daluo.lawOriginExponent)
+      : multiplier;
+    return daoAncestorActive() && state.daoLawUnityUnlocked
+      ? pow(finalMultiplier, DAO_ANCESTOR_CONFIG.lawMultiplierExponent)
+      : finalMultiplier;
   }
 
   function lawImmortalPowerMultiplier(currentMana = state.mana) {
-    if (!state.lawUnlocked || state.activeChallenge === "severSelfCorpse") return 1;
-    const progress = toNumber(log10(add(ONE, div(maxBN(ZERO, currentMana), IMMORTAL_POWER_CONFIG.law.manaScale))), Infinity);
-    const multiplier = 1 + Math.pow(progress, lawImmortalPowerActualExponent(currentMana));
-    const finalMultiplier = state.lawOriginUnlocked
-      ? Math.pow(multiplier, IMMORTAL_POWER_CONFIG.daluo.lawOriginExponent)
-      : multiplier;
-    return daoAncestorActive() && state.daoLawUnityUnlocked
-      ? Math.pow(finalMultiplier, DAO_ANCESTOR_CONFIG.lawMultiplierExponent)
-      : finalMultiplier;
+    if (!state.lawUnlocked || state.activeChallenge === "severSelfCorpse") return ONE;
+    return lawImmortalPowerPotentialMultiplier(currentMana);
   }
 
   function trinityImmortalPowerMultiplier(
     currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules")
   ) {
-    if (!state.trinityUnlocked) return 1;
+    if (!state.trinityUnlocked) return ONE;
     const config = IMMORTAL_POWER_CONFIG.daluo;
-    const magnitude = toNumber(log10(add(ONE, div(maxBN(ZERO, currentJoules), config.trinityJoulesScale))), Infinity);
-    return 1 + Math.pow(magnitude, config.trinityExponent);
+    const magnitude = resourceMagnitude(currentJoules, config.trinityJoulesScale);
+    return add(ONE, pow(magnitude, config.trinityExponent));
   }
 
   function unityWithDaoExponent(currentImmortalPower = state.immortalPower) {
-    if (!state.unityWithDaoUnlocked) return 1;
+    if (!state.unityWithDaoUnlocked) return ONE;
     const config = IMMORTAL_POWER_CONFIG.daluo;
-    const magnitude = toNumber(log10(add(
-      ONE, div(maxBN(ZERO, currentImmortalPower), IMMORTAL_POWER_CONFIG.realmCosts.daluo)
-    )), Infinity);
-    return 1 + config.unityWithDaoMaximumBonus * magnitude / (magnitude + config.unityWithDaoSaturation);
+    const magnitude = resourceMagnitude(currentImmortalPower, IMMORTAL_POWER_CONFIG.realmCosts.daluo);
+    return add(ONE, div(
+      mul(config.unityWithDaoMaximumBonus, magnitude),
+      add(magnitude, config.unityWithDaoSaturation)
+    ));
   }
 
   function lawCrystalFilamentExponentFromMultiplier(lawMultiplier) {
     const config = IMMORTAL_POWER_CONFIG.daluo;
-    const magnitude = toNumber(log10(maxBN(ONE, lawMultiplier)), Infinity);
-    return 1 + config.lawCrystalMaximumBonus * magnitude / (magnitude + config.lawCrystalSaturation);
+    const magnitude = log10(maxBN(ONE, lawMultiplier));
+    return add(ONE, div(
+      mul(config.lawCrystalMaximumBonus, magnitude),
+      add(magnitude, config.lawCrystalSaturation)
+    ));
   }
 
   function lawCrystalFilamentDetails(currentMana = state.mana) {
     const lawMultiplier = lawImmortalPowerMultiplier(currentMana);
-    const magnitude = toNumber(log10(maxBN(ONE, lawMultiplier)), Infinity);
+    const magnitude = log10(maxBN(ONE, lawMultiplier));
     return Object.freeze({
       lawMultiplier,
       magnitude,
       exponent: lawCrystalFilamentExponentFromMultiplier(lawMultiplier),
-      maximumExponent: 1 + IMMORTAL_POWER_CONFIG.daluo.lawCrystalMaximumBonus
+      maximumExponent: add(ONE, IMMORTAL_POWER_CONFIG.daluo.lawCrystalMaximumBonus)
     });
   }
 
   function lawCrystalFilamentPowerExponent(currentMana = state.mana) {
-    return state.lawCrystalFilamentUnlocked ? lawCrystalFilamentDetails(currentMana).exponent : 1;
+    return state.lawCrystalFilamentUnlocked ? lawCrystalFilamentDetails(currentMana).exponent : ONE;
   }
 
   function spiritCaptureReturnMultiplier(currentImmortalPower = state.immortalPower) {
-    if (!state.spiritCaptureReturnUnlocked) return 1;
+    if (!state.spiritCaptureReturnUnlocked) return ONE;
     const config = IMMORTAL_POWER_CONFIG.spiritCaptureReturn;
-    const numerator = toNumber(log10(add(ONE, div(maxBN(ZERO, currentImmortalPower), config.immortalPowerScale))), 0);
-    const denominator = toNumber(log10(add(ONE, div(config.targetImmortalPower, config.immortalPowerScale))), 0);
-    const progress = denominator > 0 ? Math.min(1, Math.max(0, numerator / denominator)) : 0;
-    return Math.min(config.maximumMultiplier, Math.max(1, 1 + 2 * Math.pow(progress, config.exponent)));
+    const numerator = resourceMagnitude(currentImmortalPower, config.immortalPowerScale);
+    const denominator = resourceMagnitude(config.targetImmortalPower, config.immortalPowerScale);
+    const progress = gt(denominator, ZERO)
+      ? minBN(ONE, maxBN(ZERO, div(numerator, denominator)))
+      : ZERO;
+    return minBN(
+      config.maximumMultiplier,
+      maxBN(ONE, add(ONE, mul(2, pow(progress, config.exponent))))
+    );
   }
 
   function spiritDomainJSource(currentImmortalPower = state.immortalPower) {
@@ -1030,52 +1095,62 @@
   }
 
   function fiveElementsTreasureCount() {
-    const count = Number(state.treasureImprints?.fiveElementsTreasure);
-    return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+    return treasureCount("fiveElementsTreasure");
   }
 
   function fiveElementsTreasureRawMultiplier() {
-    return 1 + FIVE_ELEMENTS_TREASURE_CONFIG.perItemAdditive * fiveElementsTreasureCount();
+    return add(
+      ONE,
+      mul(FIVE_ELEMENTS_TREASURE_CONFIG.perItemAdditive, fiveElementsTreasureCount())
+    );
   }
 
   function fiveElementsTreasureInternalExponent() {
     const count = fiveElementsTreasureCount();
-    return FIVE_ELEMENTS_TREASURE_CONFIG.minimumInternalExponent +
-      FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentRange /
-        (1 + count / FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentScale);
+    return add(
+      FIVE_ELEMENTS_TREASURE_CONFIG.minimumInternalExponent,
+      div(
+        FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentRange,
+        add(ONE, div(count, FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentScale))
+      )
+    );
   }
 
   function fiveElementsTreasureMultiplierBeforeDecline() {
-    if (!state.fiveElementsTreasureUnlocked) return 1;
-    return Math.pow(fiveElementsTreasureRawMultiplier(), fiveElementsTreasureInternalExponent());
+    if (!state.fiveElementsTreasureUnlocked) return ONE;
+    return pow(fiveElementsTreasureRawMultiplier(), fiveElementsTreasureInternalExponent());
   }
 
-  function fiveElementsTreasureChance() {
-    return Math.min(1,
-      FIVE_ELEMENTS_TREASURE_CONFIG.baseChance *
-      Math.pow(FIVE_ELEMENTS_TREASURE_CONFIG.chanceDecay, fiveElementsTreasureCount()) *
-      immortalTreasureChanceMultiplier()
+  function fiveElementsTreasureChance(count = fiveElementsTreasureCount()) {
+    return decayingChance(
+      FIVE_ELEMENTS_TREASURE_CONFIG.baseChance,
+      FIVE_ELEMENTS_TREASURE_CONFIG.chanceDecay,
+      count,
+      immortalTreasureChanceMultiplierBN()
     );
   }
 
   function immortalCrystalCount() {
-    const count = Number(state.treasureImprints?.immortalCrystal);
-    return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+    return treasureCount("immortalCrystal");
   }
 
   function immortalCrystalChance(count = immortalCrystalCount()) {
-    const currentCount = Math.max(0, Math.floor(Number(count) || 0));
-    return Math.min(1, IMMORTAL_CRYSTAL_CONFIG.baseChance * Math.pow(
-      1 + currentCount / IMMORTAL_CRYSTAL_CONFIG.decayScale,
-      IMMORTAL_CRYSTAL_CONFIG.decayExponent
-    ) * immortalTreasureChanceMultiplier());
+    const currentCount = maxBN(ZERO, BN(count)).floor();
+    return multipliedChance([
+      IMMORTAL_CRYSTAL_CONFIG.baseChance,
+      pow(add(ONE, div(currentCount, IMMORTAL_CRYSTAL_CONFIG.decayScale)), IMMORTAL_CRYSTAL_CONFIG.decayExponent),
+      immortalTreasureChanceMultiplierBN()
+    ]);
   }
 
   function immortalCrystalIncrement(count = immortalCrystalCount()) {
-    const currentCount = Math.max(0, Math.floor(Number(count) || 0));
-    return IMMORTAL_CRYSTAL_CONFIG.perItemAdditive * Math.pow(
-      1 + currentCount / IMMORTAL_CRYSTAL_CONFIG.decayScale,
-      IMMORTAL_CRYSTAL_CONFIG.decayExponent
+    const currentCount = maxBN(ZERO, BN(count)).floor();
+    return mul(
+      IMMORTAL_CRYSTAL_CONFIG.perItemAdditive,
+      pow(
+        add(ONE, div(currentCount, IMMORTAL_CRYSTAL_CONFIG.decayScale)),
+        IMMORTAL_CRYSTAL_CONFIG.decayExponent
+      )
     );
   }
 
@@ -1083,54 +1158,69 @@
   // Euler-Maclaurin tail below instead of extending a cache one crystal at a time.
   const IMMORTAL_CRYSTAL_EXACT_SUM_LIMIT = 2048;
   let immortalCrystalExactPrefix = null;
-  let cachedImmortalCrystalMultiplierCount = -1;
-  let cachedImmortalCrystalMultiplierValue = 1;
+  let cachedImmortalCrystalMultiplierCount = null;
+  let cachedImmortalCrystalMultiplierValue = ONE;
   function immortalCrystalExactIncrementPrefix() {
     if (immortalCrystalExactPrefix) return immortalCrystalExactPrefix;
     immortalCrystalExactPrefix = [0];
     for (let index = 0; index < IMMORTAL_CRYSTAL_EXACT_SUM_LIMIT; index += 1) {
       immortalCrystalExactPrefix.push(
         immortalCrystalExactPrefix[index] +
-        immortalCrystalIncrement(index) / IMMORTAL_CRYSTAL_CONFIG.perItemAdditive
+        toNumber(div(
+          immortalCrystalIncrement(index),
+          IMMORTAL_CRYSTAL_CONFIG.perItemAdditive
+        ), 0)
       );
     }
     return immortalCrystalExactPrefix;
   }
 
   function immortalCrystalIncrementSum(start, end) {
-    const lower = Math.max(0, Number(start) || 0);
-    const upper = Math.max(lower, Number(end) || 0);
-    if (!(upper > lower)) return 0;
-    const scale = IMMORTAL_CRYSTAL_CONFIG.decayScale;
+    const lower = maxBN(ZERO, BN(start));
+    const upper = maxBN(lower, BN(end));
+    if (!gt(upper, lower)) return ZERO;
+    const scale = BN(IMMORTAL_CRYSTAL_CONFIG.decayScale);
     const exponent = IMMORTAL_CRYSTAL_CONFIG.decayExponent;
     const normalized = (value, powerOffset = 0) =>
-      Math.pow(1 + value / scale, exponent - powerOffset);
+      pow(add(ONE, div(value, scale)), exponent - powerOffset);
     const integral = exponent === -1
-      ? scale * Math.log((scale + upper) / (scale + lower))
-      : scale / (exponent + 1) *
-        (Math.pow(1 + upper / scale, exponent + 1) - Math.pow(1 + lower / scale, exponent + 1));
-    const endpointCorrection = (normalized(lower) - normalized(upper)) * 0.5;
-    const firstDerivative = (value) => exponent / scale * normalized(value, 1);
+      ? mul(scale, mul(log10(div(add(scale, upper), add(scale, lower))), Math.LN10))
+      : mul(
+        div(scale, exponent + 1),
+        sub(normalized(upper, -1), normalized(lower, -1))
+      );
+    const endpointCorrection = mul(sub(normalized(lower), normalized(upper)), 0.5);
+    const firstDerivative = (value) => mul(div(exponent, scale), normalized(value, 1));
     const thirdDerivative = (value) =>
-      exponent * (exponent - 1) * (exponent - 2) /
-      Math.pow(scale, 3) * normalized(value, 3);
-    return Math.max(0,
-      integral + endpointCorrection +
-      (firstDerivative(upper) - firstDerivative(lower)) / 12 -
-      (thirdDerivative(upper) - thirdDerivative(lower)) / 720
-    );
+      mul(
+        div(exponent * (exponent - 1) * (exponent - 2), pow(scale, 3)),
+        normalized(value, 3)
+      );
+    return maxBN(ZERO, add(
+      add(integral, endpointCorrection),
+      sub(
+        div(sub(firstDerivative(upper), firstDerivative(lower)), 12),
+        div(sub(thirdDerivative(upper), thirdDerivative(lower)), 720)
+      )
+    ));
   }
 
   function immortalCrystalMultiplier(count = immortalCrystalCount()) {
-    const targetCount = Math.max(0, Math.floor(Number(count) || 0));
-    if (targetCount === cachedImmortalCrystalMultiplierCount) return cachedImmortalCrystalMultiplierValue;
-    const exactCount = Math.min(targetCount, IMMORTAL_CRYSTAL_EXACT_SUM_LIMIT);
-    let incrementSum = immortalCrystalExactIncrementPrefix()[exactCount];
-    if (targetCount > exactCount) {
-      incrementSum += immortalCrystalIncrementSum(exactCount, targetCount);
+    const targetCount = maxBN(ZERO, BN(count)).floor();
+    if (cachedImmortalCrystalMultiplierCount !== null &&
+        eq(targetCount, cachedImmortalCrystalMultiplierCount)) return cachedImmortalCrystalMultiplierValue;
+    const exactCount = gte(targetCount, IMMORTAL_CRYSTAL_EXACT_SUM_LIMIT)
+      ? IMMORTAL_CRYSTAL_EXACT_SUM_LIMIT
+      : Math.max(0, Math.floor(toNumber(targetCount, 0)));
+    let incrementSum = BN(immortalCrystalExactIncrementPrefix()[exactCount]);
+    if (gt(targetCount, exactCount)) {
+      incrementSum = add(incrementSum, immortalCrystalIncrementSum(exactCount, targetCount));
     }
     cachedImmortalCrystalMultiplierCount = targetCount;
-    cachedImmortalCrystalMultiplierValue = 1 + IMMORTAL_CRYSTAL_CONFIG.perItemAdditive * incrementSum;
+    cachedImmortalCrystalMultiplierValue = add(
+      ONE,
+      mul(IMMORTAL_CRYSTAL_CONFIG.perItemAdditive, incrementSum)
+    );
     return cachedImmortalCrystalMultiplierValue;
   }
 
@@ -1145,6 +1235,8 @@
   }
 
   function celestialFiveDeclineBaseExponent(currentImmortalPower = state.immortalPower) {
+    if (WIS.Cultivation.Xiuzhen?.yinYang(state)) return 1 - CELESTIAL_FIVE_DECLINES_CONFIG.goldenImmortalLoss -
+      CELESTIAL_FIVE_DECLINES_CONFIG.taiyiLoss - CELESTIAL_FIVE_DECLINES_CONFIG.daluoLoss;
     const level = Math.max(0, Math.floor(Number(state.advancedRealmLevel) || 0));
     const immortalPower = maxBN(ZERO, currentImmortalPower);
     const realmCosts = IMMORTAL_POWER_CONFIG.realmCosts;
@@ -1186,8 +1278,10 @@
   }
 
   function applyCelestialFiveDeclineToMultiplier(multiplier, currentImmortalPower = state.immortalPower) {
+    if (!isFiniteBN(multiplier) || isNaNBN(multiplier)) return ONE;
     const value = BN(multiplier);
-    if (isNaNBN(value) || !gt(value, ZERO)) return ONE;
+    if (lt(value, ZERO)) return ONE;
+    if (eq(value, ZERO)) return ZERO;
     return pow(value, celestialFiveDeclineExponent(currentImmortalPower));
   }
 
@@ -1204,10 +1298,11 @@
   }
 
   function celestialDeclineActive() {
-    return immortalPowerUnlocked() && gt(nextImmortalPowerRealmCost(), ZERO);
+    return WIS.Cultivation.Xiuzhen?.yinYang(state) || (immortalPowerUnlocked() && gt(nextImmortalPowerRealmCost(), ZERO));
   }
 
   function celestialDeclineExponent(currentImmortalPower = state.immortalPower) {
+    if (WIS.Cultivation.Xiuzhen?.yinYang(state)) return celestialFiveDeclineExponent(currentImmortalPower);
     // 道祖彻底超脱天人五衰；不是缓解，也不再让任何五衰标记效果参与四类资源结算。
     if (daoAncestorActive()) return 1;
     if (!celestialDeclineActive()) return 1;
@@ -1221,8 +1316,13 @@
     return applyImmortalPowerManaSuppression(gain);
   }
 
+  function manaRealmBottleneckActive() {
+    return immortalCultivationActive() && state.qiRefiningUnlocked &&
+      state.advancedRealmLevel < IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel && gt(manaProgressReferenceCost(), ZERO);
+  }
+
   function cultivationBottleneckManaMultiplier(currentMana = state.mana) {
-    if (state.advancedRealmLevel >= IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel) return 1;
+    if (!manaRealmBottleneckActive()) return 1;
     const requirement = manaProgressReferenceCost();
     return gt(requirement, ZERO) ? bottleneckManaMultiplier(requirement, true, currentMana) : 1;
   }
@@ -1232,7 +1332,7 @@
   }
 
   function naturalTreasureRawManaMultiplier() {
-    return (1 + state.naturalTreasureLevel * 0.1) * xuTianDingMultiplier();
+    return mul(add(ONE, mul(state.naturalTreasureLevel, 0.1)), xuTianDingMultiplier());
   }
 
   function naturalTreasureManaDiminishingExponent() {
@@ -1249,76 +1349,87 @@
     );
   }
 
-  function naturalTreasureUpgradeChance() {
-    if (state.naturalTreasureLevel >= naturalTreasureLevelCap()) return 0;
-    if (state.naturalTreasureLevel >= 10) {
-      return Math.min(1, 0.0005 * Math.pow(0.6, state.naturalTreasureLevel - 10));
+  function naturalTreasureUpgradeChance(level = state.naturalTreasureLevel) {
+    const currentLevel = maxBN(ZERO, BN(level)).floor();
+    if (gte(currentLevel, naturalTreasureLevelCap())) return ZERO;
+    if (gte(currentLevel, 10)) {
+      return decayingChance(0.0005, 0.6, sub(currentLevel, 10));
     }
-    return Math.min(1, 0.1 * Math.pow(0.65, state.naturalTreasureLevel));
+    return decayingChance(0.1, 0.65, currentLevel);
   }
 
   function naturalTreasureLevelCap() {
-    return (state.spiritWorldAscensionUnlocked ? 20 : 10) + mysticHeavenSacredTreeCount() * 2;
+    return minBN(Number.MAX_SAFE_INTEGER, add(
+      state.spiritWorldAscensionUnlocked ? 20 : 10,
+      mul(mysticHeavenSacredTreeCount(), 2)
+    ));
   }
 
   function xuTianDingCount() {
-    return state.treasureImprints?.xuTianDing || 0;
+    return treasureCount("xuTianDing");
   }
 
   function xuTianDingMultiplier() {
-    return 1 + xuTianDingCount() * 0.005;
+    return add(ONE, mul(xuTianDingCount(), 0.005));
   }
 
-  function xuTianDingChance() {
-    return Math.min(1, 0.0002 * Math.pow(0.75, xuTianDingCount()) * immortalTreasureChanceMultiplier());
+  function xuTianDingChance(count = xuTianDingCount()) {
+    return decayingChance(0.0002, 0.75, count, immortalTreasureChanceMultiplierBN());
   }
 
   function wanYaoFanCount() {
-    return state.treasureImprints?.wanYaoFan || 0;
+    return treasureCount("wanYaoFan");
   }
 
   function wanYaoFanMultiplier() {
     return WIS.Core.Effects.value("wanYaoFan", state);
   }
 
-  function wanYaoFanChance() {
-    return Math.min(1, 0.0001 * Math.pow(0.75, wanYaoFanCount()) * immortalTreasureChanceMultiplier());
+  function wanYaoFanChance(count = wanYaoFanCount()) {
+    return decayingChance(0.0001, 0.75, count, immortalTreasureChanceMultiplierBN());
   }
 
   function phantomHeavenMirrorCount() {
-    return state.treasureImprints?.phantomHeavenMirror || 0;
+    return treasureCount("phantomHeavenMirror");
   }
 
-  function phantomHeavenMirrorChance() {
-    return Math.min(1, 5e-12 * Math.pow(0.5, phantomHeavenMirrorCount()) * immortalTreasureChanceMultiplier());
+  function phantomHeavenMirrorChance(count = phantomHeavenMirrorCount()) {
+    return decayingChance("5e-12", 0.5, count, immortalTreasureChanceMultiplierBN());
+  }
+
+  function phantomHeavenMirrorLoadMultiplier(count = phantomHeavenMirrorCount()) {
+    return pow(2, maxBN(ZERO, BN(count)));
   }
 
   function mysticHeavenSacredTreeCount() {
-    return state.treasureImprints?.mysticHeavenSacredTree || 0;
+    return treasureCount("mysticHeavenSacredTree");
   }
 
-  function mysticHeavenSacredTreeChance() {
-    return Math.min(1, 5e-14 * Math.pow(0.5, mysticHeavenSacredTreeCount()) * immortalTreasureChanceMultiplier());
+  function mysticHeavenSacredTreeChance(count = mysticHeavenSacredTreeCount()) {
+    return decayingChance("5e-14", 0.5, count, immortalTreasureChanceMultiplierBN());
   }
 
   function mysticHeavenSpiritSlayingSwordCount() {
-    return state.treasureImprints?.mysticHeavenSpiritSlayingSword || 0;
+    return treasureCount("mysticHeavenSpiritSlayingSword");
   }
 
-  function mysticHeavenSpiritSlayingSwordChance() {
-    return Math.min(1, 1e-12 * Math.pow(0.6, mysticHeavenSpiritSlayingSwordCount()) * immortalTreasureChanceMultiplier());
+  function mysticHeavenSpiritSlayingSwordChance(count = mysticHeavenSpiritSlayingSwordCount()) {
+    return decayingChance("1e-12", 0.6, count, immortalTreasureChanceMultiplierBN());
   }
 
   function mysticHeavenSpiritSlayingSwordExponent() {
-    return 1 + 0.23 * Math.log10(1 + mysticHeavenSpiritSlayingSwordCount() / 20);
+    return add(
+      ONE,
+      mul(0.23, log10(add(ONE, div(mysticHeavenSpiritSlayingSwordCount(), 20))))
+    );
   }
 
   function tianNiPearlCount() {
-    return state.treasureImprints?.tianNiPearl || 0;
+    return treasureCount("tianNiPearl");
   }
 
   function tianNiPearlRawManaMultiplier() {
-    return 1 + tianNiPearlCount() * 0.005;
+    return add(ONE, mul(tianNiPearlCount(), 0.005));
   }
 
   function tianNiPearlManaDiminishingExponent() {
@@ -1335,32 +1446,32 @@
     );
   }
 
-  function tianNiPearlChance() {
-    return Math.min(1, 0.01 * Math.pow(0.99, tianNiPearlCount()) * immortalTreasureChanceMultiplier());
+  function tianNiPearlChance(count = tianNiPearlCount()) {
+    return decayingChance(0.01, 0.99, count, immortalTreasureChanceMultiplierBN());
   }
 
   function mysteriousGreenBottleCount() {
-    return state.treasureImprints?.mysteriousGreenBottle || 0;
+    return treasureCount("mysteriousGreenBottle");
   }
 
   function mysteriousGreenBottleMultiplier() {
     return WIS.Core.Effects.value("mysteriousGreenBottle", state);
   }
 
-  function mysteriousGreenBottleChance() {
-    return Math.min(1, 0.02 * Math.pow(0.85, mysteriousGreenBottleCount()) * immortalTreasureChanceMultiplier());
+  function mysteriousGreenBottleChance(count = mysteriousGreenBottleCount()) {
+    return decayingChance(0.02, 0.85, count, immortalTreasureChanceMultiplierBN());
   }
 
   function fuBaoCount() {
-    return state.treasureImprints?.fuBao || 0;
+    return treasureCount("fuBao");
   }
 
-  function fuBaoChance() {
-    return Math.min(1, 0.02 * Math.pow(0.7, fuBaoCount()) * immortalTreasureChanceMultiplier());
+  function fuBaoChance(count = fuBaoCount()) {
+    return decayingChance(0.02, 0.7, count, immortalTreasureChanceMultiplierBN());
   }
 
   function fuBaoManaRatio() {
-    return fuBaoCount() * 0.002;
+    return mul(fuBaoCount(), 0.002);
   }
 
   function fuBaoExplorationManaBonus(powerCost, explorationAmount = explorationAmountForCost(powerCost)) {
@@ -1368,10 +1479,7 @@
   }
 
   function formatProbability(probability) {
-    const percent = probability * 100;
-    if (percent >= 0.01) return `${percent.toFixed(2)}%`;
-    if (percent >= 0.0001) return `${percent.toFixed(4)}%`;
-    return `${percent.toExponential(2)}%`;
+    return formatPercent(probability);
   }
 
   function joulesForNextBaseMana() {
@@ -1403,7 +1511,12 @@
     );
   }
 
+  function explorationEnabled() {
+    return immortalCultivationActive() && state.goldenCoreUnlocked && state.activeChallenge !== "mortalTransformation";
+  }
+
   function automaticExplorationContext({ cache = true } = {}) {
+    if (!explorationEnabled()) return null;
     const powerCost = explorationPowerCost();
     if (!state.roamSpiritWorldUnlocked || !state.goldenCoreUnlocked || lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return null;
     const fullExplorationAmount = explorationAmountForCost(powerCost, { cache });
@@ -1620,7 +1733,7 @@
     explorationAmount = explorationAmountForCost(powerCost),
     tribulationExponent = minorTribulationPreviewForExploration(explorationAmount).manaExponent
   ) {
-    if (!immortalCultivationActive() || !state.goldenCoreUnlocked ||
+    if (!explorationEnabled() ||
         lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return ZERO;
     return previewManaGainProgressive(
       1,
@@ -1635,46 +1748,125 @@
     ).mana;
   }
 
-  function integratePowerCurve(start, end, exponent) {
-    if (!(end > start)) return 0;
-    if (Math.abs(exponent - 1) < 1e-10) return Math.log(end / start);
-    return (Math.pow(end, 1 - exponent) - Math.pow(start, 1 - exponent)) / (1 - exponent);
+  function integratePowerCurve(start, end, exponent, exactWidth = null) {
+    const curveStart = maxBN(ZERO, BN(start));
+    const curveEnd = maxBN(ZERO, BN(end));
+    const observedWidth = maxBN(ZERO, sub(curveEnd, curveStart));
+    const width = exactWidth === null
+      ? observedWidth
+      : maxBN(ZERO, BN(exactWidth));
+    if (!gt(width, ZERO) || !gt(curveStart, ZERO)) return ZERO;
+
+    const curveExponent = BN(exponent);
+    const midpoint = gt(curveEnd, curveStart)
+      ? mul(add(curveStart, curveEnd), 0.5)
+      : curveStart;
+    const midpointEstimate = mul(width, pow(midpoint, mul(curveExponent, -1)));
+
+    // Adding a very small normalized interval to a value near one can round
+    // both endpoints to the same Decimal.  The caller still supplies the exact
+    // interval width, so retain it with a local midpoint integral instead of
+    // returning zero.
+    if (!gt(observedWidth, ZERO) || lte(div(observedWidth, curveStart), "1e-8")) {
+      return midpointEstimate;
+    }
+
+    const oneMinusExponent = sub(ONE, curveExponent);
+    let integrated;
+    if (lte(abs(oneMinusExponent), "1e-10")) {
+      integrated = mul(log10(div(curveEnd, curveStart)), Math.LN10);
+    } else {
+      integrated = div(sub(
+        pow(curveEnd, oneMinusExponent),
+        pow(curveStart, oneMinusExponent)
+      ), oneMinusExponent);
+    }
+    if (!isFiniteBN(integrated) || !gt(integrated, ZERO)) return midpointEstimate;
+    return mul(integrated, div(width, observedWidth));
   }
 
-  function integrateAutomaticExplorationManaByLoad(preTribulationMana, fullExplorationAmountNumber, startLoad, endLoad) {
-    if (!(endLoad > startLoad) || !gt(preTribulationMana, ZERO)) return ZERO;
+  function integrateAutomaticExplorationManaByLoad(
+    preTribulationMana,
+    fullExplorationAmount,
+    startLoad,
+    endLoad,
+    exactLoadWidth = null
+  ) {
+    if (!gt(preTribulationMana, ZERO)) return ZERO;
     const triggerLoad = minorTribulationTriggerLoad();
+    if (!gt(triggerLoad, ZERO)) return ZERO;
     const baseExponent = minorTribulationExplorationBaseExponent();
     const minimumExponent = minorTribulationExplorationMinimumExponent();
     const decayCoefficient = minorTribulationExplorationDecayCoefficient();
-    const triggerBoundary = Math.max(0, Math.min(triggerLoad, triggerLoad - fullExplorationAmountNumber));
-    const minimumBoundary = Math.max(triggerBoundary, Math.min(
-      triggerLoad,
-      triggerLoad * (Math.pow(10, (baseExponent - minimumExponent) / decayCoefficient) - 1)
-        - fullExplorationAmountNumber
-    ));
+    const boundedStartLoad = maxBN(ZERO, minBN(triggerLoad, BN(startLoad)));
+    const boundedEndLoad = maxBN(ZERO, minBN(triggerLoad, BN(endLoad)));
+    const availableCycleWidth = maxBN(ZERO, sub(triggerLoad, boundedStartLoad));
+    const requestedLoadWidth = minBN(availableCycleWidth, exactLoadWidth === null
+      ? maxBN(ZERO, sub(boundedEndLoad, boundedStartLoad))
+      : maxBN(ZERO, BN(exactLoadWidth)));
+    if (!gt(requestedLoadWidth, ZERO)) return ZERO;
+    const clampLoad = (value) => maxBN(ZERO, minBN(triggerLoad, value));
+    const triggerBoundary = clampLoad(sub(triggerLoad, fullExplorationAmount));
+    const minimumCurveRatio = gt(decayCoefficient, ZERO)
+      ? pow10(div(sub(baseExponent, minimumExponent), decayCoefficient))
+      : ONE;
+    const minimumBoundary = maxBN(triggerBoundary, clampLoad(sub(
+      mul(triggerLoad, sub(minimumCurveRatio, ONE)),
+      fullExplorationAmount
+    )));
     let integratedMana = ZERO;
+    const baseMana = pow(preTribulationMana, baseExponent);
+    const minimumMana = pow(preTribulationMana, minimumExponent);
+    let currentLoad = boundedStartLoad;
+    let remainingWidth = requestedLoadWidth;
 
-    const untriggeredEnd = Math.min(endLoad, triggerBoundary);
-    if (untriggeredEnd > startLoad) {
-      integratedMana = add(integratedMana, mul(pow(preTribulationMana, baseExponent), untriggeredEnd - startLoad));
-    }
-
-    const dynamicStart = Math.max(startLoad, triggerBoundary);
-    const dynamicEnd = Math.min(endLoad, minimumBoundary);
-    if (dynamicEnd > dynamicStart) {
-      const curveExponent = decayCoefficient * toNumber(log10(preTribulationMana), Infinity);
-      const curveStart = 1 + (dynamicStart + fullExplorationAmountNumber) / triggerLoad;
-      const curveEnd = 1 + (dynamicEnd + fullExplorationAmountNumber) / triggerLoad;
+    if (gt(triggerBoundary, currentLoad)) {
+      const availableUntriggeredWidth = sub(triggerBoundary, currentLoad);
+      const untriggeredWidth = minBN(remainingWidth, availableUntriggeredWidth);
+      // This range has not reached the next minor tribulation.  Integrate in
+      // actual load units so a huge mirror threshold cannot underflow a
+      // normalized load ratio and erase otherwise valid exploration mana.
       integratedMana = add(integratedMana, mul(
-        mul(pow(preTribulationMana, baseExponent), triggerLoad),
-        integratePowerCurve(curveStart, curveEnd, curveExponent)
+        baseMana,
+        untriggeredWidth
       ));
+      remainingWidth = maxBN(ZERO, sub(remainingWidth, untriggeredWidth));
+      if (!gt(remainingWidth, ZERO)) return integratedMana;
+      currentLoad = triggerBoundary;
     }
 
-    const minimumStart = Math.max(startLoad, minimumBoundary);
-    if (endLoad > minimumStart) {
-      integratedMana = add(integratedMana, mul(pow(preTribulationMana, minimumExponent), endLoad - minimumStart));
+    currentLoad = maxBN(currentLoad, triggerBoundary);
+    if (gt(minimumBoundary, currentLoad) && gt(remainingWidth, ZERO)) {
+      const availableDynamicWidth = sub(minimumBoundary, currentLoad);
+      const dynamicWidth = minBN(remainingWidth, availableDynamicWidth);
+      const curveExponent = mul(decayCoefficient, log10(preTribulationMana));
+      const dynamicEndLoad = gte(dynamicWidth, availableDynamicWidth)
+        ? minimumBoundary
+        : add(currentLoad, dynamicWidth);
+      const curveStart = div(add(add(triggerLoad, currentLoad), fullExplorationAmount), triggerLoad);
+      const curveEnd = div(add(add(triggerLoad, dynamicEndLoad), fullExplorationAmount), triggerLoad);
+      const normalizedWidth = div(dynamicWidth, triggerLoad);
+      const integratedCurve = integratePowerCurve(
+        curveStart,
+        curveEnd,
+        curveExponent,
+        normalizedWidth
+      );
+      const dynamicMana = mul(mul(baseMana, triggerLoad), integratedCurve);
+      integratedMana = add(integratedMana,
+        isFiniteBN(dynamicMana) && gte(dynamicMana, ZERO)
+          ? dynamicMana
+          : mul(minimumMana, dynamicWidth));
+      remainingWidth = maxBN(ZERO, sub(remainingWidth, dynamicWidth));
+      if (!gt(remainingWidth, ZERO)) return integratedMana;
+      currentLoad = minimumBoundary;
+    }
+
+    if (gt(remainingWidth, ZERO)) {
+      integratedMana = add(integratedMana, mul(
+        minimumMana,
+        remainingWidth
+      ));
     }
     return integratedMana;
   }
@@ -1694,54 +1886,46 @@
     }
 
     const triggerLoad = minorTribulationTriggerLoad();
-    // 小天劫负荷是 Number 控制量；超出 Number 范围时走下方 Decimal 安全回退，不截断资源。
-    const fullExplorationAmountNumber = toNumber(fullExplorationAmount, Infinity);
-    const explorationLoad = fullExplorationAmountNumber * AUTOMATIC_EXPLORATION_EFFICIENCY * elapsed;
-    if (!Number.isFinite(triggerLoad) || !(triggerLoad > 0) ||
-        !Number.isFinite(fullExplorationAmountNumber) || !Number.isFinite(explorationLoad) ||
-        !isFiniteBN(preTribulationMana)) {
-      const preview = minorTribulationPreviewForExploration(fullExplorationAmount, currentExplorationLoad);
-      return mul(explorationPotentialManaGain(
-        powerCost,
-        currentMana,
-        preview.manaExponent,
-        fullExplorationAmount
-      ), AUTOMATIC_EXPLORATION_EFFICIENCY * elapsed);
-    }
+    const explorationLoad = mul(fullExplorationAmount, AUTOMATIC_EXPLORATION_EFFICIENCY * elapsed);
+    if (!gt(triggerLoad, ZERO) || !isFiniteBN(triggerLoad) || !isFiniteBN(explorationLoad) ||
+        !isFiniteBN(preTribulationMana)) return ZERO;
 
-    const startLoad = Math.max(0, Number(currentExplorationLoad) || 0) % triggerLoad;
+    const startLoad = maxBN(ZERO, BN(currentExplorationLoad)).mod(triggerLoad);
     let remainingLoad = explorationLoad;
     let integratedByLoad = ZERO;
-    const firstCycleLoad = Math.min(remainingLoad, triggerLoad - startLoad);
+    const firstCycleLoad = minBN(remainingLoad, sub(triggerLoad, startLoad));
     integratedByLoad = add(integratedByLoad, integrateAutomaticExplorationManaByLoad(
       preTribulationMana,
-      fullExplorationAmountNumber,
+      fullExplorationAmount,
       startLoad,
-      startLoad + firstCycleLoad
+      add(startLoad, firstCycleLoad),
+      firstCycleLoad
     ));
-    remainingLoad -= firstCycleLoad;
+    remainingLoad = maxBN(ZERO, sub(remainingLoad, firstCycleLoad));
 
-    if (remainingLoad > 0) {
-      const fullCycles = Math.floor(remainingLoad / triggerLoad);
-      if (fullCycles > 0) {
+    if (gt(remainingLoad, ZERO)) {
+      const fullCycles = div(remainingLoad, triggerLoad).floor();
+      if (gt(fullCycles, ZERO)) {
         integratedByLoad = add(integratedByLoad, mul(fullCycles, integrateAutomaticExplorationManaByLoad(
           preTribulationMana,
-          fullExplorationAmountNumber,
-          0,
+          fullExplorationAmount,
+          ZERO,
+          triggerLoad,
           triggerLoad
         )));
-        remainingLoad -= fullCycles * triggerLoad;
+        remainingLoad = maxBN(ZERO, remainingLoad.mod(triggerLoad));
       }
-      if (remainingLoad > 0) {
+      if (gt(remainingLoad, ZERO)) {
         integratedByLoad = add(integratedByLoad, integrateAutomaticExplorationManaByLoad(
           preTribulationMana,
-          fullExplorationAmountNumber,
-          0,
+          fullExplorationAmount,
+          ZERO,
+          remainingLoad,
           remainingLoad
         ));
       }
     }
-    return div(integratedByLoad, fullExplorationAmountNumber);
+    return div(integratedByLoad, fullExplorationAmount);
   }
 
   function automaticManaComponentsBeforeGoogol(
@@ -1752,7 +1936,7 @@
   ) {
     const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
     const passiveMana = mul(automaticBaseManaPerSecond(currentMana), elapsed);
-    if (!(elapsed > 0) || !context) {
+    if (!(elapsed > 0) || !context || !explorationEnabled()) {
       return { mana: passiveMana, passiveMana, explorationMana: ZERO };
     }
     const { powerCost, fullExplorationAmount } = context;
@@ -1797,10 +1981,10 @@
 
   function emptyExplorationRewards() {
     return {
-      attempts: ZERO, tianNiPearl: 0, greenBottle: 0, fuBao: 0, naturalTreasure: 0,
-      xuTianDing: 0, wanYaoFan: 0, phantomHeavenMirror: 0,
-      mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0,
-      seizeFoundation: 0
+      attempts: ZERO, tianNiPearl: ZERO, greenBottle: ZERO, fuBao: ZERO, naturalTreasure: ZERO,
+      xuTianDing: ZERO, wanYaoFan: ZERO, phantomHeavenMirror: ZERO,
+      mysticHeavenSacredTree: ZERO, mysticHeavenSpiritSlayingSword: ZERO,
+      seizeFoundation: false
     };
   }
 
@@ -1874,7 +2058,8 @@
 
   function planAutomaticManaGain(elapsedSeconds = 1, projectedContext = {}) {
     const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
-    const context = projectedContext.explorationContext ?? automaticExplorationContext({ cache: false });
+    const context = explorationEnabled()
+      ? projectedContext.explorationContext ?? automaticExplorationContext({ cache: false }) : null;
     let passiveMana = ZERO;
     let explorationMana = ZERO;
     let explorationAmount = ZERO;
@@ -2035,7 +2220,11 @@
     };
   }
 
-  function commitAutomaticManaGain(plan) {
+  function commitAutomaticManaGain(plan, { skipTreasureRolls = false } = {}) {
+    if (state.activeChallenge === "mortalTransformation" &&
+        (gt(plan?.explorationAmount || ZERO, ZERO) || gt(plan?.explorationMana || ZERO, ZERO))) {
+      throw new Error("化凡挑战期间不能提交探寻收益，请重新计算");
+    }
     const rewards = emptyExplorationRewards();
     if (plan?.instantEvent) {
       const { resource, boundary } = plan.instantEvent;
@@ -2048,6 +2237,8 @@
       return { ...plan, rewards, tribulationTriggered: false, eventCommitted };
     }
     if (!plan?.completed) return { ...plan, rewards, tribulationTriggered: false };
+    const explorationAccounting = gt(plan.explorationAmount, ZERO)
+      ? prepareExplorationProgress(plan.explorationAmount) : null;
     WIS.Core.Resources.accumulateSystemResourceGain("immortal", "mana", plan.mana);
     WIS.Core.Resources.accumulateSystemResourceGain("immortal", "immortalPower", plan.immortalPower);
     if (plan.event?.resource && plan.event?.boundary) {
@@ -2056,10 +2247,16 @@
 
     let tribulationTriggered = false;
     if (gt(plan.explorationAmount, ZERO)) {
-      const aggregatedRewards = processExplorationJudgements(addExplorationProgress(plan.explorationAmount));
+      // Deterministic resource trials still advance all exploration/load
+      // accounting, but must not sample loot (including natural treasure and
+      // the seize-foundation achievement) through this embedded commit path.
+      const attempts = commitExplorationProgress(explorationAccounting);
+      const aggregatedRewards = skipTreasureRolls
+        ? { ...emptyExplorationRewards(), attempts }
+        : processExplorationJudgements(attempts, plan.explorationAmount);
       rewards.attempts = aggregatedRewards.attempts;
       Object.keys(rewards).filter((key) => key !== "attempts")
-        .forEach((key) => { rewards[key] = Number(aggregatedRewards[key]) || 0; });
+        .forEach((key) => { rewards[key] = aggregatedRewards[key]; });
       tribulationTriggered = registerSuccessfulExploration(plan.explorationAmount);
       state.minorTribulationExplorationLoad = plan.finalExplorationLoad;
     }
@@ -2078,7 +2275,7 @@
       projection,
       () => ({ ...planAutomaticManaGain(elapsed, options), elapsedSeconds: elapsed })
     ));
-    if (plan.instantEvent) return commitAutomaticManaGain(plan);
+    if (plan.instantEvent) return commitAutomaticManaGain(plan, options);
     if (!(plan.processedSeconds > 0)) {
       return {
         ...plan,
@@ -2086,7 +2283,7 @@
         tribulationTriggered: false
       };
     }
-    return commitAutomaticManaGain(plan);
+    return commitAutomaticManaGain(plan, options);
   }
 
   // 兼容旧调用名；自动收益现按固定快照步结算。
@@ -2144,7 +2341,7 @@
   }
 
   function circulationSourceExponent() {
-    return toNumber(WIS.Core.Effects.product("circulation", "sourceExponent", state), 1);
+    return WIS.Core.Effects.product("circulation", "sourceExponent", state);
   }
 
   function circulationManaPerSecond() {
@@ -2154,11 +2351,11 @@
 
   function circulationPercent() {
     const basePercent = 0.06 + (state.minorTechniqueUnlocked ? 0.02 : 0) + (state.fiveElementsUnlocked ? 0.05 : 0);
-    return basePercent * toNumber(WIS.Core.Effects.product("circulation", "sourceMultiplier", state), 1);
+    return mul(basePercent, WIS.Core.Effects.product("circulation", "sourceMultiplier", state));
   }
 
   function explorationManaGain() {
-    if (!immortalCultivationActive() || !state.goldenCoreUnlocked || lt(explorationPowerCost(), EXPLORATION_MINIMUM_POWER_COST)) return ZERO;
+    if (!explorationEnabled() || lt(explorationPowerCost(), EXPLORATION_MINIMUM_POWER_COST)) return ZERO;
     const powerCost = explorationPowerCost();
     const explorationAmount = explorationAmountForCost(powerCost);
     const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
@@ -2173,7 +2370,7 @@
     activeExploration = false,
     applyImmortalSuppression = true
   ) {
-    if (!immortalCultivationActive() || !state.goldenCoreUnlocked) return ZERO;
+    if (!explorationEnabled()) return ZERO;
     const manaExplorationAmount = explorationManaAmount(explorationAmount);
     const baseExplorationMana = mul(EXPLORATION_BASE_MANA, manaExplorationAmount);
     const explorationSource = calculateSourceGain({
@@ -2185,8 +2382,10 @@
       finalManaGainFromSources([explorationSource, fuBaoSource], currentMana, [], false),
       WIS.Core.Effects.product("exploration", "regionMultiplier", state)
     );
-    const silverTadpoleScriptGain = applyGainExponent(finalGain,
-      toNumber(WIS.Core.Effects.product("exploration", "sourceExponent", state), 1));
+    const silverTadpoleScriptGain = applyGainExponent(
+      finalGain,
+      WIS.Core.Effects.product("exploration", "sourceExponent", state)
+    );
     const tribulationGain = applyGainExponent(silverTadpoleScriptGain, tribulationExponent);
     return applyImmortalSuppression ? applyCelestialDecline(
       tribulationGain,
@@ -2203,7 +2402,7 @@
     const baseLoad = state.spiritTravelVoidUnlocked
       ? 150000
       : MINOR_TRIBULATION_BASE_TRIGGER_LOAD * (state.silverTadpoleScriptUnlocked ? 10 : 1);
-    return baseLoad * Math.pow(2, phantomHeavenMirrorCount());
+    return mul(baseLoad, phantomHeavenMirrorLoadMultiplier());
   }
 
   function spiritWorldAscensionExplorationMultiplier() {
@@ -2213,7 +2412,10 @@
   function finalManaGainFromSources(sourceGains, currentMana = state.mana, additionalMultipliers = [], applyDecline = true) {
     const gain = calculateRegionGain(sourceGains, {
       multipliers: [manaGainMultiplier(currentMana), ...additionalMultipliers],
-      exponents: [toNumber(WIS.Core.Effects.product("mana", "regionExponent", state), 1) + greatLuoManaExponentBonus()]
+      exponents: [add(
+        WIS.Core.Effects.product("mana", "regionExponent", state),
+        greatLuoManaExponentBonus()
+      )]
     });
     const timeAdjustedGain = applyDaoTimeLaw(gain);
     return applyDecline ? applyCelestialDecline(timeAdjustedGain, currentMana) : timeAdjustedGain;
@@ -2235,20 +2437,59 @@
     if (!gt(cost, ZERO) || !isFiniteBN(cost)) return ZERO;
     if (cache && cachedExplorationPowerCost && eq(cost, cachedExplorationPowerCost)) return cachedRawExplorationAmount;
 
-    const targetLogCost = toNumber(log10(cost), Infinity);
-    let lowerLogAmount = -323;
-    let upperLogAmount = Math.max(308, targetLogCost);
-    for (let iteration = 0; iteration < 64; iteration += 1) {
-      const middleLogAmount = (lowerLogAmount + upperLogAmount) / 2;
-      const logOnePlusAmount = middleLogAmount > 16
-        ? middleLogAmount
-        : toNumber(log10(add(ONE, pow10(middleLogAmount))), 0);
-      const exponent = 1 + EXPLORATION_COST_EXPONENT_SCALE * Math.sqrt(logOnePlusAmount);
-      const middleLogCost = toNumber(log10(EXPLORATION_STANDARD_POWER_COST), 0) + middleLogAmount * exponent;
-      if (middleLogCost < targetLogCost) lowerLogAmount = middleLogAmount;
-      else upperLogAmount = middleLogAmount;
+    const decimalTargetLogCost = log10(cost);
+    const numericTargetLogCost = toNumber(decimalTargetLogCost, Infinity);
+    const standardLogCost = log10(EXPLORATION_STANDARD_POWER_COST);
+    const scale = BN(EXPLORATION_COST_EXPONENT_SCALE);
+    // Above log10(amount)=16, the existing curve itself uses
+    // log10(1 + amount)=log10(amount). Switch at that exact curve boundary;
+    // merely fitting log10(cost) in Number is insufficient because a 64-step
+    // linear bisection cannot span values such as 1e308.
+    const decimalInversionThreshold = add(
+      standardLogCost,
+      mul(16, add(ONE, mul(scale, 4)))
+    );
+    let result;
+    if (Number.isFinite(numericTargetLogCost) && lte(decimalTargetLogCost, decimalInversionThreshold)) {
+      // Preserve the established curve and bit-for-bit normal-range behaviour.
+      let lowerLogAmount = -323;
+      let upperLogAmount = Math.max(308, numericTargetLogCost);
+      for (let iteration = 0; iteration < 64; iteration += 1) {
+        const middleLogAmount = (lowerLogAmount + upperLogAmount) / 2;
+        const logOnePlusAmount = middleLogAmount > 16
+          ? middleLogAmount
+          : toNumber(log10(add(ONE, pow10(middleLogAmount))), 0);
+        const exponent = 1 + EXPLORATION_COST_EXPONENT_SCALE * Math.sqrt(logOnePlusAmount);
+        const middleLogCost = toNumber(log10(EXPLORATION_STANDARD_POWER_COST), 0) + middleLogAmount * exponent;
+        if (middleLogCost < numericTargetLogCost) lowerLogAmount = middleLogAmount;
+        else upperLogAmount = middleLogAmount;
+      }
+      result = pow10((lowerLogAmount + upperLogAmount) / 2);
+    } else {
+      // For these costs the solution is vastly above 10^16, where
+      // log10(1 + amount) == log10(amount) at Decimal precision. Solve
+      // x * (1 + scale * sqrt(x)) = log10(cost / standardCost) directly
+      // in Decimal space instead of converting log10(cost) to Infinity.
+      const targetVariableLogCost = maxBN(
+        ZERO,
+        sub(decimalTargetLogCost, standardLogCost)
+      );
+      let logAmount = gt(scale, ZERO)
+        ? pow(div(targetVariableLogCost, scale), 2 / 3)
+        : targetVariableLogCost;
+      for (let iteration = 0; iteration < 32; iteration += 1) {
+        const root = sqrt(maxBN(ZERO, logAmount));
+        const calculated = mul(logAmount, add(ONE, mul(scale, root)));
+        const derivative = add(ONE, mul(mul(scale, 1.5), root));
+        const next = maxBN(ZERO, sub(
+          logAmount,
+          div(sub(calculated, targetVariableLogCost), derivative)
+        ));
+        if (eq(next, logAmount)) break;
+        logAmount = next;
+      }
+      result = pow10(logAmount);
     }
-    const result = pow10((lowerLogAmount + upperLogAmount) / 2);
     if (cache) {
       cachedExplorationPowerCost = cost;
       cachedRawExplorationAmount = result;
@@ -2285,7 +2526,7 @@
       () => treasuresUnlocked() && hasAchievement("goldenCore"),
       mysteriousGreenBottleChance,
       () => { WIS.Meta.Treasures.add(state, "mysteriousGreenBottle"); },
-      { baseChance: 0.02, currentCount: mysteriousGreenBottleCount, decayRatio: 0.85, treasureKey: "mysteriousGreenBottle", probabilityAtOffset: (offset) => Math.min(1, 0.02 * Math.pow(0.85, mysteriousGreenBottleCount() + offset) * immortalTreasureChanceMultiplier()), awardMany: (count) => WIS.Meta.Treasures.add(state, "mysteriousGreenBottle", count) }
+      { decayRatio: 0.85, treasureKey: "mysteriousGreenBottle", probabilityAtOffset: (offset) => mysteriousGreenBottleChance(add(mysteriousGreenBottleCount(), offset)), awardMany: (count) => WIS.Meta.Treasures.add(state, "mysteriousGreenBottle", count) }
     );
   }
 
@@ -2295,17 +2536,34 @@
       () => hasAchievement("trueScale3"),
       fuBaoChance,
       () => { WIS.Meta.Treasures.add(state, "fuBao"); },
-      { baseChance: 0.02, currentCount: fuBaoCount, decayRatio: 0.7, treasureKey: "fuBao", probabilityAtOffset: (offset) => Math.min(1, 0.02 * Math.pow(0.7, fuBaoCount() + offset) * immortalTreasureChanceMultiplier()), awardMany: (count) => WIS.Meta.Treasures.add(state, "fuBao", count) }
+      { decayRatio: 0.7, treasureKey: "fuBao", probabilityAtOffset: (offset) => fuBaoChance(add(fuBaoCount(), offset)), awardMany: (count) => WIS.Meta.Treasures.add(state, "fuBao", count) }
     );
   }
 
   function rollNaturalTreasureAttempts(attempts) {
-    return rollDynamicAttempts(
+    const previousLevel = state.naturalTreasureLevel;
+    const awardLevels = (count) => {
+      const targetLevel = minBN(
+        naturalTreasureLevelCap(),
+        add(state.naturalTreasureLevel, maxBN(ZERO, BN(count)).floor())
+      );
+      state.naturalTreasureLevel = Math.max(
+        0,
+        Math.floor(toNumber(targetLevel, Number.MAX_SAFE_INTEGER))
+      );
+    };
+    rollDynamicAttempts(
       attempts,
-      () => state.goldenCoreUnlocked && state.naturalTreasureLevel < naturalTreasureLevelCap(),
+      () => state.goldenCoreUnlocked && lt(state.naturalTreasureLevel, naturalTreasureLevelCap()),
       naturalTreasureUpgradeChance,
-      () => { state.naturalTreasureLevel += 1; }
+      () => { awardLevels(ONE); },
+      {
+        probabilityAtOffset: (offset) => naturalTreasureUpgradeChance(add(state.naturalTreasureLevel, offset)),
+        awardMany: awardLevels,
+        deferInitialBatch: true
+      }
     );
+    return Math.max(0, Math.floor(toNumber(sub(state.naturalTreasureLevel, previousLevel), 0)));
   }
 
   function rollXuTianDingAttempts(attempts) {
@@ -2314,7 +2572,7 @@
       () => state.heavenlyTreasureLevel >= 1,
       xuTianDingChance,
       () => { WIS.Meta.Treasures.add(state, "xuTianDing"); },
-      { baseChance: 0.0002, currentCount: xuTianDingCount, decayRatio: 0.75, treasureKey: "xuTianDing", probabilityAtOffset: (offset) => Math.min(1, 0.0002 * Math.pow(0.75, xuTianDingCount() + offset) * immortalTreasureChanceMultiplier()), awardMany: (count) => WIS.Meta.Treasures.add(state, "xuTianDing", count) }
+      { decayRatio: 0.75, treasureKey: "xuTianDing", probabilityAtOffset: (offset) => xuTianDingChance(add(xuTianDingCount(), offset)), awardMany: (count) => WIS.Meta.Treasures.add(state, "xuTianDing", count) }
     );
   }
 
@@ -2324,7 +2582,7 @@
       () => state.heavenlyTreasureLevel >= 3,
       wanYaoFanChance,
       () => { WIS.Meta.Treasures.add(state, "wanYaoFan"); },
-      { baseChance: 0.0001, currentCount: wanYaoFanCount, decayRatio: 0.75, treasureKey: "wanYaoFan", probabilityAtOffset: (offset) => Math.min(1, 0.0001 * Math.pow(0.75, wanYaoFanCount() + offset) * immortalTreasureChanceMultiplier()), awardMany: (count) => WIS.Meta.Treasures.add(state, "wanYaoFan", count) }
+      { decayRatio: 0.75, treasureKey: "wanYaoFan", probabilityAtOffset: (offset) => wanYaoFanChance(add(wanYaoFanCount(), offset)), awardMany: (count) => WIS.Meta.Treasures.add(state, "wanYaoFan", count) }
     );
   }
 
@@ -2334,7 +2592,7 @@
       () => state.mysticHeavenlyTreasureLevel >= 1,
       phantomHeavenMirrorChance,
       () => { WIS.Meta.Treasures.add(state, "phantomHeavenMirror"); },
-      { baseChance: 5e-12, currentCount: phantomHeavenMirrorCount, decayRatio: 0.5, treasureKey: "phantomHeavenMirror", probabilityAtOffset: (offset) => Math.min(1, 5e-12 * Math.pow(0.5, phantomHeavenMirrorCount() + offset) * immortalTreasureChanceMultiplier()), awardMany: (count) => WIS.Meta.Treasures.add(state, "phantomHeavenMirror", count) }
+      { decayRatio: 0.5, treasureKey: "phantomHeavenMirror", probabilityAtOffset: (offset) => phantomHeavenMirrorChance(add(phantomHeavenMirrorCount(), offset)), awardMany: (count) => WIS.Meta.Treasures.add(state, "phantomHeavenMirror", count) }
     );
   }
 
@@ -2344,7 +2602,7 @@
       () => state.mysticHeavenlyTreasureLevel >= 2,
       mysticHeavenSacredTreeChance,
       () => { WIS.Meta.Treasures.add(state, "mysticHeavenSacredTree"); },
-      { baseChance: 5e-14, currentCount: mysticHeavenSacredTreeCount, decayRatio: 0.5, treasureKey: "mysticHeavenSacredTree", probabilityAtOffset: (offset) => Math.min(1, 5e-14 * Math.pow(0.5, mysticHeavenSacredTreeCount() + offset) * immortalTreasureChanceMultiplier()), awardMany: (count) => WIS.Meta.Treasures.add(state, "mysticHeavenSacredTree", count) }
+      { decayRatio: 0.5, treasureKey: "mysticHeavenSacredTree", probabilityAtOffset: (offset) => mysticHeavenSacredTreeChance(add(mysticHeavenSacredTreeCount(), offset)), awardMany: (count) => WIS.Meta.Treasures.add(state, "mysticHeavenSacredTree", count) }
     );
   }
 
@@ -2354,7 +2612,7 @@
       () => state.mysticHeavenlyTreasureLevel >= 3,
       mysticHeavenSpiritSlayingSwordChance,
       () => { WIS.Meta.Treasures.add(state, "mysticHeavenSpiritSlayingSword"); },
-      { baseChance: 1e-12, currentCount: mysticHeavenSpiritSlayingSwordCount, decayRatio: 0.6, treasureKey: "mysticHeavenSpiritSlayingSword", probabilityAtOffset: (offset) => Math.min(1, 1e-12 * Math.pow(0.6, mysticHeavenSpiritSlayingSwordCount() + offset) * immortalTreasureChanceMultiplier()), awardMany: (count) => WIS.Meta.Treasures.add(state, "mysticHeavenSpiritSlayingSword", count) }
+      { decayRatio: 0.6, treasureKey: "mysticHeavenSpiritSlayingSword", probabilityAtOffset: (offset) => mysticHeavenSpiritSlayingSwordChance(add(mysticHeavenSpiritSlayingSwordCount(), offset)), awardMany: (count) => WIS.Meta.Treasures.add(state, "mysticHeavenSpiritSlayingSword", count) }
     );
   }
 
@@ -2364,9 +2622,9 @@
       () => state.heavenlyTreasureLevel >= 2,
       baLingChiChance,
       () => { WIS.Meta.Treasures.add(state, "baLingChi"); },
-      { baseChance: 0.002, currentCount: baLingChiCount, decayRatio: 0.9, treasureKey: "baLingChi", probabilityAtOffset: (offset) => Math.min(1, 0.002 * Math.pow(0.9, baLingChiCount() + offset) * immortalTreasureChanceMultiplier()), awardMany: (count) => WIS.Meta.Treasures.add(state, "baLingChi", count) }
+      { decayRatio: 0.9, treasureKey: "baLingChi", probabilityAtOffset: (offset) => baLingChiChance(add(baLingChiCount(), offset)), awardMany: (count) => WIS.Meta.Treasures.add(state, "baLingChi", count) }
     );
-    if (!silent && gained > 0) showNotice(`获得宝物烙印：仙道·八灵尺 +${gained}`);
+    if (!silent && gt(gained, ZERO)) showNotice(`获得宝物烙印：仙道·八灵尺 +${gained}`);
     return gained;
   }
 
@@ -2379,37 +2637,101 @@
     return true;
   }
 
-  function processExplorationJudgements(attempts) {
+  function processExplorationJudgements(attempts, effectiveAmount = attempts) {
+    WIS.Simulation?.FastForward?.exploration(attempts, effectiveAmount);
     const count = maxBN(ZERO, BN(attempts)).floor();
-    if (!gt(count, ZERO)) return { attempts: ZERO, tianNiPearl: 0, greenBottle: 0, fuBao: 0, naturalTreasure: 0, xuTianDing: 0, wanYaoFan: 0, phantomHeavenMirror: 0, mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0, seizeFoundation: false };
+    const progressUnits = maxBN(ZERO, effectiveAmount);
+    if (!gt(count, ZERO) && !gt(progressUnits, ZERO)) return emptyExplorationRewards();
     if (WIS.Core.Runtime.isProjection() && !WIS.Core.Runtime.isTreasurePrediction()) {
-      return { attempts: count, tianNiPearl: 0, greenBottle: 0, fuBao: 0, naturalTreasure: 0, xuTianDing: 0, wanYaoFan: 0, phantomHeavenMirror: 0, mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0, seizeFoundation: false };
+      return { ...emptyExplorationRewards(), attempts: count };
     }
     return {
       attempts: count,
-      tianNiPearl: rollTianNiPearlAttempts(count, true),
-      greenBottle: rollMysteriousGreenBottleAttempts(count),
-      fuBao: rollFuBaoAttempts(count),
+      tianNiPearl: rollTianNiPearlAttempts(progressUnits, true),
+      greenBottle: rollMysteriousGreenBottleAttempts(progressUnits),
+      fuBao: rollFuBaoAttempts(progressUnits),
       naturalTreasure: rollNaturalTreasureAttempts(count),
-      xuTianDing: rollXuTianDingAttempts(count),
-      wanYaoFan: rollWanYaoFanAttempts(count),
-      phantomHeavenMirror: rollPhantomHeavenMirrorAttempts(count),
-      mysticHeavenSacredTree: rollMysticHeavenSacredTreeAttempts(count),
-      mysticHeavenSpiritSlayingSword: rollMysticHeavenSpiritSlayingSwordAttempts(count),
+      xuTianDing: rollXuTianDingAttempts(progressUnits),
+      wanYaoFan: rollWanYaoFanAttempts(progressUnits),
+      phantomHeavenMirror: rollPhantomHeavenMirrorAttempts(progressUnits),
+      mysticHeavenSacredTree: rollMysticHeavenSacredTreeAttempts(progressUnits),
+      mysticHeavenSpiritSlayingSword: rollMysticHeavenSpiritSlayingSwordAttempts(progressUnits),
       seizeFoundation: rollSeizeFoundationAttempts(count)
     };
   }
 
+  function prepareExplorationProgress(explorationAmount) {
+    if (!isFiniteBN(explorationAmount) || lt(explorationAmount, ZERO)) throw Error("探寻输入必须为有限非负数");
+    WIS.Meta.TreasureProgress?.ensure(state);
+    const L = WIS.Meta.TreasureLedger;
+    const integerWords = [], fractionalWords = [];
+    // Split exact decimal words before projection: never add a tiny fraction
+    // to a huge integer and then floor the rounded total. No huge powers of 10.
+    const inputs = L.normalize([state.explorationProgress, ...(state.explorationProgressResidual || []), explorationAmount]);
+    for (const word of inputs) {
+      const m = /^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(word);
+      if (m) {
+        const digits = m[2] + (m[3] || ""), exponent = BigInt(m[4] || 0) - BigInt((m[3] || "").length);
+        if (exponent >= 0n) integerWords.push(word);
+        else if (-exponent >= BigInt(digits.length)) fractionalWords.push(word);
+        else {
+          const cut = digits.length + Number(exponent);
+          integerWords.push(m[1] + digits.slice(0, cut));
+          fractionalWords.push(`${m[1]}${digits.slice(cut)}e${exponent}`);
+        }
+      } else {
+        // Higher-layer represented values have no representable fractional
+        // part above 1; tiny reciprocal-layer words remain intact below 1.
+        (L.project(word).abs().lt(ONE) ? fractionalWords : integerWords).push(word);
+      }
+    }
+    const fraction = L.normalize(fractionalWords);
+    let carry = toNumber(L.value(fraction).floor(), NaN);
+    if (!Number.isSafeInteger(carry) || Math.abs(carry) > L.MAX_TERMS) throw Error("探寻余数无法确认，未提交");
+    // Exact comparisons resolve e.g. 1 - 1e-500, which projects to 1.
+    while (L.compare(fraction, [carry]) < 0) carry--;
+    while (L.compare(fraction, [carry + 1]) >= 0) carry++;
+    const remainder = L.subtract(fraction, [carry]);
+    const whole = L.normalize([...integerWords, carry, ...(state.explorationAttemptResidual || [])]);
+    const attempts = L.sign(whole) > 0 ? L.value(whole).floor() : ZERO;
+    const attemptResidual = L.subtract(whole, [attempts]);
+    const cumulativeInputs = [state.explorationTotal || ZERO, ...(state.explorationTotalResidual || []), explorationAmount];
+    const decimalTotals = [], layeredTotals = [];
+    for (const word of cumulativeInputs) {
+      (/^-?\d+(?:\.\d*)?(?:e[+-]?\d+)?$/i.test(String(word)) ? decimalTotals : layeredTotals).push(word);
+    }
+    // Lifetime statistics do not drive rewards. Higher-layer sums are only a
+    // numeric projection, not an unbounded log of every historical frame.
+    // Keep exact decimal tails (including tiny inputs) and mark this limitation;
+    // never compact the fractional/attempt ledgers used for actual judgements.
+    const layeredTotal = layeredTotals.reduce((total, word) => add(total, L.project(word)), ZERO);
+    const cumulative = L.normalize([...decimalTotals, layeredTotal]);
+    const totalMain = L.value(cumulative), remainderMain = L.value(remainder);
+    const totalResidual = L.subtract(cumulative, [totalMain]);
+    const remainderResidual = L.subtract(remainder, [remainderMain]);
+    // All validations finish before installing any counter. Signed integer
+    // projection differences are carried, not reissued or silently discarded.
+    return { attempts, fields: {
+      explorationProgress: remainderMain, explorationProgressResidual: remainderResidual,
+      explorationAttemptResidual: attemptResidual,
+      explorationTotal: totalMain, explorationTotalResidual: totalResidual,
+      explorationTotalApproximate: state.explorationTotalApproximate === true || layeredTotals.length > 1
+    } };
+  }
+
+  function commitExplorationProgress(accounting) {
+    Object.assign(state, accounting.fields);
+    return accounting.attempts;
+  }
+
   function addExplorationProgress(explorationAmount) {
-    const total = add(maxBN(ZERO, state.explorationProgress), maxBN(ZERO, explorationAmount));
-    const attempts = total.floor();
-    state.explorationProgress = maxBN(ZERO, sub(total, attempts));
-    return attempts;
+    return commitExplorationProgress(prepareExplorationProgress(explorationAmount));
   }
 
   function tryTianNiPearl() {
-    if (!treasuresUnlocked() || !hasAchievement("daoFoundation") || WIS.Core.Runtime.random() >= tianNiPearlChance()) return false;
-    WIS.Meta.Treasures.add(state, "tianNiPearl");
+    if (!treasuresUnlocked() || !hasAchievement("daoFoundation")) return false;
+    const gained = rollTianNiPearlAttempts(1, true);
+    if (!gt(gained, ZERO)) return false;
     saveState();
     showNotice(`获得宝物烙印：仙道·天逆珠 ×${tianNiPearlCount()}`);
     return true;
@@ -2578,6 +2900,7 @@
   }
 
   function autoUpgradeImmortalAbilities() {
+    if (WIS.Cultivation.Xiuzhen?.sealed(state)) return 0;
     if (!state.immortalAbilityAutomationEnabled || !hasAchievement("infantSpirit") || state.cultivation.active !== "immortal") return 0;
     const candidates = [
       { historyKey: "qiSpellLevel", cost: qiSpellCost, available: () => state.qiRefiningUnlocked && state.qiSpellLevel < 3, apply: () => { state.qiSpellLevel += 1; } },
@@ -2661,6 +2984,12 @@
       candidate.available = () => hasManuallyUpgradedImmortalAbility(candidate.historyKey) && available();
     });
     // 散功重修与转世重修会重置进度并要求确认，永远不进入自动升级候选。
+    const audit = WIS.Simulation?.FastForward?.auditCandidates;
+    if (audit) { audit.push(...candidates.map(c => {
+      const available = c.available();
+      return {kind: 'ability', id: c.historyKey, available, resourceKey: c.resourceKey || 'mana',
+        cost: available ? c.cost() : null};
+    })); return 0; }
     let purchases = 0;
     let purchaseOperations = 0;
     const maximumPurchaseOperations = 32;
@@ -2694,15 +3023,7 @@
             state.activeChallenge !== "severEvilCorpse"
           )),
         apply: () => {
-          state.advancedRealmLevel = index + 1;
-          if (index === 5) state.minorTribulationExplorationLoad = 0;
-          if (index === 5) state.immortalSpiritPowerUnlocked = true;
-          if (index === 0) {
-            state.reincarnationManaJRewardLevel = Math.max(
-              state.reincarnationManaJRewardLevel,
-              state.reincarnationEffectLevel
-            );
-          }
+          applyAdvancedRealmBreakthrough(index);
         }
       }))
     ];
@@ -2711,6 +3032,12 @@
       const available = candidate.available;
       candidate.available = () => manualRealmLevel >= index + 1 && available();
     });
+    const audit = WIS.Simulation?.FastForward?.auditCandidates;
+    if (audit) { audit.push(...candidates.map((c, index) => {
+      const available = c.available();
+      return {kind: 'realm', id: index, available, resourceKey: c.resourceKey,
+        cost: available ? c.cost() : null};
+    })); return 0; }
     let breakthroughs = 0;
     const maximumBreakthroughs = 3 + ADVANCED_REALMS.length;
     while (breakthroughs < maximumBreakthroughs) {
@@ -2745,12 +3072,32 @@
   }
 
   function grantMahayanaReincarnationEffects() {
-    if (!hasAchievement("mahayana")) return false;
+    if (!hasAchievement("mahayana") && !hasReachedMahayanaThisRun()) return false;
+    const changed = state.reincarnationLevel < 3 || state.permanentRootLevel < 3 ||
+      state.reincarnationEffectLevel < 3 || state.reincarnationManaJRewardLevel < 3;
     state.reincarnationLevel = Math.max(state.reincarnationLevel, 3);
     state.permanentRootLevel = Math.max(state.permanentRootLevel, 3);
     state.reincarnationEffectLevel = Math.max(state.reincarnationEffectLevel, 3);
     state.reincarnationManaJRewardLevel = Math.max(state.reincarnationManaJRewardLevel, 3);
-    return true;
+    if (changed) WIS.Core.Effects.invalidate();
+    return changed;
+  }
+
+  function reconcileMahayanaReincarnationEffects() {
+    return hasReachedMahayanaThisRun() && grantMahayanaReincarnationEffects();
+  }
+
+  function applyAdvancedRealmBreakthrough(index) {
+    state.advancedRealmLevel = index + 1;
+    if (index === 5) state.minorTribulationExplorationLoad = ZERO;
+    if (index === 5) state.immortalSpiritPowerUnlocked = true;
+    if (index === 0) {
+      state.reincarnationManaJRewardLevel = Math.max(
+        state.reincarnationManaJRewardLevel,
+        state.reincarnationEffectLevel
+      );
+    }
+    if (hasReachedMahayanaThisRun()) grantMahayanaReincarnationEffects();
   }
 
   function unlockQiRefining() {
@@ -2789,13 +3136,12 @@
   ) {
     const currentManaExponent = minorTribulationExplorationManaExponent();
     if (state.advancedRealmLevel < 2 || state.advancedRealmLevel >= 6) {
-      return { triggered: false, nextLoad: 0, remainingLoad: 0, loadFactor: 0, manaExponent: currentManaExponent };
+      return { triggered: false, nextLoad: ZERO, remainingLoad: ZERO, loadFactor: ZERO, manaExponent: currentManaExponent };
     }
     const nextLoad = add(maxBN(ZERO, currentExplorationLoad), maxBN(ZERO, explorationAmount));
     const triggerLoad = minorTribulationTriggerLoad();
     if (lt(nextLoad, triggerLoad)) {
-      const numericLoad = toNumber(nextLoad, 0);
-      return { triggered: false, nextLoad, remainingLoad: numericLoad, loadFactor: ZERO, manaExponent: currentManaExponent };
+      return { triggered: false, nextLoad, remainingLoad: nextLoad, loadFactor: ZERO, manaExponent: currentManaExponent };
     }
     const loadFactor = div(nextLoad, triggerLoad);
     const loadMagnitude = toNumber(log10(add(ONE, loadFactor)), Infinity);
@@ -2804,11 +3150,8 @@
       minorTribulationExplorationBaseExponent()
         - minorTribulationExplorationDecayCoefficient() * loadMagnitude
     );
-    const rawRemainingLoad = toNumber(nextLoad.mod(triggerLoad), 0);
-    const remainingLoad = rawRemainingLoad < triggerLoad * 1e-12 ||
-      triggerLoad - rawRemainingLoad < triggerLoad * 1e-12
-      ? 0
-      : rawRemainingLoad;
+    const rawRemainingLoad = maxBN(ZERO, nextLoad.mod(triggerLoad));
+    const remainingLoad = eq(rawRemainingLoad, triggerLoad) ? ZERO : rawRemainingLoad;
     return {
       triggered: true,
       nextLoad,
@@ -2820,7 +3163,7 @@
 
   function registerSuccessfulExploration(explorationAmount, preview = null) {
     if (state.advancedRealmLevel < 2 || state.advancedRealmLevel >= 6) {
-      state.minorTribulationExplorationLoad = 0;
+      state.minorTribulationExplorationLoad = ZERO;
       return false;
     }
     const triggerPreview = preview || minorTribulationPreviewForExploration(explorationAmount);
@@ -2867,15 +3210,7 @@
         !WIS.Core.Resources.canAffordSystem("immortal", resourceKey, cost)) return;
     const previousAchievements = achievementStates();
     WIS.Core.Resources.spendSystem("immortal", resourceKey, cost);
-    state.advancedRealmLevel = index + 1;
-    if (index === 5) state.minorTribulationExplorationLoad = 0;
-    if (index === 5) state.immortalSpiritPowerUnlocked = true;
-    if (index === 0) {
-      state.reincarnationManaJRewardLevel = Math.max(
-        state.reincarnationManaJRewardLevel,
-        state.reincarnationEffectLevel
-      );
-    }
+    applyAdvancedRealmBreakthrough(index);
     checkActiveChallengeCompletion();
     saveState();
     render();
@@ -3169,12 +3504,14 @@
   }
 
   function explore() {
+    if (!explorationEnabled()) return;
     const powerCost = explorationPowerCost();
     if (!state.goldenCoreUnlocked || lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return;
     const explorationAmount = explorationAmountForCost(powerCost);
     const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
     const previewGain = explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
     if (lt(previewGain, ONE)) return;
+    const explorationAccounting = prepareExplorationProgress(explorationAmount);
     const previousAchievements = achievementStates();
     WIS.Core.Resources.spend("power", powerCost);
     const { mana: gained } = applyManaGainProgressive(
@@ -3192,158 +3529,38 @@
     state.lifetimeTotalMana = add(state.lifetimeTotalMana, gained);
     state.currentRebirthTotalMana = add(state.currentRebirthTotalMana, gained);
 
-    const rewards = processExplorationJudgements(addExplorationProgress(explorationAmount));
+    const rewards = processExplorationJudgements(commitExplorationProgress(explorationAccounting), explorationAmount);
     const tribulationTriggered = registerSuccessfulExploration(explorationAmount, tribulationPreview);
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
     const rewardParts = [];
-    if (rewards.tianNiPearl > 0) rewardParts.push(`仙道·天逆珠 +${rewards.tianNiPearl}`);
-    if (rewards.greenBottle > 0) rewardParts.push(`仙道·神秘绿瓶 +${rewards.greenBottle}`);
-    if (rewards.fuBao > 0) rewardParts.push(`仙道·符宝 +${rewards.fuBao}`);
-    if (rewards.naturalTreasure > 0) rewardParts.push(`天材地宝 +${rewards.naturalTreasure}级`);
-    if (rewards.xuTianDing > 0) rewardParts.push(`仙道·虚天鼎 +${rewards.xuTianDing}`);
-    if (rewards.wanYaoFan > 0) rewardParts.push(`仙道·万妖幡 +${rewards.wanYaoFan}`);
-    if (rewards.phantomHeavenMirror > 0) rewardParts.push(`仙道·幻天镜 +${rewards.phantomHeavenMirror}`);
-    if (rewards.mysticHeavenSacredTree > 0) rewardParts.push(`仙道·玄天圣树 +${rewards.mysticHeavenSacredTree}`);
-    if (rewards.mysticHeavenSpiritSlayingSword > 0) rewardParts.push(`仙道·玄天斩灵剑 +${rewards.mysticHeavenSpiritSlayingSword}`);
+    if (gt(rewards.tianNiPearl, ZERO)) rewardParts.push(`仙道·天逆珠 +${rewards.tianNiPearl}`);
+    if (gt(rewards.greenBottle, ZERO)) rewardParts.push(`仙道·神秘绿瓶 +${rewards.greenBottle}`);
+    if (gt(rewards.fuBao, ZERO)) rewardParts.push(`仙道·符宝 +${rewards.fuBao}`);
+    if (gt(rewards.naturalTreasure, ZERO)) rewardParts.push(`天材地宝 +${rewards.naturalTreasure}级`);
+    if (gt(rewards.xuTianDing, ZERO)) rewardParts.push(`仙道·虚天鼎 +${rewards.xuTianDing}`);
+    if (gt(rewards.wanYaoFan, ZERO)) rewardParts.push(`仙道·万妖幡 +${rewards.wanYaoFan}`);
+    if (gt(rewards.phantomHeavenMirror, ZERO)) rewardParts.push(`仙道·幻天镜 +${rewards.phantomHeavenMirror}`);
+    if (gt(rewards.mysticHeavenSacredTree, ZERO)) rewardParts.push(`仙道·玄天圣树 +${rewards.mysticHeavenSacredTree}`);
+    if (gt(rewards.mysticHeavenSpiritSlayingSword, ZERO)) rewardParts.push(`仙道·玄天斩灵剑 +${rewards.mysticHeavenSpiritSlayingSword}`);
     if (tribulationTriggered) rewardParts.push("触发小天劫");
     if (rewardParts.length > 0) showNotice(`探寻判定：${rewardParts.join("、")}`, 2800);
   }
 
-  function geometricAttemptsUntilSuccess(probability) {
-    if (probability >= 1) return 1;
-    if (probability <= 0) return Infinity;
-    const denominator = Math.log1p(-probability);
-    if (!Number.isFinite(denominator) || denominator === 0) return Infinity;
-    return Math.floor(Math.log1p(-WIS.Core.Runtime.random()) / denominator) + 1;
-  }
-
-  function normalRandom() {
-    const first = Math.max(Number.MIN_VALUE, WIS.Core.Runtime.random());
-    return Math.sqrt(-2 * Math.log(first)) * Math.cos(2 * Math.PI * WIS.Core.Runtime.random());
-  }
-
-  function expectedAttemptsForBatch(count, probability, options) {
-    const safeCount = Math.max(0, Math.floor(Number(count) || 0));
-    if (safeCount <= 0) return ZERO;
-    if (options.decayRatio > 0 && options.decayRatio < 1) {
-      const inverseRatio = 1 / options.decayRatio;
-      return div(sub(pow(inverseRatio, safeCount), ONE), mul(probability, inverseRatio - 1));
-    }
-    const probabilityAt = (offset) => maxBN(
-      BN(Number.MIN_VALUE),
-      typeof options.probabilityDecimalAtOffset === "function"
-        ? options.probabilityDecimalAtOffset(offset)
-        : BN(options.probabilityAtOffset?.(offset) || probability)
-    );
-    const firstProbability = probabilityAt(0);
-    const midpointProbability = probabilityAt(Math.floor(safeCount * 0.5));
-    const lastProbability = probabilityAt(Math.max(0, safeCount - 1));
-    return mul(safeCount / 6, sumBN([
-      div(ONE, firstProbability),
-      div(4, midpointProbability),
-      div(ONE, lastProbability)
-    ]));
-  }
-
-  function batchSuccessEstimate(attempts, probability, options) {
-    if (options.decayRatio > 0 && options.decayRatio < 1) {
-      let certainSuccesses = 0;
-      if (gte(probability, ONE) && typeof options.probabilityDecimalAtOffset === "function") {
-        let lower = 0;
-        let upper = 1;
-        while (upper < Number.MAX_SAFE_INTEGER && gte(options.probabilityDecimalAtOffset(upper), ONE)) {
-          lower = upper;
-          upper = Math.min(Number.MAX_SAFE_INTEGER, upper * 2);
-          if (upper === lower) break;
-        }
-        while (upper - lower > 1) {
-          const middle = Math.floor((lower + upper) * 0.5);
-          if (gte(options.probabilityDecimalAtOffset(middle), ONE)) lower = middle;
-          else upper = middle;
-        }
-        certainSuccesses = lt(options.probabilityDecimalAtOffset(upper), ONE) ? upper : Number.MAX_SAFE_INTEGER;
-        if (lte(attempts, certainSuccesses)) {
-          return Math.max(0, Math.floor(toNumber(minBN(attempts, Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)));
-        }
-      }
-      const remainingAttempts = certainSuccesses > 0 ? sub(attempts, certainSuccesses) : attempts;
-      const geometricProbability = certainSuccesses > 0
-        ? maxBN(BN(Number.MIN_VALUE), options.probabilityDecimalAtOffset(certainSuccesses))
-        : probability;
-      const inverseRatio = 1 / options.decayRatio;
-      const capacity = add(ONE, mul(remainingAttempts, geometricProbability * (inverseRatio - 1)));
-      const magnitude = toNumber(log10(capacity), Infinity);
-      if (!Number.isFinite(magnitude)) return Number.MAX_SAFE_INTEGER;
-      return Math.max(0, Math.min(Number.MAX_SAFE_INTEGER,
-        certainSuccesses + Math.floor(magnitude / Math.log10(inverseRatio))));
-    }
-    let lower = 0;
-    let upper = 1;
-    while (upper < Number.MAX_SAFE_INTEGER &&
-           lte(expectedAttemptsForBatch(upper, probability, options), attempts)) {
-      lower = upper;
-      upper = Math.min(Number.MAX_SAFE_INTEGER, upper * 2);
-      if (upper === lower) break;
-    }
-    for (let iteration = 0; iteration < 48 && upper - lower > 1; iteration += 1) {
-      const middle = Math.floor((lower + upper) * 0.5);
-      if (lte(expectedAttemptsForBatch(middle, probability, options), attempts)) lower = middle;
-      else upper = middle;
-    }
-    return lower;
-  }
-
   function rollDynamicAttempts(attempts, available, probability, award, options = {}) {
-    let remainingAttempts = maxBN(ZERO, BN(attempts)).floor();
-    if (!gt(remainingAttempts, ZERO) || !available()) return 0;
+    if (options.treasureKey) {
+      const gained = WIS.Meta.TreasureProgress.advance(state, options.treasureKey, attempts, { available: available() });
+      return gained.lte(Number.MAX_SAFE_INTEGER) ? gained.toNumber() : gained;
+    }
     const awardMultiplier = options.treasureKey
-      ? WIS.Meta.Treasures.getTreasureAwardMultiplier(state, options.treasureKey)
+      ? WIS.Meta.Treasures?.getTreasureAwardMultiplier?.(state, options.treasureKey) ?? 1
       : 1;
-    const inventoryOffset = (offset) => Math.max(0, Math.floor(Number(offset) || 0)) * awardMultiplier;
-    const probabilityDecimalAtOffset = options.decayRatio > 0 && options.decayRatio < 1 &&
-      options.baseChance !== undefined && typeof options.currentCount === "function"
-      ? (offset) => minBN(ONE, productBN([
-        options.baseChance,
-        pow(options.decayRatio, options.currentCount() + inventoryOffset(offset)),
-        immortalTreasureChanceMultiplierBN()
-      ]))
-      : (offset) => BN(options.probabilityAtOffset?.(inventoryOffset(offset)) ?? probability());
-    const batchOptions = { ...options, probabilityDecimalAtOffset };
-    const initialProbabilityDecimal = maxBN(ZERO, minBN(ONE, probabilityDecimalAtOffset(0)));
-    if (!gt(initialProbabilityDecimal, ZERO)) return 0;
-    const initialProbability = toNumber(initialProbabilityDecimal, 0);
-    const expectedAtStart = toNumber(mul(remainingAttempts, initialProbabilityDecimal), Infinity);
-    const canBatch = typeof options.awardMany === "function" &&
-      ((options.decayRatio > 0 && options.decayRatio < 1) || typeof options.probabilityAtOffset === "function");
-
-    if (canBatch && (!(initialProbability > 0) || !Number.isFinite(expectedAtStart) || expectedAtStart > 64)) {
-      let gained = batchSuccessEstimate(remainingAttempts, initialProbabilityDecimal, batchOptions);
-      if (Number.isFinite(expectedAtStart) && expectedAtStart <= 1e6) {
-        gained = Math.max(0, Math.floor(gained + normalRandom() * Math.sqrt(Math.max(1, gained)) * 0.35));
-      } else if (gained > 0) {
-        gained = Math.max(0, gained + (WIS.Core.Runtime.random() < 0.25 ? -1 : WIS.Core.Runtime.random() > 0.75 ? 1 : 0));
-      }
-      const maximumPossible = Math.max(0,
-        Math.floor(toNumber(minBN(remainingAttempts, Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)));
-      gained = Math.min(gained, maximumPossible);
-      if (gained > 0) {
-        options.awardMany(gained);
-        WIS.Core.Effects.invalidate();
-      }
-      return gained * awardMultiplier;
-    }
-
-    let gained = 0;
-    while (gt(remainingAttempts, ZERO) && available()) {
-      const attemptsUntilSuccess = geometricAttemptsUntilSuccess(probability());
-      if (!Number.isFinite(attemptsUntilSuccess) || lt(remainingAttempts, attemptsUntilSuccess)) break;
-      remainingAttempts = sub(remainingAttempts, attemptsUntilSuccess);
-      award();
-      gained += awardMultiplier;
-    }
-    if (gained > 0) WIS.Core.Effects.invalidate();
+    const gained = rollProbabilityAttempts(attempts, available, probability, award, {
+      ...options,
+      awardMultiplier
+    });
+    if (gt(gained, ZERO)) WIS.Core.Effects.invalidate();
     return gained;
   }
 
@@ -3371,11 +3588,11 @@
 
 
   function scatterAndRebuild() {
+    if (!canScatterAndRebuild()) return false;
     const currentEffectLevel = effectiveScatterRebuildLevel();
-    if (!state.goldenCoreUnlocked || currentEffectLevel >= 3) return;
     const nextScatterLevel = currentEffectLevel + 1;
     const retainedTier = SCATTER_RETAINED_UPGRADE_TIERS[nextScatterLevel];
-    if (!window.confirm(`第${nextScatterLevel}次散功重修将保留${retainedTier}强化；更高量级强化、J、战力、法力、仙灵力、量级和境界会重置，仙道能力、成就与宝物烙印继续保留。确定继续吗？`)) return;
+    if (!window.confirm(`第${nextScatterLevel}次散功重修将保留${retainedTier}强化；更高量级强化、J、战力、法力、仙灵力、量级和境界会重置，仙道能力、成就与宝物烙印继续保留。确定继续吗？`)) return false;
     updateLifetimeStatistics();
     runtime.setState(WIS.Core.Reset.apply("scatter", state, freshDefaultState, {
       context: { nextScatterLevel },
@@ -3390,17 +3607,18 @@
     saveState();
     render();
     showNotice(`散功重修完成：${state.scatterRebuildLevel} / 3${gt(resetReward, ZERO) ? `；三缺奖励 +${format(resetReward, 0)} 战力` : ""}`);
+    return true;
   }
 
   function reincarnate() {
-    if (state.advancedRealmLevel < 1 || state.reincarnationLevel >= 3) return;
+    if (!canReincarnate()) return false;
     const nextLevel = state.reincarnationLevel + 1;
     const nextPermanentRootLevel = Math.max(state.permanentRootLevel, nextLevel);
     const nextRoot = REINCARNATION_ROOTS[nextPermanentRootLevel];
     const rootChangeText = nextPermanentRootLevel > state.permanentRootLevel
       ? `获得${nextRoot.name}`
       : `灵根保持${nextRoot.name}`;
-    if (!window.confirm(`本轮第${nextLevel}次转世重修将${rootChangeText}，并重置强化、资源、量级、境界与仙道能力。挑战完成次数、永久成就、宝物烙印、灵根和统计记录保留。确定继续吗？`)) return;
+    if (!window.confirm(`本轮第${nextLevel}次转世重修将${rootChangeText}，并重置强化、资源、量级、境界与仙道能力。挑战完成次数、永久成就、宝物烙印、灵根和统计记录保留。确定继续吗？`)) return false;
 
     updateLifetimeStatistics();
     runtime.setState(WIS.Core.Reset.apply("reincarnation", state, freshDefaultState, { overrides: {
@@ -3418,6 +3636,7 @@
     saveState();
     render();
     showNotice(`转世重修完成：${rootChangeText}，自带${nextLevel}级散功重修效果${resetReward > 0 ? `；三缺奖励 +${format(resetReward, 0)} 战力` : ""}`, 3200);
+    return true;
   }
   const actions = Object.freeze({"choose":"chooseCultivation","breathe":"breathe","explore":"explore","scatter":"scatterAndRebuild","reincarnate":"reincarnate"});
   const abilities = Object.freeze({
@@ -3502,6 +3721,8 @@
   function getActionIds() { return Object.keys(actions).filter((id) => id !== "choose"); }
   function getAbilityIds() { return Object.keys(abilities); }
   const api = Object.freeze({
+    hasReachedMahayanaThisRun, canScatterAndRebuild, canReincarnate,
+    reconcileMahayanaReincarnationEffects,
     nextManaProgressBoundary, applyManaGainProgressive, previewManaGainProgressive,
     breathingManaGainProgressive, explorationManaGainProgressive,
     automaticManaComponents, planAutomaticManaGain, commitAutomaticManaGain, automaticManaGainProgressive,
@@ -3520,7 +3741,8 @@
     immortalPowerBasePerSecond, immortalPowerMultiplierGroups, immortalPowerMultiplier,
     immortalPowerBeforeGoogolPenaltyPerSecond, immortalPowerPerSecond,
     immortalApertureCap, immortalApertureLevelMultiplier, immortalApertureMilestoneMultiplier,
-    immortalApertureMultiplier, lawImmortalPowerExponent, lawImmortalPowerActualExponent, lawImmortalPowerMultiplier,
+    immortalApertureMultiplier, lawImmortalPowerExponent, lawImmortalPowerActualExponent,
+    lawImmortalPowerPotentialMultiplier, lawImmortalPowerMultiplier,
     spiritCaptureReturnMultiplier, spiritDomainJSource, soulQualitativeChangeMultiplier,
     immortalPowerRegionExponent, goldenNatureImmortalPowerExponentBonus, greatLuoManaExponentBonus,
     selfCorpseImmortalPowerLimitExponent,
@@ -3537,8 +3759,9 @@
     immortalApertureCost, unlockTrueImmortalAbility, unlockAdvancedImmortalAbility,
     ultimateImmortalAperturePrerequisiteMet,
     unlockSeverThreeCorpses, buyImmortalAperture,
-    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, rawBaseBreathingManaGain, baseBreathingManaGain, effectiveBaseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureRawManaMultiplier, naturalTreasureManaDiminishingExponent, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlRawManaMultiplier, tianNiPearlManaDiminishingExponent, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
+    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, rawBaseBreathingManaGain, baseBreathingManaGain, effectiveBaseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, descendRealmPotentialTreasureMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureRawManaMultiplier, naturalTreasureManaDiminishingExponent, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, phantomHeavenMirrorLoadMultiplier, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlRawManaMultiplier, tianNiPearlManaDiminishingExponent, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
     unlockBodyIntegrationAbility, unlockMahayanaAbility, scatterAndRebuild, reincarnate,
+    explorationEnabled,
     getManaPerSecond: automaticManaPerSecond,
     autoUpgrade: autoUpgradeImmortalAbilities,
     autoBreakthrough: autoBreakthroughImmortalRealms,

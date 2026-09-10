@@ -25,7 +25,16 @@
   function div(a, b) { return BN(a).div(b); }
   function pow(a, b) { return BN(a).pow(b); }
   function pow10(exponent) { return TEN.pow(exponent); }
-  function sqrt(value) { return BN(value).sqrt(); }
+  function sqrt(value) {
+    const decimal = BN(value);
+    if (lt(decimal, ZERO)) return new Decimal(Number.NaN);
+    if (eq(decimal, ZERO)) return new Decimal(0);
+
+    // break_eternity's native sqrt() returns NaN for sufficiently small,
+    // positive layer-1 values (for example 1e-100).  Computing the square
+    // root in logarithmic space keeps the full Decimal range intact.
+    return pow10(div(log10(decimal), 2));
+  }
   function log10(value) { return BN(value).log10(); }
   function max(a, b) { return BN(a).max(b); }
   function min(a, b) { return BN(a).min(b); }

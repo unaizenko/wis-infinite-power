@@ -71,6 +71,7 @@
 
   function achievementDefinitions() {
     const definitions = [
+      { key: "infantTransformationImmortal", system: "仙道", name: "婴变为仙", description: "解锁仙道·修真道·婴变。", reward: "解锁仙道挑战·阴虚阳实", completed: completedAchievement("infantTransformationImmortal", (WIS.Cultivation.Xiuzhen?.get(state).highestRealm || 0) >= 2) },
       { key: "powerOne", name: "战力 1", description: "获得至少 1 战力。", reward: "解锁强化界面", completed: completedAchievement("powerOne", gte(state.totalPower, 1)) },
       { key: "five", name: "战五渣", description: "累计获得 5 战力。", reward: "战力获取倍率 ×1.05", completed: completedAchievement("five", gte(state.totalPower, 5)) },
       { key: "brick", name: "爆砖", description: "拥有 200 战力。", reward: "每个已达成成就提供 +0.1 J/秒", completed: completedAchievement("brick", state.brickUnlocked) },
@@ -81,15 +82,16 @@
       { key: "daoFoundation", system: "仙道", name: "道基", description: "解锁筑基。", reward: "解锁宝物烙印·仙道·天逆珠", completed: completedAchievement("daoFoundation", state.foundationUnlocked) },
       { key: "goldenCore", system: "仙道", name: "一颗金丹吞入腹", description: "解锁结丹。", reward: "解锁宝物烙印·仙道·神秘绿瓶", completed: completedAchievement("goldenCore", state.goldenCoreUnlocked) },
       { key: "infantSpirit", system: "仙道", name: "婴灵", description: "突破元婴。", reward: "自动升级曾手动升级过的仙道能力（默认开启，可关闭）", completed: completedAchievement("infantSpirit", state.advancedRealmLevel >= 1) },
-      { key: "humanRealmDominance", system: "仙道", name: "人界纵横", description: "达到仙道·化神。", reward: "仙道宝物获取概率 ×2", completed: completedAchievement("humanRealmDominance", state.advancedRealmLevel >= 2) },
+      { key: "humanRealmDominance", system: "仙道", name: "人界纵横", description: "达到仙道·化神。", reward: "仙道宝物进度获取倍率 ×2", completed: completedAchievement("humanRealmDominance", state.advancedRealmLevel >= 2) },
       { key: "refineTheVoid", system: "仙道", name: "炼化虚空", description: "达到仙道·炼虚。", reward: "选择仙道并解锁法力后，获得 +1 法力/秒的独立基础来源", completed: completedAchievement("refineTheVoid", state.advancedRealmLevel >= 3) },
       { key: "bodyIntegration", system: "仙道", name: "合体", description: "达到仙道·合体。", reward: "自动突破曾手动突破过的仙道境界（默认开启，可关闭）", completed: completedAchievement("bodyIntegration", state.advancedRealmLevel >= 4 || state.lifetimeHighestCultivationRealmLevel >= 7) },
-      { key: "mahayana", system: "仙道", name: "大乘", description: "达到仙道·大乘。", reward: "选择仙道后自动获得3次转世重修效果", completed: completedAchievement("mahayana", state.advancedRealmLevel >= 5 || state.lifetimeHighestCultivationRealmLevel >= 8) },
+      { key: "mahayana", system: "仙道", name: "大乘", description: "达到仙道·大乘。", reward: "达到大乘时自动补齐3次转世重修效果；再次选择仙道时恢复该效果", completed: completedAchievement("mahayana", state.advancedRealmLevel >= 5 || state.lifetimeHighestCultivationRealmLevel >= 8) },
       { key: "ascendImmortal", system: "仙道", name: "登仙", description: "抵达仙道·真仙。", reward: "解锁永久宝物烙印·仙晶", completed: completedAchievement("ascendImmortal", state.advancedRealmLevel >= 6 || state.lifetimeHighestCultivationRealmLevel >= 9) },
       { key: "goldenNature", system: "仙道", name: "金性", description: "抵达仙道·金仙。", reward: "本次转生中，随时间提升仙灵力指数", completed: completedAchievement("goldenNature", state.advancedRealmLevel >= 7 || state.lifetimeHighestCultivationRealmLevel >= 10) },
       { key: "utmostPurity", system: "仙道", name: "至净", description: "抵达仙道·太乙。", reward: "按当前量级停留时间渐近弱化下一量级的J、战力软上限，跨量级后重新计时", completed: completedAchievement("utmostPurity", state.advancedRealmLevel >= 8 || state.lifetimeHighestCultivationRealmLevel >= 11) },
       { key: "greatLuo", system: "仙道", name: "大罗", description: "抵达仙道·大罗。", reward: "斩三尸挑战中（斩恶尸、斩善尸、斩自我尸），随时间提升法力、仙灵力指数", completed: completedAchievement("greatLuo", state.advancedRealmLevel >= 9 || state.lifetimeHighestCultivationRealmLevel >= 12) },
       { key: "selfSeveringSlash", system: "仙道", name: "自斩一刀", description: "首次抵达仙道·道祖。", reward: "解锁仙道挑战·炼气十万年", completed: completedAchievement("selfSeveringSlash", state.advancedRealmLevel >= 10 || state.lifetimeHighestCultivationRealmLevel >= 13) },
+      { key: "qiPathComplete", system: "仙道", name: "炼气已全", description: "解锁炼气道所有境界。", reward: "开启修真道，解锁仙道挑战·化凡", completed: completedAchievement("qiPathComplete", state.advancedRealmLevel >= 10 || state.lifetimeHighestCultivationRealmLevel >= 13 || hasAchievement("selfSeveringSlash")) },
       { key: "threeDeficiencies", name: "三缺", description: "福、禄、寿三种挑战各完成1次。", reward: "非挑战转生类重置后获得1000 战力", completed: completedAchievement("threeDeficiencies", threeDeficienciesCompleted()) },
       { key: "fiveMisfortunesThreeDeficiencies", name: "五弊三缺", description: "福、禄、寿、五弊挑战全部完成3次。", reward: "纪念性成就", completed: completedAchievement("fiveMisfortunesThreeDeficiencies", allFortuneChallengesCompleted()) },
       { key: "seizeFoundation", system: "仙道", name: "夺基", description: "每累计 1 有效探寻量进行一次1% 判定。", reward: "下品灵根失效，获得中品灵根", completed: completedAchievement("seizeFoundation", false) }
@@ -160,7 +162,7 @@
               : scaleIndex === 13
                 ? "永久解锁挑战·黑洞"
                 : scaleIndex === 14
-                  ? "奖励：后续加入"
+                  ? "抵达宇宙结构后解锁行动·大数"
                   : "奖励：后续加入",
           completed: completedAchievement(`trueScale${scaleIndex}`, gte(state.maxSinglePowerGain, scale.power))
         }
@@ -168,6 +170,7 @@
     });
 
     definitions.push(
+      { key: "beyondFractal", name: "超越分形", description: "完成分形-5，进入 G1。", reward: "当前四箭头系数 Q 提高超分形速度：×[1 + log10(1 + Q)/10]", completed: completedAchievement("beyondFractal", state.meta.bigNumbers?.fractalLevel === 5) },
       { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
       { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
       { key: "tree3", name: "树", description: "战力达到 TREE(3)。", reward: "纪念性成就", completed: completedAchievement("tree3", reachedPowerMilestone("tree3")) }

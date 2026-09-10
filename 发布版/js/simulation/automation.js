@@ -6,7 +6,9 @@
     create({ autoBreakthroughImmortalRealms, autoUpgradeImmortalAbilities, autoUpgradeEnhancements }) {
       function runAchievementAutomations() {
         return autoBreakthroughImmortalRealms() +
+          (WIS.Cultivation.Xiuzhen?.automation(WIS.Core.Runtime.state, "realm") || 0) +
           autoUpgradeImmortalAbilities() +
+          (WIS.Cultivation.Xiuzhen?.automation(WIS.Core.Runtime.state, "ability") || 0) +
           autoUpgradeEnhancements();
       }
       return Object.freeze({ runAchievementAutomations });

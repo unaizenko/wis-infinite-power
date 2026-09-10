@@ -61,6 +61,10 @@
     preservePaths.forEach((path) => setPath(result, path, getPath(currentDomain, path)));
     const clearPaths = typeof profile.clearPaths === "function" ? profile.clearPaths(currentDomain, context) : profile.clearPaths;
     clearPaths.forEach((path) => setPath(result, path, getPath(freshDomain, path)));
+    const progressKeys = ["treasureCredits", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureProgressPending", "treasureProgressStatus", "treasureQualifications", "treasureProgressVersion"];
+    if (preserve.includes("treasureImprints")) progressKeys.forEach(key => { result.meta[key] = clone(currentDomain.meta[key]); });
+    if (clear.includes("treasureImprints") || clearPaths.includes("meta.treasures"))
+      progressKeys.forEach(key => { result.meta[key] = clone(freshDomain.meta[key]); });
     if (profile.rebirthLevel) {
       currentRebirthStatistics.forEach((key) => { result[key] = clone(fresh[key]); });
       result.reincarnationElapsedSeconds = clone(fresh.reincarnationElapsedSeconds);
@@ -69,6 +73,7 @@
       if (key.includes(".")) setPath(result, key, value);
       else result[key] = clone(value);
     });
+    WIS.Cultivation.Xiuzhen?.reset(result, currentDomain, id, overrides.activeChallenge);
     return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(result));
   }
 
@@ -113,7 +118,7 @@
       "superLollipopRollProgress", "fiveSpiritStoneRollProgress", "currentScaleElapsedSeconds",
       "ghostBackActive", "immortalSpiritPowerUnlocked",
       "mana", "manaGainResidual", "immortalPower", "immortalPowerGainResidual",
-      "explorationProgress", "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
+      "explorationProgress", "explorationProgressResidual", "explorationAttemptResidual", "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
       "minorTribulationExplorationLoad",
       ...(nextScatterLevel < 2 ? ["transcendentPurchased", "focusPurchased", "breathingMethodPurchased", "extremeExercisePurchased"] : []),
       ...(nextScatterLevel < 3 ? ["waterPurchased", "ghostBrainPurchased", "naturalStrengthPurchased", "mentalPowerPurchased", "lifePowerPurchased"] : [])

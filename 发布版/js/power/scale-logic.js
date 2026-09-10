@@ -5,10 +5,14 @@
   const state = runtime.state;
   const CONFIG = WIS.Core.Config;
   const {
-    BN, ZERO, ONE, add, sub, mul, div, pow, pow10, sqrt, log10,
+    BN, ZERO, ONE, add, sub, mul, div, pow, pow10, sqrt, log10, abs,
     max: maxBN, min: minBN, gt, gte, lt, lte, eq,
     isFiniteBN, isNaNBN, sum: sumBN, product: productBN, toNumber
   } = WIS.Core.BigNum;
+  const {
+    decayingChance, multipliedChance,
+    rollDynamicAttempts: rollProbabilityAttempts
+  } = WIS.Core.Probability;
   const POWER_COSTS = CONFIG.costs.power;
   const GYM_COST = POWER_COSTS.gym, EXERCISE_COST = POWER_COSTS.exercise, TRANSCENDENT_COST = POWER_COSTS.transcendent;
   const FOCUS_COST = POWER_COSTS.focus, BREATHING_METHOD_COST = POWER_COSTS.breathingMethod, EXTREME_EXERCISE_COST = POWER_COSTS.extremeExercise;
@@ -82,6 +86,18 @@
   const hasAchievement = (key) => WIS.Meta.Achievements.has(state, key);
   const upgradesUnlocked = () => hasAchievement("powerOne");
 
+  function resourceMagnitude(value, scale = ONE) {
+    return log10(add(ONE, div(maxBN(ZERO, value), scale)));
+  }
+
+  function dynamicResource(source, resourceKey) {
+    return WIS.Core.Effects.dynamicResourceValue(source, resourceKey);
+  }
+
+  function treasureCount(key, source = state) {
+    return maxBN(ZERO, BN(source?.treasureImprints?.[key] ?? ZERO)).floor();
+  }
+
   function resourceSoftcapRealmLevel() {
     const getRealmLevel = WIS.Cultivation?.ImmortalLogic?.cultivationRealmLevel;
     return typeof getRealmLevel === "function"
@@ -89,24 +105,41 @@
       : 0;
   }
 
+  function compatibleSoftcapExponent(value) {
+    const decimal = minBN(ONE, maxBN(ZERO, value));
+    const numeric = decimal.toNumber();
+    // Keep the public API numeric throughout its historical range, but never
+    // collapse a valid positive Decimal exponent to native zero on conversion.
+    return Number.isFinite(numeric) && (numeric > 0 || !gt(decimal, ZERO))
+      ? numeric
+      : decimal;
+  }
+
   function baseSoftcapStageExponent(amount, stage) {
     const decimalAmount = maxBN(ZERO, amount);
     if (lte(decimalAmount, stage.threshold)) return 1;
-    const overflowOrders = toNumber(log10(div(decimalAmount, stage.threshold)), Infinity);
-    if (!Number.isFinite(overflowOrders)) return 0;
-    const pressure = stage.strength * overflowOrders
-      + stage.growth * Math.pow(overflowOrders, 1.5);
-    return 1 / (1 + pressure);
+    const overflowOrders = log10(div(decimalAmount, stage.threshold));
+    const pressure = add(
+      mul(stage.strength, overflowOrders),
+      mul(stage.growth, pow(overflowOrders, 1.5))
+    );
+    return compatibleSoftcapExponent(div(ONE, add(ONE, pressure)));
   }
 
   function softcapStageExponent(amount, stage) {
     const exponent = baseSoftcapStageExponent(amount, stage);
-    return stage.name === "爆星" && state.spaceQuakePurchased
-      ? 1 - (1 - exponent) * STAR_ENHANCEMENT_CONFIG.spaceQuake.remainingPressureMultiplier
-      : exponent;
+    if (stage.name !== "爆星" || !state.spaceQuakePurchased) return exponent;
+    return compatibleSoftcapExponent(sub(
+      ONE,
+      mul(
+        sub(ONE, exponent),
+        STAR_ENHANCEMENT_CONFIG.spaceQuake.remainingPressureMultiplier
+      )
+    ));
   }
 
-  function resourceSoftcapStageActive(stage, realmLevel = resourceSoftcapRealmLevel()) {
+  function resourceSoftcapStageActive(stage, realmLevel = resourceSoftcapRealmLevel(), normalLayer = true) {
+    if (normalLayer && WIS.Cultivation.Xiuzhen?.softcapRemoved(state, stage)) return false;
     return stage.removedAtRealm === null || realmLevel < stage.removedAtRealm;
   }
 
@@ -127,7 +160,7 @@
     const amount = maxBN(ZERO, currentAmount);
     const realmLevel = resourceSoftcapRealmLevel();
     return RESOURCE_SOFTCAP_STAGES
-      .filter((stage) => resourceSoftcapStageActive(stage, realmLevel) && gt(amount, stage.threshold))
+      .filter((stage) => resourceSoftcapStageActive(stage, realmLevel, applyRealmAdjustments) && gt(amount, stage.threshold))
       .map((stage) => ({
         name: stage.name,
         exponent: applyRealmAdjustments
@@ -139,9 +172,15 @@
   function normalResourceSoftcapExponent(currentAmount, applySpaceQuake, sourceKind = "normal", applyRealmAdjustments = true) {
     const amount = maxBN(ZERO, currentAmount);
     const baseExponent = resourceSoftcapStageExponents(amount, sourceKind, applySpaceQuake, applyRealmAdjustments)
-      .reduce((exponent, stage) => exponent * stage.exponent, 1);
+      .reduce((exponent, stage) => mul(exponent, stage.exponent), ONE);
     const achievementAdjustedExponent = hasAchievement("scale10")
-      ? 1 - (1 - baseExponent) * STAR_SOFTCAP_ACHIEVEMENT_CONFIG.remainingPressureMultiplier
+      ? sub(
+        ONE,
+        mul(
+          sub(ONE, baseExponent),
+          STAR_SOFTCAP_ACHIEVEMENT_CONFIG.remainingPressureMultiplier
+        )
+      )
       : baseExponent;
     return utmostPuritySoftcapExponent(achievementAdjustedExponent);
   }
@@ -159,17 +198,20 @@
   }
 
   function utmostPuritySoftcapExponent(exponent, elapsedSeconds = state.currentScaleElapsedSeconds) {
-    const originalExponent = Math.max(0, Math.min(1, Number(exponent) || 0));
+    const originalExponent = minBN(ONE, maxBN(ZERO, exponent));
     const selectedCultivation = state.cultivation?.active ?? state.cultivationSystem;
     const immortalCultivationSelected = selectedCultivation === "immortal" || selectedCultivation === "仙道";
     if (!hasAchievement("utmostPurity") || (selectedCultivation && !immortalCultivationSelected)) {
-      return originalExponent;
+      return compatibleSoftcapExponent(originalExponent);
     }
     const config = CONFIG.achievementEffects;
     const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
     const weakening = 1 + config.utmostPuritySoftcapLossCoefficient *
       Math.log2(1 + elapsed / config.timeScaleSeconds);
-    return 1 - (1 - originalExponent) / weakening;
+    return compatibleSoftcapExponent(sub(
+      ONE,
+      div(sub(ONE, originalExponent), weakening)
+    ));
   }
 
   function planetSuppressionRewardExponent(currentAmount) {
@@ -202,16 +244,25 @@
   }
 
   function resourceSoftcapSettlementExponent(currentAmount) {
-    return resourceSoftcapExponent(currentAmount)
-      * planetSuppressionSoftcapExponent(currentAmount);
+    return compatibleSoftcapExponent(mul(
+      resourceSoftcapExponent(currentAmount),
+      planetSuppressionSoftcapExponent(currentAmount)
+    ));
   }
 
   function applySoftcapExponent(rawGain, exponent) {
     const gain = maxBN(ZERO, rawGain);
     if (!gt(gain, ZERO)) return ZERO;
-    if (exponent >= 1) return gain;
-    if (!(exponent > 0)) return ZERO;
-    return sub(pow(add(ONE, gain), exponent), ONE);
+    const decimalExponent = minBN(ONE, maxBN(ZERO, exponent));
+    if (gte(decimalExponent, ONE)) return gain;
+    if (!gt(decimalExponent, ZERO)) return ZERO;
+    const poweredLog = mul(log10(add(ONE, gain)), decimalExponent);
+    if (!gt(poweredLog, ZERO)) return ZERO;
+    // Decimal can represent the tiny result even when subtracting 1 from 10^x
+    // cannot. Use the expm1 limit for that precision-only edge case.
+    return lt(poweredLog, "1e-8")
+      ? mul(poweredLog, Math.LN10)
+      : sub(pow10(poweredLog), ONE);
   }
 
   function applyResourceSoftcap(rawGain, currentAmount) {
@@ -316,7 +367,9 @@
   function resourceSoftcapIntegrationLogIndex(currentAmount) {
     const amount = maxBN(ZERO, currentAmount);
     if (!gt(amount, ZERO) || !isFiniteBN(amount)) return 0;
-    const scaledLog = toNumber(log10(amount), 0) / RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP;
+    const logarithm = toNumber(log10(amount), NaN);
+    if (!Number.isFinite(logarithm)) return null;
+    const scaledLog = logarithm / RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP;
     const nearestInteger = Math.round(scaledLog);
     const tolerance = Math.max(1, Math.abs(scaledLog)) * Number.EPSILON * 32;
     return Math.abs(scaledLog - nearestInteger) <= tolerance
@@ -341,9 +394,9 @@
   function resourceSoftcapIntegrationEvaluationAmount(currentAmount) {
     const amount = maxBN(ZERO, currentAmount);
     if (!gt(amount, ZERO) || !hasStartedUnremovedResourceSoftcap(amount)) return amount;
-    const cellStart = resourceSoftcapLogBoundary(
-      resourceSoftcapIntegrationLogIndex(amount)
-    );
+    const logIndex = resourceSoftcapIntegrationLogIndex(amount);
+    if (logIndex === null) return amount;
+    const cellStart = resourceSoftcapLogBoundary(logIndex);
     return maxBN(
       minBN(amount, cellStart),
       latestStartedResourceSoftcapThreshold(amount)
@@ -364,7 +417,9 @@
       return nextThreshold ? minBN(nextThreshold, ONE) : ONE;
     }
     if (!gt(amount, ZERO) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
-    let nextLogIndex = resourceSoftcapIntegrationLogIndex(amount) + 1;
+    const currentLogIndex = resourceSoftcapIntegrationLogIndex(amount);
+    if (currentLogIndex === null) return nextThreshold;
+    let nextLogIndex = currentLogIndex + 1;
     let nextLogBoundary = resourceSoftcapLogBoundary(nextLogIndex);
     while (!gt(nextLogBoundary, amount) && nextLogIndex < Number.MAX_SAFE_INTEGER) {
       nextLogIndex += 1;
@@ -376,9 +431,10 @@
   function rawGainForSoftcappedActualGain(actualGain, exponent) {
     const gain = maxBN(ZERO, actualGain);
     if (!gt(gain, ZERO)) return ZERO;
-    if (!(exponent > 0)) return null;
-    if (exponent >= 1) return gain;
-    return sub(pow(add(ONE, gain), 1 / exponent), ONE);
+    const decimalExponent = minBN(ONE, maxBN(ZERO, exponent));
+    if (!gt(decimalExponent, ZERO)) return null;
+    if (gte(decimalExponent, ONE)) return gain;
+    return sub(pow(add(ONE, gain), div(ONE, decimalExponent)), ONE);
   }
 
   function logarithmicAmountSpan(startAmount, endAmount) {
@@ -458,7 +514,7 @@
       }
 
       const exponent = resourceSoftcapSettlementExponent(evaluationAmount);
-      if (!(exponent > 0)) {
+      if (!gt(exponent, ZERO)) {
         remainingRawGain = ZERO;
         break;
       }
@@ -507,14 +563,18 @@
 
     const cellStart = (amount) => {
       if (!gt(amount, ZERO) || !hasStartedUnremovedResourceSoftcap(amount)) return amount;
-      const index = Math.floor(toNumber(log10(amount), 0) / dynamicLogStep + 1e-12);
+      const logarithm = toNumber(log10(amount), NaN);
+      if (!Number.isFinite(logarithm)) return amount;
+      const index = Math.floor(logarithm / dynamicLogStep + 1e-12);
       return maxBN(pow10(index * dynamicLogStep), latestStartedResourceSoftcapThreshold(amount));
     };
     const nextAdaptiveBoundary = (amount) => {
       const nextThreshold = nextResourceSoftcapThreshold(amount);
       if (state.activeChallenge === "planetSuppression" && !gt(amount, ZERO)) return nextThreshold ? minBN(nextThreshold, ONE) : ONE;
       if (!gt(amount, ZERO) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
-      const index = Math.floor(toNumber(log10(amount), 0) / dynamicLogStep + 1e-12) + 1;
+      const logarithm = toNumber(log10(amount), NaN);
+      if (!Number.isFinite(logarithm)) return nextThreshold;
+      const index = Math.floor(logarithm / dynamicLogStep + 1e-12) + 1;
       let boundary = pow10(index * dynamicLogStep);
       if (!gt(boundary, amount)) boundary = pow10((index + 1) * dynamicLogStep);
       return nextThreshold ? minBN(nextThreshold, boundary) : boundary;
@@ -741,7 +801,16 @@
   }
 
   function formatSoftcapExponent(exponent) {
-    return exponent >= 0.001 ? exponent.toFixed(3) : exponent.toExponential(2);
+    const value = BN(exponent);
+    if (eq(value, ONE)) return "1.000";
+    if (eq(value, ZERO)) return "0.000";
+    if (lt(value, "0.001")) return value.toString();
+    const numeric = toNumber(value, NaN);
+    for (const digits of [3, 6, 9, 12, 15]) {
+      const text = numeric.toFixed(digits);
+      if (Number(text) !== 1) return text;
+    }
+    return `1 − ${sub(ONE, value).toString()}`;
   }
 
   function activeSoftcapStages(currentAmount) {
@@ -757,36 +826,48 @@
   function removedSoftcapStages() {
     const realmLevel = resourceSoftcapRealmLevel();
     const names = RESOURCE_SOFTCAP_STAGES
-      .filter((stage) => stage.removedAtRealm !== null && realmLevel >= stage.removedAtRealm
-        && !resourceSoftcapStageActive(stage, realmLevel))
+      .filter((stage) => !resourceSoftcapStageActive(stage, realmLevel))
       .map((stage) => stage.name);
     return names.length > 0 ? names.join("、") : "无";
   }
 
-  function gymPotentialMultiplier() {
-    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
-    return (1.25 + toNumber(log10(add(ONE, maxBN(ZERO, currentPower))), 0) * 0.5) * breathingMethodGymMultiplier();
+  function gymPotentialMultiplier(source = state) {
+    const currentPower = dynamicResource(source, "power");
+    return mul(
+      add("1.25", mul("0.5", resourceMagnitude(currentPower))),
+      breathingMethodGymMultiplier(source)
+    );
   }
 
-  function gymMultiplier() {
-    return state.gymPurchased ? gymPotentialMultiplier() * sonicMovementMultiplier() : 1;
+  function gymMultiplier(source = state) {
+    return source.gymPurchased
+      ? mul(gymPotentialMultiplier(source), sonicMovementMultiplier(source))
+      : ONE;
   }
 
-  function sonicMovementMultiplier() {
-    return state.sonicMovementPurchased ? Math.pow(3.8, godspeedExponent()) : 1;
+  function sonicMovementMultiplierForExponent(exponent) {
+    return pow("3.8", exponent);
   }
 
-  function godspeedExponent() {
-    return state.godspeedPurchased ? godspeedPotentialExponent() : 1;
+  function sonicMovementPotentialMultiplier(source = state) {
+    return sonicMovementMultiplierForExponent(godspeedExponent(source));
   }
 
-  function godspeedPotentialExponent() {
-    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
-    return 1 + 0.05 * toNumber(log10(add(ONE, div(maxBN(ZERO, currentPower), "3.033e15"))), 0);
+  function sonicMovementMultiplier(source = state) {
+    return source.sonicMovementPurchased ? sonicMovementPotentialMultiplier(source) : ONE;
   }
 
-  function breathingMethodGymMultiplier() {
-    return state.breathingMethodPurchased ? 1.5 : 1;
+  function godspeedExponent(source = state) {
+    return source.godspeedPurchased ? godspeedPotentialExponent(source) : ONE;
+  }
+
+  function godspeedPotentialExponent(source = state) {
+    const currentPower = dynamicResource(source, "power");
+    return add(ONE, mul("0.05", resourceMagnitude(currentPower, "3.033e15")));
+  }
+
+  function breathingMethodGymMultiplier(source = state) {
+    return source.breathingMethodPurchased ? BN("1.5") : ONE;
   }
 
   function scaleIndexForPower(power) {
@@ -843,20 +924,21 @@
     checkActiveChallengeCompletion();
   }
 
-  function rollFitnessMembershipCardAttempts(attempts, silent = false) {
+  function rollFitnessMembershipCardAttempts(attempts, silent = false, { availabilityConfirmed = false } = {}) {
     const gained = rollDynamicAttempts(
       attempts,
-      () => hasAchievement("scale5") && fitnessJBonus() > 0,
+      () => availabilityConfirmed || (hasAchievement("scale5") && gt(fitnessJBonus(), ZERO)),
       fitnessMembershipCardChance,
       () => { WIS.Meta.Treasures.add(state, "fitnessMembershipCard"); },
       {
-        probabilityAtOffset: (offset) => fitnessMembershipCardChance(fitnessMembershipCardCount() + offset),
+        probabilityAtOffset: (offset) => fitnessMembershipCardChance(add(fitnessMembershipCardCount(), offset)),
+        decayRatio: 0.97,
         treasureKey: "fitnessMembershipCard",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "fitnessMembershipCard", count)
       }
     );
 
-    if (!silent && gained > 0) {
+    if (!silent && gt(gained, ZERO)) {
       saveState();
       showNotice(`获得宝物烙印：健身房会员卡 +${gained}`);
     }
@@ -864,70 +946,69 @@
   }
 
   function superLollipopCount() {
-    return state.treasureImprints?.superLollipop || 0;
+    return treasureCount("superLollipop");
   }
 
   function superLollipopChance(count = superLollipopCount()) {
     const config = SCALE_TREASURE_CONFIG.superLollipop;
-    return Math.min(1,
-      config.baseChance * Math.pow(config.chanceDecay, Math.max(0, Number(count) || 0)) * treasureChanceMultiplier()
-    );
+    return decayingChance(config.baseChance, config.chanceDecay, count, treasureChanceMultiplier());
   }
 
   function superLollipopTrainingMultiplier() {
-    return 1 + superLollipopCount() * SCALE_TREASURE_CONFIG.superLollipop.perItemMultiplier;
+    return add(ONE, mul(
+      superLollipopCount(),
+      SCALE_TREASURE_CONFIG.superLollipop.perItemMultiplier
+    ));
   }
 
-  function rollSuperLollipopAttempts(attempts, silent = false) {
+  function rollSuperLollipopAttempts(attempts, silent = false, { availabilityConfirmed = false } = {}) {
     const gained = rollDynamicAttempts(
       attempts,
-      () => hasAchievement("scale8"),
+      () => hasAchievement("scale8") && (availabilityConfirmed || gt(fitnessJBonus(), ZERO)),
       superLollipopChance,
       () => { WIS.Meta.Treasures.add(state, "superLollipop"); },
       {
-        probabilityAtOffset: (offset) => superLollipopChance(superLollipopCount() + offset),
+        probabilityAtOffset: (offset) => superLollipopChance(add(superLollipopCount(), offset)),
+        decayRatio: SCALE_TREASURE_CONFIG.superLollipop.chanceDecay,
         treasureKey: "superLollipop",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "superLollipop", count)
       }
     );
-    if (!silent && gained > 0) showNotice(`获得永久宝物：超级棒棒糖 +${gained}`);
+    if (!silent && gt(gained, ZERO)) showNotice(`获得永久宝物：超级棒棒糖 +${gained}`);
     return gained;
   }
 
   function skyCrystalCount() {
-    return state.treasureImprints?.skyCrystal || 0;
+    return treasureCount("skyCrystal");
   }
 
   function treasureQuantityDecay(count, scale, exponent) {
-    const numericCount = Number(count);
-    const safeCount = Number.isFinite(numericCount) ? Math.max(0, numericCount) : Number.MAX_VALUE;
-    return Math.pow(1 + safeCount / scale, -exponent);
+    return pow(add(ONE, div(maxBN(ZERO, count), scale)), -exponent);
   }
 
   function skyCrystalChance(count = skyCrystalCount()) {
-    return Math.min(1,
-      0.005 * (1 + Math.log10(1 + effectiveRockLevel() / 1000)) /
-        Math.sqrt(1 + Math.max(0, Number(count) || 0) / 10) * treasureChanceMultiplier()
-    );
+    const rockFactor = add(ONE, log10(add(ONE, div(Math.max(0, effectiveRockLevel()), 1000))));
+    const inventoryPenalty = sqrt(add(ONE, div(maxBN(ZERO, count), 10)));
+    return multipliedChance([0.005, rockFactor, div(ONE, inventoryPenalty), treasureChanceMultiplier()]);
   }
 
   function skyCrystalRockMultiplier() {
-    return 1 + skyCrystalCount() * 0.05;
+    return add(ONE, mul(skyCrystalCount(), 0.05));
   }
 
-  function rollSkyCrystalAttempts(attempts, silent = false) {
+  function rollSkyCrystalAttempts(attempts, silent = false, { availabilityConfirmed = false } = {}) {
     const gained = rollDynamicAttempts(
       attempts,
-      () => hasAchievement("scale9") && gt(rockPowerPerSecond(), ZERO),
+      () => availabilityConfirmed || (hasAchievement("scale9") && gt(rockPowerPerSecond(), ZERO)),
       skyCrystalChance,
       () => { WIS.Meta.Treasures.add(state, "skyCrystal"); },
       {
-        probabilityAtOffset: (offset) => skyCrystalChance(skyCrystalCount() + offset),
+        probabilityAtOffset: (offset) => skyCrystalChance(add(skyCrystalCount(), offset)),
         treasureKey: "skyCrystal",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "skyCrystal", count)
       }
     );
-    if (!silent && gained > 0) {
+    if (!silent && gt(gained, ZERO)) {
       saveState();
       showNotice(`获得永久宝物：天晶 +${gained}`);
     }
@@ -935,7 +1016,7 @@
   }
 
   function cosmicFiberCount() {
-    return state.treasureImprints?.cosmicFiber || 0;
+    return treasureCount("cosmicFiber");
   }
 
   function cosmicFiberAvailable(source = state) {
@@ -944,11 +1025,11 @@
 
   function cosmicFiberDecayedChance(count = cosmicFiberCount()) {
     const config = SCALE_TREASURE_CONFIG.cosmicFiber;
-    return config.baseChance * treasureQuantityDecay(count, config.chanceDecayScale, config.chanceDecayExponent);
+    return mul(config.baseChance, treasureQuantityDecay(count, config.chanceDecayScale, config.chanceDecayExponent));
   }
 
   function cosmicFiberChance(count = cosmicFiberCount()) {
-    return Math.min(1, cosmicFiberDecayedChance(count) * treasureChanceMultiplier());
+    return multipliedChance([cosmicFiberDecayedChance(count), treasureChanceMultiplier()]);
   }
 
   function rollCosmicFiberAttempts(attempts, silent = false) {
@@ -958,12 +1039,12 @@
       cosmicFiberChance,
       () => { WIS.Meta.Treasures.add(state, "cosmicFiber"); },
       {
-        probabilityAtOffset: (offset) => cosmicFiberChance(cosmicFiberCount() + offset),
+        probabilityAtOffset: (offset) => cosmicFiberChance(add(cosmicFiberCount(), offset)),
         treasureKey: "cosmicFiber",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "cosmicFiber", count)
       }
     );
-    if (!silent && gained > 0) {
+    if (!silent && gt(gained, ZERO)) {
       saveState();
       showNotice(`获得永久宝物：宇宙纤维 +${gained}`);
     }
@@ -971,7 +1052,7 @@
   }
 
   function cosmicWillCount() {
-    return state.treasureImprints?.cosmicWill || 0;
+    return treasureCount("cosmicWill");
   }
 
   function cosmicWillAvailable(source = state) {
@@ -980,11 +1061,11 @@
 
   function cosmicWillDecayedChance(count = cosmicWillCount()) {
     const config = SCALE_TREASURE_CONFIG.cosmicWill;
-    return config.baseChance * treasureQuantityDecay(count, config.chanceDecayScale, config.chanceDecayExponent);
+    return mul(config.baseChance, treasureQuantityDecay(count, config.chanceDecayScale, config.chanceDecayExponent));
   }
 
   function cosmicWillChance(count = cosmicWillCount()) {
-    return Math.min(1, cosmicWillDecayedChance(count) * treasureChanceMultiplier());
+    return multipliedChance([cosmicWillDecayedChance(count), treasureChanceMultiplier()]);
   }
 
   function rollCosmicWillAttempts(attempts, silent = false) {
@@ -994,12 +1075,12 @@
       cosmicWillChance,
       () => { WIS.Meta.Treasures.add(state, "cosmicWill"); },
       {
-        probabilityAtOffset: (offset) => cosmicWillChance(cosmicWillCount() + offset),
+        probabilityAtOffset: (offset) => cosmicWillChance(add(cosmicWillCount(), offset)),
         treasureKey: "cosmicWill",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "cosmicWill", count)
       }
     );
-    if (!silent && gained > 0) {
+    if (!silent && gt(gained, ZERO)) {
       saveState();
       showNotice(`获得永久宝物：宇宙意志 +${gained}`);
     }
@@ -1010,31 +1091,33 @@
     return WIS.Core.Effects.galaxyDynamicResourceExponent(source);
   }
 
-  function exercisePotentialMultiplier() {
-    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
-    return 1.1 + toNumber(log10(add(ONE, maxBN(ZERO, currentJoules))), 0) * 0.1;
+  function exercisePotentialMultiplier(source = state) {
+    const currentJoules = dynamicResource(source, "joules");
+    return add("1.1", mul("0.1", resourceMagnitude(currentJoules)));
   }
 
-  function exerciseMultiplier() {
-    return state.exercisePurchased ? exercisePotentialMultiplier() * extremeExerciseEffectMultiplier() : 1;
+  function exerciseMultiplier(source = state) {
+    return source.exercisePurchased
+      ? mul(exercisePotentialMultiplier(source), extremeExerciseEffectMultiplier(source))
+      : ONE;
   }
 
-  function transcendentPotentialMultiplier() {
-    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
-    return 1 + toNumber(log10(add(ONE, maxBN(ZERO, currentPower))), 0) * 0.15;
+  function transcendentPotentialMultiplier(source = state) {
+    const currentPower = dynamicResource(source, "power");
+    return add(ONE, mul("0.15", resourceMagnitude(currentPower)));
   }
 
-  function transcendentMultiplier() {
-    return state.transcendentPurchased ? transcendentPotentialMultiplier() : 1;
+  function transcendentMultiplier(source = state) {
+    return source.transcendentPurchased ? transcendentPotentialMultiplier(source) : ONE;
   }
 
-  function extremeExerciseEffectMultiplier() {
-    return state.extremeExercisePurchased ? 1.5 : 1;
+  function extremeExerciseEffectMultiplier(source = state) {
+    return source.extremeExercisePurchased ? BN("1.5") : ONE;
   }
 
-  function naturalStrengthPotentialMultiplier() {
-    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
-    return 1 + toNumber(log10(add(ONE, maxBN(ZERO, currentJoules))), 0) * 0.15;
+  function naturalStrengthPotentialMultiplier(source = state) {
+    const currentJoules = dynamicResource(source, "joules");
+    return add(ONE, mul("0.15", resourceMagnitude(currentJoules)));
   }
 
   function powerMultiplierGroups() {
@@ -1086,7 +1169,7 @@
   }
 
   function jGainExponent() {
-    return toNumber(WIS.Core.Effects.product("joules", "regionExponent", state), 1);
+    return WIS.Core.Effects.product("joules", "regionExponent", state);
   }
 
   function selfSuppressionJExponentFromBase(baseSoftcapExponent) {
@@ -1104,7 +1187,7 @@
   }
 
   function powerGainExponent() {
-    return toNumber(WIS.Core.Effects.product("power", "regionExponent", state), 1);
+    return WIS.Core.Effects.product("power", "regionExponent", state);
   }
 
   function currentPowerMilestone() {
@@ -1125,11 +1208,11 @@
   }
 
   function fitnessSourceExponent() {
-    return toNumber(WIS.Core.Effects.product("fitness", "sourceExponent", state), 1);
+    return WIS.Core.Effects.product("fitness", "sourceExponent", state);
   }
 
   function trainingSourceExponent() {
-    return toNumber(WIS.Core.Effects.product("training", "sourceExponent", state), 1);
+    return WIS.Core.Effects.product("training", "sourceExponent", state);
   }
 
   function applyGainExponent(value, exponent) {
@@ -1237,9 +1320,8 @@
     ];
   }
 
-  function continentPowerMagnitude() {
-    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
-    return toNumber(log10(add(ONE, div(maxBN(ZERO, currentPower), CONTINENT_REFERENCE_POWER))), 0);
+  function continentPowerMagnitude(source = state) {
+    return resourceMagnitude(dynamicResource(source, "power"), CONTINENT_REFERENCE_POWER);
   }
 
   function elementalizationJSource() {
@@ -1281,34 +1363,34 @@
   }
 
   function longevityFitnessMultiplier() {
-    return lifePowerFitnessMultiplier() *
-      myStyleFitnessMultiplier() *
-      enduranceEnhancementFitnessMultiplier() *
-      regenerationFitnessMultiplier();
+    return productBN([
+      lifePowerFitnessMultiplier(),
+      myStyleFitnessMultiplier(),
+      enduranceEnhancementFitnessMultiplier(),
+      regenerationFitnessMultiplier()
+    ]);
   }
 
   function lifePowerFitnessMultiplier() {
     return state.lifePowerPurchased ? 1.5 : 1;
   }
 
-  function myStylePotentialFitnessMultiplier() {
-    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
-    const jMagnitude = toNumber(log10(add(ONE, maxBN(ZERO, currentJoules))), 0);
-    return 1 + 0.18 * Math.pow(jMagnitude, 0.85);
+  function myStylePotentialFitnessMultiplier(source = state) {
+    const jMagnitude = resourceMagnitude(dynamicResource(source, "joules"));
+    return add(ONE, mul("0.18", pow(jMagnitude, "0.85")));
   }
 
-  function myStyleFitnessMultiplier() {
-    return state.myStylePurchased ? myStylePotentialFitnessMultiplier() : 1;
+  function myStyleFitnessMultiplier(source = state) {
+    return source.myStylePurchased ? myStylePotentialFitnessMultiplier(source) : ONE;
   }
 
-  function carbonLimitPotentialFitnessBonus() {
-    const currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules");
-    const jMagnitude = toNumber(log10(add(ONE, maxBN(ZERO, currentJoules))), 0);
-    return 0.8 * Math.pow(jMagnitude, 1.2);
+  function carbonLimitPotentialFitnessBonus(source = state) {
+    const jMagnitude = resourceMagnitude(dynamicResource(source, "joules"));
+    return mul("0.8", pow(jMagnitude, "1.2"));
   }
 
-  function carbonLimitFitnessBonus() {
-    return state.carbonLimitPurchased ? carbonLimitPotentialFitnessBonus() : 0;
+  function carbonLimitFitnessBonus(source = state) {
+    return source.carbonLimitPurchased ? carbonLimitPotentialFitnessBonus(source) : ZERO;
   }
 
   function regenerationFitnessMultiplier() {
@@ -1321,17 +1403,15 @@
   }
 
   function fitnessMembershipCardCount() {
-    return state.treasureImprints?.fitnessMembershipCard || 0;
+    return treasureCount("fitnessMembershipCard");
   }
 
   function fitnessMembershipCardFitnessBonus() {
-    return fitnessMembershipCardCount() * 0.002;
+    return mul(fitnessMembershipCardCount(), 0.002);
   }
 
   function fitnessMembershipCardChance(count = fitnessMembershipCardCount()) {
-    return Math.min(1,
-      0.005 * Math.pow(0.97, Math.max(0, Number(count) || 0)) * treasureChanceMultiplier()
-    );
+    return decayingChance(0.005, 0.97, count, treasureChanceMultiplier());
   }
 
   function fitnessJBonus() {
@@ -1340,7 +1420,7 @@
       multipliers: [
         add(
           mul(longevityFitnessMultiplier(), WIS.Core.Effects.product("fitness", "baseMultiplier", state)),
-          carbonLimitFitnessBonus() + fitnessMembershipCardFitnessBonus()
+          add(carbonLimitFitnessBonus(), fitnessMembershipCardFitnessBonus())
         ),
         WIS.Core.Effects.product("fitness", "sourceMultiplier", state)
       ],
@@ -1352,8 +1432,8 @@
     return state.runningLevel + (state.humanGhostTransformationPurchased ? state.rockLevel : 0);
   }
 
-  function waterPotentialJMultiplier() {
-    return 1 + toNumber(log10(add(ONE, maxBN(ZERO, state.highestPower))), 0) * 0.14;
+  function waterPotentialJMultiplier(source = state) {
+    return add(ONE, mul("0.14", resourceMagnitude(source.highestPower)));
   }
 
   function runningCost(level = state.runningLevel) {
@@ -1389,10 +1469,12 @@
   }
 
   function trainingPowerDecayMultiplier() {
-    if (lte(baseConversionGain(), ONE)) return 1;
-    const jDecades = toNumber(log10(add(ONE, div(maxBN(ZERO, state.joules), TRAINING_J_DECAY_SCALE))), Infinity);
-    if (!Number.isFinite(jDecades)) return 0;
-    return Math.pow(1 + jDecades / TRAINING_J_DECAY_LOG_DIVISOR, -TRAINING_J_DECAY_POWER);
+    if (lte(baseConversionGain(), ONE)) return ONE;
+    const jDecades = resourceMagnitude(state.joules, TRAINING_J_DECAY_SCALE);
+    return pow(
+      add(ONE, div(jDecades, TRAINING_J_DECAY_LOG_DIVISOR)),
+      -TRAINING_J_DECAY_POWER
+    );
   }
 
   function trainingPowerSource() {
@@ -1464,9 +1546,11 @@
     return WIS.Core.Effects.value("mentalDomain", state);
   }
 
-  function skySplitPotentialMultiplier() {
-    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
-    return 1 + 0.5 * toNumber(log10(add(ONE, div(maxBN(ZERO, currentPower), "3.033e15"))), 0);
+  function skySplitPotentialMultiplier(source = state) {
+    return add(ONE, mul("0.5", resourceMagnitude(
+      dynamicResource(source, "power"),
+      "3.033e15"
+    )));
   }
 
   function skySplitMultiplier() {
@@ -1480,10 +1564,18 @@
     });
   }
 
+  function brainDomainDevelopmentPotentialExponent(source = state) {
+    return minBN("1.2", add(ONE, mul("0.1", continentPowerMagnitude(source))));
+  }
+
   function brainDomainDevelopmentExponent() {
     return state.brainDomainDevelopmentPurchased
-      ? Math.min(1.2, 1 + 0.1 * continentPowerMagnitude())
-      : 1;
+      ? brainDomainDevelopmentPotentialExponent()
+      : ONE;
+  }
+
+  function continentCollapsePotentialExponent(source = state) {
+    return minBN("1.5", add(ONE, mul("0.18", continentPowerMagnitude(source))));
   }
 
   function ghostBrainActualPowerPerSecond() {
@@ -1530,11 +1622,11 @@
   }
 
   function focusSoftcapExponent() {
-    return resourceSoftcapExponent(state.power);
+    return specialResourceSoftcapExponent(state.power);
   }
 
   function actualFocusPowerPerSecond() {
-    return finalPowerGainFromSources([challengeAdjustedPowerSource(focusPowerPerSecond(), "focus")]);
+    return focusPowerGainStages().afterGoogolPenalty;
   }
 
   function killingIntentJBonus() {
@@ -1551,10 +1643,12 @@
     return state.killingIntentPerceptionPurchased ? 5e-4 : 5e-7;
   }
 
+  function killingIntentWavePotentialExponent(source = state) {
+    return minBN("1.1", add(ONE, mul("0.01", continentPowerMagnitude(source))));
+  }
+
   function killingIntentWaveExponent() {
-    return state.killingIntentWavePurchased
-      ? Math.min(1.1, 1 + 0.01 * continentPowerMagnitude())
-      : 1;
+    return state.killingIntentWavePurchased ? killingIntentWavePotentialExponent() : ONE;
   }
 
   function superSpeedThinkingMultiplier() {
@@ -1572,10 +1666,9 @@
     return WIS.Core.Effects.value("focusRatio", state);
   }
 
-  function intuitionPotentialFocusMultiplier() {
-    const currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power");
-    const dynamicBonus = toNumber(log10(add(ONE, maxBN(ZERO, currentPower))), 0) * 0.1;
-    return 1 + dynamicBonus * (state.superPerceptionPurchased ? 1.5 : 1);
+  function intuitionPotentialFocusMultiplier(source = state) {
+    const dynamicBonus = mul("0.1", resourceMagnitude(dynamicResource(source, "power")));
+    return add(ONE, mul(dynamicBonus, source.superPerceptionPurchased ? "1.5" : ONE));
   }
 
   function intuitionFocusMultiplier() {
@@ -1760,47 +1853,56 @@
     ];
   }
 
-  function flowUltimateIntentMultiplier() {
-    const focusSource = maxBN(ZERO, focusPowerPerSecond());
-    const magnitude = toNumber(log10(add(ONE, div(focusSource, "1e12"))), 0);
-    return Math.min(1e7, Math.pow(1 + magnitude, 14));
+  function flowUltimateIntentMultiplierFromFocusSource(focusSource) {
+    const magnitude = resourceMagnitude(focusSource, "1e12");
+    return minBN("1e7", pow(add(ONE, magnitude), 14));
   }
 
-  let calculatingSupernaturalFire = false;
+  function flowUltimateIntentMultiplier() {
+    return flowUltimateIntentMultiplierFromFocusSource(focusPowerPerSecond());
+  }
+
   function supernaturalFireMultiplierFromFocusSource(focusSource) {
     const actualSource = maxBN(ZERO, focusSource);
     return pow(add(ONE, actualSource), STAR_ENHANCEMENT_CONFIG.supernaturalFire.exponent);
   }
 
   function powerMultiplierWithoutSupernaturalFire() {
-    return WIS.Core.Effects.collect("power", "regionMultiplier", state)
-      .reduce((product, effect) => effect.id === "supernaturalFire"
-        ? product
-        : mul(product, effect.value), ONE);
+    return WIS.Core.Formulas.multiply(
+      WIS.Core.Effects.collect("power", "regionMultiplier", state, {
+        excludeIds: ["supernaturalFire"]
+      })
+    );
+  }
+
+  function focusPowerGainStages(regionMultiplier = powerMultiplier()) {
+    const sourceLayer = challengeAdjustedPowerSource(focusPowerPerSecond(), "focus");
+    const afterRegion = preSoftcapPowerGainFromSources([sourceLayer], regionMultiplier);
+    const evaluationPower = resourceSoftcapIntegrationEvaluationAmount(state.power);
+    const afterNormalSoftcap = applyResourceSoftcapSettlement(afterRegion, evaluationPower);
+    const afterGoogolPenalty = WIS.Core.Penalties.applyGoogolPenalty(
+      "power",
+      evaluationPower,
+      afterNormalSoftcap,
+      state
+    );
+    return Object.freeze({
+      sourceLayer,
+      afterRegion,
+      afterNormalSoftcap,
+      afterGoogolPenalty,
+      evaluationPower
+    });
+  }
+
+  function focusPowerGainStagesWithoutSupernaturalFire() {
+    return focusPowerGainStages(powerMultiplierWithoutSupernaturalFire());
   }
 
   function supernaturalFirePowerMultiplier() {
-    if (!state.supernaturalFirePurchased || calculatingSupernaturalFire) return 1;
-    calculatingSupernaturalFire = true;
-    try {
-      const focusSource = challengeAdjustedPowerSource(focusPowerPerSecond(), "focus");
-      const baseRegionMultiplier = powerMultiplierWithoutSupernaturalFire();
-      let multiplier = ONE;
-      for (let iteration = 0; iteration < 16; iteration += 1) {
-        const actualFocusSource = finalPowerGainFromSources(
-          [focusSource],
-          mul(baseRegionMultiplier, multiplier)
-        );
-        const nextMultiplier = supernaturalFireMultiplierFromFocusSource(actualFocusSource);
-        const previousLog = toNumber(log10(maxBN(ONE, multiplier)), Infinity);
-        const nextLog = toNumber(log10(maxBN(ONE, nextMultiplier)), Infinity);
-        multiplier = nextMultiplier;
-        if (Math.abs(nextLog - previousLog) <= 1e-12 * Math.max(1, Math.abs(nextLog))) break;
-      }
-      return multiplier;
-    } finally {
-      calculatingSupernaturalFire = false;
-    }
+    if (!state.supernaturalFirePurchased) return 1;
+    const focusBaseGain = focusPowerGainStagesWithoutSupernaturalFire().afterGoogolPenalty;
+    return supernaturalFireMultiplierFromFocusSource(focusBaseGain);
   }
 
   function completedChallengeLayers() {
@@ -1809,9 +1911,9 @@
 
   function treasureChanceMultiplier(source = state) {
     const starSpiritMultiplier = source.starSpiritPurchased
-      ? Math.pow(STAR_ENHANCEMENT_CONFIG.starSpirit.perChallengeMultiplier, completedChallengeLayers())
-      : 1;
-    return starSpiritMultiplier * (source.stellarTreasureSeekingPurchased ? 1.5 : 1);
+      ? pow(STAR_ENHANCEMENT_CONFIG.starSpirit.perChallengeMultiplier, completedChallengeLayers())
+      : ONE;
+    return mul(starSpiritMultiplier, source.stellarTreasureSeekingPurchased ? 1.5 : 1);
   }
 
   function treasureAwardMultiplier(source = state) {
@@ -1819,39 +1921,38 @@
   }
 
   function fiveSpiritStoneCount() {
-    return Math.max(0, Math.floor(Number(state.treasureImprints?.fiveSpiritStone) || 0));
+    return treasureCount("fiveSpiritStone");
   }
 
   function fiveSpiritStoneChance(count = fiveSpiritStoneCount()) {
     const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
-    return Math.min(1,
-      config.baseChance * Math.pow(config.chanceDecay, Math.max(0, Number(count) || 0)) * treasureChanceMultiplier()
-    );
+    return decayingChance(config.baseChance, config.chanceDecay, count, treasureChanceMultiplier());
   }
 
   function fiveSpiritStoneJSource() {
     const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
-    return mul(config.joulesBase, sub(pow(fiveSpiritStoneCount() + 1, config.joulesExponent), ONE));
+    return mul(config.joulesBase, sub(pow(add(fiveSpiritStoneCount(), ONE), config.joulesExponent), ONE));
   }
 
   function fiveSpiritStonePowerSource() {
     const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
-    return mul(config.powerBase, sub(pow(fiveSpiritStoneCount() + 1, config.powerExponent), ONE));
+    return mul(config.powerBase, sub(pow(add(fiveSpiritStoneCount(), ONE), config.powerExponent), ONE));
   }
 
-  function rollFiveSpiritStoneAttempts(attempts, silent = false) {
+  function rollFiveSpiritStoneAttempts(attempts, silent = false, { availabilityConfirmed = false } = {}) {
     const gained = rollDynamicAttempts(
       attempts,
-      () => state.fiveSpiritStonePurchased && gt(ultimateIntentPowerSource(), ZERO),
+      () => availabilityConfirmed || (state.fiveSpiritStonePurchased && gt(ultimateIntentPowerSource(), ZERO)),
       fiveSpiritStoneChance,
       () => { WIS.Meta.Treasures.add(state, "fiveSpiritStone"); },
       {
-        probabilityAtOffset: (offset) => fiveSpiritStoneChance(fiveSpiritStoneCount() + offset),
+        probabilityAtOffset: (offset) => fiveSpiritStoneChance(add(fiveSpiritStoneCount(), offset)),
+        decayRatio: SCALE_TREASURE_CONFIG.fiveSpiritStone.chanceDecay,
         treasureKey: "fiveSpiritStone",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "fiveSpiritStone", count)
       }
     );
-    if (!silent && gained > 0) showNotice(`获得永久宝物：五灵石 +${gained}`);
+    if (!silent && gt(gained, ZERO)) showNotice(`获得永久宝物：五灵石 +${gained}`);
     return gained;
   }
 
@@ -2048,6 +2149,12 @@
       const available = candidate.available;
       candidate.available = () => upgradeAutomationActive && hasManuallyUpgradedScale(candidate.historyKey) && available();
     });
+    const audit = WIS.Simulation?.FastForward?.auditCandidates;
+    if (audit) { audit.push(...[...candidates,...starEnhancementCandidates].map((c, index) => {
+      const available = c.available();
+      return {kind: 'scale', id: c.historyKey || `action-${index}`, available,
+        resourceKey: 'power', cost: available ? c.cost() : null};
+    })); return 0; }
     let purchases = 0;
     let purchaseOperations = 0;
     const maximumPurchaseOperations = 32;
@@ -2427,85 +2534,19 @@
     render();
   }
 
-  function geometricAttemptsUntilSuccess(probability) {
-    if (probability >= 1) return 1;
-    if (probability <= 0) return Infinity;
-    const denominator = Math.log1p(-probability);
-    if (!Number.isFinite(denominator) || denominator === 0) return Infinity;
-    return Math.floor(Math.log1p(-WIS.Core.Runtime.random()) / denominator) + 1;
-  }
-
-  function expectedAttemptsForTreasureBatch(successes, probabilityAtOffset) {
-    const count = Math.max(0, Math.floor(Number(successes) || 0));
-    if (count <= 0) return 0;
-    const reciprocalProbability = (offset) => {
-      const chance = Math.max(0, Math.min(1, Number(probabilityAtOffset(offset)) || 0));
-      return chance > 0 ? 1 / chance : Infinity;
-    };
-    const midpoint = Math.floor((count - 1) * 0.5);
-    return count / 6 * (
-      reciprocalProbability(0) +
-      4 * reciprocalProbability(midpoint) +
-      reciprocalProbability(count - 1)
-    );
-  }
-
-  function batchTreasureSuccessEstimate(attempts, probabilityAtOffset) {
-    let lower = 0;
-    let upper = 1;
-    for (let expansion = 0; expansion < 53 && upper < Number.MAX_SAFE_INTEGER; expansion += 1) {
-      if (expectedAttemptsForTreasureBatch(upper, probabilityAtOffset) > attempts) break;
-      lower = upper;
-      upper = Math.min(Number.MAX_SAFE_INTEGER, upper * 2);
-    }
-    for (let iteration = 0; iteration < 48 && upper - lower > 1; iteration += 1) {
-      const middle = Math.floor((lower + upper) * 0.5);
-      if (expectedAttemptsForTreasureBatch(middle, probabilityAtOffset) <= attempts) lower = middle;
-      else upper = middle;
-    }
-    return lower;
-  }
-
   function rollDynamicAttempts(attempts, available, probability, award, options = {}) {
-    const numericAttempts = Number(attempts);
-    let remainingAttempts = Number.isFinite(numericAttempts)
-      ? Math.max(0, Math.floor(numericAttempts))
-      : Number.MAX_SAFE_INTEGER;
-    if (remainingAttempts <= 0 || !available()) return 0;
+    if (options.treasureKey) {
+      const gained = WIS.Meta.TreasureProgress.advance(state, options.treasureKey, attempts, { available: available() });
+      return gained.lte(Number.MAX_SAFE_INTEGER) ? gained.toNumber() : gained;
+    }
     const awardMultiplier = options.treasureKey
-      ? WIS.Meta.Treasures.getTreasureAwardMultiplier(state, options.treasureKey)
+      ? WIS.Meta.Treasures?.getTreasureAwardMultiplier?.(state, options.treasureKey) ?? 1
       : 1;
-    const initialProbability = Math.max(0, Math.min(1, Number(probability()) || 0));
-    const expectedAtStart = remainingAttempts * initialProbability;
-    if (typeof options.awardMany === "function" && typeof options.probabilityAtOffset === "function" &&
-        (!Number.isFinite(expectedAtStart) || expectedAtStart > 64)) {
-      let gained = batchTreasureSuccessEstimate(
-        remainingAttempts,
-        (offset) => options.probabilityAtOffset(offset * awardMultiplier)
-      );
-      if (gained > 0) {
-        if (Number.isFinite(expectedAtStart) && expectedAtStart <= 1e6) {
-          const firstRandom = Math.max(Number.MIN_VALUE, WIS.Core.Runtime.random());
-          const secondRandom = WIS.Core.Runtime.random();
-          const normal = Math.sqrt(-2 * Math.log(firstRandom)) * Math.cos(2 * Math.PI * secondRandom);
-          gained = Math.max(0, Math.floor(gained + normal * Math.sqrt(Math.max(1, gained)) * 0.35));
-        } else {
-          gained = Math.max(0, gained + (WIS.Core.Runtime.random() < 0.25 ? -1 : WIS.Core.Runtime.random() > 0.75 ? 1 : 0));
-        }
-        gained = Math.min(gained, remainingAttempts);
-        options.awardMany(gained);
-        WIS.Core.Effects.invalidate();
-      }
-      return gained * awardMultiplier;
-    }
-    let gained = 0;
-    while (remainingAttempts > 0 && available()) {
-      const attemptsUntilSuccess = geometricAttemptsUntilSuccess(probability());
-      if (!Number.isFinite(attemptsUntilSuccess) || attemptsUntilSuccess > remainingAttempts) break;
-      remainingAttempts -= attemptsUntilSuccess;
-      award();
-      gained += awardMultiplier;
-    }
+    const gained = rollProbabilityAttempts(attempts, available, probability, award, {
+      ...options,
+      awardMultiplier
+    });
+    if (gt(gained, ZERO)) WIS.Core.Effects.invalidate();
     return gained;
   }
 
@@ -2567,6 +2608,7 @@
   function getActionIds() { return Object.keys(actions); }
   function getUpgradeIds() { return Object.keys(upgrades); }
   const api = Object.freeze({
+    brainDomainDevelopmentPotentialExponent, killingIntentWavePotentialExponent,
     resourceSoftcapExponent, resourceSoftcapBaseExponent, specialResourceSoftcapExponent,
     resourceSoftcapStageExponents,
     adjustedNormalStageExponent, resourceSoftcapEquivalentRawForComponents,
@@ -2595,7 +2637,9 @@
     automaticPowerRawPerSecond, automaticPowerRawPerSecondAt, automaticPowerSettledPerSecondAt,
     createAutomaticPowerRateProfile,
     preSoftcapPowerGainFromSources,
-    flowUltimateIntentMultiplier, supernaturalFireMultiplierFromFocusSource, supernaturalFirePowerMultiplier,
+    flowUltimateIntentMultiplierFromFocusSource, flowUltimateIntentMultiplier,
+    focusPowerGainStages, focusPowerGainStagesWithoutSupernaturalFire,
+    supernaturalFireMultiplierFromFocusSource, supernaturalFirePowerMultiplier,
     activePowerSourceChallengeExponent, challengeAdjustedPowerSource,
     buyWaveEye, buyElementalAwakening, buyMoonfall, buyFlowState, buySelfhood, buyFreedom, buyChicxulubMeteorite,
     buyPlanetWill, buyStarSpirit, buyStarShatter, buySpaceQuake, buySelfless, buySupernaturalFire, buyFiveSpiritStone, buySelfSuppression,
@@ -2606,7 +2650,9 @@
     planetWillElementalizationMultiplier, starShatterRockMultiplier,
     selfSuppressionJExponentFromBase, selfSuppressionJExponent,
     planetSuppressionRewardExponent, utmostPuritySoftcapExponent,
-    gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplier, godspeedExponent, godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress, rollFitnessMembershipCardAttempts, exercisePotentialMultiplier, exerciseMultiplier, transcendentPotentialMultiplier, transcendentMultiplier, extremeExerciseEffectMultiplier, naturalStrengthPotentialMultiplier, powerMultiplierGroups, powerMultiplier, challengeCompletionCount, challengeRewardExponent, challengeRewardMultiplier, longevityChallengeRewardMultiplier, fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent, currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent, trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier, automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier, lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier, myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus, regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount, fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel, waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap, baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier, conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier, skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent, ghostBrainActualPowerPerSecond, joulesForNextBasePower, focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, applyFocusSmoothSoftcap, dynamicFocusMultiplier, focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus, rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus, focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost, rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent, automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost, manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus, train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod, buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower, buyLifePower, buyMyStyle, buyIntuition, buyGhostBack, buySonicMovement, buyCarbonLimit, buyKillingIntent, buyRockStrike, buyHighSpeedMetabolism, buyEnduranceEnhancement, buyBulletTime, buyDynamicFocus, buySuperPerception, buyInvulnerable, buyRegeneration, buySuperpower, buySuperSpeedThinking, buyMountainCollapse, buyMindDivision, buyPowerOneTime, buyHyperRegeneration, buyMentalDomain, buyEarthSplit, buyGodspeed, buySuperpowerEvolution, buySubtle, buySkySplit, buyBiologicalQuantification, buyGhostManTransformation, buyDestroyCountry, buyHumanGhostTransformation, buyKillingIntentSubstance, buyEnergyCycle, buyMountainShatter, buyBioenergy, buyElementalization, buyKillingIntentPerception, buyKillingIntentWave, buyUltimateIntent, buyBrainDomainDevelopment, buyContinentSplit, buyContinentCollapse, toggleGhostBack,
+    gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplierForExponent,
+    sonicMovementPotentialMultiplier, sonicMovementMultiplier, godspeedExponent,
+    godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress, rollFitnessMembershipCardAttempts, exercisePotentialMultiplier, exerciseMultiplier, transcendentPotentialMultiplier, transcendentMultiplier, extremeExerciseEffectMultiplier, naturalStrengthPotentialMultiplier, powerMultiplierGroups, powerMultiplier, challengeCompletionCount, challengeRewardExponent, challengeRewardMultiplier, longevityChallengeRewardMultiplier, fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent, currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent, trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier, automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier, lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier, myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus, regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount, fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel, waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap, baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier, conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier, skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent, continentCollapsePotentialExponent, ghostBrainActualPowerPerSecond, joulesForNextBasePower, focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, applyFocusSmoothSoftcap, dynamicFocusMultiplier, focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus, rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus, focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost, rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent, automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost, manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus, train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod, buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower, buyLifePower, buyMyStyle, buyIntuition, buyGhostBack, buySonicMovement, buyCarbonLimit, buyKillingIntent, buyRockStrike, buyHighSpeedMetabolism, buyEnduranceEnhancement, buyBulletTime, buyDynamicFocus, buySuperPerception, buyInvulnerable, buyRegeneration, buySuperpower, buySuperSpeedThinking, buyMountainCollapse, buyMindDivision, buyPowerOneTime, buyHyperRegeneration, buyMentalDomain, buyEarthSplit, buyGodspeed, buySuperpowerEvolution, buySubtle, buySkySplit, buyBiologicalQuantification, buyGhostManTransformation, buyDestroyCountry, buyHumanGhostTransformation, buyKillingIntentSubstance, buyEnergyCycle, buyMountainShatter, buyBioenergy, buyElementalization, buyKillingIntentPerception, buyKillingIntentWave, buyUltimateIntent, buyBrainDomainDevelopment, buyContinentSplit, buyContinentCollapse, toggleGhostBack,
     getJPerSecond: automaticJPerSecond,
     getPowerPerSecond: automaticPowerPerSecond,
     updateProgress: updateScaleProgress,

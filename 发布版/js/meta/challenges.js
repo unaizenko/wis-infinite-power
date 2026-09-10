@@ -4,7 +4,10 @@
   const definitions = WIS.Core.Config.challenges;
   const immortalPowerRealmCosts = WIS.Core.Config.immortalPower.realmCosts;
   const scaleThresholds = WIS.Core.Config.scales;
-  const { BN, ZERO, ONE, add, sub, mul, div, pow, log10, max: maxBN, gt, gte, toNumber } = WIS.Core.BigNum;
+  const {
+    BN, ZERO, ONE, add, sub, mul, div, pow, sqrt, log10,
+    max: maxBN, gt, gte, sum: sumBN, toNumber
+  } = WIS.Core.BigNum;
   const explosiveStarThreshold = scaleThresholds[10].power;
   const stellarThreshold = scaleThresholds[11].power;
   const explosiveStarLog = log10(explosiveStarThreshold);
@@ -12,6 +15,8 @@
   const superclusterThreshold = scaleThresholds[13].power;
   const cosmicStructureThreshold = scaleThresholds[14].power;
   const blackHoleProgressLogSpan = log10(add(ONE, cosmicStructureThreshold));
+  const resourceMagnitude = (value, scale = ONE) =>
+    log10(add(ONE, div(maxBN(ZERO, value), scale)));
   function completionCount(state, key) { return Math.max(0, Number(state.meta.challenges.challengeCompletions?.[key]) || 0); }
   function totalCompletionCount(state) {
     return Object.keys(definitions).reduce((total, key) => total + completionCount(state, key), 0);
@@ -29,7 +34,7 @@
     const count = completionCount(state, key);
     return count > 0 && values ? values[count - 1] : 1;
   }
-  const inheritedLimitDifficultyByHost = Object.freeze({ solarPower: 0, galaxy: 1 });
+  const inheritedLimitDifficultyByHost = Object.freeze({ solarPower: 0, galaxy: 1, yinVoidYangReal: 2 });
   const inheritedLimitChallengeKeys = Object.freeze(["innateDeficiency", "powerless", "longevity"]);
   function inheritedLimitDifficulty(state, key) {
     if (!inheritedLimitChallengeKeys.includes(key)) return null;
@@ -57,12 +62,15 @@
   });
   function evilCorpseRawLimitExponent(state, resourceKey) {
     const scale = evilCorpseResourceScales[resourceKey];
-    if (!gt(scale, ZERO)) return 1;
-    const magnitude = toNumber(log10(add(ONE, div(maxBN(ZERO, state[resourceKey]), scale))), Infinity);
-    return 1 / (1 + 0.501 * Math.pow(magnitude, 0.13));
+    if (!gt(scale, ZERO)) return ONE;
+    const magnitude = resourceMagnitude(state[resourceKey], scale);
+    return div(ONE, add(ONE, mul("0.501", pow(magnitude, "0.13"))));
   }
   function evilCorpseAdjustedLimitExponent(state, resourceKey) {
-    return Math.max(definitions.severEvilCorpse.minimumDynamicExponent, evilCorpseRawLimitExponent(state, resourceKey));
+    return maxBN(
+      definitions.severEvilCorpse.minimumDynamicExponent,
+      evilCorpseRawLimitExponent(state, resourceKey)
+    );
   }
   function evilCorpseLimitExponent(state, resourceKey) {
     return state.activeChallenge === "severEvilCorpse"
@@ -70,16 +78,16 @@
       : 1;
   }
   function evilCorpseRewardMultiplier(state) {
-    if (!systemActive(state, "severEvilCorpse") || completionCount(state, "severEvilCorpse") < 1) return 1;
+    if (!systemActive(state, "severEvilCorpse") || completionCount(state, "severEvilCorpse") < 1) return ONE;
     const terms = [
       [state.joules, 1e29],
       [state.power, 2.24e31],
       [state.mana, 1e29],
       [state.immortalPower, immortalPowerRealmCosts.daluo]
     ];
-    return 1 + 0.25 * terms.reduce((sum, [value, scale]) =>
-      sum + Math.sqrt(toNumber(log10(add(ONE, div(maxBN(ZERO, value), scale))), Infinity)), 0
-    );
+    return add(ONE, mul("0.25", sumBN(
+      terms.map(([value, scale]) => sqrt(resourceMagnitude(value, scale)))
+    )));
   }
   function planetSuppressionRewardExponent(state, resource) {
     if (completionCount(state, "planetSuppression") < 1) return 1;
@@ -102,7 +110,9 @@
     const opposingAmount = resource === "joules" ? state.power : state.joules;
     const firstLog = log10(add(ONE, div(maxBN(ZERO, opposingAmount), explosiveStarThreshold)));
     const secondLog = log10(add(ONE, firstLog));
-    return add("1.04", mul("0.02", pow(secondLog, "0.8")));
+    const progress = pow(secondLog, "0.8");
+    const rawBonus = mul("0.02", progress);
+    return add("1.04", div(rawBonus, add(ONE, div(rawBonus, "0.16"))));
   }
   function blackHoleLogProgress(amount) {
     const safeAmount = maxBN(ZERO, amount);
@@ -185,6 +195,8 @@
   }
   function challengeUnlocked(challengeKey) {
     const challenge = definitions[challengeKey];
+    if (challengeKey === "mortalTransformation" && (state.activeChallenge === challengeKey || completionCount(state, challengeKey) > 0)) return true;
+    if (challengeKey === "yinVoidYangReal") return WIS.Meta.Achievements.has(state, "infantTransformationImmortal");
     const challengesAvailable = WIS.Meta.Achievements.has(state, "scale4");
     return Boolean(challenge && challengesAvailable && (
       !challenge.unlockAchievementKey || WIS.Meta.Achievements.has(state, challenge.unlockAchievementKey)
@@ -288,7 +300,9 @@
     const challengeKey = state.activeChallenge;
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
     if (!challenge || !systemActive(state, challengeKey) || challenge.manualCompletion) return false;
-    const targetReached = challenge.requiresJAndPower
+    const targetReached = challenge.targetXiuzhenRealm
+      ? WIS.Cultivation.Xiuzhen.get(state).realm >= challenge.targetXiuzhenRealm
+      : challenge.requiresJAndPower
       ? gte(state.joules, scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power) &&
         gte(state.power, scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power)
       : Number.isFinite(challenge.targetAdvancedRealmLevel)

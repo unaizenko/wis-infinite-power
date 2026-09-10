@@ -104,10 +104,14 @@
   }
 
   function canAffordSystem(system, resource, cost) {
+    if (system === "immortal" && resource === "mana" && state().cultivation.systems.immortal.xiuzhen?.manaDebitResidual?.length)
+      return WIS.Cultivation.Xiuzhen.canSpend(state(), "mana", cost);
     return gte(getSystem(system, resource), sanitize(cost));
   }
 
   function spendSystem(system, resource, cost) {
+    if (system === "immortal" && resource === "mana" && state().cultivation.systems.immortal.xiuzhen?.manaDebitResidual?.length)
+      return WIS.Cultivation.Xiuzhen.spendMana(state(), cost);
     const safeCost = sanitize(cost);
     if (!canAffordSystem(system, resource, safeCost)) return false;
     const resources = systemResources(system);

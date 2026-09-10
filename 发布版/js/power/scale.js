@@ -2,11 +2,8 @@
   "use strict";
 
   const thresholds = WIS.Core.Config.scales;
-  const { BN, ZERO, ONE, add, div, max, gte, gt, toNumber } = WIS.Core.BigNum;
+  const { ZERO, ONE, add, mul, div, gte, gt, toNumber } = WIS.Core.BigNum;
   const { applyResourceSoftcapDynamicRateOverTime } = WIS.Power.ScaleLogic;
-  const magnitude = (value, scale = ONE) => toNumber(
-    WIS.Core.BigNum.log10(add(ONE, div(max(ZERO, value), scale))), 0
-  );
 
   function tierIndexForPower(power) {
     const state = WIS.Core.Runtime.getState();
@@ -35,13 +32,13 @@
   function effects(state) {
     if (state.powerSystem?.active !== "scale") return [];
     return [
-      { id: "gym", name: "跑步", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.gymPurchased ? (1.25 + magnitude(current.power) * 0.5) * (current.breathingMethodPurchased ? 1.5 : 1) * (current.sonicMovementPurchased ? Math.pow(3.8, current.godspeedPurchased ? 1 + 0.05 * magnitude(current.power, "3.033e15") : 1) : 1) : 1 },
-      { id: "exercise", name: "运动", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => current.exercisePurchased ? (1.1 + magnitude(current.joules) * 0.1) * (current.extremeExercisePurchased ? 1.5 : 1) : 1 },
-      { id: "water", name: "击水", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, value: (current) => current.waterPurchased ? 1 + magnitude(current.highestPower) * 0.14 : 1 },
+      { id: "gym", name: "跑步", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => WIS.Power.ScaleLogic.gymMultiplier(current) },
+      { id: "exercise", name: "运动", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => WIS.Power.ScaleLogic.exerciseMultiplier(current) },
+      { id: "water", name: "击水", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, value: (current) => current.waterPurchased ? WIS.Power.ScaleLogic.waterPotentialJMultiplier(current) : 1 },
       { id: "ghostBackJ", name: "鬼背", group: "行动", target: "joules", layer: "regionMultiplier", value: state.ghostBackPurchased && state.ghostBackActive ? 0.75 : 1 },
       { id: "five", name: "战五渣", group: "量级论", target: "power", layer: "regionMultiplier", value: state.unlockedAchievements?.five ? 1.05 : 1 },
-      { id: "transcendent", name: "超凡之力", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.transcendentPurchased ? 1 + magnitude(current.power) * 0.15 : 1 },
-      { id: "naturalStrength", name: "天生神力", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => current.naturalStrengthPurchased ? 1 + magnitude(current.joules) * 0.15 : 1 },
+      { id: "transcendent", name: "超凡之力", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => WIS.Power.ScaleLogic.transcendentMultiplier(current) },
+      { id: "naturalStrength", name: "天生神力", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => current.naturalStrengthPurchased ? WIS.Power.ScaleLogic.naturalStrengthPotentialMultiplier(current) : 1 },
       { id: "ghostBackPower", name: "鬼背", group: "量级论", target: "power", layer: "regionMultiplier", value: state.ghostBackPurchased && state.ghostBackActive ? 1.75 : 1 },
       { id: "bulletTime", name: "子弹时间", group: "量级论", target: "power", layer: "regionMultiplier", value: state.bulletTimePurchased ? 1.5 : 1 },
       { id: "superpower", name: "异能", group: "量级论", target: "power", layer: "regionExponent", value: state.superpowerPurchased ? (state.superpowerEvolutionPurchased ? 1.06 : 1.05) : 1 },
@@ -49,14 +46,14 @@
       { id: "highSpeedMetabolism", name: "高速代谢", group: "量级论", target: "training", layer: "sourceMultiplier", value: state.highSpeedMetabolismPurchased ? 1.75 : 1 },
       { id: "superLollipop", name: "超级棒棒糖", group: "宝物", target: "training", layer: "sourceMultiplier", celestialFiveDecline: true, value: WIS.Power.ScaleLogic.superLollipopTrainingMultiplier() },
       { id: "focusRatio", name: "集中比例", group: "量级论", target: "focus", layer: "sourceMultiplier", value: 0.02 + (state.mentalPowerPurchased ? 0.01 : 0) + state.mindDivisionLevel * 0.005 },
-      { id: "intuition", name: "直感", group: "量级论", target: "focus", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.intuitionPurchased ? 1 + magnitude(current.power) * 0.1 * (current.superPerceptionPurchased ? 1.5 : 1) : 1 },
+      { id: "intuition", name: "直感", group: "量级论", target: "focus", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.intuitionPurchased ? WIS.Power.ScaleLogic.intuitionPotentialFocusMultiplier(current) : 1 },
       { id: "dynamicFocus", name: "动态专注", group: "量级论", target: "focus", layer: "sourceMultiplier", value: state.dynamicFocusPurchased ? 1.5 : 1 },
       { id: "subtle", name: "入微", group: "量级论", target: "focus", layer: "sourceExponent", value: state.subtlePurchased ? 1.05 : 1 },
       { id: "rockStrike", name: "岩击", group: "量级论", target: "rock", layer: "sourceMultiplier", value: state.rockStrikePurchased ? 2 : 1 },
       { id: "mountainCollapse", name: "崩山/裂地", group: "量级论", target: "rock", layer: "sourceExponent", value: state.mountainCollapsePurchased ? (state.earthSplitPurchased ? 1.1 + 0.02 * Math.log10(1 + (state.unlockedAchievements?.scale7 ? Math.floor(state.rockLevel * 1.2) : state.rockLevel) / 10) : 1.1) : 1 },
       { id: "trueCity", name: "真爆城", group: "成就", target: "rock", layer: "sourceExponent", value: state.unlockedAchievements?.trueScale6 ? 1.06 : 1 },
       { id: "mentalDomain", name: "精神领域", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", value: state.mentalDomainPurchased ? 5 : 1 },
-      { id: "skySplit", name: "裂天", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.skySplitPurchased ? 1 + 0.5 * magnitude(current.power, "3.033e15") : 1 },
+      { id: "skySplit", name: "裂天", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => current.skySplitPurchased ? WIS.Power.ScaleLogic.skySplitPotentialMultiplier(current) : 1 },
       { id: "superSpeedThinking", name: "超速思维", group: "量级论", target: "killingIntent", layer: "sourceMultiplier", value: state.superSpeedThinkingPurchased ? 5 : 1 },
       { id: "biologicalQuantification", name: "生体量化", group: "量级论", target: "fitness", layer: "sourceMultiplier", value: state.biologicalQuantificationPurchased ? 12 : 1 },
       { id: "biologicalQuantificationCap", name: "生体量化", group: "量级论", target: "fitnessLevelCap", layer: "sourceAdditive", value: state.biologicalQuantificationPurchased ? 30 : 0 },
@@ -66,8 +63,8 @@
       { id: "energyCycle", name: "能量循环", group: "量级论", target: "ghostBrain", layer: "sourceMultiplier", value: state.energyCyclePurchased ? 12 : 1 },
       { id: "mountainShatter", name: "崩岳", group: "量级论", target: "power", layer: "regionExponent", value: state.mountainShatterPurchased ? 1.015 : 1 },
       { id: "bioenergy", name: "生物能源", group: "量级论", target: "joules", layer: "regionMultiplier", value: state.bioenergyPurchased ? 3 : 1 },
-      { id: "continentCollapse", name: "大陆崩溃", group: "量级论", target: "rock", layer: "sourceExponent", dynamic: true, dynamicResources: ["power"], value: (current) => current.continentCollapsePurchased ? Math.min(1.5, 1 + 0.18 * magnitude(current.power, "8.368e22")) : 1 },
-      { id: "skyCrystal", name: "天晶", group: "宝物", target: "rock", layer: "sourceMultiplier", celestialFiveDecline: true, value: 1 + (state.meta.treasures.skyCrystal || 0) * 0.05 },
+      { id: "continentCollapse", name: "大陆崩溃", group: "量级论", target: "rock", layer: "sourceExponent", dynamic: true, dynamicResources: ["power"], value: (current) => current.continentCollapsePurchased ? WIS.Power.ScaleLogic.continentCollapsePotentialExponent(current) : 1 },
+      { id: "skyCrystal", name: "天晶", group: "宝物", target: "rock", layer: "sourceMultiplier", celestialFiveDecline: true, value: add(ONE, mul(state.treasureImprints.skyCrystal, 0.05)) },
       { id: "waveEye", name: "波动眼", group: "量级论", target: "killingIntent", layer: "sourceExponent", value: state.waveEyePurchased ? 1.75 : 1 },
       { id: "elementalAwakening", name: "元素觉醒", group: "量级论", target: "elementalization", layer: "sourceExponent", value: state.elementalAwakeningPurchased ? 1.52 : 1 },
       { id: "moonfall", name: "月落", group: "量级论", target: "rock", layer: "sourceMultiplier", value: state.moonfallPurchased ? 50 : 1 },
@@ -143,55 +140,19 @@
   }
 
   function rollPassiveTreasure(state, elapsedSeconds, silentTreasureRolls = false) {
-    let gained = 0;
-    if (!gt(WIS.Power.ScaleLogic.fitnessJBonus(), ZERO) || !WIS.Meta.Achievements.has(state, "scale5")) {
-      fitnessCardRollAccumulator = 0;
-    } else {
-      fitnessCardRollAccumulator += elapsedSeconds;
-      const attempts = Math.floor(fitnessCardRollAccumulator);
-      fitnessCardRollAccumulator -= attempts;
-      gained += WIS.Power.ScaleLogic.rollFitnessMembershipCardAttempts(attempts, silentTreasureRolls);
+    WIS.Meta.TreasureProgress.ensure(state);
+    let gained = ZERO;
+    const S = WIS.Power.ScaleLogic;
+    const fitnessJAvailable = gt(WIS.Power.ScaleLogic.fitnessJBonus(), ZERO);
+    if (fitnessJAvailable) {
+      gained = add(gained, S.rollFitnessMembershipCardAttempts(elapsedSeconds, silentTreasureRolls, { availabilityConfirmed: true }));
+      gained = add(gained, S.rollSuperLollipopAttempts(elapsedSeconds, silentTreasureRolls, { availabilityConfirmed: true }));
     }
-    if (!gt(WIS.Power.ScaleLogic.fitnessJBonus(), ZERO) || !WIS.Meta.Achievements.has(state, "scale8")) {
-      state.superLollipopRollProgress = 0;
-    } else {
-      const total = Math.max(0, Number(state.superLollipopRollProgress) || 0) + elapsedSeconds;
-      const attempts = Math.floor(total + 1e-10);
-      state.superLollipopRollProgress = Math.max(0, total - attempts);
-      gained += WIS.Power.ScaleLogic.rollSuperLollipopAttempts(attempts, silentTreasureRolls);
-    }
-    if (!gt(WIS.Power.ScaleLogic.rockPowerPerSecond(), ZERO) || !WIS.Meta.Achievements.has(state, "scale9")) {
-      skyCrystalRollAccumulator = 0;
-    } else {
-      skyCrystalRollAccumulator += elapsedSeconds;
-      const attempts = Math.floor(skyCrystalRollAccumulator);
-      skyCrystalRollAccumulator -= attempts;
-      gained += WIS.Power.ScaleLogic.rollSkyCrystalAttempts(attempts, silentTreasureRolls);
-    }
-    if (!state.fiveSpiritStonePurchased || !gt(WIS.Power.ScaleLogic.ultimateIntentPowerSource(), ZERO)) {
-      state.fiveSpiritStoneRollProgress = 0;
-    } else {
-      const total = Math.max(0, Number(state.fiveSpiritStoneRollProgress) || 0) + elapsedSeconds;
-      const attempts = Math.floor(total + 1e-10);
-      state.fiveSpiritStoneRollProgress = Math.max(0, total - attempts);
-      gained += WIS.Power.ScaleLogic.rollFiveSpiritStoneAttempts(attempts, silentTreasureRolls);
-    }
-    if (!WIS.Power.ScaleLogic.cosmicFiberAvailable(state)) {
-      cosmicFiberRollAccumulator = 0;
-    } else {
-      cosmicFiberRollAccumulator += elapsedSeconds;
-      const attempts = Math.floor(cosmicFiberRollAccumulator);
-      cosmicFiberRollAccumulator -= attempts;
-      gained += WIS.Power.ScaleLogic.rollCosmicFiberAttempts(attempts, silentTreasureRolls);
-    }
-    if (!WIS.Power.ScaleLogic.cosmicWillAvailable(state)) {
-      cosmicWillRollAccumulator = 0;
-    } else {
-      cosmicWillRollAccumulator += elapsedSeconds;
-      const attempts = Math.floor(cosmicWillRollAccumulator);
-      cosmicWillRollAccumulator -= attempts;
-      gained += WIS.Power.ScaleLogic.rollCosmicWillAttempts(attempts, silentTreasureRolls);
-    }
+    if (gt(S.rockPowerPerSecond(), ZERO)) gained = add(gained, S.rollSkyCrystalAttempts(elapsedSeconds, silentTreasureRolls, { availabilityConfirmed: true }));
+    if (state.fiveSpiritStonePurchased && gt(S.ultimateIntentPowerSource(), ZERO))
+      gained = add(gained, S.rollFiveSpiritStoneAttempts(elapsedSeconds, silentTreasureRolls, { availabilityConfirmed: true }));
+    gained = add(gained, S.rollCosmicFiberAttempts(elapsedSeconds, silentTreasureRolls));
+    gained = add(gained, S.rollCosmicWillAttempts(elapsedSeconds, silentTreasureRolls));
     return gained;
   }
 

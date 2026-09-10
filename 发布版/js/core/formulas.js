@@ -3,12 +3,18 @@
 
   const {
     BN, ZERO, ONE, isDecimal, add, sub, mul, div, pow, sqrt, log10,
-    max, gt, lte, isFiniteBN, isNaNBN, sum, product, toNumber
+    max, gt, lt, lte, isFiniteBN, isNaNBN, sum, product
   } = WIS.Core.BigNum;
 
   function effectValue(effect) {
-    const value = BN(!isDecimal(effect) && typeof effect === "object" && effect !== null ? effect.value : effect);
-    return isFiniteBN(value) && !isNaNBN(value) ? value : ZERO;
+    const rawValue = !isDecimal(effect) && typeof effect === "object" && effect !== null
+      ? effect.value
+      : effect;
+    const supportedType = isDecimal(rawValue) || typeof rawValue === "number" ||
+      (typeof rawValue === "string" && rawValue.trim() !== "");
+    if (!supportedType || !isFiniteBN(rawValue) || isNaNBN(rawValue)) return ONE;
+    const value = BN(rawValue);
+    return lt(value, ZERO) ? ONE : value;
   }
 
   function multiply(effects = []) {
@@ -17,7 +23,11 @@
 
   function applyExponent(value, exponent) {
     if (lte(value, ZERO)) return ZERO;
-    return pow(value, toNumber(exponent, 0));
+    const supportedType = isDecimal(exponent) || typeof exponent === "number" ||
+      (typeof exponent === "string" && exponent.trim() !== "");
+    if (!supportedType || !isFiniteBN(exponent) || isNaNBN(exponent)) return BN(value);
+    const decimalExponent = BN(exponent);
+    return lt(decimalExponent, ZERO) ? BN(value) : pow(value, decimalExponent);
   }
 
   function applySoftcaps(value, softcaps = []) {
@@ -45,12 +55,10 @@
 
   function diminishingMultiplierExponent(multiplier, coefficient) {
     const decimalMultiplier = BN(multiplier);
-    const numericCoefficient = Number(coefficient);
-    if (isNaNBN(decimalMultiplier) || lte(decimalMultiplier, ONE)) return 1;
-    if (!Number.isFinite(numericCoefficient) || numericCoefficient <= 0) return 1;
-    const logarithm = toNumber(log10(add(ONE, decimalMultiplier)), Infinity);
-    if (!Number.isFinite(logarithm)) return 0;
-    return 1 / Math.sqrt(1 + numericCoefficient * logarithm);
+    const decimalCoefficient = BN(coefficient);
+    if (isNaNBN(decimalMultiplier) || lte(decimalMultiplier, ONE)) return ONE;
+    if (!isFiniteBN(coefficient) || isNaNBN(decimalCoefficient) || lte(decimalCoefficient, ZERO)) return ONE;
+    return div(ONE, sqrt(add(ONE, mul(decimalCoefficient, log10(add(ONE, decimalMultiplier))))));
   }
 
   function applyDiminishingMultiplier(multiplier, coefficient) {

@@ -116,8 +116,11 @@
         const realElapsedSeconds = Math.max(0, now - lastTickAt) / 1000;
         lastTickAt = now;
         const previousAchievements = achievementStates();
-        if (offline.isCatchUpInProgress() || offline.getPendingCatchUpSeconds() > 0) {
-          offline.queueCatchUpNotice(0, 0);
+        const catchUpPaused = offline.isCatchUpPaused?.() === true;
+        const catchUpRunning = offline.isCatchUpInProgress();
+        if (catchUpPaused || catchUpRunning || offline.getPendingCatchUpSeconds() > 0) {
+          // Catch-up owns a fixed debt. Time spent recovering is intentionally not simulated.
+          if (!catchUpPaused) offline.queueCatchUpNotice(0, 0);
         } else {
           addToSimulationAccumulator(realElapsedSeconds * debugSpeedMultiplier, realElapsedSeconds);
           processOnlineSimulationAccumulator();
@@ -136,6 +139,12 @@
         const now = Date.now();
         const elapsedSeconds = Math.max(0, now - lastTickAt) / 1000;
         lastTickAt = now;
+        if (offline.isCatchUpInProgress() || offline.isCatchUpPaused?.() ||
+            offline.getPendingCatchUpSeconds() > 0) {
+          requestRender();
+          flushRender(now, { force: true });
+          return;
+        }
         const debugSpeedMultiplier = effectiveDevSpeed();
         const catchUpGameSeconds = simulationAccumulator + elapsedSeconds * debugSpeedMultiplier;
         const catchUpClockSeconds = simulationClockAccumulator + elapsedSeconds;
@@ -171,6 +180,11 @@
         runMainTick,
         setLastTickAt,
         resetAccumulators,
+        getUnprocessedOnlineClockSeconds: () => {
+          if (!isInitialLoadComplete() || offline.isCatchUpInProgress() ||
+              offline.isCatchUpPaused?.() || offline.getPendingCatchUpSeconds() > 0) return 0;
+          return simulationClockAccumulator + Math.max(0, Date.now() - lastTickAt) / 1000;
+        },
         getSimulationClockAccumulator: () => simulationClockAccumulator
       });
     }

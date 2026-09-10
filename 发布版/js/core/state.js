@@ -1,8 +1,18 @@
 (function defineStateFactory(WIS) {
   "use strict";
 
-  const { BN, ZERO, isDecimal, max: maxBN, gte } = WIS.Core.BigNum;
+  const { BN, ZERO, add, mul, isDecimal, max: maxBN, gt, gte, toNumber } = WIS.Core.BigNum;
   const greatest = (...values) => values.reduce((result, value) => maxBN(result, value), ZERO);
+  const MAX_SAFE_INTEGER_BN = BN(Number.MAX_SAFE_INTEGER);
+
+  function treasureCount(value) {
+    return maxBN(ZERO, WIS.Meta.TreasureLedger?.project(value ?? ZERO) ?? BN(value)).floor();
+  }
+
+  function compatibleTreasureCount(value) {
+    const count = treasureCount(value);
+    return gte(MAX_SAFE_INTEGER_BN, count) ? toNumber(count, 0) : count;
+  }
 
   const defaults = Object.freeze({
     joules: ZERO, joulesGainResidual: ZERO, power: ZERO, powerGainResidual: ZERO,
@@ -10,6 +20,7 @@
     lifetimeHighestScaleIndex: 0, lifetimeTotalJ: ZERO, lifetimeTotalPower: ZERO,
     lifetimeHighestMana: ZERO, lifetimeTotalMana: ZERO, lifetimeHighestImmortalPower: ZERO,
     lifetimeTotalImmortalPower: ZERO, lifetimeHighestCultivationRealmLevel: 0,
+    explorationTotal: ZERO, explorationTotalResidual: [], explorationTotalIncomplete: false, explorationTotalApproximate: false,
     currentRebirthHighestJ: ZERO, currentRebirthTotalJ: ZERO,
     currentRebirthHighestPower: ZERO, currentRebirthTotalPower: ZERO,
     currentRebirthHighestScaleIndex: 0, currentRebirthHighestMana: ZERO, currentRebirthTotalMana: ZERO,
@@ -55,7 +66,7 @@
     qiRefiningUnlocked: false, immortalLifeUnlocked: false,
     qiSpellLevel: 0, foundationUnlocked: false, goldenCoreUnlocked: false, advancedRealmLevel: 0,
     circulationUnlocked: false, minorTechniqueUnlocked: false, flyingEscapeUnlocked: false,
-    longevity800Level: 0, explorationProgress: ZERO, manaLiquefactionUnlocked: false,
+    longevity800Level: 0, explorationProgress: ZERO, explorationProgressResidual: [], explorationAttemptResidual: [], manaLiquefactionUnlocked: false,
     longevityLevel: 0, goldenCoreLongevityLevel: 0, manaSolidificationUnlocked: false,
     techniqueUnlocked: false, foundationSpellLevel: 0, magicTreasureUnlocked: false,
     scatterRebuildLevel: 0, scatterRetentionLevel: 0, reincarnationLevel: 0,
@@ -88,10 +99,10 @@
     ultimateImmortalApertureUnlocked: false,
     daoLawUnityUnlocked: false, daoDomainUnlocked: false, daoPowerUnlocked: false,
     daoTimeLawUnlocked: false, daoAssimilationUnlocked: false,
-    fiveElementsTreasureRollProgress: 0, immortalCrystalRollProgress: 0, minorTribulationExplorationLoad: 0,
+    fiveElementsTreasureRollProgress: 0, immortalCrystalRollProgress: 0, minorTribulationExplorationLoad: ZERO,
     activeChallenge: null, activeChallengeElapsedSeconds: 0, threeCorpseChallengesUnlocked: false,
     currentQiLayer: 1, bestQiLayer: 0,
-    hideUnlockedAchievements: false,
+    hideUnlockedAchievements: false, offlineFastForwardEnabled: true,
     immortalAbilityAutomationEnabled: true, immortalRealmAutomationEnabled: true,
     scaleUpgradeAutomationEnabled: true, scaleActionAutomationEnabled: true,
     theme: "light"
@@ -103,12 +114,14 @@
       symbolicPowerMilestones: { graham64: false, tree3: false },
       challengeCompletions: Object.fromEntries(Object.keys(WIS.Core.Config.challenges).map((key) => [key, 0])),
       unlockedAchievements: {},
+      treasureProgress: {}, treasureProgressResidual: {}, treasureQualifications: {}, treasureProgressVersion: 1,
+      treasureCredits: {}, treasureStockResidual: {}, treasureProgressResidualTail: {}, treasureProgressPending: {}, treasureProgressStatus: {},
       treasureImprints: {
-        tianNiPearl: 0, mysteriousGreenBottle: 0, fuBao: 0, fitnessMembershipCard: 0,
-        superLollipop: 0, skyCrystal: 0, xuTianDing: 0, baLingChi: 0, wanYaoFan: 0,
-        phantomHeavenMirror: 0, mysticHeavenSacredTree: 0, mysticHeavenSpiritSlayingSword: 0,
-        fiveElementsTreasure: 0, immortalCrystal: 0, fiveSpiritStone: 0,
-        cosmicFiber: 0, cosmicWill: 0
+        tianNiPearl: ZERO, mysteriousGreenBottle: ZERO, fuBao: ZERO, fitnessMembershipCard: ZERO,
+        superLollipop: ZERO, skyCrystal: ZERO, xuTianDing: ZERO, baLingChi: ZERO, wanYaoFan: ZERO,
+        phantomHeavenMirror: ZERO, mysticHeavenSacredTree: ZERO, mysticHeavenSpiritSlayingSword: ZERO,
+        fiveElementsTreasure: ZERO, immortalCrystal: ZERO, fiveSpiritStone: ZERO,
+        cosmicFiber: ZERO, cosmicWill: ZERO
       },
       lastUpdateAt: Date.now()
     };
@@ -146,9 +159,9 @@
     const advancedRealmLevel = goldenCoreUnlocked
       ? Math.max(0, Math.min(config.realms.length, Math.floor(Number(source.advancedRealmLevel) || 0)))
       : 0;
-    const savedMinorTribulationExplorationLoad = Number.isFinite(Number(source.minorTribulationExplorationLoad))
-      ? Number(source.minorTribulationExplorationLoad)
-      : Number(source.minorTribulationExplorationAmountSum);
+    const savedMinorTribulationExplorationLoad = maxBN(ZERO, BN(
+      source.minorTribulationExplorationLoad ?? source.minorTribulationExplorationAmountSum
+    ));
     const mana = qiRefiningUnlocked ? maxBN(ZERO, BN(source.mana)) : ZERO;
     const immortalPower =
       advancedRealmLevel >= config.immortalPower.unlockAdvancedRealmLevel
@@ -180,6 +193,7 @@
     if (advancedRealmLevel >= 8 || Number(source.lifetimeHighestCultivationRealmLevel) >= 11) unlockedAchievements.utmostPurity = true;
     if (advancedRealmLevel >= 9 || Number(source.lifetimeHighestCultivationRealmLevel) >= 12) unlockedAchievements.greatLuo = true;
     if (advancedRealmLevel >= 10 || Number(source.lifetimeHighestCultivationRealmLevel) >= 13) unlockedAchievements.selfSeveringSlash = true;
+    if (advancedRealmLevel >= 10 || Number(source.lifetimeHighestCultivationRealmLevel) >= 13 || unlockedAchievements.selfSeveringSlash) unlockedAchievements.qiPathComplete = true;
     if (totalElapsedSeconds >= 600) unlockedAchievements.trainingUp = true;
     if (gte(greatest(power, source.highestPower, source.lifetimeHighestPower), "1e100")) unlockedAchievements.googol = true;
     config.scales.slice(2).forEach((scale, offset) => {
@@ -210,30 +224,35 @@
       : Math.max(0, Math.min(3, Math.floor(Number(source.reincarnationLevel) || 0)));
     const joules = maxBN(ZERO, BN(source.joules));
     const treasureImprints = {
-      tianNiPearl: Math.max(0, Math.floor(Number(source.treasureImprints?.tianNiPearl) || 0)),
-      mysteriousGreenBottle: Math.max(0, Math.floor(Number(source.treasureImprints?.mysteriousGreenBottle) || 0)),
-      fuBao: Math.max(0, Math.floor(Number(source.treasureImprints?.fuBao) || 0)),
-      fitnessMembershipCard: Math.max(0, Math.floor(Number(source.treasureImprints?.fitnessMembershipCard) || 0)),
-      xuTianDing: Math.max(0, Math.floor(Number(source.treasureImprints?.xuTianDing) || 0)),
-      baLingChi: Math.max(0, Math.floor(Number(source.treasureImprints?.baLingChi) || 0)),
-      wanYaoFan: Math.max(0, Math.floor(Number(source.treasureImprints?.wanYaoFan) || 0)),
-      phantomHeavenMirror: Math.max(0, Math.floor(Number(source.treasureImprints?.phantomHeavenMirror) || 0)),
-      mysticHeavenSacredTree: Math.max(0, Math.floor(Number(source.treasureImprints?.mysticHeavenSacredTree) || 0)),
-      mysticHeavenSpiritSlayingSword: Math.max(0, Math.floor(Number(source.treasureImprints?.mysticHeavenSpiritSlayingSword) || 0)),
-      fiveElementsTreasure: Math.max(0, Math.floor(Number(source.treasureImprints?.fiveElementsTreasure) || 0)),
-      immortalCrystal: Math.max(0, Math.floor(Number(source.treasureImprints?.immortalCrystal) || 0)),
-      superLollipop: Math.max(0, Math.floor(Number(source.treasureImprints?.superLollipop) || 0)),
-      skyCrystal: Math.max(0, Math.floor(Number(source.treasureImprints?.skyCrystal) || 0)),
-      fiveSpiritStone: Math.max(0, Math.floor(Number(source.treasureImprints?.fiveSpiritStone) || 0)),
-      cosmicFiber: Math.max(0, Math.floor(Number(source.treasureImprints?.cosmicFiber) || 0)),
-      cosmicWill: Math.max(0, Math.floor(Number(source.treasureImprints?.cosmicWill) || 0))
+      tianNiPearl: treasureCount(source.treasureImprints?.tianNiPearl),
+      mysteriousGreenBottle: treasureCount(source.treasureImprints?.mysteriousGreenBottle),
+      fuBao: treasureCount(source.treasureImprints?.fuBao),
+      fitnessMembershipCard: treasureCount(source.treasureImprints?.fitnessMembershipCard),
+      xuTianDing: treasureCount(source.treasureImprints?.xuTianDing),
+      baLingChi: treasureCount(source.treasureImprints?.baLingChi),
+      wanYaoFan: treasureCount(source.treasureImprints?.wanYaoFan),
+      phantomHeavenMirror: treasureCount(source.treasureImprints?.phantomHeavenMirror),
+      mysticHeavenSacredTree: treasureCount(source.treasureImprints?.mysticHeavenSacredTree),
+      mysticHeavenSpiritSlayingSword: treasureCount(source.treasureImprints?.mysticHeavenSpiritSlayingSword),
+      fiveElementsTreasure: treasureCount(source.treasureImprints?.fiveElementsTreasure),
+      immortalCrystal: treasureCount(source.treasureImprints?.immortalCrystal),
+      superLollipop: treasureCount(source.treasureImprints?.superLollipop),
+      skyCrystal: treasureCount(source.treasureImprints?.skyCrystal),
+      fiveSpiritStone: treasureCount(source.treasureImprints?.fiveSpiritStone),
+      cosmicFiber: treasureCount(source.treasureImprints?.cosmicFiber),
+      cosmicWill: treasureCount(source.treasureImprints?.cosmicWill)
     };
-    const imprintedHeavenlyTreasureLevel = treasureImprints.wanYaoFan > 0
+    // Keep serialized principals separate from tails, but use complete balances
+    // for qualification and natural-treasure limits (including v49 bad principals).
+    const inventoryForRules=WIS.Meta.TreasureLedger ? Object.fromEntries(Object.keys(treasureImprints).map(key=>[
+      key,WIS.Meta.TreasureLedger.value(WIS.Meta.TreasureLedger.stock({meta:{treasures:treasureImprints,
+        treasureStockResidual:source.treasureStockResidual}},key))])) : treasureImprints;
+    const imprintedHeavenlyTreasureLevel = gt(inventoryForRules.wanYaoFan, ZERO)
       ? 3
-      : treasureImprints.baLingChi > 0 ? 2 : treasureImprints.xuTianDing > 0 ? 1 : 0;
-    const imprintedMysticHeavenlyTreasureLevel = treasureImprints.mysticHeavenSpiritSlayingSword > 0
+      : gt(inventoryForRules.baLingChi, ZERO) ? 2 : gt(inventoryForRules.xuTianDing, ZERO) ? 1 : 0;
+    const imprintedMysticHeavenlyTreasureLevel = gt(inventoryForRules.mysticHeavenSpiritSlayingSword, ZERO)
       ? 3
-      : treasureImprints.mysticHeavenSacredTree > 0 ? 2 : treasureImprints.phantomHeavenMirror > 0 ? 1 : 0;
+      : gt(inventoryForRules.mysticHeavenSacredTree, ZERO) ? 2 : gt(inventoryForRules.phantomHeavenMirror, ZERO) ? 1 : 0;
     const lifetimeHighestScaleIndex = Math.max(
       highestScaleIndex,
       Math.min(config.scales.length - 1, Math.floor(Number(source.lifetimeHighestScaleIndex) || 0))
@@ -376,7 +395,7 @@
       spaceQuakePurchased: source.spaceQuakePurchased === true,
       selflessPurchased: source.selflessPurchased === true,
       supernaturalFirePurchased: source.supernaturalFirePurchased === true,
-      fiveSpiritStonePurchased: source.fiveSpiritStonePurchased === true || treasureImprints.fiveSpiritStone > 0,
+      fiveSpiritStonePurchased: source.fiveSpiritStonePurchased === true || source.treasureQualifications?.fiveSpiritStone === true || gt(inventoryForRules.fiveSpiritStone, ZERO),
       selfSuppressionPurchased: source.selfSuppressionPurchased === true,
       stellarFurnacePurchased: source.stellarFurnacePurchased === true,
       stellarTreasureSeekingPurchased: source.stellarTreasureSeekingPurchased === true,
@@ -413,6 +432,12 @@
       flyingEscapeUnlocked: source.flyingEscapeUnlocked === true,
       longevity800Level: Math.max(0, Math.min(4, Math.floor(Number(source.longevity800Level) || 0))),
       explorationProgress: maxBN(ZERO, BN(source.explorationProgress)),
+      explorationProgressResidual: clone(source.explorationProgressResidual || []),
+      explorationAttemptResidual: clone(source.explorationAttemptResidual || []),
+      explorationTotal: maxBN(ZERO, BN(source.explorationTotal ?? ZERO)),
+      explorationTotalResidual: clone(source.explorationTotalResidual || []),
+      explorationTotalIncomplete: source.explorationTotalIncomplete === true || source.explorationTotal === undefined,
+      explorationTotalApproximate: source.explorationTotalApproximate === true,
       manaLiquefactionUnlocked: source.manaLiquefactionUnlocked === true,
       longevityLevel: Math.max(0, Math.min(2, Math.floor(Number(source.longevityLevel) || 0))),
       goldenCoreLongevityLevel: Math.max(0, Math.min(2, Math.floor(Number(source.goldenCoreLongevityLevel) || 0))),
@@ -438,7 +463,10 @@
       greatCultivatorUnlocked: source.greatCultivatorUnlocked === true,
       secondNascentSoulUnlocked: source.secondNascentSoulUnlocked === true,
       naturalTreasureLevel: Math.max(0, Math.min(
-        (source.spiritWorldAscensionUnlocked === true ? 20 : 10) + treasureImprints.mysticHeavenSacredTree * 2,
+        toNumber(add(
+          source.spiritWorldAscensionUnlocked === true ? 20 : 10,
+          mul(inventoryForRules.mysticHeavenSacredTree, 2)
+        ), Number.MAX_SAFE_INTEGER),
         Math.floor(Number(source.naturalTreasureLevel) || 0)
       )),
       spiritWorldAscensionUnlocked: source.spiritWorldAscensionUnlocked === true,
@@ -446,6 +474,7 @@
       equalHeavenLongevityUnlocked: source.equalHeavenLongevityUnlocked === true,
       fiveElementsUnlocked: source.fiveElementsUnlocked === true,
       heavenlyTreasureLevel: Math.max(
+        Math.max(0, Math.min(3, Number(source.treasureQualifications?.heavenlyTreasureLevel) || 0)),
         imprintedHeavenlyTreasureLevel,
         Math.max(0, Math.min(3, Math.floor(Number(source.heavenlyTreasureLevel) || 0)))
       ),
@@ -471,6 +500,7 @@
       roamSpiritWorldUnlocked: source.roamSpiritWorldUnlocked === true,
       descendRealmUnlocked: source.descendRealmUnlocked === true,
       mysticHeavenlyTreasureLevel: Math.max(
+        Math.max(0, Math.min(3, Number(source.treasureQualifications?.mysticHeavenlyTreasureLevel) || 0)),
         imprintedMysticHeavenlyTreasureLevel,
         Math.max(0, Math.min(3, Math.floor(Number(source.mysticHeavenlyTreasureLevel) || 0)))
       ),
@@ -494,7 +524,7 @@
       spiritCaptureReturnUnlocked: source.spiritCaptureReturnUnlocked === true,
       indestructibleDharmaBodyUnlocked: source.indestructibleDharmaBodyUnlocked === true,
       immortalApertureIVUnlocked: source.immortalApertureIVUnlocked === true,
-      fiveElementsTreasureUnlocked: source.fiveElementsTreasureUnlocked === true || treasureImprints.fiveElementsTreasure > 0,
+      fiveElementsTreasureUnlocked: source.fiveElementsTreasureUnlocked === true || source.treasureQualifications?.fiveElementsTreasure === true || gt(inventoryForRules.fiveElementsTreasure, ZERO),
       lawAffinityUnlocked: source.lawAffinityUnlocked === true,
       flawlessJadeBodyUnlocked: source.flawlessJadeBodyUnlocked === true,
       spiritDomainWorldTransformationUnlocked: source.spiritDomainWorldTransformationUnlocked === true,
@@ -520,8 +550,8 @@
         ? Math.max(0, Number(source.immortalCrystalRollProgress)) % 1
         : 0,
       minorTribulationExplorationLoad: advancedRealmLevel >= 6
-        ? 0
-        : Math.max(0, savedMinorTribulationExplorationLoad || 0),
+        ? ZERO
+        : savedMinorTribulationExplorationLoad,
       symbolicPowerMilestones: {
         graham64: source.symbolicPowerMilestones?.graham64 === true,
         tree3: source.symbolicPowerMilestones?.tree3 === true
@@ -543,7 +573,17 @@
         ),
       unlockedAchievements,
       treasureImprints,
+      treasureProgress: Object.fromEntries(Object.keys(treasureImprints).map(key => [key, maxBN(ZERO, BN(source.treasureProgress?.[key]))])),
+      treasureProgressResidual: Object.fromEntries(Object.keys(treasureImprints).map(key => [key, BN(source.treasureProgressResidual?.[key])])),
+      treasureStockResidual: clone(source.treasureStockResidual || {}),
+      treasureProgressResidualTail: clone(source.treasureProgressResidualTail || {}),
+      treasureCredits: clone(source.treasureCredits || {}),
+      treasureProgressPending: clone(source.treasureProgressPending || {}),
+      treasureProgressStatus: clone(source.treasureProgressStatus || {}),
+      treasureQualifications: source.treasureQualifications && typeof source.treasureQualifications === "object" ? clone(source.treasureQualifications) : {},
+      treasureProgressVersion: source.treasureProgressVersion === 1 ? 1 : 0,
       hideUnlockedAchievements: source.hideUnlockedAchievements === true,
+      offlineFastForwardEnabled: source.offlineFastForwardEnabled !== false,
       immortalAbilityAutomationEnabled: source.immortalAbilityAutomationEnabled !== false,
       immortalRealmAutomationEnabled: source.immortalRealmAutomationEnabled !== false,
       scaleUpgradeAutomationEnabled: source.scaleUpgradeAutomationEnabled !== false,
@@ -560,7 +600,7 @@
     "core.runtime": ["totalElapsedSeconds", "reincarnationElapsedSeconds", "currentScaleElapsedSeconds", "lastUpdateAt"],
     "core.preferences": [
       "hideUnlockedAchievements", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
-      "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "theme"
+      "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "theme", "offlineFastForwardEnabled"
     ],
     "powerSystem.systems.scale.progress": ["highestPower", "totalPower", "maxSinglePowerGain", "brickUnlocked", "wallUnlocked", "highestScaleIndex", "superLollipopRollProgress", "fiveSpiritStoneRollProgress"],
     "powerSystem.systems.scale.actions": ["runningLevel", "rockLevel", "ghostBackActive"],
@@ -594,6 +634,7 @@
     ],
     "cultivation.systems.immortal.progress": [
       "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel", "currentQiLayer", "explorationProgress",
+      "explorationProgressResidual", "explorationAttemptResidual",
       "minorTribulationExplorationLoad", "fiveElementsTreasureRollProgress", "immortalCrystalRollProgress"
     ],
     "cultivation.systems.immortal.abilities": [
@@ -626,6 +667,7 @@
       "reincarnationEffectLevel", "reincarnationManaJRewardLevel"
     ],
     "meta.statistics": [
+      "explorationTotal", "explorationTotalResidual", "explorationTotalIncomplete", "explorationTotalApproximate",
       "lifetimeHighestJ", "lifetimeHighestPower", "lifetimeHighestScaleIndex", "lifetimeTotalJ",
       "lifetimeTotalPower", "lifetimeHighestMana", "lifetimeTotalMana", "lifetimeHighestImmortalPower",
       "lifetimeTotalImmortalPower", "lifetimeHighestCultivationRealmLevel", "immortalSelectionCount",
@@ -635,7 +677,7 @@
       "currentRebirthTotalImmortalPower", "currentRebirthHighestCultivationRealmLevel"
     ],
     "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "challengeCompletions", "threeCorpseChallengesUnlocked", "bestQiLayer"],
-    "meta": ["unlockedAchievements", "treasureImprints", "symbolicPowerMilestones"]
+    "meta": ["unlockedAchievements", "treasureImprints", "symbolicPowerMilestones", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureCredits", "treasureProgressPending", "treasureProgressStatus", "treasureQualifications", "treasureProgressVersion"]
   });
 
   const fieldPaths = new Map();
@@ -713,16 +755,28 @@
     return result;
   }
 
-  function getPath(root, path) {
-    return path.split(".").reduce((value, key) => value?.[key], root);
-  }
-
-  function setPath(root, path, value) {
+  // Compile the immutable compatibility paths once. Read the current domain
+  // branches on every access: resets may replace any of these objects.
+  const legacyPaths = new Map([...fieldPaths].map(([key, path]) => {
     const keys = path.split(".");
-    const finalKey = keys.pop();
-    const parent = keys.reduce((target, key) => (target[key] ||= {}), root);
-    parent[finalKey] = value;
-  }
+    const [a, b, c, d, e, f] = keys;
+    const readers = {
+      2: (root) => root?.[a]?.[b],
+      3: (root) => root?.[a]?.[b]?.[c],
+      4: (root) => root?.[a]?.[b]?.[c]?.[d],
+      5: (root) => root?.[a]?.[b]?.[c]?.[d]?.[e],
+      6: (root) => root?.[a]?.[b]?.[c]?.[d]?.[e]?.[f]
+    };
+    const read = readers[keys.length] || ((root) => {
+      for (const part of keys) root = root?.[part];
+      return root;
+    });
+    const write = (root, value) => {
+      for (let index = 0; index < keys.length - 1; index += 1) root = (root[keys[index]] ||= {});
+      root[keys[keys.length - 1]] = value;
+    };
+    return [key, { read, write }];
+  }));
 
   function emptyDomain() {
     return {
@@ -734,12 +788,50 @@
   }
 
   function attachLegacyAliases(domain) {
-    fieldPaths.forEach((path, key) => Object.defineProperty(domain, key, {
+    for (const key of ["xianForce", "yuanForce"]) Object.defineProperty(domain, key, {
+      configurable: true, enumerable: false,
+      get: () => WIS.Cultivation.Xiuzhen?.amount(domain, key) ?? ZERO
+    });
+    legacyPaths.forEach(({ read, write }, key) => {
+      if (key === "treasureImprints") return;
+      Object.defineProperty(domain, key, {
+        configurable: true,
+        enumerable: false,
+        get: () => read(domain),
+        set: (value) => write(domain, value)
+      });
+    });
+    let treasureView = null;
+    let treasureViewTarget = null;
+    Object.defineProperty(domain, "treasureImprints", {
       configurable: true,
       enumerable: false,
-      get: () => getPath(domain, path),
-      set: (value) => setPath(domain, path, value)
-    }));
+      get: () => {
+        const target = domain.meta.treasures;
+        if (treasureView && treasureViewTarget === target) return treasureView;
+        treasureViewTarget = target;
+        treasureView = new Proxy(target, {
+          get: (treasures, key, receiver) => typeof key === "string" &&
+            Object.prototype.hasOwnProperty.call(treasures, key)
+            ? WIS.Meta.Treasures?.count?.(domain,key) ?? compatibleTreasureCount(Reflect.get(treasures, key, receiver))
+            : Reflect.get(treasures, key, receiver),
+          set: (treasures, key, value, receiver) => {
+            if(domain.meta.treasureStockResidual) delete domain.meta.treasureStockResidual[key];
+            return Reflect.set(treasures,key,treasureCount(value),receiver);
+          }
+        });
+        return treasureView;
+      },
+      set: (value) => {
+        const source = value && typeof value === "object" ? value : {};
+        domain.meta.treasures = Object.fromEntries(
+          Object.entries(source).map(([key, count]) => [key, treasureCount(count)])
+        );
+        domain.meta.treasureStockResidual = {};
+        treasureView = null;
+        treasureViewTarget = null;
+      }
+    });
     Object.defineProperty(domain, "cultivationSystem", {
       configurable: true, enumerable: false,
       get: () => domain.cultivation.active === "immortal" ? "仙道" : null,
@@ -751,7 +843,9 @@
   function fromFlat(flatInput) {
     const flat = { ...freshFlat(), ...flatInput };
     const domain = emptyDomain();
-    fieldPaths.forEach((path, key) => setPath(domain, path, clone(flat[key])));
+    domain.meta.bigNumbers = WIS.Meta.BigNumbers?.normalize(flatInput?.bigNumbers) ?? {};
+    domain.cultivation.systems.immortal.xiuzhen = WIS.Cultivation.Xiuzhen?.normalize(flatInput?.xiuzhen) ?? {};
+    legacyPaths.forEach(({ write }, key) => write(domain, clone(flat[key])));
     domain.cultivation.active = flat.cultivationSystem === "仙道" || flat.cultivationSystem === "immortal" ? "immortal" : null;
     domain.meta.achievements = clone(flat.unlockedAchievements || {});
     domain.meta.treasures = clone(flat.treasureImprints || {});
@@ -778,12 +872,18 @@
 
   function toFlat(state) {
     const flat = {};
-    Object.keys(freshFlat()).forEach((key) => { flat[key] = clone(state[key]); });
+    Object.keys(freshFlat()).forEach((key) => { flat[key] = clone(key === "treasureImprints" ? state.meta.treasures : state[key]); });
     return flat;
   }
 
   function toSerializable(state) {
     return clone({ core: state.core, powerSystem: state.powerSystem, cultivation: state.cultivation, meta: state.meta });
+  }
+
+  function cloneForSimulation(state) {
+    // This is a domain clone, not an import: do not normalize fields, rebuild
+    // manual histories, or construct defaults that would immediately be replaced.
+    return attachLegacyAliases(toSerializable(state));
   }
 
   function flatFromDomain(domain) {
@@ -801,6 +901,7 @@
   function normalizeDomain(input) {
     const source = isRecord(input) ? clone(input) : {};
     const knownFlat = flatFromDomain(source);
+    if (source.meta?.statistics?.explorationTotal === undefined) knownFlat.explorationTotalIncomplete = true;
     const immortalAbilities = source.cultivation?.systems?.immortal?.abilities;
     if (isRecord(immortalAbilities)) {
       knownFlat.trueSpiritTransformationLevel = immortalAbilities.trueSpiritTransformationLevel
@@ -848,6 +949,9 @@
     infinity.currency = maxBN(ZERO, BN(infinity.currency));
     if (!isRecord(infinity.upgrades)) infinity.upgrades = {};
     domain.meta.infinity = infinity;
+    domain.meta.bigNumbers = WIS.Meta.BigNumbers?.normalize(source.meta?.bigNumbers) ?? source.meta?.bigNumbers ?? {};
+    domain.cultivation.systems.immortal.xiuzhen = WIS.Cultivation.Xiuzhen?.normalize(source.cultivation?.systems?.immortal?.xiuzhen)
+      ?? source.cultivation?.systems?.immortal?.xiuzhen ?? {};
     return attachLegacyAliases(domain);
   }
 
@@ -889,12 +993,43 @@
       : normalizeLegacy(data),
     47: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
       ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    48: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    49: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    50: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    51: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    52: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    54: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
+      : normalizeLegacy(data),
+    53: (data) => data?.core && data?.powerSystem && data?.cultivation && data?.meta
+      ? normalizeDomain(data)
       : normalizeLegacy(data)
   });
 
   function migrate(schemaVersion, data) {
     const version = Number(schemaVersion) || 36;
-    const migration = migrations[version] || migrations[Math.min(version, 47)] || migrations[36];
+    const migration = migrations[version] || migrations[Math.min(version, 54)] || migrations[36];
+    // v53 separates lifetime exploration input from fractional/integer carry;
+    // unknown historical totals are flagged, never inferred from loot or replayed.
+    // v52 adds the independent Xiuzhen subdomain; existing resource meanings stay intact.
+    // v51 adds a separate symbolic coefficient/Graham domain; no old field is repurposed.
+    // v50 preserves precision-blocked source inputs and their status. v49 signed
+    // words are kept intact; missing historical information is not reconstructed.
+    // v49 adds signed stock residuals and extra progress words. Old v48 ledgers
+    // default to empty tails; never replay the v48 source-remainder migration.
+    // v48 adds independent progress ledgers. Normalization preserves them;
+    // source-remainder conversion is lazy, after runtime/effects are bound.
     return migration(data);
   }
 
@@ -912,5 +1047,5 @@
     return freezeTree(view);
   }
 
-  WIS.Core.State = Object.freeze({ defaults, fieldGroups, fresh, normalize, normalizeDomain, migrate, fromFlat, toFlat, toSerializable, domainView });
+  WIS.Core.State = Object.freeze({ defaults, fieldGroups, fresh, normalize, normalizeDomain, migrate, fromFlat, toFlat, toSerializable, cloneForSimulation, domainView });
 }(window.WIS));

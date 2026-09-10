@@ -6,6 +6,7 @@
   let projectedState = null;
   let projectionDepth = 0;
   let treasurePredictionDepth = 0;
+  let offlineExecutionDepth = 0;
   let randomSource = null;
   let hooks = {};
   const PROJECTION_SIDE_EFFECT_HOOK = /^(save|render|show|mark|notify|play|request|flush)/;
@@ -17,6 +18,11 @@
   const state = new Proxy({}, {
     get(_target, key) {
       const current = currentState();
+      if (current?.meta?.challenges?.activeChallenge === "mortalTransformation" && key !== "naturalTreasureLevel" &&
+          Object.prototype.hasOwnProperty.call(current.cultivation?.systems?.immortal?.abilities || {}, key)) {
+        const value = current[key];
+        return typeof value === "boolean" ? false : 0;
+      }
       return current?.[key];
     },
     set(_target, key, value) {
@@ -80,6 +86,22 @@
     return treasurePredictionDepth > 0;
   }
 
+  // Execution policy only: never rewrite the player's saved automation flags.
+  // Enter separately for each synchronous planning/commit unit so yielding to
+  // the browser cannot leak this context into subsequent online actions.
+  function withOfflineExecution(callback) {
+    offlineExecutionDepth += 1;
+    try {
+      return callback();
+    } finally {
+      offlineExecutionDepth -= 1;
+    }
+  }
+
+  function isOfflineExecution() {
+    return offlineExecutionDepth > 0;
+  }
+
   function withRandomSource(source, callback) {
     if (typeof callback !== "function") return undefined;
     const previous = randomSource;
@@ -108,7 +130,7 @@
   }
 
   function call(name, ...args) {
-    if (isProjection() && PROJECTION_SIDE_EFFECT_HOOK.test(name)) return undefined;
+    if ((isProjection() || WIS.Simulation?.FastForward?.isComputing()) && PROJECTION_SIDE_EFFECT_HOOK.test(name)) return undefined;
     const hook = hooks[name];
     if (typeof hook !== "function") throw new Error(`Runtime hook 未绑定：${name}`);
     return hook(...args);
@@ -120,6 +142,7 @@
 
   WIS.Core.Runtime = Object.freeze({
     state, bind, setState, withState, withProjection, withRandomSource, withTreasurePrediction,
+    withOfflineExecution, isOfflineExecution,
     isProjection, isTreasurePrediction, random,
     call, has, getState: currentState
   });
