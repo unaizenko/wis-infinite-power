@@ -486,6 +486,12 @@
     }
   }
 
+  function offlineDialogWaitMs(status) {
+    // Presentation only: short foreground/back-tab debt still settles in full.
+    // Keep a visible escape/retry path when even a short recovery is slow.
+    return Number(status?.originalClockSeconds) >= CONFIG.offlineNoticeMinSeconds ? 300 : 2000;
+  }
+
   function handleOfflineCatchUpStatus(status) {
     offlineCatchUpStatus = status || Object.freeze({ phase: "idle", locked: false });
     window.clearTimeout(offlineDialogDelayTimer);
@@ -506,7 +512,8 @@
     }
     if (offlineCatchUpStatus.phase === "completed") {
       const elapsedMs = Math.max(0, Date.now() - (Number(offlineCatchUpStatus.startedAt) || Date.now()));
-      if (rawById("offline-progress-dialog")?.open || elapsedMs >= 300) {
+      if (rawById("offline-progress-dialog")?.open ||
+          (Number(offlineCatchUpStatus.originalClockSeconds) >= CONFIG.offlineNoticeMinSeconds && elapsedMs >= 300)) {
         openOfflineProgressDialog();
       } else {
         acknowledgeCatchUp();
@@ -519,7 +526,7 @@
     }
 
     const elapsedMs = Math.max(0, Date.now() - (Number(offlineCatchUpStatus.startedAt) || Date.now()));
-    const delayMs = Math.max(0, 300 - elapsedMs);
+    const delayMs = Math.max(0, offlineDialogWaitMs(offlineCatchUpStatus) - elapsedMs);
     if (delayMs === 0) {
       openOfflineProgressDialog();
       return;
@@ -527,7 +534,8 @@
     offlineDialogDelayTimer = window.setTimeout(() => {
       offlineDialogDelayTimer = null;
       const latest = getCatchUpStatus();
-      if (latest.phase === "running" || latest.phase === "paused") openOfflineProgressDialog();
+      // Re-evaluate the current session: an old timer must not open a new task early.
+      if (latest.phase === "running" || latest.phase === "paused") handleOfflineCatchUpStatus(latest);
     }, delayMs);
   }
 
