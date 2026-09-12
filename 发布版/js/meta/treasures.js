@@ -9,9 +9,17 @@
   // significand is rounded by Decimal; the exact word remains in the ledger.
   function project(raw) {
     const cache = WIS.Simulation?.FastForward?.ledgerCache;
-    return cache ? cache.get('project', raw, () => uncached_project(raw)) : uncached_project(raw);
+    return cache ? cache.get('project', raw, prepared => uncached_project(prepared)) : uncached_project(raw);
+  }
+  function counted(raw) {
+    const match = /^(.*?)\*([1-9]\d*)$/.exec(String(raw));
+    if (!match) return { term: String(raw), count: 1n };
+    if (match[2].length > MAX_DIGITS) throw new LedgerError("账本重复次数超过安全容量，输入保留");
+    return { term: match[1], count: BigInt(match[2]) };
   }
   function uncached_project(raw) {
+    const countedTerm = counted(raw);
+    if (countedTerm.count !== 1n) return project(countedTerm.term).mul(project(String(countedTerm.count)));
     const text=String(raw).trim().replace(/^\+/, "");
     const m=/^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(text);
     let safe=text;
@@ -31,7 +39,7 @@
   // separated / higher-layer words stay separate instead of being rounded away.
   function decimalWord(text) {
     const cache = WIS.Simulation?.FastForward?.ledgerCache;
-    return cache ? cache.get('decimalWord', text, () => uncached_decimalWord(text)) : uncached_decimalWord(text);
+    return cache ? cache.get('decimalWord', text, prepared => uncached_decimalWord(prepared)) : uncached_decimalWord(text);
   }
   function uncached_decimalWord(text) {
     const m = /^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(text);
@@ -43,24 +51,26 @@
     return { c, e: exponent };
   }
   const wordText = w => WIS.Simulation?.FastForward?.ledgerCache?.wordText(w) ?? `${w.c}e${w.e}`;
-  function normalize(values) {
+  function normalize(values, limit = MAX_TERMS) {
+    if (limit !== MAX_TERMS) return uncached_normalize(values, limit);
     const cache = WIS.Simulation?.FastForward?.ledgerCache;
-    return cache ? cache.get('normalize', values, () => uncached_normalize(values)) : uncached_normalize(values);
+    return cache ? cache.get('normalize', values, prepared => uncached_normalize(prepared)) : uncached_normalize(values);
   }
-  function uncached_normalize(values) {
-    const words = [], opaque = [];
+  function uncached_normalize(values, limit = MAX_TERMS) {
+    const words = [], opaque = new Map();
     for (const raw of values) {
-      const text = String(raw), word = decimalWord(text);
+      const item = counted(raw), text = item.term, parsedWord = decimalWord(text), word = parsedWord ? { ...parsedWord } : null;
+      if (word) word.c *= item.count;
       if (word) { if (word.c !== 0n) words.push(word); }
       else {
         // Do not round away exact decimal words that exceed our local capacity.
         if (/^-?\d+(?:\.\d*)?(?:e[+-]?\d+)?$/i.test(text))
           throw new LedgerError("宝物账本十进制词项超过安全容量，操作未提交");
-        const value = project(raw);
+        const value = project(text);
         if (!value.isFinite() || value.isNan()) throw new LedgerError("宝物账本包含非法数值");
         if (!value.eq(0)) {
-          const opposite = opaque.findIndex(x => x.eq(value.neg()));
-          if (opposite >= 0) opaque.splice(opposite, 1); else opaque.push(value);
+          const key = String(value.abs());
+          opaque.set(key, (opaque.get(key) || 0n) + BigInt(value.sign) * item.count);
         }
       }
     }
@@ -74,15 +84,20 @@
         if (last.c === 0n) merged.pop();
       } else merged.push({ ...word });
     }
-    const result = [...merged.filter(w=>w.c!==0n).map(wordText), ...opaque.map(String)];
-    if (result.length > MAX_TERMS) throw new LedgerError("宝物账本残差层数超过安全容量，操作未提交");
+    const result = [...merged.filter(w=>w.c!==0n).map(wordText), ...Array.from(opaque, ([term, count]) => {
+      if (count === 0n) return null;
+      const magnitude = count < 0n ? -count : count;
+      if (String(magnitude).length > MAX_DIGITS) throw new LedgerError("账本重复次数超过安全容量，输入保留");
+      return `${count < 0n ? "-" : ""}${term}${magnitude === 1n ? "" : "*" + magnitude}`;
+    }).filter(Boolean)];
+    if (result.length > limit) throw new LedgerError("宝物账本残差层数超过安全容量，操作未提交");
     // One projection per word, not two parses on every sort comparison.
     return result.map(text=>({text,magnitude:project(text).abs()}))
       .sort((a,b)=>b.magnitude.cmp(a.magnitude)).map(item=>item.text);
   }
   function value(terms) { return terms.reduceRight((sum,t)=>sum.add(project(t)), ZERO); }
-  function sign(terms) {
-    terms = normalize(terms);
+  function sign(terms, limit = MAX_TERMS) {
+    terms = normalize(terms, limit);
     if (!terms.length) return 0;
     if (terms.length === 1) return terms[0].startsWith("-") ? -1 : 1;
     const positive = terms.filter(t=>!t.startsWith("-")).map(project), negative = terms.filter(t=>t.startsWith("-")).map(t=>project(t).abs());
@@ -93,9 +108,10 @@
     return p.gt(n) ? 1 : -1;
   }
   const negate = terms => terms.map(t=>String(t).startsWith("-") ? String(t).slice(1) : "-"+t);
-  const add = (terms, amount) => normalize([...terms, ...amount]);
-  const subtract = (terms, amount) => add(terms, negate(amount));
-  const compare = (terms, amount) => sign(subtract(terms,amount));
+  const add = (terms, amount, limit = MAX_TERMS) => normalize([...terms, ...amount], limit);
+  const subtract = (terms, amount, limit = MAX_TERMS) => add(terms, negate(amount), limit);
+  const compare = (terms, amount, limit = MAX_TERMS) => sign(subtract(terms,amount,limit),limit);
+  const bounded = limit => Object.freeze({ project, value, normalize: t => normalize(t,limit), sign: t => sign(t,limit), add: (a,b) => add(a,b,limit), subtract: (a,b) => subtract(a,b,limit), compare: (a,b) => compare(a,b,limit) });
   function scale(terms, factor) {
     const f = decimalWord(String(factor));
     return normalize(terms.map(t=>{
@@ -143,13 +159,22 @@
   const quotient=(a,b)=>times(a,fraction(b.d,b.n,true));
   const fromWords=words=>words.reduce((a,w)=>plus(a,fromDecimal(w)),fraction(0n));
   const creditCache=new WeakMap();
-  const readCredit=c=>{let v=creditCache.get(c);if(!v){v=fraction(BigInt(c.n),BigInt(c.d));creditCache.set(c,v);}return v;};
+  // A validated fraction may follow an exact in-memory domain copy. The
+  // source words are checked every time: edits and imported JSON must validate.
+  const cachedCredit=c=>{const v=creditCache.get(c);return v&&v.n===c.n&&v.d===c.d?v:null;};
+  const cacheCredit=(c,value)=>{const entry={n:c.n,d:c.d,value:Object.freeze(value)};creditCache.set(c,entry);return entry.value;};
+  const readCredit=c=>cachedCredit(c)?.value || cacheCredit(c,fraction(BigInt(c.n),BigInt(c.d)));
+  function inheritCredit(source,target) {
+    if(!source||!target)return;
+    const entry=cachedCredit(source);
+    if(entry&&source.n===target.n&&source.d===target.d)creditCache.set(target,entry);
+  }
   const Credit=Object.freeze({fraction,fromDecimal,fromWords,plus,minus,times,quotient,
     compare:(a,b)=>{const v=a.n*b.d-b.n*a.d;return v>0n?1:v<0n?-1:0;},
     floor:a=>a.n>=0n?a.n/a.d:(a.n-a.d+1n)/a.d,
-    read:readCredit,actual:c=>times(readCredit(c),fromDecimal(c.unit)),
+    read:readCredit,inherit:inheritCredit,actual:c=>times(readCredit(c),fromDecimal(c.unit)),
     value:a=>project(String(a.n)).div(project(String(a.d))),
-    store:(a,unit)=>{const c={version:1,n:String(a.n),d:String(a.d),unit:String(unit)};creditCache.set(c,a);return c;},
+    store:(a,unit)=>{const c={version:1,n:String(a.n),d:String(a.d),unit:String(unit)};cacheCredit(c,a);return c;},
     limit:FRACTION_DIGITS});
   function write(state,key,terms,isStock=false) {
     terms=normalize(terms);
@@ -187,7 +212,7 @@
     if(word && word.c!==0n && word.e<0) throw new LedgerError("宝物数量不能包含小数");
     return parsed;
   }
-  WIS.Meta.TreasureLedger=Object.freeze({LedgerError,Credit,project,normalize,value,sign,add,subtract,compare,scale,stock,progress,write,transaction,integer,MAX_TERMS});
+  WIS.Meta.TreasureLedger=Object.freeze({LedgerError,Credit,bounded,project,normalize,value,sign,add,subtract,compare,scale,stock,progress,write,transaction,integer,MAX_TERMS});
 }(window.WIS));
 
 (function defineTreasureMeta(WIS) {
@@ -461,7 +486,43 @@
     }
     throw new PrecisionError("batch-boundary","宝物奖励边界无法可靠定位；输入已保留");
   }
-  function apply(state, key, units, gain) {
+  const evaluatedEvents=Object.create(null);
+  function diagnosticBefore(state,key,units,gain,meta=state.meta) {
+    const original={meta};
+    return {key,logicalTime:state.totalElapsedSeconds,input:String(units),gain:String(gain),
+      before:String(T.count(original,key)),demand:String(requirement(key,held(original,key))),
+      progressBefore:L.progress(original,key).map(String),pendingBefore:(meta.treasureProgressPending?.[key]||[]).length};
+  }
+  function apply(state,key,units,gain) {
+    evaluatedEvents[key]=(evaluatedEvents[key]||0)+1;
+    const before=state.meta,oldStatus=before.treasureProgressStatus?.[key];
+    let reward;
+    try {reward=applyInput(state,key,units,gain);}
+    catch(error) {
+      // Error context is attached to the exception; failed awards never enter
+      // the persisted commit journal. The enclosing frame restores all domains.
+      try {error.treasureContext=diagnosticBefore(state,key,units,gain,before);}
+      catch {error.treasureContext={key,input:String(units),gain:String(gain),reason:'unreadable-input-ledger'};}
+      throw error;
+    }
+    const status=state.meta.treasureProgressStatus?.[key];
+    if(reward.gt(0)||(status?.state==='blocked'&&status?.code!==oldStatus?.code)) {
+      const prior=before.treasureDiagnostics||{version:1,sequence:0,counts:{},recent:[]};
+      const sequence=prior.sequence+1,counts={...prior.counts};
+      if(reward.gt(0))counts[key]=(counts[key]||0)+1;
+      const row={...diagnosticBefore(state,key,units,gain,before),sequence,
+        after:String(T.count(state,key)),awarded:String(reward),
+        batches:String(reward.div(T.getTreasureAwardMultiplier(state,key))),
+        progressAfter:L.progress(state,key).map(String),pendingAfter:(state.meta.treasureProgressPending?.[key]||[]).length,
+        reason:status?.code||null};
+      // Copy-on-write: the outer frame/checkpoint owns commit identity. Trial
+      // restoration discards both counts and receipts, including accepted
+      // endpoints later replaced by independent validation.
+      state.meta.treasureDiagnostics={version:1,sequence,counts,recent:[...prior.recent.slice(-31),row]};
+    }
+    return reward;
+  }
+  function applyInput(state, key, units, gain) {
     const saved=state.meta.treasureCredits?.[key];
     const entries=state.meta.treasureProgressPending?.[key]||[];
     const demand=requirement(key,held(state,key));
@@ -473,10 +534,10 @@
     const ordinary = () => applyOrdinary(state, key, units, gain);
     return WIS.Simulation?.FastForward?.applyTreasure(state, key, units, gain, ordinary) ?? ordinary();
   }
-  function applyCredit(state,key,units,gain) {
+  function applyCredit(state,key,units,gain,fixedAward) {
     const C=L.Credit;
     return L.transaction(state,()=>{
-      const currentAward=BN(T.getTreasureAwardMultiplier(state,key));
+      const currentAward=BN(fixedAward ?? T.getTreasureAwardMultiplier(state,key));
       let stock=L.stock(state,key),n=L.value(stock).floor(),rewards=[];
       let record=state.meta.treasureCredits?.[key] || C.store(C.fromWords(L.progress(state,key)),ONE);
       let credit=C.read(record),unit=BN(record.unit),award=currentAward;
@@ -558,9 +619,9 @@
       return L.value(rewards);
     });
   }
-  function applyOrdinary(state, key, units, gain) {
+  function applyOrdinary(state, key, units, gain, fixedAward) {
     return L.transaction(state,()=>{
-      const currentAward=BN(T.getTreasureAwardMultiplier(state,key));
+      const currentAward=BN(fixedAward ?? T.getTreasureAwardMultiplier(state,key));
       let award=currentAward;
       let stock=L.stock(state,key), p=L.progress(state,key), rewards=[], n=L.value(stock).floor();
       let precision=state.meta.treasureProgressStatus?.[key]?.state==="limited"
@@ -652,6 +713,20 @@
       return L.value(rewards);
     });
   }
+  function hasUnsettled(state,key) {
+    if(state.meta.treasureProgressPending?.[key]?.length)return true;
+    const credit=state.meta.treasureCredits?.[key];
+    return credit ? BigInt(credit.n)!==0n : L.sign(L.progress(state,key))>0;
+  }
+  function advanceFixed(state, key, units, input) {
+    if (!input?.eligible) return ZERO;
+    // No model hook or later-in-segment multiplier/qualification resampling.
+    const gain = BN(input.gain), award = BN(input.award);
+    const saved = state.meta.treasureCredits?.[key];
+    return saved || gain.gte(requirement(key, held(state,key)))
+      ? applyCredit(state,key,units,gain,award)
+      : applyOrdinary(state,key,units,gain,award);
+  }
   function advance(state, key, units, { available = true } = {}) {
     ensure(state);
     if (!available || qualification(state, key) !== null) return ZERO;
@@ -714,6 +789,50 @@
       remainingSeconds,
       pausedReason: reason || (rate.gt(0) ? null : `来源暂无实际产出${sources.length ? `（${sources.join("、")}）` : ""}`) };
   }
+  function boundarySnapshot(state) {
+    // One explicitly qualified/migrated confirmed state. The caller owns this
+    // snapshot only until that state advances or is restored; no global ETA
+    // cache survives inventory, progress, rate or eligibility changes.
+    ensure(state);
+    const S=WIS.Power.ScaleLogic,I=WIS.Cultivation.ImmortalLogic,cache=new Map();
+    const once=(name,calculate)=>{if(!cache.has(name))cache.set(name,calculate());return cache.get(name);};
+    const rows=T.keys.map(key=>{
+      const reason=qualification(state,key);
+      if(reason)return {key,pausedReason:reason,remainingSeconds:null};
+      let units=ZERO;
+      if(explorationKeys.includes(key))units=once('exploration',()=>I.automaticExplorationAmountPerSecond());
+      const produced=(name,fn)=>once(name,()=>fn().gt(0)?ONE:ZERO);
+      if(['tianNiPearl','baLingChi'].includes(key))units=units.add(produced('circulation',()=>I.circulationManaPerSecond()));
+      if(['fitnessMembershipCard','superLollipop'].includes(key))units=units.add(produced('fitness',()=>S.fitnessJBonus()));
+      if(key==='skyCrystal')units=units.add(produced('rock',()=>S.rockPowerPerSecond()));
+      if(key==='fiveSpiritStone')units=units.add(produced('intent',()=>S.ultimateIntentPowerSource()));
+      if(['immortalCrystal','fiveElementsTreasure'].includes(key))units=units.add(produced('immortalPower',()=>I.immortalPowerPerSecond()));
+      if(['cosmicFiber','cosmicWill'].includes(key))units=units.add(ONE);
+      if(!units.gt(0)||state.meta.treasureProgressStatus?.[key]?.state==='blocked')
+        return {key,pausedReason:'inactive-or-protected',remainingSeconds:null};
+      const r=rules[key],demand=requirement(key,held(state,key));
+      let gain=once(r.immortal?'immortalMultiplier':'ordinaryMultiplier',()=>BN(r.immortal?
+        I.immortalTreasureChanceMultiplier():T.getTreasureChanceMultiplier(state))).mul(r.coefficient);
+      if(key==='skyCrystal')gain=gain.mul(ONE.add(ONE.add(BN(S.effectiveRockLevel()).div(1000)).log10()));
+      const rate=nonnegative(units).mul(B.min(gain,demand));
+      let remaining;
+      try {
+        const credit=state.meta.treasureCredits?.[key];
+        remaining=credit?L.Credit.value(L.Credit.minus(L.Credit.fromDecimal(demand),L.Credit.actual(credit)))
+          :L.value(L.subtract([demand],L.progress(state,key)));
+      } catch(error) {
+        if(!(error instanceof L.LedgerError))throw error;
+        return {key,pausedReason:'remaining-resolution',remainingSeconds:null};
+      }
+      return {key,pausedReason:rate.gt(0)?null:'inactive',remainingSeconds:rate.gt(0)?B.max(ZERO,remaining).div(rate):null};
+    });
+    // The two independent exploration systems have their own real boundaries;
+    // ordinary treasure multipliers must not be applied to either rate.
+    if(state.cultivation.active==='immortal'&&WIS.Cultivation.ExplorationProgress)
+      rows.push(...WIS.Cultivation.ExplorationProgress.boundaries(state,once('exploration',()=>I.automaticExplorationAmountPerSecond())));
+    return rows;
+  }
   WIS.Meta.TreasureProgress = Object.freeze({ rules, explorationKeys, requirement, cumulative, affordable, unitGain,
-    ensure, advance, settle, qualification, rememberQualifications, importLegacyTransient, view });
+    ensure, advance, advanceFixed, hasUnsettled, settle, qualification, rememberQualifications, importLegacyTransient, view, boundarySnapshot,
+    diagnostics:state=>({evaluations:{...evaluatedEvents},committed:state.meta.treasureDiagnostics||null}) });
 }(window.WIS));

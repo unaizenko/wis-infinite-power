@@ -108,9 +108,9 @@
     try {
       const saved = WIS.Core.Save.read();
       savedOfflineRecovery = saved?.offlineRecovery ?? null;
-      return saved ? WIS.Core.State.migrate(saved.schemaVersion, saved.data) : freshDefaultState();
+      return saved ? saved.state : freshDefaultState();
     } catch (error) {
-      console.error("WIS save migration or state normalization failed; using a fresh state.", error);
+      console.error("WIS save load failed; original storage is protected and simulation is paused.", error);
       return freshDefaultState();
     }
   }
@@ -207,13 +207,16 @@
   }
 
   function persistStateNow(options = {}) {
-    if (recordCurrentAchievements()) markAchievementsDirty();
-    updateLifetimeStatistics();
-    const onlineClockSeconds = simulationLoop?.getUnprocessedOnlineClockSeconds?.() || 0;
-    // Recovery debt is stored alongside this exact resource checkpoint, not backdated
-    // into the wall clock (which would also award time spent waiting for recovery).
-    state.lastUpdateAt = Math.max(0, Date.now() - onlineClockSeconds * 1000);
-    WIS.Core.Save.write(state, options);
+    if (WIS.Core.Save.getLoadError()) return;
+    try {
+    simulationLoop?.prepareSave(options);
+    // Manual actions save outside the simulation transaction. Their confirmed
+    // state must replace any model checkpoint made before the action.
+    if (!options.preserveSourceModels && !offlineSimulation?.isInternalWork()) offlineSimulation?.invalidateSourceModels();
+    const saved = WIS.Core.State.cloneForSimulation(state);
+    saved.lastUpdateAt = Date.now();
+    WIS.Core.Save.write(saved, options);
+    } catch(error) { WIS.Core.Save.noteFailure(error); throw error; }
   }
 
   function saveState(options = {}) {
@@ -305,6 +308,11 @@
   const simulateOfflineProgress = (...args) => offlineSimulation.simulateOfflineProgress(...args);
   const cancelCatchUp = (...args) => offlineSimulation.cancelCatchUp(...args);
   const abandonCatchUp = (...args) => offlineSimulation.abandonCatchUp(...args);
+  function convertOfflineToCompensation() {
+    simulationLoop.prepareSave();
+    offlineSimulation.sealOnlineTail();
+    return offlineSimulation.convertOfflineToCompensation();
+  }
   const retryCatchUp = (...args) => offlineSimulation.retryCatchUp(...args);
   const pauseCatchUpByPlayer = () => offlineSimulation.pauseCatchUpByPlayer();
   const acknowledgeCatchUp = (...args) => offlineSimulation.acknowledgeCatchUp(...args);
@@ -312,14 +320,27 @@
   const subscribeCatchUpStatus = (...args) => offlineSimulation.subscribeCatchUpStatus(...args);
   const setLastTickAt = (value) => simulationLoop?.setLastTickAt(value);
   function restoreOfflineRecovery(snapshot) {
-    return offlineSimulation.restorePersistenceSnapshot(
-      snapshot,
-      snapshot?.closedAt > 0 ? Math.max(0, Date.now() - snapshot.closedAt) / 1000 : 0
-    );
+    const restored = offlineSimulation.restorePersistenceSnapshot(snapshot, 0, { checkpoint: false });
+    const newlyAway = simulationLoop.restoreClosedTime(snapshot);
+    return restored || newlyAway > 0;
   }
 
   const UI = WIS.UI.App.create({
-    saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, retryCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
+    saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, convertOfflineToCompensation, retryCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
+    captureImportState: () => ({ state: WIS.Core.State.cloneForSimulation(state),
+      recovery: offlineSimulation.getPersistenceSnapshot(), online: simulationLoop.snapshot(),
+      power: WIS.Power.Scale.snapshotTreasureTransient(), cultivation: WIS.Cultivation.Immortal.snapshotTreasureTransient(),
+      rates: { ...WIS.tmp.rates }, storage: WIS.Core.Save.storageSnapshot() }),
+    restoreImportState: snapshot => {
+      cancelCatchUp(); setStateDirect(snapshot.state);
+      offlineSimulation.restorePersistenceSnapshot(snapshot.recovery, 0, { checkpoint: false });
+      simulationLoop.restore(snapshot.online);
+      WIS.Power.Scale.restoreTreasureTransient(snapshot.power);
+      WIS.Cultivation.Immortal.restoreTreasureTransient(snapshot.cultivation);
+      for (const key of Object.keys(WIS.tmp.rates)) delete WIS.tmp.rates[key];
+      Object.assign(WIS.tmp.rates, snapshot.rates);
+      WIS.Core.Save.restoreStorage(snapshot.storage);
+    },
     getCatchUpStatus, subscribeCatchUpStatus, restoreOfflineRecovery, achievementStates, recordCurrentAchievements,
     updateLifetimeStatistics, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost,
     multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain,
@@ -410,8 +431,11 @@
     errorTolerance: OFFLINE_ERROR_TOLERANCE
   });
   offlineSimulation = WIS.Simulation.Offline.create({
+    prepareFixedWork: stepSimulation.prepareFixedWork,
     getState: () => state,
     advanceGameStep: stepSimulation.advanceGameStep,
+    calculateAutomaticStepPlan: stepSimulation.calculateAutomaticStepPlan,
+    projectStepTimes: stepSimulation.projectStepTimes,
     nextKnownSimulationBoundarySeconds: stepSimulation.nextKnownSimulationBoundarySeconds,
     adaptiveOfflineStepSeconds: projectionSimulation.adaptiveOfflineStepSeconds,
     nextEffectiveTreasureEventSeconds: treasureEventSimulation.nextEffectiveTreasureEventSeconds,
@@ -437,11 +461,11 @@
       WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivation);
     },
     resetOnlineAccumulators: () => simulationLoop?.resetAccumulators(),
-    snapshotState: () => {
+    snapshotState: ({ borrow = false } = {}) => {
       const powerSystem = WIS.Core.Registries.getActivePower(state);
       const cultivationSystem = WIS.Core.Registries.getActiveCultivation(state);
       return {
-        domain: WIS.Core.State.toSerializable(state),
+        domain: borrow ? { core: state.core, powerSystem: state.powerSystem, cultivation: state.cultivation, meta: state.meta } : WIS.Core.State.toSerializable(state),
         powerTransient: powerSystem?.snapshotTreasureTransient?.(),
         cultivationTransient: cultivationSystem?.snapshotTreasureTransient?.()
       };
@@ -477,7 +501,8 @@
     flushRender,
     saveState,
     effectiveDevSpeed: () => UI.effectiveDevSpeed(),
-    isInitialLoadComplete: () => initialLoadComplete,
+    isInitialLoadComplete: () => initialLoadComplete && !WIS.Core.Save.getLoadError(),
+    isStateReady: () => !WIS.Core.Save.getLoadError(),
     epsilon: SIMULATION_EPSILON,
     simulationStepSeconds: SIMULATION_STEP_SECONDS,
     maxOnlineStepsPerFrame: MAX_ONLINE_STEPS_PER_FRAME,
@@ -530,6 +555,9 @@
   const restoredOfflineRecovery = restoreOfflineRecovery(savedOfflineRecovery);
   const initialOfflineElapsedSeconds = restoredOfflineRecovery
     ? 0 : Math.max(0, Date.now() - state.lastUpdateAt) / 1000;
+  // A tab may be created hidden, without receiving a visibilitychange event.
+  // Register its new absence separately from the older saved offline debt.
+  if (document.hidden) simulationLoop.prepareSave({ closing: true });
 
   WIS.Game = Object.freeze({
     version: GAME_VERSION,
@@ -552,6 +580,7 @@
       simulateOfflineProgress,
       cancelCatchUp,
       abandonCatchUp,
+      convertOfflineToCompensation,
       retryCatchUp,
       acknowledgeCatchUp,
       getCatchUpStatus
@@ -578,7 +607,7 @@
   async function finishInitialLoad() {
     let initialOfflineReport = "";
     try {
-      initialOfflineReport = await simulateOfflineProgress(initialOfflineElapsedSeconds);
+      if (!WIS.Core.Save.getLoadError()) initialOfflineReport = await simulateOfflineProgress(initialOfflineElapsedSeconds);
     } catch (error) {
       console.error("WIS initial offline settlement failed; continuing online play.", error);
     }
@@ -588,10 +617,17 @@
     requestRender();
     flushRender(Date.now(), { force: true });
     saveState();
-    notifyNewAchievements(initialAchievementStates);
-    if (initialOfflineReport) showNotice(initialOfflineReport, 6000);
+    if (!offlineSimulation.isCatchUpPaused() && !WIS.Core.Save.getLoadError())
+      notifyNewAchievements(initialAchievementStates);
+    if (WIS.Core.Save.getLoadError()) showNotice("原存档读取失败，已暂停结算和自动保存。原文件仍保留，请导入有效存档或恢复备份。" + WIS.Core.Save.getLoadError(), 60000);
+    else if (initialOfflineReport) showNotice(initialOfflineReport, 6000);
     window.setInterval(() => {
-      if (!document.hidden) saveState();
+      // A periodic save does not change production rules. Keeping its confirmed
+      // model avoids resampling at wall-clock-dependent save times. Real player
+      // actions still invalidate through saveState; newly queued online time
+      // invalidates through prepareSave/appendCatchUpTask when necessary.
+      if (!document.hidden) try { persistStateNow({ preserveSourceModels: true }); }
+      catch(error) { /* Save status retains the failure; keep the existing 5s cadence. */ }
     }, 5000);
     if (BUILD.enableFormulaDetails) {
       window.setInterval(() => {

@@ -2,7 +2,15 @@
   "use strict";
 
   WIS.Simulation = WIS.Simulation || {};
+  function validateConfirmedSources(value) {
+    if(value==null)return null;
+    if(typeof value!=="object"||Array.isArray(value)||value.version!==1||
+        ["online","offline","unknown"].some(key=>typeof value[key]!=="boolean"))
+      throw Error("结算来源展示元数据无效");
+    return {version:1,online:value.online,offline:value.offline,unknown:value.unknown};
+  }
   WIS.Simulation.Offline = Object.freeze({
+    validateConfirmedSources,
     create(context) {
       const {
         getState, advanceGameStep, nextKnownSimulationBoundarySeconds,
@@ -20,14 +28,14 @@
       const resourceKeys = ["joules", "power", "mana", "immortalPower"];
       // This is an estimated error ledger for the WHOLE recovery, not a 5%
       // per-step allowance. Leave headroom for propagated/nonlinear error.
-      const recoveryRelativeTarget = 0.05;
+      const recoveryRelativeTarget = 0.001;
       const estimatedRelativeBudget = 0.015;
       const recoveryAbsoluteBudget = BN("1e-8");
       const epsilon = context.epsilon;
       const simulationStepSeconds = context.simulationStepSeconds;
       const usesExactTicks = typeof snapshotState === "function" && typeof restoreState === "function";
       const offlineMaxSteps = CONFIG.offlineMaxSteps;
-      const frameBudgetMs = 9;
+      const frameBudgetMs = CONFIG.fixedSettlement.workBudgetMs;
       const planningBudgetMs = 3;
       const denseTreasureBatchSeconds = 1;
       const ORIGINAL_TASK = "original";
@@ -35,12 +43,14 @@
       let pendingCatchUpSeconds = 0;
       let pendingCatchUpClockSeconds = 0;
       let catchUpInProgress = false;
+      let presentation = null, awaySuspended = false, internalWork = false;
       let catchUpGeneration = 0;
       let catchUpPromise = null;
       let catchUpResolver = null;
       let catchUpNoticePromise = null;
       let catchUpPaused = false;
       let catchUpPauseReason = null;
+      let pauseRestored = false;
       let catchUpSessionBefore = null;
       let catchUpSessionStartedAt = 0;
       let catchUpSessionProcessedClockSeconds = 0;
@@ -50,6 +60,19 @@
       let catchUpPlanningBudgetExhaustions = 0;
       let catchUpCompletedReport = "";
       let catchUpCompleted = false;
+      const freshConfirmedSources=()=>({version:1,online:false,offline:false,unknown:false});
+      let confirmedSources=freshConfirmedSources();
+      // Provenance only. Amounts/cursors stay in the existing time/resource ledger.
+      function sessionSourceView() {
+        let online=confirmedSources.online,offline=confirmedSources.offline;
+        let onlineSeconds=0,offlineSeconds=0;
+        for(const task of catchUpTasks)if(task.remainingGameSeconds>epsilon){
+          if(task.source==='online'){online=true;onlineSeconds+=task.remainingGameSeconds;}
+          else {offline=true;offlineSeconds+=task.remainingGameSeconds;}
+        }
+        return {sessionSource:confirmedSources.unknown?'unknown':online&&offline?'mixed':online?'online':offline?'offline':'unknown',
+          onlinePendingGameSeconds:onlineSeconds,offlinePendingGameSeconds:offlineSeconds};
+      }
       let lastCheckpointAt = 0;
       let sessionGains = resourceKeys.map(() => ZERO);
       let sessionErrorEstimates = resourceKeys.map(() => ZERO);
@@ -59,6 +82,41 @@
       let sessionProcessedGameSeconds = 0;
       let fastForwardUsed = false;
       let fastForwardMetrics = null;
+      let throughputSample = null, recentThroughput = null, estimateStable = false;
+      let recentCounterPoint=null,recentFastForward=null;
+      const settlementCosts={checkpointMs:0,checkpointCount:0,maxSyncWorkMs:0,slices:0};
+      function sampleThroughput() {
+        const now=catchUpClockNow(),processed=sessionProcessedGameSeconds;
+        if(catchUpPhase()==="running"){
+          const m=WIS.Simulation.FixedSegment.metrics();
+          // Use confirmed fixed-rule work, including real tail durations. The
+          // retained legacy predictor counters do not describe this executor.
+          const merged=(m.offlineGameSeconds||0)/simulationStepSeconds;
+          const raw=(m.onlineGameSeconds||0)/simulationStepSeconds;
+          const point={now,processed,merged,raw,trial:0,predictions:0,models:0,
+            frame:merged+raw,reasons:{},spans:{}};
+          if(!recentCounterPoint){recentCounterPoint=point;recentFastForward=null;}
+          else if(now-recentCounterPoint.now>=2000){
+            const old=recentCounterPoint,changed=point.frame<old.frame,delta=k=>Math.max(0,point[k]-(changed?0:old[k]));
+            const histogram={};for(const [bucket,value] of Object.entries(point.spans)){const n=value-(changed?0:old.spans[bucket]||0);if(n>0)histogram[bucket]=n;}
+            const reasons={};for(const [key,value] of Object.entries(point.reasons)){const n=value-(changed?0:old.reasons[key]||0);if(n>0)reasons[key]=n;}
+            const merged=delta('merged'),advanced=point.processed-old.processed;
+            recentFastForward={windowSeconds:(now-old.now)/1000,processedGameSeconds:advanced,
+              originalFrames:delta('raw'),mergedFrames:merged,
+              trialFrames:delta('trial'),predictionCalls:delta('predictions'),modelBuildCalls:delta('models'),spanHistogram:histogram,reasonCounts:reasons,
+              noEffectiveMerge:false,executionReference:"fixed-start-sources-v1"};
+            recentCounterPoint=point;
+          }
+        }
+        if(catchUpPhase()!=="running"){throughputSample=null;recentThroughput=null;estimateStable=false;recentCounterPoint=null;return;}
+        if(!throughputSample){throughputSample={now,processed};return;}
+        const elapsed=(now-throughputSample.now)/1000;
+        if(elapsed<.1)return;
+        const speed=(processed-throughputSample.processed)/elapsed;
+        estimateStable=recentThroughput>0&&speed>0&&speed/recentThroughput>.4&&speed/recentThroughput<2.5;
+        recentThroughput=speed>0&&Number.isFinite(speed)?speed:null;
+        throughputSample={now,processed};
+      }
       const catchUpStatusListeners = new Set();
       let yieldChannel = null;
       const hostYieldQueue = [];
@@ -85,6 +143,9 @@
       }
 
       function formatOfflineProgressReport(safeElapsed, before, { force = false } = {}) {
+        const source=sessionSourceView().sessionSource;
+        if(source==='online')return force ? "在线进度追赶完成" : "";
+        const label=source==='offline'?"离线":source==='mixed'?"混合恢复（含在线追赶与离线结算）":"游戏进度恢复（部分历史来源未知）";
         if (!force && safeElapsed < CONFIG.offlineNoticeMinSeconds) return "";
         const state = getState();
         const gains = [
@@ -110,8 +171,8 @@
           if (gt(gain, ZERO)) gains.push(`${format(gain, 0)}${name}`);
         });
         return gains.length > 0
-          ? `离线 ${formatElapsedTime(safeElapsed)}，获得 ${gains.join("、")}`
-          : `离线 ${formatElapsedTime(safeElapsed)}，当前没有可自动获取的资源`;
+          ? `${label} ${formatElapsedTime(safeElapsed)}，获得 ${gains.join("、")}`
+          : `${label} ${formatElapsedTime(safeElapsed)}，当前没有可自动获取的资源`;
       }
 
       function yieldForFirstPaint() {
@@ -157,7 +218,7 @@
         const state = getState();
         return JSON.stringify([state.meta?.treasures ?? state.treasureImprints ?? {},
           state.meta?.treasureStockResidual ?? {},
-          state.naturalTreasureLevel, state.unlockedAchievements?.seizeFoundation]);
+          [state.naturalTreasureLevel,state.explorationRewards?.levelResidual], state.unlockedAchievements?.seizeFoundation]);
       }
 
       function catchUpPhase() {
@@ -179,9 +240,22 @@
         );
         return Object.freeze({
           phase,
-          locked: phase === "running" || phase === "paused",
+          locked: phase === "paused" || (phase === "running"&&presentation==='blocking'),
+          presentation: presentation||'blocking',
+          awaySuspended,
+          waitingForFrame: catchUpTasks[0]?.source==='online'&&!catchUpTasks[0]?.sealed&&catchUpTasks[0]?.remainingGameSeconds<simulationStepSeconds-epsilon,
+          // Display metadata from the actual queue head; never infer old eligibility from current credit.
+          currentSource: catchUpTasks[0] ? Object.freeze({
+            source:catchUpTasks[0].source,
+            compensationEligible:catchUpTasks[0].compensationEligible === true,
+            clockRatio:catchUpTasks[0].remainingGameSeconds>epsilon
+              ? catchUpTasks[0].remainingClockSeconds/catchUpTasks[0].remainingGameSeconds : 0
+          }) : null,
           pendingGameSeconds: Math.max(0, pendingCatchUpSeconds),
           pendingClockSeconds: remainingClockSeconds,
+          ...sessionSourceView(),
+          convertibleClockSeconds: catchUpTasks.filter(t=>t.source==='offline').reduce((sum,t)=>sum+t.remainingClockSeconds,0),
+          compensation: {...getState().core.runtime.compensation},
           processedClockSeconds,
           totalClockSeconds,
           originalClockSeconds,
@@ -195,6 +269,7 @@
             : phase === "completed" ? 1 : 0,
           startedAt: catchUpSessionStartedAt,
           pauseReason: catchUpPauseReason,
+          pauseOrigin: catchUpPauseReason?.reason==="player-paused" ? "player" : catchUpPauseReason ? (pauseRestored?"history":"current") : null,
           report: catchUpCompletedReport,
           showAfterMs: 300,
           queuedTaskCount: catchUpTasks.length,
@@ -204,11 +279,17 @@
           estimatedResourceErrorTerms: Object.freeze(sessionErrorTerms.map(terms =>
             Object.freeze(terms.map(term => Object.freeze({ ...term }))))),
           resourceErrorTarget: recoveryRelativeTarget,
-          executionReference: fastForwardUsed ? (fastForwardMetrics?.algorithm === "normal-discrete"
-            ? "growth-adaptive" : "fast-forward-50-trial") : usesExactTicks ? "online-fixed-tick" : "legacy-adaptive",
+          executionReference: "fixed-start-sources-v1",
+          fixedSettlementMetrics: WIS.Simulation.FixedSegment.metrics(),
           fastForwardEnabled: getState().offlineFastForwardEnabled !== false,
           fastForwardMetrics,
-          fastForwardApplicable: WIS.Simulation.FastForward?.applicable() === true,
+          fastForwardApplicable: false,
+          sourceSupport: { supported: true, kind: "fixed-start-sources-v1", offlineSeconds: CONFIG.fixedSettlement.offlineSeconds },
+          actualThroughput: recentThroughput,
+          recentFastForward: recentFastForward ? {...recentFastForward,spanHistogram:{...recentFastForward.spanHistogram},reasonCounts:{...recentFastForward.reasonCounts}} : null,
+          estimatedWaitSeconds: estimateStable&&recentThroughput>0 ? pendingCatchUpSeconds/recentThroughput : null,
+          estimateStatus: phase!=="running" ? "inactive" : estimateStable ? "available" : "sampling",
+          settlementCosts: {...settlementCosts},
           recoveryElapsedSeconds: catchUpSessionStartedAt ? (Date.now() - catchUpSessionStartedAt) / 1000 : 0,
           logicalStepSeconds: simulationStepSeconds,
           discreteMetrics: Object.freeze({ ...discreteMetrics }),
@@ -217,6 +298,9 @@
       }
 
       function publishCatchUpStatus() {
+        const diag=WIS.Simulation.FixedSegment.diagnostics;
+        if(diag.enabled())diag.debt(catchUpTasks.filter(t=>t.source==='online').reduce((sum,t)=>sum+t.remainingGameSeconds,0));
+        sampleThroughput();
         const status = getCatchUpStatus();
         catchUpStatusListeners.forEach((listener) => {
           try { listener(status); } catch (error) { console.error("WIS catch-up status listener failed.", error); }
@@ -231,6 +315,8 @@
       }
 
       function resetCatchUpSession() {
+        confirmedSources=freshConfirmedSources();
+        presentation=null;
         fastForwardUsed = false; fastForwardMetrics = null;
         sessionGains = resourceKeys.map(() => ZERO);
         sessionErrorEstimates = resourceKeys.map(() => ZERO);
@@ -266,6 +352,7 @@
 
       function cancelCatchUp() {
         catchUpGeneration += 1;
+        awaySuspended=false;
         pendingCatchUpSeconds = 0;
         pendingCatchUpClockSeconds = 0;
         catchUpTasks.length = 0;
@@ -311,51 +398,81 @@
         return { abandoned: true, discardedGameSeconds, discardedClockSeconds };
       }
 
-      function appendCatchUpTask(elapsedSeconds, clockSeconds = elapsedSeconds, {
-        alreadyPending = false,
-        mergeWithTail = false
-      } = {}) {
-        const safeElapsed = Math.max(0, Number(elapsedSeconds) || 0);
-        if (!(safeElapsed > 0)) return null;
-        // A running/paused recovery is a fixed task, never a collector of wall time.
-        if (catchUpInProgress || catchUpPaused || (catchUpOriginalClockLocked && pendingCatchUpSeconds > epsilon)) return null;
-        const safeClock = Math.max(0, Number(clockSeconds) || 0);
-        if (!catchUpInProgress && !catchUpPaused && catchUpTasks.length === 0 && catchUpCompleted) {
-          resetCatchUpSession();
-        }
-        ensureCatchUpSession();
-        const taskCategory = ORIGINAL_TASK;
-        const candidateTail = mergeWithTail ? catchUpTasks[catchUpTasks.length - 1] : null;
-        const tailTask = candidateTail?.category === taskCategory ? candidateTail : null;
-        if (tailTask) {
-          tailTask.gameSeconds += safeElapsed;
-          tailTask.clockSeconds += safeClock;
-          tailTask.remainingGameSeconds += safeElapsed;
-          tailTask.remainingClockSeconds += safeClock;
-          tailTask.remainingSteps = Math.max(1, tailTask.remainingSteps);
-          if (tailTask.remainingGameSeconds > 60 + epsilon) {
-            tailTask.legacyReferenceStep = Math.max(
-              tailTask.legacyReferenceStep,
-              tailTask.remainingGameSeconds / offlineMaxSteps
-            );
+      function convertOfflineToCompensation() {
+        if (internalWork) throw Error('必须在确认提交边界转换离线时间');
+        const removed = catchUpTasks.filter(task => task.source === 'offline');
+        const clockSeconds = removed.reduce((sum, task) => sum + task.remainingClockSeconds, 0);
+        if (!(clockSeconds > 0)) return { converted: false, clockSeconds: 0 };
+        const world = snapshotState(), oldTasks = [...catchUpTasks];
+        const old = { pendingCatchUpSeconds, pendingCatchUpClockSeconds, catchUpOriginalClockSeconds,
+          catchUpPaused, catchUpPauseReason, catchUpCompleted, presentation };
+        // A UI action runs between synchronous slices. Retire the old async
+        // worker before changing either side of the resource/time transaction.
+        ++catchUpGeneration;
+        const resolver = catchUpResolver;
+        catchUpInProgress = false; catchUpPromise = null; catchUpResolver = null; catchUpNoticePromise = null;
+        invalidateSourceModels();
+        const remaining = oldTasks.filter(task => task.source !== 'offline');
+        catchUpTasks.splice(0, catchUpTasks.length, ...remaining);
+        pendingCatchUpSeconds = remaining.reduce((sum, task) => sum + task.remainingGameSeconds, 0);
+        pendingCatchUpClockSeconds = remaining.reduce((sum, task) => sum + task.remainingClockSeconds, 0);
+        catchUpOriginalClockSeconds = catchUpSessionProcessedClockSeconds + pendingCatchUpClockSeconds;
+        presentation = 'quiet';
+        if (!remaining.length) { catchUpPaused = false; catchUpPauseReason = null; catchUpCompleted = false; }
+        let credit;
+        try {
+          credit = WIS.Simulation.Compensation.grant(getState(), clockSeconds);
+          internalWork = true;
+          context.checkpoint?.();
+          if(!remaining.length)confirmedSources=freshConfirmedSources();
+        } catch (error) {
+          restoreState(world);
+          catchUpTasks.splice(0, catchUpTasks.length, ...oldTasks);
+          pendingCatchUpSeconds = old.pendingCatchUpSeconds;
+          pendingCatchUpClockSeconds = old.pendingCatchUpClockSeconds;
+          catchUpOriginalClockSeconds = old.catchUpOriginalClockSeconds;
+          catchUpPaused = old.catchUpPaused; catchUpPauseReason = old.catchUpPauseReason;
+          catchUpCompleted = old.catchUpCompleted; presentation = old.presentation;
+          // Keep an existing player/error pause. A running task stops visibly
+          // on failed persistence, retaining every unprocessed second.
+          if (!catchUpPaused) {
+            catchUpPaused = true;
+            catchUpPauseReason = catchUpDiagnostic('conversion-checkpoint-failed', catchUpTasks[0], 0, null, error);
           }
-          tailTask.suggestedStepSeconds = Math.min(
-            tailTask.remainingGameSeconds,
-            Math.max(simulationStepSeconds, tailTask.suggestedStepSeconds)
-          );
-          if (!alreadyPending) {
-            pendingCatchUpSeconds += safeElapsed;
-            pendingCatchUpClockSeconds += safeClock;
-            catchUpOriginalClockSeconds += safeClock;
-          }
+          return { converted: false, clockSeconds: 0, error: String(error?.message || error) };
+        } finally {
+          internalWork = false;
           publishCatchUpStatus();
-          return tailTask;
+          if (resolver) resolver('');
         }
+        if (!remaining.length) resetCatchUpSession();
+        context.setLastTickAt?.(Date.now());
+        publishCatchUpStatus(); requestRender();
+        if (remaining.length && !catchUpPaused && !awaySuspended) void simulateOfflineProgress(0, 0);
+        return { converted: true, clockSeconds, balance: credit.balance, conversionId: credit.lastConversion };
+      }
+
+      function newTimeSegmentId() {
+        const old=getState().core.runtime.timeLedger;
+        if(!old||old.version!==1||!Number.isSafeInteger(old.nextId+1))throw Error("时间片段序号不可用");
+        getState().core.runtime.timeLedger={...old,nextId:old.nextId+1};
+        return 'segment-'+old.nextId;
+      }
+
+      function makeCatchUpTask(safeElapsed,safeClock,options={}) {
         const legacyReferenceStep = safeElapsed > 60 + epsilon
           ? safeElapsed / offlineMaxSteps
           : simulationStepSeconds;
         const task = {
-          category: taskCategory,
+          category: ORIGINAL_TASK,
+          id: options.id??newTimeSegmentId(),
+          source: options.source==='online'?'online':'offline',
+          compensationEligible: options.source==='online'&&options.compensationEligible===true,
+          randomMode: options.randomMode==='state'?'state':'legacy',
+          speed: options.speed??(safeClock>0?safeElapsed/safeClock:1),
+          sealed: options.sealed!==false,
+          clockCursor: Math.max(0,Number(options.clockCursor)||0),
+          started: false,
           gameSeconds: safeElapsed,
           clockSeconds: safeClock,
           remainingGameSeconds: safeElapsed,
@@ -364,7 +481,11 @@
           legacyReferenceStep,
           suggestedStepSeconds: Math.min(safeElapsed,
             Math.max(simulationStepSeconds, Math.min(1, safeElapsed / offlineMaxSteps))),
-          random: createOfflineTaskRandom(WIS.Core.Runtime.random()),
+          random: options.randomMode==='state'?{
+            next:()=>WIS.Core.Runtime.withRandomSource(null,()=>WIS.Core.Runtime.random()),
+            snapshot:()=>getState().core.runtime.randomState>>>0,
+            restore:value=>{getState().core.runtime.randomState=value>>>0;}
+          }:createOfflineTaskRandom(options.randomSeed ?? WIS.Core.Runtime.random()),
           treasureFallbackMode: false,
           treasureBatchMode: false,
           optimizationDisabled: false,
@@ -388,14 +509,84 @@
           preparedStepPlan: null,
           nextValidatedSuggestion: null
         };
-        catchUpTasks.push(task);
-        if (!alreadyPending) {
-          pendingCatchUpSeconds += safeElapsed;
-          pendingCatchUpClockSeconds += safeClock;
-          catchUpOriginalClockSeconds += safeClock;
-        }
-        publishCatchUpStatus();
         return task;
+      }
+
+      function invalidateSourceModels() {
+        for(const task of catchUpTasks){task.fixedWork?.close?.();task.fixedWork=null;task.fixedToken=null;
+          task.fastDriver?.close?.();task.fastDriver=null;
+          task.fastForward=null;task.fastFinished=false;clearAssignedCatchUpStep(task);}
+      }
+
+      function appendCatchUpTask(elapsedSeconds,clockSeconds=elapsedSeconds,options={}) {
+        const safeElapsed=Number(elapsedSeconds),safeClock=Number(clockSeconds);
+        if(!(safeElapsed>0))return null;
+        if(!Number.isFinite(safeElapsed)||!Number.isFinite(safeClock)||safeClock<0)throw Error("入队时间无效");
+        // Append at a confirmed host boundary; never rewrite a running model's
+        // horizon. An external time watermark invalidates its old world clone.
+        if(catchUpTasks.some(task=>task.fastDriver||task.fastForward))invalidateSourceModels();
+        if(!catchUpInProgress&&!catchUpPaused&&!catchUpTasks.length&&catchUpCompleted)resetCatchUpSession();
+        ensureCatchUpSession();
+        const tail=options.mergeWithTail?catchUpTasks.at(-1):null;
+        const source=options.source==='online'?'online':'offline';
+        const eligible=source==='online'&&options.compensationEligible===true;
+        const speed=options.speed??(safeClock>0?safeElapsed/safeClock:1);
+        const canMerge=tail&&!tail.started&&!tail.fastDriver&&!tail.fastForward&&
+          tail.source===source&&tail.compensationEligible===eligible&&tail.speed===speed&&
+          tail.randomMode===(options.randomMode==='state'?'state':'legacy')&&tail.sealed===(options.sealed!==false);
+        const previousTail=catchUpTasks.at(-1);
+        if(previousTail&&!canMerge&&previousTail.source==='online')previousTail.sealed=true;
+        let task;
+        if(canMerge){task=tail;task.gameSeconds+=safeElapsed;task.clockSeconds+=safeClock;
+          task.remainingGameSeconds+=safeElapsed;task.remainingClockSeconds+=safeClock;}
+        else {task=makeCatchUpTask(safeElapsed,safeClock,options);catchUpTasks.push(task);}
+        if(!options.alreadyPending){pendingCatchUpSeconds+=safeElapsed;pendingCatchUpClockSeconds+=safeClock;catchUpOriginalClockSeconds+=safeClock;}
+        if(options.presentation==='quiet'&&presentation===null)presentation='quiet';
+        else if(presentation===null||options.presentation==='blocking')presentation='blocking';
+        if(pendingCatchUpClockSeconds>5+epsilon)presentation='blocking';
+        publishCatchUpStatus();return task;
+      }
+
+      function prepareQueueHead() {
+        const task=catchUpTasks[0];if(!task)return false;
+        if(task.source==='online'&&!task.sealed&&!task.started){
+          const frames=Math.floor((task.remainingGameSeconds+epsilon)*10);
+          if(frames===0)return false;
+          const whole=Math.min(task.remainingGameSeconds,frames/10),ratio=task.remainingClockSeconds/task.remainingGameSeconds;
+          const rest=task.remainingGameSeconds-whole;
+          if(rest>epsilon){
+            const tail=makeCatchUpTask(rest,rest*ratio,{...task,id:undefined,clockCursor:task.clockCursor+whole*ratio});
+            catchUpTasks.splice(1,0,tail);
+            task.gameSeconds=task.remainingGameSeconds=whole;
+            task.clockSeconds=task.remainingClockSeconds=whole*ratio;
+          }
+          task.sealed=true;
+        }
+        task.started=true;return true;
+      }
+
+      function sealOnlineTail() {
+        invalidateSourceModels();
+        for(const task of catchUpTasks)if(task.source==='online')task.sealed=true;
+      }
+
+      function suspendForAway() {
+        awaySuspended=true;
+        catchUpGeneration++;
+        for(const task of catchUpTasks)if(task.fastDriver){
+          task.fastForward={memory:true,point:task.fastDriver.point()};
+          task.fastDriver.close();task.fastDriver=null;
+        }
+        catchUpInProgress=false;
+        const resolve=catchUpResolver;
+        catchUpPromise=null;catchUpResolver=null;catchUpNoticePromise=null;
+        resolve?.("");publishCatchUpStatus();
+      }
+
+      function returnFromAway(start=true) {
+        awaySuspended=false;publishCatchUpStatus();
+        if(start&&!catchUpPaused&&pendingCatchUpSeconds>epsilon)return simulateOfflineProgress(0,0);
+        return Promise.resolve("");
       }
 
       function clearAssignedCatchUpStep(task) {
@@ -440,6 +631,9 @@
       function catchUpDiagnostic(reason, task, requestedSeconds, result = null, error = null) {
         return {
           type: "offline-catch-up-paused",
+          occurredBuild: window.WIS_BUILD?.id ?? null,
+          occurredRule: CONFIG.fixedSettlement.version,
+          occurredAt: Date.now(),
           reason,
           requestedStepSeconds: Math.max(0, Number(requestedSeconds) || 0),
           reportedProcessedSeconds: Math.max(0, Number(result?.processedSeconds) || 0),
@@ -448,6 +642,7 @@
           pendingClockSeconds: pendingCatchUpClockSeconds,
           planningBudgetExhaustions: catchUpPlanningBudgetExhaustions,
           task: task ? {
+            clockCursor: task.clockCursor,
             remainingGameSeconds: task.remainingGameSeconds,
             remainingClockSeconds: task.remainingClockSeconds,
             optimizationDisabled: task.optimizationDisabled,
@@ -459,7 +654,8 @@
           state: catchUpStateSummary(),
           error: error ? {
             name: String(error.name || "Error"),
-            message: String(error.message || error)
+            message: String(error.message || error),
+            ...(error.treasureContext ? { treasureContext: error.treasureContext } : {})
           } : null
         };
       }
@@ -476,6 +672,7 @@
       function pauseCatchUp(diagnostic) {
         catchUpPaused = true;
         catchUpPauseReason = diagnostic;
+        pauseRestored = false;
         if (diagnostic?.reason !== "player-paused") console.error("WIS offline catch-up paused; pending time was retained.", diagnostic);
         publishCatchUpStatus();
       }
@@ -756,16 +953,35 @@
         task.consecutivePlanningYields = 0;
       }
 
+      function subtractFixedTime(remaining, processed) {
+        // Whole .1s frame debt is integer arithmetic. Repeated Number
+        // subtraction otherwise turns the last frame into a shorter frame.
+        const a=Math.round(remaining*10), b=Math.round(processed*10);
+        if (Number.isSafeInteger(a)&&Number.isSafeInteger(b)&&
+            Math.abs(remaining-a/10)<1e-9&&Math.abs(processed-b/10)<1e-9)
+          return Math.max(0,a-b)/10;
+        return Math.max(0,remaining-processed);
+      }
+
       function advanceFastForwardTask(task) {
+        // Historical models advance explicit time effects in game seconds.
+        // A non-unit developer clock ratio needs a separately validated model;
+        // retain the correct original-frame path for those source segments.
+        if(task.speed!==1)return null;
+        // Credit uses original-frame production with exact quota boundaries.
+        // The existing historical models have no verified quota recurrence.
+        if(task.source==='online'&&task.compensationEligible)return null;
+        if(task.source==='online'&&task.remainingGameSeconds<1.2)return null;
         const fast = WIS.Simulation.FastForward;
         if (!task.fastForward && getState().offlineFastForwardEnabled === false) return null;
-        if (!task.fastDriver && !task.fastForward && (getState().activeChallenge ||
+        if (!task.fastDriver && !task.fastForward && ((getState().activeChallenge && !["mortalTransformation", "yinVoidYangReal"].includes(getState().activeChallenge)) ||
             !WIS.Core.BigNum.eq(getState().minorTribulationExplorationLoad ?? 0, 0))) return null;
         // Only an unfinished original tick or a sub-tick tail may use the
         // exact commit below. Never resume the old whole-task scheduler.
         if (task.remainingGameSeconds < simulationStepSeconds - epsilon ||
             task.logicalTickRemaining > epsilon) return null;
         let unavailable = null;
+        if (fast && !task.fastDriver && !task.fastForward && !fast.applicable()) return null;
         if (!fast) unavailable = "离线快进模块未加载，请刷新后重试。";
         else if (simulationStepSeconds !== 0.1 ||
             Math.abs(task.remainingGameSeconds - task.remainingClockSeconds) > 1e-7) return null;
@@ -775,7 +991,7 @@
           return { paused: true };
         }
         const previousPoint = task.fastForward || null;
-        const before = captureCatchUpStep(task);
+        const before = captureCatchUpStep(task, false, task.fastDriver?.point().game.state);
         let result = null, error = null;
         beginTransaction();
         try {
@@ -783,15 +999,16 @@
             seconds: task.remainingGameSeconds, random: task.random, gains: sessionGains, resume: task.fastForward
           });
           result = task.fastDriver.advance();
-          task.fastForward = task.fastDriver.export();
+          task.fastForward = { memory: true, point: task.fastDriver.point() };
           const seconds = Math.min(task.remainingGameSeconds, result.seconds);
           sessionGains = result.gains.map(BN);
           // The original runtime adapter has already advanced game/statistics
           // clocks. Only fixed debt is posted here, once, after the safe yield.
-          task.remainingGameSeconds = Math.max(0, task.remainingGameSeconds - seconds);
-          task.remainingClockSeconds = Math.max(0, task.remainingClockSeconds - seconds);
-          pendingCatchUpSeconds = Math.max(0, pendingCatchUpSeconds - seconds);
-          pendingCatchUpClockSeconds = Math.max(0, pendingCatchUpClockSeconds - seconds);
+          task.remainingGameSeconds = subtractFixedTime(task.remainingGameSeconds, seconds);
+          task.remainingClockSeconds = subtractFixedTime(task.remainingClockSeconds, seconds);
+          pendingCatchUpSeconds = subtractFixedTime(pendingCatchUpSeconds, seconds);
+          pendingCatchUpClockSeconds = subtractFixedTime(pendingCatchUpClockSeconds, seconds);
+          task.clockCursor+=seconds;
           catchUpSessionProcessedClockSeconds += seconds;
           catchUpOriginalProcessedClockSeconds += seconds;
           sessionProcessedGameSeconds += seconds;
@@ -800,14 +1017,14 @@
           const nextEngine = result.stats?.algorithm || "late-50";
           const priorEngines = previousMetrics?.priorEngines || [];
           fastForwardMetrics = { ...result.stats, priorEngines: previousMetrics && previousEngine !== nextEngine
-            ? [...priorEngines, { ...previousMetrics, priorEngines: undefined }] : priorEngines };
+            ? [...priorEngines.slice(-7), { ...previousMetrics, priorEngines: undefined }] : priorEngines };
           fastForwardUsed = true;
           if (result.replan && !result.completed && task.remainingGameSeconds >= simulationStepSeconds) {
             task.fastDriver.close();
             task.fastDriver = fast.createDriver(context, {
               seconds: task.remainingGameSeconds, random: task.random, gains: sessionGains
             });
-            task.fastForward = task.fastDriver.export();
+            task.fastForward = { memory: true, point: task.fastDriver.point() };
           }
           if (result.completed) {
             task.fastDriver.close(); task.fastDriver = null;
@@ -832,6 +1049,11 @@
         return result;
       }
 
+      function pauseAfterOnlineError(error) {
+        pauseCatchUp(catchUpDiagnostic("online-frame-exception", catchUpTasks[0], 0, null, error));
+        checkpointCatchUp();
+      }
+
       function pauseCatchUpByPlayer() {
         if (!catchUpInProgress || catchUpPaused || !(pendingCatchUpSeconds > epsilon)) return false;
         pauseCatchUp({ reason: "player-paused", pendingGameSeconds: pendingCatchUpSeconds });
@@ -839,11 +1061,14 @@
         return true;
       }
 
-      function captureCatchUpStep(task) {
+      function captureCatchUpStep(task, borrow = false, confirmedState = null) {
         return {
-          state: typeof snapshotState === "function" ? snapshotState() : null,
+          confirmedSources:{...confirmedSources},
+          fixedConfirmed: WIS.Simulation.FixedSegment.confirmed(),
+          state: confirmedState ?? (typeof snapshotState === "function" ? snapshotState({ borrow }) : null),
           random: typeof task?.random?.snapshot === "function" ? task.random.snapshot() : null,
           task: task ? {
+            clockCursor: task.clockCursor,
             remainingGameSeconds: task.remainingGameSeconds,
             remainingClockSeconds: task.remainingClockSeconds,
             remainingSteps: task.remainingSteps,
@@ -882,6 +1107,8 @@
       }
 
       function restoreCatchUpStep(task, snapshot) {
+        confirmedSources={...snapshot.confirmedSources};
+        WIS.Simulation.FixedSegment.restoreConfirmed(snapshot.fixedConfirmed);
         let restoreError = null;
         if (snapshot?.state !== null && typeof restoreState === "function") {
           try { restoreState(snapshot.state); } catch (error) { restoreError = error; }
@@ -920,7 +1147,12 @@
       function getPersistenceSnapshot({ closing = false } = {}) {
         if (!(pendingCatchUpSeconds > epsilon)) return null;
         return {
-          version: 1,
+          version: 2,
+          settlementRule: CONFIG.fixedSettlement.version,
+          offlineSegmentSeconds: CONFIG.fixedSettlement.offlineSeconds,
+          confirmedSources:{...confirmedSources},
+          presentation: presentation||'blocking',
+          awaySuspended,
           closedAt: closing ? Date.now() : null,
           totalClockSeconds: catchUpOriginalClockSeconds,
           processedClockSeconds: catchUpSessionProcessedClockSeconds,
@@ -928,7 +1160,7 @@
           gains: sessionGains,
           errors: sessionErrorEstimates,
           errorTerms: sessionErrorTerms,
-          executionReference: usesExactTicks ? "online-fixed-tick" : "legacy-adaptive",
+          executionReference: "fixed-start-sources-v1",
           discreteMetrics,
           processedGameSeconds: sessionProcessedGameSeconds,
           transient: context.snapshotTransient?.() ?? null,
@@ -937,32 +1169,46 @@
           paused: catchUpPaused,
           pauseReason: catchUpPauseReason,
           tasks: catchUpTasks.filter((task) => task.remainingGameSeconds > epsilon).map((task) => ({
+            id: task.id, source: task.source, compensationEligible: task.compensationEligible,
+            randomMode: task.randomMode, speed: task.speed, sealed: task.sealed,
+            clockCursor: task.clockCursor,
             gameSeconds: task.remainingGameSeconds,
             clockSeconds: task.remainingClockSeconds,
             random: task.random?.snapshot?.() ?? null,
             logicalTickRemaining: task.logicalTickRemaining || 0,
             unverifiableBatchPrecision: task.unverifiableBatchPrecision === true,
-            fastForward: task.fastForward || null
+            fastForward: task.fastDriver ? task.fastDriver.export() : task.fastForward?.memory ? WIS.Simulation.FastForward.exportPoint(task.fastForward.point) : task.fastForward || null
           }))
         };
       }
 
-      function restorePersistenceSnapshot(snapshot, newlyOfflineSeconds = 0) {
-        if (snapshot?.version !== 1 || !Array.isArray(snapshot.tasks) ||
+      function restorePersistenceSnapshot(snapshot, newlyOfflineSeconds = 0, { checkpoint = true } = {}) {
+        if (snapshot?.settlementRule != null && (snapshot.settlementRule !== CONFIG.fixedSettlement.version ||
+            snapshot.offlineSegmentSeconds !== CONFIG.fixedSettlement.offlineSeconds)) throw Error("不支持的固定分段规则");
+        if (![1,2].includes(snapshot?.version) || !Array.isArray(snapshot.tasks) ||
             !snapshot.tasks.length || catchUpTasks.length || catchUpInProgress) return false;
         if (snapshot.tasks.some((task) => !Number.isFinite(task?.gameSeconds) ||
             task.gameSeconds <= 0 || !Number.isFinite(task.clockSeconds) || task.clockSeconds < 0)) return false;
+        const savedSources=validateConfirmedSources(snapshot.confirmedSources);
         resetCatchUpSession();
+        confirmedSources=savedSources||freshConfirmedSources();
+        const remainingClock=snapshot.tasks.reduce((sum,task)=>sum+task.clockSeconds,0);
+        const processedEvidence=Number(snapshot.processedClockSeconds)>epsilon||Number(snapshot.processedGameSeconds)>epsilon||
+          Number(snapshot.totalClockSeconds)>remainingClock+epsilon||snapshot.tasks.some(task=>Number(task.clockCursor)>epsilon);
+        if((processedEvidence&&!savedSources)||snapshot.tasks.some(task=>!['online','offline'].includes(task.source)))confirmedSources.unknown=true;
+        if(processedEvidence&&!confirmedSources.online&&!confirmedSources.offline)confirmedSources.unknown=true;
         for (const savedTask of snapshot.tasks) {
-          const task = appendCatchUpTask(savedTask.gameSeconds, savedTask.clockSeconds);
+          // Restoring an existing task must not consume the online RNG again.
+          const task = appendCatchUpTask(savedTask.gameSeconds, savedTask.clockSeconds,
+            { ...savedTask, randomSeed: (savedTask.random ?? getState().core.runtime.randomState) / 0x100000000 });
           if (savedTask.random !== null) task.random?.restore?.(savedTask.random);
           task.logicalTickRemaining = Math.max(0, Math.min(simulationStepSeconds,
             Number(savedTask.logicalTickRemaining) || 0));
           task.unverifiableBatchPrecision = savedTask.unverifiableBatchPrecision === true;
-          task.fastForward = savedTask.fastForward || null;
+          task.fastForward = null; // obsolete prediction cursor; confirmed assets/debt already restored
         }
-        fastForwardUsed = snapshot.fastForwardUsed === true;
-        fastForwardMetrics = snapshot.fastForwardMetrics || null;
+        fastForwardUsed = false;
+        fastForwardMetrics = null;
         const processed = Math.max(0, Number(snapshot.processedClockSeconds) || 0);
         catchUpSessionProcessedClockSeconds = processed;
         catchUpOriginalProcessedClockSeconds = processed;
@@ -996,18 +1242,24 @@
         // Time AFTER a normal close is genuine new offline time. A crash checkpoint
         // has no close timestamp, so interrupted recovery waiting cannot be awarded.
         appendCatchUpTask(newlyOfflineSeconds, newlyOfflineSeconds);
+        presentation=snapshot.presentation==='quiet'?'quiet':snapshot.presentation==='notice'?'notice':'blocking';
+        if(pendingCatchUpClockSeconds>5+epsilon)presentation='blocking';
+        awaySuspended=snapshot.awaySuspended===true;
         catchUpOriginalClockLocked = true;
         catchUpPaused = snapshot.paused === true || fastRestoreError !== null;
         catchUpPauseReason = fastRestoreError
           ? catchUpDiagnostic("fast-checkpoint-invalid", fastTask, 0, null, fastRestoreError)
           : catchUpPaused ? snapshot.pauseReason : null;
+        pauseRestored = catchUpPaused && !fastRestoreError && catchUpPauseReason?.reason!=="player-paused";
         publishCatchUpStatus();
-        checkpointCatchUp();
+        if (checkpoint) checkpointCatchUp();
         return true;
       }
 
       function checkpointCatchUp(force = true) {
         if (!force && Date.now() - lastCheckpointAt < 1000) return;
+        const started=catchUpClockNow();
+        const previousInternalWork=internalWork;internalWork=true;
         try {
           context.checkpoint?.();
         } catch (error) {
@@ -1017,13 +1269,16 @@
             console.error("WIS completed recovery checkpoint could not be saved.", error);
           }
         }
+        finally {internalWork=previousInternalWork;}
+        settlementCosts.checkpointMs+=catchUpClockNow()-started;
+        settlementCosts.checkpointCount++;
         lastCheckpointAt = Date.now();
       }
 
       function finishCatchUpClock() {
         // Completion (not dismissal of the summary) starts the next online interval.
-        context.setLastTickAt?.(Date.now());
-        checkpointCatchUp();
+        if(presentation==='blocking')context.setLastTickAt?.(Date.now());
+        checkpointCatchUp(presentation==='blocking');
       }
 
       function retryCatchUp() {
@@ -1034,6 +1289,7 @@
         }
         catchUpPaused = false;
         catchUpPauseReason = null;
+        pauseRestored = false;
         const task = catchUpTasks[0];
         if (task) {
           task.legacyRetryUsed = false;
@@ -1045,8 +1301,11 @@
       function simulateOfflineProgress(elapsedSeconds, clockSeconds = elapsedSeconds) {
         appendCatchUpTask(elapsedSeconds, clockSeconds);
         if (!(pendingCatchUpSeconds > 0)) return Promise.resolve("");
-        if (catchUpPaused) return Promise.resolve("");
+        if (catchUpPaused||awaySuspended) return Promise.resolve("");
         if (catchUpPromise) return catchUpPromise;
+        // Ordinary sub-frame time is real debt, but has no runnable frame yet.
+        // Do not create a worker, save or notification for every 16ms tail.
+        if (!prepareQueueHead()) return Promise.resolve("");
         const generation = ++catchUpGeneration;
         ensureCatchUpSession();
         const previousAchievements = achievementStates();
@@ -1055,11 +1314,11 @@
         catchUpCompleted = false;
         catchUpPromise = new Promise((resolve) => { catchUpResolver = resolve; });
         const activePromise = catchUpPromise;
-        checkpointCatchUp();
+        checkpointCatchUp(presentation==='blocking');
         publishCatchUpStatus();
         void (async () => {
-          while (generation === catchUpGeneration && !catchUpPaused) {
-            if (catchUpTasks.length === 0) break;
+          while (generation === catchUpGeneration && !catchUpPaused && !awaySuspended) {
+            if (catchUpTasks.length === 0||!prepareQueueHead()) break;
             const frameStartedAt = catchUpClockNow();
             const planningDeadlineMs = Math.min(
               frameStartedAt + frameBudgetMs,
@@ -1067,16 +1326,30 @@
             );
             let madeProgress = false;
             let planningYieldRequested = false;
-            do {
+            internalWork=true;
+            try {do {
               const task = catchUpTasks[0];
-              if (!task) break;
-              const fastResult = advanceFastForwardTask(task);
-              if (fastResult) { madeProgress ||= fastResult.seconds > 0; if (fastResult.paused) break; continue; }
+              if (!task||!prepareQueueHead()) break;
+              // Rule v1: actual offline sources use independent fixed segments;
+              // pre-existing online debt retains standard logical ticks.
+              task.fastForward = null; task.fastDriver = null;
               // Exact local bridge only: discard obsolete scheduler plans,
               // but preserve its already committed partial-tick position.
-              const bridgeSeconds = Math.min(task.remainingGameSeconds,
-                task.logicalTickRemaining > epsilon ? task.logicalTickRemaining : simulationStepSeconds);
+              const bridgeSeconds = Math.min(task.remainingGameSeconds, task.source === "offline"
+                ? CONFIG.fixedSettlement.offlineSeconds
+                : task.logicalTickRemaining > epsilon ? task.logicalTickRemaining : simulationStepSeconds);
               if (!(bridgeSeconds > epsilon)) { catchUpTasks.shift(); continue; }
+              if (task.source === "offline" && context.prepareFixedWork) {
+                try {
+                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds);
+                  const work=task.fixedWork.advance(frameStartedAt+frameBudgetMs);
+                  if(!work.done) {planningYieldRequested=true;break;}
+                  task.fixedToken=work.token;task.fixedWork=null;
+                } catch(error) {
+                  task.fixedWork?.close?.();task.fixedWork=null;task.fixedToken=null;
+                  pauseCatchUp(catchUpDiagnostic("fixed-plan-failed",task,bridgeSeconds,null,error));break;
+                }
+              }
               clearAssignedCatchUpStep(task);
               assignCatchUpStep(task, bridgeSeconds);
               const requestedSeconds = Math.min(task.currentStepRemaining,
@@ -1091,15 +1364,19 @@
               let stepSnapshot = null;
               let stepRolledBack = false;
               try {
-                stepSnapshot = captureCatchUpStep(task);
+                stepSnapshot = captureCatchUpStep(task, true);
                 beginTransaction();
                 transactionStarted = true;
+                const preparedFixedSegment=task.fixedToken;task.fixedToken=null;
                 result = WIS.Core.Runtime.withRandomSource(
                   () => task.random.next(),
                   () => WIS.Core.Runtime.withOfflineExecution(() =>
                     advanceGameStep(requestedSeconds, true, {
-                      offline: task.discreteMode ? false : true,
-                      integrationMethod: task.discreteMode ? "end" : "midpoint", preparedStepPlan: task.preparedStepPlan
+                      offline: false,
+                      preparedFixedSegment,
+                      timeSegment: {source:task.source, compensationEligible:task.compensationEligible,
+                        clockRatio:task.remainingGameSeconds>0?task.remainingClockSeconds/task.remainingGameSeconds:0},
+                      integrationMethod: "end", preparedStepPlan: task.preparedStepPlan
                     }))
                 );
                 acceptedSeconds = Math.max(0, Math.min(
@@ -1111,13 +1388,18 @@
                     maxBN(ZERO, result.resourceGains?.[key] ?? sub(getState()[key] ?? ZERO, resourcesBefore[i]))));
                 }
                 if (acceptedSeconds > 0) {
-                  if (task.discreteMode) {
-                    const originalTick = task.logicalTickRemaining > epsilon
-                      ? task.logicalTickRemaining : simulationStepSeconds;
+                  // Every local bridge belongs to one original .1s frame,
+                  // including when the fast driver was ineligible at entry.
+                  // An event-shortened prefix must not start a fresh frame.
+                  {
+                    const originalTick = task.source === "offline" ? acceptedSeconds
+                      : task.logicalTickRemaining > epsilon ? task.logicalTickRemaining : simulationStepSeconds;
                     task.logicalTickRemaining = Math.max(0, originalTick - acceptedSeconds);
                     if (task.logicalTickRemaining <= epsilon) {
                       discreteMetrics.logicalTicks += 1;
-                      discreteMetrics.exactTicks += 1;
+                      if (task.source === "online") discreteMetrics.exactTicks += 1;
+                      else { discreteMetrics.batches++; discreteMetrics.largestBatch = Math.max(discreteMetrics.largestBatch, acceptedSeconds); }
+                      discreteMetrics.verification = "fixed-start-sources-v1";
                     }
                   }
                   sessionProcessedGameSeconds += acceptedSeconds;
@@ -1137,13 +1419,26 @@
                   }
                   task.currentStepRemaining = Math.max(0, task.currentStepRemaining - acceptedSeconds);
                   task.currentClockRemaining = Math.max(0, task.currentClockRemaining - acceptedClockSeconds);
-                  task.remainingGameSeconds = Math.max(0, task.remainingGameSeconds - acceptedSeconds);
-                  task.remainingClockSeconds = Math.max(0, task.remainingClockSeconds - acceptedClockSeconds);
-                  pendingCatchUpSeconds = Math.max(0, pendingCatchUpSeconds - acceptedSeconds);
-                  pendingCatchUpClockSeconds = Math.max(0, pendingCatchUpClockSeconds - acceptedClockSeconds);
+                  task.remainingGameSeconds = subtractFixedTime(task.remainingGameSeconds, acceptedSeconds);
+                  task.remainingClockSeconds = subtractFixedTime(task.remainingClockSeconds, acceptedClockSeconds);
+                  pendingCatchUpSeconds = subtractFixedTime(pendingCatchUpSeconds, acceptedSeconds);
+                  pendingCatchUpClockSeconds = subtractFixedTime(pendingCatchUpClockSeconds, acceptedClockSeconds);
+                  task.clockCursor+=acceptedClockSeconds;
                   catchUpSessionProcessedClockSeconds += acceptedClockSeconds;
+                  confirmedSources[task.source]=true;
                   catchUpOriginalProcessedClockSeconds += acceptedClockSeconds;
                   madeProgress = true;
+                  // Persist assets, source cursor, remaining debt and bonus debit
+                  // at this same unit boundary. A failed write is handled by the
+                  // surrounding unit rollback, before the task can be removed.
+                  if (typeof context.checkpoint === "function" &&
+                      (pendingCatchUpSeconds <= epsilon || Date.now()-lastCheckpointAt >= 1000)) {
+                    const saveStarted=catchUpClockNow();
+                    context.checkpoint();
+                    settlementCosts.checkpointMs+=catchUpClockNow()-saveStarted;
+                    settlementCosts.checkpointCount++;
+                    lastCheckpointAt=Date.now();
+                  }
                 }
                 if (!(acceptedSeconds > 0) && !result?.eventCommitted) {
                   restoreCatchUpStep(task, stepSnapshot);
@@ -1195,7 +1490,7 @@
               }
               if (!(acceptedSeconds > 0) && !result?.eventCommitted) {
                 const diagnostic = catchUpDiagnostic("zero-progress", task, requestedSeconds, result);
-                if (retryCatchUpTaskWithLegacy(task, diagnostic)) continue;
+                // Fixed rules never retry with the obsolete frame/integration engine.
                 pauseCatchUp(diagnostic);
                 break;
               }
@@ -1215,14 +1510,29 @@
               }
             } while (!planningYieldRequested && !catchUpPaused && catchUpTasks.length > 0 &&
               catchUpClockNow() - frameStartedAt < frameBudgetMs);
+            } finally {
+              internalWork=false;
+              settlementCosts.maxSyncWorkMs=Math.max(settlementCosts.maxSyncWorkMs,catchUpClockNow()-frameStartedAt);
+              settlementCosts.slices++;
+            }
             publishCatchUpStatus();
             checkpointCatchUp(catchUpPaused);
             if (catchUpPaused) break;
             if (planningYieldRequested || catchUpTasks.length > 0 || !madeProgress) await yieldForFirstPaint();
           }
           if (generation !== catchUpGeneration) return;
-          if (recordCurrentAchievements()) markAchievementsDirty();
-          notifyNewAchievements(previousAchievements);
+          if (!catchUpPaused && catchUpTasks.length===1 && catchUpTasks[0]?.source==='online' &&
+              !catchUpTasks[0].sealed && catchUpTasks[0].remainingGameSeconds<simulationStepSeconds-epsilon) {
+            // Caught up to the normal fractional online tail. A later actual
+            // backlog starts a new delay measurement, without erasing debt.
+            // Blocking must release this tail too; otherwise no new online
+            // time could arrive to complete its next original frame.
+            if(presentation==='blocking')context.setLastTickAt?.(Date.now());
+            presentation='quiet';
+            catchUpSessionStartedAt=Date.now();
+          }
+          if (!catchUpPaused && recordCurrentAchievements()) markAchievementsDirty();
+          if (!catchUpPaused) notifyNewAchievements(previousAchievements);
           const completed = !catchUpPaused && catchUpTasks.length === 0 && !(pendingCatchUpSeconds > epsilon);
           const report = completed
             ? formatOfflineProgressReport(catchUpSessionProcessedClockSeconds, catchUpSessionBefore)
@@ -1267,7 +1577,7 @@
                 { force: true }
               );
             } catch (_reportError) {
-              catchUpCompletedReport = "离线收益已结算";
+              catchUpCompletedReport = "游戏进度已恢复";
             }
             console.error("WIS offline catch-up post-processing failed after settlement completed.", error);
           }
@@ -1299,10 +1609,16 @@
         queueCatchUpNotice,
         cancelCatchUp,
         abandonCatchUp,
+        convertOfflineToCompensation,
         retryCatchUp,
-        pauseCatchUpByPlayer,
+        pauseCatchUpByPlayer, pauseAfterOnlineError,
         acknowledgeCatchUp,
         appendCatchUpTask,
+        sealOnlineTail, suspendForAway, returnFromAway,
+        invalidateSourceModels,
+        availableCompensationClockSeconds:()=>Math.max(0,getState().core.runtime.compensation.balance-
+          catchUpTasks.filter(t=>t.source==='online'&&t.compensationEligible).reduce((sum,t)=>sum+t.remainingClockSeconds,0)),
+        isInternalWork:()=>internalWork,
         getPersistenceSnapshot,
         restorePersistenceSnapshot,
         getCatchUpStatus,

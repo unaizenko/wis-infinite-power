@@ -30,7 +30,11 @@
     if (!B.isFiniteBN(value ?? 0) || B.lt(value ?? 0, 0)) throw Error("修真道存档含非法余额");
     return B.BN(value ?? 0);
   };
-  const tails = values => Array.isArray(values) ? values.map(String) : [];
+  const tails = values => {
+    if (values == null) return [];
+    if (!Array.isArray(values)) throw Error("修真道残差账本格式无效");
+    return values.map(String);
+  };
   const rank = value => Math.min(6, Math.max(0, Math.floor(Number(value) || 0)));
   function normalize(raw) {
     const n = fresh();
@@ -44,9 +48,14 @@
       const from = raw.resources?.[key] || {}, to = n.resources[key];
       for (const k of ["amount", "total", "spent", "peak"]) to[k] = nonnegative(from[k]);
       for (const k of ["residual", "totalResidual", "spentResidual"]) to[k] = tails(from[k]);
+      for (const field of ["amount","total","spent"]) if(typeof from[field]==="string") {
+        const tail=field==="amount"?"residual":field+"Residual";
+        to[tail]=L().subtract([from[field],...to[tail]],[to[field]]);
+      }
     }
     n.manaDebitResidual = tails(raw.manaDebitResidual);
     n.manaSpent = nonnegative(raw.manaSpent); n.manaSpentResidual = tails(raw.manaSpentResidual);
+    if(typeof raw.manaSpent==="string")n.manaSpentResidual=L().subtract([raw.manaSpent,...n.manaSpentResidual],[n.manaSpent]);
     return n;
   }
   const get = state => state.cultivation.systems.immortal.xiuzhen ||
@@ -60,28 +69,51 @@
   const has = (state, key) => active(state) && !sealed(state) && get(state).abilities[key] === true;
   const tailKey = field => field === "amount" ? "residual" : field + "Residual";
   const words = (e, field = "amount") => L().normalize([e[field], ...(e[tailKey(field)] || [])]);
-  function write(e, terms, field = "amount") {
-    const normalized = L().normalize(terms);
-    if (L().sign(normalized) < 0) throw Error("修真道账本余额不足，未提交");
-    const value = L().value(normalized);
+  function write(e, terms, field = "amount", accounting = L()) {
+    const normalized = accounting.normalize(terms);
+    if (accounting.sign(normalized) < 0) throw Error("修真道账本余额不足，未提交");
+    const value = accounting.value(normalized);
     if (!B.isFiniteBN(value)) throw Error("修真道账本无法投影，未提交");
-    e[field] = value; e[tailKey(field)] = L().subtract(normalized, [value]);
+    const rest = accounting.subtract(normalized, [value]);
+    e[field] = value; e[tailKey(field)] = rest;
+  }
+  function validate(state) {
+    const n = get(state);
+    for (const key of resourceKeys) for (const field of ["amount", "total", "spent"])
+      write(n.resources[key], words(n.resources[key], field), field);
+    const mana = WIS.Core.Resources.prepare(state.cultivation.systems.immortal.resources, "mana", B.ZERO);
+    const resources = state.cultivation.systems.immortal.resources;
+    const combined = WIS.Core.Resources.ledger().normalize([...WIS.Core.Resources.balance(mana, "mana"), ...n.manaDebitResidual]);
+    if (WIS.Core.Resources.ledger().sign(combined) < 0) throw Error("法力借记余额无效");
+    const e = { amount: B.ZERO }; write(e, combined, "amount", WIS.Core.Resources.ledger());
+    Object.assign(resources, { mana: e.amount, manaGainResidual: B.ZERO, manaGainResidualTail: e.residual });
+    n.manaDebitResidual = [];
+    return state;
   }
   function amount(state, key) { return L().value(words(get(state).resources[key])); }
   function availableWords(state, key) {
-    return key === "mana" ? L().normalize([state.mana, state.manaGainResidual || 0, ...get(state).manaDebitResidual])
+    return key === "mana" ? WIS.Core.Resources.ledger().normalize([...WIS.Core.Resources.balance(state.cultivation.systems.immortal.resources, "mana"), ...get(state).manaDebitResidual])
       : words(get(state).resources[key]);
   }
   function canSpend(state, key, cost) {
-    return !!labels[key] && B.isFiniteBN(cost) && B.gt(cost, 0) && L().compare(availableWords(state, key), [cost]) >= 0;
+    try {
+      return !!labels[key] && B.isFiniteBN(cost) && B.gt(cost, 0) && (key === "mana" ? WIS.Core.Resources.ledger() : L()).compare(availableWords(state, key), [cost]) >= 0;
+    } catch (error) {
+      // Eligibility queries also run during initial rendering. A debit that
+      // cannot be represented is unavailable; it must not prevent recovery UI.
+      if (error instanceof L().LedgerError) return false;
+      throw error;
+    }
   }
   function debit(state, key, cost) {
     if (!canSpend(state, key, cost)) return false;
-    const n = get(state), remaining = L().subtract(availableWords(state, key), [cost]);
+    const n = get(state), remaining = (key === "mana" ? WIS.Core.Resources.ledger() : L()).subtract(availableWords(state, key), [cost]);
     if (key === "mana") {
       const e = { amount: state.mana }, spent = { amount: n.manaSpent, residual: n.manaSpentResidual };
-      write(e, remaining); write(spent, L().add(words(spent), [cost]));
-      state.mana = e.amount; state.manaGainResidual = B.ZERO; n.manaDebitResidual = e.residual;
+      write(e, remaining, "amount", WIS.Core.Resources.ledger()); write(spent, L().add(words(spent), [cost]));
+      state.mana = e.amount; state.manaGainResidual = B.ZERO;
+      state.cultivation.systems.immortal.resources.manaGainResidualTail = e.residual;
+      n.manaDebitResidual = [];
       n.manaSpent = spent.amount; n.manaSpentResidual = spent.residual;
     } else {
       const e = n.resources[key]; write(e, remaining); write(e, L().add(words(e, "spent"), [cost]), "spent");
@@ -89,10 +121,11 @@
     return true;
   }
   function transaction(state, work) {
-    const old = get(state), mana = state.mana, residual = state.manaGainResidual;
+    const old = get(state), mana = state.mana, residual = state.manaGainResidual,
+      tail = state.cultivation.systems.immortal.resources.manaGainResidualTail;
     state.cultivation.systems.immortal.xiuzhen = normalize(old);
     try { const result = work(get(state)); WIS.Core.Effects?.invalidate(); return result; }
-    catch (error) { state.cultivation.systems.immortal.xiuzhen = old; state.mana = mana; state.manaGainResidual = residual; throw error; }
+    catch (error) { state.cultivation.systems.immortal.xiuzhen = old; state.mana = mana; state.manaGainResidual = residual; state.cultivation.systems.immortal.resources.manaGainResidualTail = tail; throw error; }
   }
   function canBreakthrough(state) {
     const n = get(state), next = realms[n.realm];
@@ -115,6 +148,7 @@
     return transaction(state, n => { const a = abilities.find(a => a.key === key); if (!debit(state, a.resource, a.cost)) return false;
       n.abilities[key] = true; if (manual) n.history.abilities[key] = true; return true; });
   }
+  const yuanFromXian = x => B.pow(B.add(1, B.div(x, "1e8")), .75);
   function rates(state) {
     let xianForce = B.ZERO, yuanForce = B.ZERO;
     if (!has(state, "xianForce") && !has(state, "yuanForce")) return { xianForce, yuanForce };
@@ -126,16 +160,69 @@
       if (yinYang(state)) xianForce = B.pow(B.pow(xianForce, .85), WIS.Cultivation.ImmortalLogic.celestialFiveDeclineExponent());
     }
     if (has(state, "yuanForce")) {
-      yuanForce = B.pow(B.add(1, B.div(x, "1e8")), .75);
+      yuanForce = yuanFromXian(x);
       if (has(state, "crystal")) yuanForce = B.mul(yuanForce, B.pow(B.add(1, y), .15));
       if (has(state, "worldAura")) yuanForce = B.mul(yuanForce, B.pow(B.add(1, y), .25));
     }
     return { xianForce, yuanForce };
   }
+  function intervalSupport(state) {
+    if (!has(state, "xianForce") && !has(state, "yuanForce")) return { supported: true, code: "no-xiuzhen-source" };
+    const feedback = ["materialSpirit", "crystal", "worldAura", "rules", "divineArt"].filter(k => has(state,k));
+    if (feedback.length) return { supported: false, code: "xiuzhen-feedback", feedback };
+    // The source chain reads IP, X and Y only. With IP production disabled,
+    // X has no continuous dependency; its original .1s word can be counted.
+    // The interval planner still guards every purchase, realm and reward.
+    const stableXian = !WIS.Cultivation.ImmortalLogic.immortalPowerUnlocked();
+    const x=amount(state,"xianForce"), bounded=B.isFiniteBN(x)&&B.gte(x,0)&&B.lte(x,"1e12");
+    // Body is admitted only with a proved constant X word. J, power and mana
+    // remain coupled model columns, checked at the middle and endpoint.
+    if(has(state,"body")&&(!stableXian||!bounded))return {supported:false,code:"xiuzhen-body-domain",stableXian};
+    const discreteYuan=stableXian&&bounded&&has(state,"yuanForce");
+    return { supported: true, stableXian, discreteYuan, maxFrames:65536,
+      code:has(state,"body")?"xiuzhen-stable-xian-body":discreteYuan?"xiuzhen-discrete-yuan":has(state,"yuanForce")?"xiuzhen-one-way":stableXian?"xiuzhen-stable-xian":"xiuzhen-ip-to-xian" };
+  }
+  function discreteYuanModel(state, term) {
+    const support=intervalSupport(state), maxFrames=65536;
+    if(!support.discreteYuan)return null;
+    if(!B.isFiniteBN(term)||B.lt(term,0))throw Error("invalid-xian-repeat");
+    const initial=words(get(state).resources.xianForce), cache=new Map(), sums=new Map();
+    const diagnostics={evaluations:0,blocks:0,maxRelativeBound:0};
+    function at(n) {
+      if(!Number.isSafeInteger(n)||n<1||n>maxFrames+1)throw Error("discrete-yuan-index");
+      if(cache.has(n))return cache.get(n);
+      // n=1 reads the confirmed start balance. Income from that frame is
+      // visible only to n=2. Count ledger words, including signed residuals.
+      const x=L().value(n===1?initial:L().add(initial,[`${term}*${n-1}`]));
+      if(!B.isFiniteBN(x)||B.lt(x,0)||B.gt(x,"1e12"))throw Error("discrete-yuan-domain");
+      const value=B.mul(yuanFromXian(x),.1);diagnostics.evaluations++;cache.set(n,value);return value;
+    }
+    function bounds(a,b) {
+      const count=b-a+1;
+      if(count<=2){const value=count===1?at(a):B.add(at(a),at(b));return [value,value];}
+      // For this concave sequence, the chord bounds the discrete sum below;
+      // its middle point (or middle pair) bounds it above. No continuous-time
+      // integral or final-stock rate substitutes for the original recurrence.
+      const lo=B.mul(B.add(at(a),at(b)),count/2),mid=Math.floor((a+b)/2);
+      const hi=count%2?B.mul(at(mid),count):B.mul(B.add(at(mid),at(mid+1)),count/2);
+      if(B.gt(lo,B.mul(hi,1+1e-12)))throw Error("discrete-yuan-concavity");
+      const gap=B.toNumber(B.div(B.abs(B.sub(hi,lo)),B.max(lo,"1e-300")),Infinity);
+      if(gap>2e-5){const left=bounds(a,mid),right=bounds(mid+1,b);return [B.add(left[0],right[0]),B.add(left[1],right[1])];}
+      diagnostics.blocks++;return [B.mul(lo,1-1e-12),B.mul(hi,1+1e-12)];
+    }
+    function sum(n) {
+      if(!Number.isSafeInteger(n)||n<0||n>maxFrames)throw Error("discrete-yuan-span");
+      if(!n)return B.ZERO;if(sums.has(n))return sums.get(n);
+      const [lo,hi]=bounds(1,n),value=B.div(B.add(lo,hi),2);
+      diagnostics.maxRelativeBound=Math.max(diagnostics.maxRelativeBound,B.toNumber(B.div(B.sub(hi,lo),value),Infinity));
+      sums.set(n,value);return value;
+    }
+    return {kind:"discrete-yuan",at,sum,diagnostics,maxFrames};
+  }
   function plan(state, seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) throw Error("修真道结算时长无效");
     const r = rates(state);
-    return Object.fromEntries(resourceKeys.map(k => [k, B.mul(r[k], seconds)]));
+    return Object.fromEntries(resourceKeys.map(k => [k, B.mul(r[k], seconds * WIS.Simulation.Compensation.factor())]));
   }
   function prepare(state, gains) {
     if (gains && resourceKeys.some(k => !B.isFiniteBN(gains[k] ?? 0) || B.lt(gains[k] ?? 0, 0)))
@@ -145,8 +232,15 @@
       for (const k of resourceKeys) {
         const gain = gains[k] ?? B.ZERO;
         if (!B.isFiniteBN(gain) || B.lt(gain, 0)) throw Error("修真道新增收益无效，未提交");
-        const e = n.resources[k]; write(e, L().add(words(e), [gain]));
-        write(e, L().add(words(e, "total"), [gain]), "total"); e.peak = B.max(e.peak, e.amount);
+        let income = [gain];
+        const repeat = gains.repeat?.[k];
+        if (repeat) {
+          if (!Number.isSafeInteger(repeat.count) || repeat.count < 1 || !B.isFiniteBN(repeat.term) || B.lt(repeat.term,0) ||
+              !B.eq(B.mul(repeat.term,repeat.count),gain)) throw Error("修真道重复收益计划无效，未提交");
+          income = [`${repeat.term}*${repeat.count}`];
+        }
+        const e = n.resources[k]; write(e, L().add(words(e), income));
+        write(e, L().add(words(e, "total"), income), "total"); e.peak = B.max(e.peak, e.amount);
       }
     return n;
   }
@@ -204,6 +298,10 @@
           (r.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0), run: () => breakthrough(state, false) }))
     : abilities.map(a => ({ id: a.key, resourceKey: a.resource, cost: a.cost,
       available: n.entered && n.realm >= a.realm && !n.abilities[a.key] && !!n.history.abilities[a.key], run: () => buy(state, a.key, false) }));
+    if (WIS.Simulation.FixedSegment?.collectCandidates?.("xiuzhen-" + kind,
+      candidates.map(c => ({ available: () => c.available,
+        runOn: current => isRealm ? breakthrough(current, false) : buy(current, c.id, false)
+      })), "mana", candidates.length)) return 0;
     const audit = WIS.Simulation?.FastForward?.auditCandidates;
     if (audit) { audit.push(...candidates.map(c => ({ ...c, id: "xiuzhen-" + c.id, kind, run: undefined }))); return 0; }
     let changes = 0;
@@ -213,8 +311,8 @@
     if (next?.run()) changes = 1 + automation(state, kind);
     return changes;
   }
-  WIS.Cultivation.Xiuzhen = Object.freeze({ realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
+  WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
     sealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
-    canBuy, buy, rates, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
+    canBuy, buy, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); } });
 }(window.WIS));

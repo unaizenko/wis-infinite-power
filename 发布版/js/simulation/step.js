@@ -109,9 +109,9 @@
       }
 
       function calculateAutomaticStepPlan(elapsedSeconds, activePowerSystem, activeCultivationSystem, options = {}) {
-        const state = getState();
+        const state = options.sourceState || getState();
         const method = integrationMethod(options);
-        const reusable = options.offline === true || options.projection === true || options.withMeta === true;
+        const reusable = options.withMeta === true || (elapsedSeconds > simulationStepSeconds && (options.offline === true || options.projection === true));
         const sourceKey = reusable ? stepStateKey(state) : null;
         const mayIntegrateFrozenClock = options.offline === true && method === "midpoint" &&
           options.stableInventoryIntegration !== false && elapsedSeconds > simulationStepSeconds &&
@@ -123,7 +123,11 @@
           (!SCALE_THRESHOLDS[state.highestScaleIndex + 1] ||
             lt(state.power, actualScaleRequirement(state.highestScaleIndex + 1, state)));
         const sampleAt = (clockOffset) => {
-          const projection = cloneStepState(state);
+          // The crystal end-source query owns an already isolated disposable
+          // domain. Reuse only its single end sample; never borrow live state
+          // or a multi-sample/frozen-clock plan.
+          const projection = options.disposableSource === true && method === "end" &&
+            options.offline !== true && !reusable ? state : cloneStepState(state);
           const startingClocks = {
             reincarnationElapsedSeconds: projection.reincarnationElapsedSeconds,
             currentScaleElapsedSeconds: projection.currentScaleElapsedSeconds,
@@ -171,7 +175,7 @@
         }
         if (reusable) {
           const token = Object.freeze({ kind: "automatic-step-plan", elapsedSeconds, integrationMethod: method });
-          preparedPlans.set(token, { sourceKey, elapsedSeconds, method,
+          preparedPlans.set(token, { sourceKey, elapsedSeconds, method, incomeFactor: WIS.Simulation.Compensation.factor(),
             offlineExecution: WIS.Core.Runtime.isOfflineExecution(),
             stableInventoryIntegration: options.stableInventoryIntegration !== false,
             activePowerSystem, activeCultivationSystem, plan });
@@ -192,7 +196,7 @@
         return Object.entries(gains).every(([key, gain]) => {
           const container = key === "joules" || key === "power"
             ? source.core.resources : source.cultivation.systems.immortal.resources;
-          const pending = add(container[`${key}GainResidual`] ?? ZERO, gain);
+          const pending = add(WIS.Core.Resources.ledger().value([container[`${key}GainResidual`] ?? ZERO, ...(container[`${key}GainResidualTail`] || [])]), gain);
           return eq(add(source[key], pending), source[key]);
         });
       }
@@ -237,6 +241,7 @@
       function reusableAutomaticStepPlan(token, seconds, activePowerSystem, activeCultivationSystem, options = {}) {
         const prepared = token && preparedPlans.get(token);
         return prepared && prepared.elapsedSeconds === seconds &&
+          prepared.incomeFactor === WIS.Simulation.Compensation.factor() &&
           prepared.method === integrationMethod(options) &&
           prepared.offlineExecution === WIS.Core.Runtime.isOfflineExecution() &&
           prepared.stableInventoryIntegration === (options.stableInventoryIntegration !== false) &&
@@ -525,11 +530,104 @@
       }
 
       function advanceGameStep(elapsedSeconds, silentTreasureRolls, options = {}) {
-        if (options.offline && !WIS.Core.Runtime.isOfflineExecution()) {
-          return WIS.Core.Runtime.withOfflineExecution(() =>
-            advanceGameStepWithContext(elapsedSeconds, silentTreasureRolls, options));
+        if (options.preparedFixedSegment) options={...options,
+          fixedCandidate:WIS.Simulation.FixedSegment.takePrepared(options.preparedFixedSegment,getState())};
+        const C = WIS.Simulation.Compensation, segment = options.timeSegment;
+        const clockRatio = segment?.source === 'online' && segment.compensationEligible === true
+          ? Number(segment.clockRatio) : 0;
+        if (!Number.isFinite(clockRatio) || clockRatio < 0) throw Error('在线补偿时间比例无效');
+        const covered = clockRatio > 0 && C.get(getState()).balance > 0;
+        const seconds = covered ? Math.min(elapsedSeconds, C.get(getState()).balance / clockRatio) : elapsedSeconds;
+        const run = () => advanceAtomicStep(seconds, silentTreasureRolls, {
+          ...options, compensationClockRatio: covered ? clockRatio : 0,
+          // An exhausted credit can split income within one online tick, but
+          // must not create an additional automatic purchase opportunity.
+          deferAutomation: covered && seconds + epsilon < Math.min(elapsedSeconds,simulationStepSeconds)
+        });
+        return C.withFactor(covered ? 2 : 1, () =>
+          options.offline && !WIS.Core.Runtime.isOfflineExecution()
+            ? WIS.Core.Runtime.withOfflineExecution(run) : run());
+      }
+
+      function advanceAtomicStep(elapsedSeconds, silentTreasureRolls, options) {
+        const original = getState();
+        const roots = ["core", "powerSystem", "cultivation", "meta"];
+        const previous = Object.fromEntries(roots.map(key => [key, original[key]]));
+        const rates = { ...WIS.tmp.rates }, previousTick = WIS.tmp.tick;
+        const amounts = Object.fromEntries(["joules", "power", "mana", "immortalPower", "xianForce", "yuanForce"].map(key => [key, original[key]]));
+        const power = WIS.Core.Registries.getActivePower(original);
+        const cultivation = WIS.Core.Registries.getActiveCultivation(original);
+        const transient = [power?.snapshotTreasureTransient?.(), cultivation?.snapshotTreasureTransient?.()];
+        const savedDeferred = deferredSaveRequested;
+        const fixedConfirmed = WIS.Simulation.FixedSegment.confirmed();
+        // All calculations, ledger checks, treasure rolls and event/automation
+        // effects execute on disposable branches. No persistence before success.
+        Object.assign(original, WIS.Core.State.toSerializable(original));
+        transactionDepth++;
+        try {
+          const result = WIS.Core.Runtime.atomic(() => {
+            const result = advanceFixedStep(elapsedSeconds, silentTreasureRolls, options);
+            if (result.processedSeconds > 0 && options.compensationClockRatio > 0) {
+              result.compensationClockSeconds = WIS.Simulation.Compensation.consume(
+                getState(), result.processedSeconds * options.compensationClockRatio);
+            }
+            if (!(result.processedSeconds > 0) && !result.eventCommitted) {
+              Object.assign(original, previous);
+            } else if (!options.projection && !WIS.Core.Runtime.isProjection()) {
+              getState().core.runtime.lastSettlement = {
+                seconds: result.processedSeconds, gains: result.resourceGains || {},
+                mainChanged: Object.fromEntries(Object.entries(amounts).map(([key, value]) => [key, !eq(value, getState()[key])])),
+                at: getState().totalElapsedSeconds
+              };
+            }
+            return result;
+          });
+          return result;
+        } catch (error) {
+          WIS.Simulation.FixedSegment.restoreConfirmed(fixedConfirmed);
+          Object.assign(original, previous);
+          if (getState() !== original) WIS.Core.Runtime.setState(original);
+          for (const key of Object.keys(WIS.tmp.rates)) delete WIS.tmp.rates[key];
+          Object.assign(WIS.tmp.rates, rates);
+          power?.restoreTreasureTransient?.(transient[0]);
+          cultivation?.restoreTreasureTransient?.(transient[1]);
+          WIS.tmp.tick = previousTick;
+          deferredSaveRequested = savedDeferred;
+          throw error;
+        } finally {
+          transactionDepth--;
+          const committedRates = { ...WIS.tmp.rates };
+          WIS.Core.Effects.invalidate();
+          Object.assign(WIS.tmp.rates, committedRates);
         }
-        return advanceGameStepWithContext(elapsedSeconds, silentTreasureRolls, options);
+      }
+
+      function advanceFixedStep(elapsedSeconds, silentTreasureRolls, options) {
+        const state = getState(), requested = Math.max(0, Number(elapsedSeconds) || 0);
+        const isOffline = options.timeSegment?.source === "offline";
+        const seconds = nextChallengeTimeBoundarySeconds(Math.min(requested,
+          isOffline ? CONFIG.fixedSettlement.offlineSeconds : simulationStepSeconds));
+        if (!(seconds > 0)) return { processedSeconds: 0, remainingSeconds: requested };
+        const unit = options.fixedCandidate ? null : WIS.Simulation.FixedSegment.prepare(state, seconds, {
+          runAchievementAutomations: options.deferAutomation ? undefined : runAchievementAutomations,
+          skipTreasureRolls: options.skipTreasureRolls,
+          offline: isOffline
+        });
+        if(options.fixedCandidate && options.fixedCandidate.unit.seconds!==seconds) throw Error("固定段时间边界已改变");
+        const result = options.fixedCandidate
+          ? WIS.Simulation.FixedSegment.installPrepared(state,options.fixedCandidate)
+          : WIS.Simulation.FixedSegment.commit(state, unit, options);
+        projectStepTimes(state, seconds);
+        // All new effects start in the next unit. No ordinary scale bisection,
+        // no re-query after income, loot or any of the end-unit purchases.
+        WIS.Core.Registries.getActivePower(state)?.afterStep?.(state, seconds);
+        updateLifetimeStatistics();
+        if (recordCurrentAchievements() && !options.projection) markAchievementsDirty();
+        WIS.Meta.BigNumbers?.syncUnlock(state);
+        if (result.operations && !options.projection) markCostGroupsDirty();
+        checkActiveChallengeCompletion();
+        return { ...result, processedSeconds: seconds, remainingSeconds: Math.max(0, requested-seconds),
+          requiresReplan: seconds + epsilon < requested, formulaChanged: result.operations > 0 };
       }
 
       function advanceGameStepWithContext(elapsedSeconds, silentTreasureRolls, {
@@ -726,6 +824,11 @@
       }
 
       return Object.freeze({
+        prepareFixedWork(seconds) {
+          return WIS.Simulation.FixedSegment.createWork(getState(),
+            nextChallengeTimeBoundarySeconds(Math.min(seconds,CONFIG.fixedSettlement.offlineSeconds)),
+            {offline:true,runAchievementAutomations});
+        },
         requestSave, beginTransaction, endTransaction,
         projectStepTimes, calculateAutomaticStepPlan,
         nextKnownSimulationBoundarySeconds, advanceGameStep, advanceGame

@@ -1,192 +1,95 @@
 (function defineSimulationLoop(WIS) {
-  "use strict";
-
-  WIS.Simulation = WIS.Simulation || {};
-  WIS.Simulation.Loop = Object.freeze({
-    create(context) {
-      const {
-        getState, advanceGameStep, beginTransaction, endTransaction,
-        offline, achievementStates, notifyNewAchievements,
-        requestRender, flushRender, saveState, effectiveDevSpeed,
-        isInitialLoadComplete
-      } = context;
-      const epsilon = context.epsilon;
-      const simulationStepSeconds = context.simulationStepSeconds;
-      const maxOnlineStepsPerFrame = context.maxOnlineStepsPerFrame;
-      const maxDiscreteEventsPerStep = context.maxDiscreteEventsPerStep;
-      let lastTickAt = Date.now();
-      let simulationAccumulator = 0;
-      let simulationClockAccumulator = 0;
-      let simulationStepRemainder = 0;
-      let simulationStepDiscreteEvents = 0;
-      let started = false;
-
-      function setLastTickAt(value) {
-        lastTickAt = Math.max(0, Number(value) || Date.now());
-      }
-
-      function resetAccumulators() {
-        simulationAccumulator = 0;
-        simulationClockAccumulator = 0;
-        simulationStepRemainder = 0;
-        simulationStepDiscreteEvents = 0;
-      }
-
-      function addToSimulationAccumulator(gameSeconds, clockSeconds) {
-        simulationAccumulator += Math.max(0, Number(gameSeconds) || 0);
-        simulationClockAccumulator += Math.max(0, Number(clockSeconds) || 0);
-      }
-
-      function flushSimulationAccumulatorToCatchUp() {
-        if (!(simulationAccumulator > epsilon)) return;
-        let gameSeconds = simulationAccumulator;
-        let clockSeconds = simulationClockAccumulator;
-        const clockPerGameSecond = gameSeconds > 0 ? clockSeconds / gameSeconds : 0;
-        simulationAccumulator = 0;
-        simulationClockAccumulator = 0;
-        if (simulationStepRemainder > epsilon) {
-          const firstGameSeconds = Math.min(gameSeconds, simulationStepRemainder);
-          const firstClockSeconds = firstGameSeconds * clockPerGameSecond;
-          offline.appendCatchUpTask(firstGameSeconds, firstClockSeconds);
-          gameSeconds = Math.max(0, gameSeconds - firstGameSeconds);
-          clockSeconds = Math.max(0, clockSeconds - firstClockSeconds);
-          simulationStepRemainder = Math.max(0, simulationStepRemainder - firstGameSeconds);
-        }
-        if (gameSeconds > epsilon) offline.appendCatchUpTask(gameSeconds, clockSeconds);
-        offline.queueCatchUpNotice(0, 0);
-      }
-
-      function processOnlineSimulationAccumulator() {
-        let processedSteps = 0;
-        let yieldedForDiscreteEventLimit = false;
-        while (processedSteps < maxOnlineStepsPerFrame) {
-          const requestedStepSeconds = simulationStepRemainder > epsilon
-            ? simulationStepRemainder
-            : simulationStepSeconds;
-          if (simulationAccumulator + epsilon < requestedStepSeconds) break;
-          const stepClockSeconds = simulationAccumulator > 0
-            ? simulationClockAccumulator * (requestedStepSeconds / simulationAccumulator)
-            : 0;
-          let result;
-          let acceptedSeconds = 0;
-          beginTransaction();
-          try {
-            result = advanceGameStep(requestedStepSeconds, false);
-            acceptedSeconds = Math.max(0,
-              Math.min(requestedStepSeconds, Number(result.processedSeconds) || 0));
-            if (acceptedSeconds > 0) {
-              const acceptedClockSeconds = stepClockSeconds * (acceptedSeconds / requestedStepSeconds);
-              simulationAccumulator = Math.max(0, simulationAccumulator - acceptedSeconds);
-              simulationClockAccumulator = Math.max(0, simulationClockAccumulator - acceptedClockSeconds);
-              getState().totalElapsedSeconds += acceptedClockSeconds;
-            }
-          } finally {
-            endTransaction();
-          }
-          if (result?.eventCommitted) simulationStepDiscreteEvents += 1;
-          if (!(acceptedSeconds > 0) && !result?.eventCommitted) break;
-          simulationStepRemainder = result.remainingSeconds > epsilon ? result.remainingSeconds : 0;
-          if (simulationStepDiscreteEvents >= maxDiscreteEventsPerStep && simulationStepRemainder > 0) {
-            simulationStepDiscreteEvents = 0;
-            yieldedForDiscreteEventLimit = true;
-            break;
-          }
-          if (simulationStepRemainder <= 0) {
-            simulationStepDiscreteEvents = 0;
-            processedSteps += 1;
-          }
-        }
-        const nextSimulationStepSeconds = simulationStepRemainder > epsilon
-          ? simulationStepRemainder
-          : simulationStepSeconds;
-        if (!yieldedForDiscreteEventLimit &&
-            simulationAccumulator + epsilon >= nextSimulationStepSeconds) {
-          flushSimulationAccumulatorToCatchUp();
-        }
-      }
-
-      function runMainTick() {
-        const now = Date.now();
-        if (!isInitialLoadComplete()) {
-          lastTickAt = now;
-          return;
-        }
-        if (document.hidden) return;
-        const debugSpeedMultiplier = effectiveDevSpeed();
-        const realElapsedSeconds = Math.max(0, now - lastTickAt) / 1000;
-        lastTickAt = now;
-        const previousAchievements = achievementStates();
-        const catchUpPaused = offline.isCatchUpPaused?.() === true;
-        const catchUpRunning = offline.isCatchUpInProgress();
-        if (catchUpPaused || catchUpRunning || offline.getPendingCatchUpSeconds() > 0) {
-          // Catch-up owns a fixed debt. Time spent recovering is intentionally not simulated.
-          if (!catchUpPaused) offline.queueCatchUpNotice(0, 0);
-        } else {
-          addToSimulationAccumulator(realElapsedSeconds * debugSpeedMultiplier, realElapsedSeconds);
-          processOnlineSimulationAccumulator();
-        }
-        notifyNewAchievements(previousAchievements);
-        requestRender();
-        flushRender(now);
-      }
-
-      function handleVisibilityChange() {
-        if (!isInitialLoadComplete()) return;
-        if (document.hidden) {
-          saveState();
-          return;
-        }
-        const now = Date.now();
-        const elapsedSeconds = Math.max(0, now - lastTickAt) / 1000;
-        lastTickAt = now;
-        if (offline.isCatchUpInProgress() || offline.isCatchUpPaused?.() ||
-            offline.getPendingCatchUpSeconds() > 0) {
-          requestRender();
-          flushRender(now, { force: true });
-          return;
-        }
-        const debugSpeedMultiplier = effectiveDevSpeed();
-        const catchUpGameSeconds = simulationAccumulator + elapsedSeconds * debugSpeedMultiplier;
-        const catchUpClockSeconds = simulationClockAccumulator + elapsedSeconds;
-        simulationAccumulator = 0;
-        simulationClockAccumulator = 0;
-        if (simulationStepRemainder > epsilon) {
-          const clockPerGameSecond = catchUpGameSeconds > 0 ? catchUpClockSeconds / catchUpGameSeconds : 0;
-          const firstGameSeconds = Math.min(catchUpGameSeconds, simulationStepRemainder);
-          const firstClockSeconds = firstGameSeconds * clockPerGameSecond;
-          offline.appendCatchUpTask(firstGameSeconds, firstClockSeconds);
-          simulationStepRemainder = Math.max(0, simulationStepRemainder - firstGameSeconds);
-          offline.appendCatchUpTask(
-            Math.max(0, catchUpGameSeconds - firstGameSeconds),
-            Math.max(0, catchUpClockSeconds - firstClockSeconds)
-          );
-          offline.queueCatchUpNotice(0, 0);
-        } else {
-          offline.queueCatchUpNotice(catchUpGameSeconds, catchUpClockSeconds);
-        }
-        requestRender();
-        flushRender(now, { force: true });
-      }
-
-      function start() {
-        if (started) return;
-        started = true;
-        document.addEventListener("visibilitychange", handleVisibilityChange);
-        window.setInterval(runMainTick, context.logicIntervalMs);
-      }
-
-      return Object.freeze({
-        start,
-        runMainTick,
-        setLastTickAt,
-        resetAccumulators,
-        getUnprocessedOnlineClockSeconds: () => {
-          if (!isInitialLoadComplete() || offline.isCatchUpInProgress() ||
-              offline.isCatchUpPaused?.() || offline.getPendingCatchUpSeconds() > 0) return 0;
-          return simulationClockAccumulator + Math.max(0, Date.now() - lastTickAt) / 1000;
-        },
-        getSimulationClockAccumulator: () => simulationClockAccumulator
-      });
+  'use strict';
+  WIS.Simulation.Loop=Object.freeze({create(context){
+    const {getState,offline,requestRender,flushRender,saveState,effectiveDevSpeed,isInitialLoadComplete}=context;
+    const epsilon=context.epsilon;
+    let lastTickAt=Date.now(),started=false,preparingSave=false;
+    const ledger=()=>getState().core.runtime.timeLedger;
+    function writeLedger(fields){getState().core.runtime.timeLedger={...ledger(),...fields};}
+    const ready=()=>context.isStateReady?context.isStateReady():isInitialLoadComplete();
+    function setLastTickAt(value){lastTickAt=Number.isFinite(Number(value))?Math.max(0,Number(value)):Date.now();}
+    function resetAccumulators(){lastTickAt=Date.now();}
+    function eligible(){return WIS.Simulation.Compensation?.eligibleAtEnqueue?.(getState())===true;}
+    function enqueueForegroundAt(now,{leaving=false}={}){
+      const previous=lastTickAt;lastTickAt=now;
+      if(!isInitialLoadComplete()||ledger().awaySince!==null||(!leaving&&document.hidden))return 0;
+      const status=offline.getCatchUpStatus();
+      if(status.phase==='paused'||((status.phase==='running'||status.pendingGameSeconds>epsilon)&&status.presentation==='blocking'))return 0;
+      const seconds=Math.max(0,now-previous)/1000;
+      if(!(seconds>0))return 0;
+      const speed=effectiveDevSpeed();
+      // Reserve eligibility without spending credit. Earlier queued online
+      // time keeps its original qualification even if a new grant is added.
+      const covered=eligible()?Math.min(seconds,offline.availableCompensationClockSeconds()):0;
+      for(const [clock,compensationEligible] of [[covered,true],[seconds-covered,false]])if(clock>0)
+        offline.appendCatchUpTask(clock*speed,clock,{source:'online',compensationEligible,
+          randomMode:'state',speed,sealed:false,presentation:'quiet',mergeWithTail:true,external:true});
+      writeLedger({boundaryAt:now});return seconds;
     }
-  });
+    function markAway(now){
+      if(!ready()||ledger().awaySince!==null)return false;
+      enqueueForegroundAt(now,{leaving:true});
+      offline.sealOnlineTail();
+      writeLedger({awaySince:now,registeredUntil:now,boundaryAt:now});
+      offline.suspendForAway();return true;
+    }
+    function registerReturn(now,{start=true,presentation='quiet',fallbackClosedAt=null}={}){
+      const p=ledger(),left=p.awaySince??fallbackClosedAt;
+      if(left==null){lastTickAt=now;offline.returnFromAway(false);return 0;}
+      const from=Math.max(left,p.registeredUntil||0),seconds=Math.max(0,now-from)/1000;
+      offline.invalidateSourceModels();
+      if(seconds>0){const speed=effectiveDevSpeed();
+        offline.appendCatchUpTask(seconds*speed,seconds,{source:'offline',compensationEligible:false,
+          randomMode:'state',speed,sealed:true,presentation,external:true});}
+      writeLedger({awaySince:null,registeredUntil:Math.max(from,now),boundaryAt:now});lastTickAt=now;
+      if(document.hidden){writeLedger({awaySince:now});offline.suspendForAway();}
+      else offline.returnFromAway(start);
+      return seconds;
+    }
+    function runMainTick(){
+      const now=Date.now();
+      if(!isInitialLoadComplete()){lastTickAt=now;return;}
+      if(document.hidden)return;
+      // The visibility event normally handles this. Recover a missed event
+      // through the SAME watermark, without inferring offline from duration.
+      if(ledger().awaySince!==null)registerReturn(now);
+      else {
+        enqueueForegroundAt(now);
+        if(!offline.isCatchUpPaused())offline.queueCatchUpNotice(0,0);
+      }
+      requestRender();flushRender(now);
+    }
+    function handleVisibilityChange(){
+      if(!ready())return;
+      const now=Date.now();
+      if(document.hidden){if(markAway(now))saveState();}
+      else if(ledger().awaySince!==null){registerReturn(now);saveState();}
+      requestRender();flushRender(now,{force:true});
+    }
+    function prepareSave(options={}){
+      if(preparingSave||offline.isInternalWork?.()||!ready())return;
+      preparingSave=true;
+      try{
+        if(options.closing===true||document.hidden)markAway(Date.now());
+        else enqueueForegroundAt(Date.now());
+      }finally{preparingSave=false;}
+    }
+    function restoreClosedTime(snapshot){
+      // An explicit leave/normal-close is evidence of new offline time.
+      // A checkpoint while blocking with neither marker is recovery waiting.
+      const fallback=snapshot?.closedAt>0?snapshot.closedAt:null;
+      return registerReturn(Date.now(),{start:false,presentation:'blocking',fallbackClosedAt:fallback});
+    }
+    function start(){if(started)return;started=true;
+      document.addEventListener('visibilitychange',handleVisibilityChange);
+      window.setInterval(runMainTick,context.logicIntervalMs);
+    }
+    return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,
+      prepareSave,restoreClosedTime,enqueueForegroundAt,
+      snapshot:()=>({lastTickAt}),restore:snapshot=>{lastTickAt=snapshot.lastTickAt;},
+      // Every accepted wall interval is already in the persisted source queue;
+      // backdating lastUpdateAt would record the same time a second time.
+      getUnprocessedOnlineClockSeconds:()=>0,
+      getSimulationClockAccumulator:()=>0});
+  }});
 }(window.WIS));

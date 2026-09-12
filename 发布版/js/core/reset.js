@@ -69,6 +69,20 @@
       currentRebirthStatistics.forEach((key) => { result[key] = clone(fresh[key]); });
       result.reincarnationElapsedSeconds = clone(fresh.reincarnationElapsedSeconds);
     }
+    if(clear.includes("explorationProgress")) {
+      const p=result.explorationRewards;
+      result.explorationRewards={version:1,natural:[],seize:[],levelResidual:clone(p?.levelResidual||[])};
+    }
+    result.core.preferences = clone(currentDomain.core.preferences);
+    result.core.runtime.randomState = currentDomain.core.runtime.randomState;
+    result.core.runtime.timeLedger = clone(currentDomain.core.runtime.timeLedger);
+    result.core.runtime.compensation = clone(currentDomain.core.runtime.compensation);
+    for (const key of ["joules", "power", "mana", "immortalPower"]) {
+      if (clear.includes(key)) {
+        const container = ["joules", "power"].includes(key) ? result.core.resources : result.cultivation.systems.immortal.resources;
+        container[`${key}GainResidualTail`] = [];
+      }
+    }
     Object.entries(overrides).forEach(([key, value]) => {
       if (key.includes(".")) setPath(result, key, value);
       else result[key] = clone(value);

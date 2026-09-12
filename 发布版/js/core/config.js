@@ -162,10 +162,11 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.5.1", saveVersion: 54,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.5.2", saveVersion: 59,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
+    fixedSettlement: Object.freeze({ version: 1, offlineSeconds: 60, workBudgetMs: 9 }),
     googolPenalty: Object.freeze({
       threshold: BN("1e100"),
       defaultStrength: BN(1),

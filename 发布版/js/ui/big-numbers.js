@@ -75,12 +75,9 @@
         button.addEventListener("click", () => {
           if (context.getCatchUpStatus().locked) return;
           const previous = context.achievementStates();
-          try {
-            if (M.purchase(state, i + 1)) {
-              context.saveState(); context.notifyNewAchievements(previous); WIS.Core.Runtime.call("render");
-            }
-          } catch (error) { WIS.Core.Runtime.call("showNotice", `分形操作未完成：${error.message}`); }
-          render();
+          context.performSavedAction(() => M.purchase(state, i + 1), () => {
+            context.notifyNewAchievements(previous); WIS.Core.Runtime.call("render"); render();
+          });
         });
         el.append(label, button); $("fractal-list").append(el); rows.push({ el, status, button });
         const detail = document.createElement("p"); detail.id = "big-number-detail-" + i; $("big-number-details").append(detail);

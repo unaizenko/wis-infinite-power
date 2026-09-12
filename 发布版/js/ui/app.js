@@ -228,6 +228,7 @@
     const dirtyPages = new Set(PAGE_NAMES);
     const dirtyCostGroupPages = new Set(["upgrades", "cultivation"]);
     let achievementsDirty = true;
+    const achievementPresentation = WIS.Meta.Achievements.createPresentation(markAchievementsDirty);
     let achievementCardsCreated = false;
     let noticeTimer;
     const achievementNoticeQueue = [];
@@ -238,6 +239,8 @@
     let automationRenderSignature = "";
     let offlineCatchUpStatus = Object.freeze({ phase: "idle", locked: false });
     let offlineDialogDelayTimer = null;
+    // Presentation survives the next online task; it never blocks simulation.
+    let offlineCompletedSummary = null;
     let offlineAbandonPending = false;
 
     const AUTOMATION_GROUPS = Object.freeze([
@@ -384,15 +387,18 @@
     emptyState.hidden = unlockedDefinitions.length > 0;
   }
 
-  function offlinePauseDescription(diagnostic) {
+  function offlinePauseDescription(diagnostic, origin, source) {
+    const activity=source==='online'?"在线追赶":source==='offline'?"离线结算":"进度恢复";
+    if(diagnostic?.reason==="player-paused")return "你已手动暂停结算，剩余时间已保留，点击重试结算可继续。";
+    if(origin==="history")return `存档保留了上次结算失败记录，可点击重试。尚未使用当前版本重新结算。发生构建：${diagnostic?.occurredBuild??"未知"}；规则版本：${diagnostic?.occurredRule??"未知"}。${diagnostic?.error?.message?"历史错误："+diagnostic.error.message:""}`;
     const errorMessage = diagnostic?.error?.message;
-    if (diagnostic?.reason === "fast-forward-unavailable") return "剩余离线时间已保留。点击重试，由当前版本重新选择适用的结算路径。";
-    if (errorMessage) return `结算过程中发生异常：${errorMessage}。剩余时间已保留，可重试结算。`;
+    if (diagnostic?.reason === "fast-forward-unavailable") return "剩余时间已保留。点击重试，由当前版本继续处理。";
+    if (errorMessage) return `${activity}中发生异常：${errorMessage}。剩余时间已保留，可手动重试。`;
     if (diagnostic?.reason === "player-paused") return "已暂停并保留剩余时间，点击重试结算可继续。";
     if (diagnostic?.reason === "zero-progress") {
       return "当前状态无法继续推进。剩余时间已完整保留，可在状态恢复后重试结算。";
     }
-    return "离线结算暂时无法继续。剩余时间已完整保留，可重试结算。";
+    return `${activity}暂时无法继续。剩余时间已完整保留，可手动重试。`;
   }
 
   function openOfflineProgressDialog() {
@@ -421,6 +427,7 @@
         showNotice("未能放弃剩余结算，原有待结算时间已保留。请检查存档状态后重试。", 6000);
         return;
       }
+      offlineCompletedSummary = null;
       if (latest.phase === "completed") acknowledgeCatchUp();
       closeOfflineProgressDialog();
       showNotice("已保留已结算收益并放弃剩余离线时间，可在设置中导出存档。", 6000);
@@ -434,9 +441,46 @@
   }
 
   function renderOfflineCatchUpStatus(status) {
+    const source=status?.sessionSource||'unknown';
+    const online=source==='online',offline=source==='offline',mixed=source==='mixed';
+    const activity=online?'在线进度追赶':offline?'离线收益结算':'游戏进度恢复';
+    const setText=(id,text)=>{const el=rawById(id);if(el)el.textContent=text;};
+    setText('offline-progress-total-label',online?'本次追赶时间':offline?'本次离线时间':'本次恢复时间');
+    setText('offline-progress-pending-label',online?'待追赶':offline?'待结算':'待恢复');
+    setText('offline-pause-title',activity+'已暂停');
+    setText('offline-complete-title',mixed?'混合恢复结果':offline?'离线收益汇总':'游戏进度恢复结果');
+    setText('retry-offline-progress',online?'重试追赶':'重试结算');
+    setText('offline-progress-intro',online?'这是前台在线计算积压，不是离开游戏产生的离线时间。阻塞追赶期间暂不产生新增在线收益。':
+      offline?'结算实际离开游戏期间的收益，自动操作沿用已保存的开关。阻塞结算期间暂不产生新增在线收益。':
+      mixed?'本次包含在线积压和实际离线时间，各自按原规则处理。阻塞恢复期间暂不产生新增在线收益。':
+      '部分历史时间来源无法完整确认，按存档原任务恢复。阻塞恢复期间暂不产生新增在线收益。');
+    const pendingTime = seconds => seconds > 0 && seconds < 1
+      ? `${Number(seconds).toPrecision(3)}秒` : formatElapsedTime(seconds);
+    const credit = rawById("online-compensation-balance");
+    const balance = Number(status?.compensation?.balance) || 0;
+    if (credit) {
+      credit.hidden = !(balance > 0);
+      credit.textContent = `两倍在线收益 · 剩余 ${formatElapsedTime(balance)}`;
+      credit.title = "仅确认推进合格在线时间时扣额；离线及暂停等待保留额度。";
+    }
+    for (const id of ["convert-offline-progress", "convert-quiet-catch-up"]) {
+      const button = rawById(id);
+      if (button) {
+        button.disabled = offlineAbandonPending || !(status?.convertibleClockSeconds > 0);
+        button.hidden = !(status?.convertibleClockSeconds > 0);
+      }
+    }
+    const conversionHelp=rawById('offline-conversion-help');
+    if(conversionHelp)conversionHelp.hidden=!(status?.convertibleClockSeconds>0);
     const progress = Math.max(0, Math.min(1, Number(status?.progress) || 0));
     const wallTime = rawById("offline-progress-wall-time");
-    if (wallTime) wallTime.textContent = "本次恢复耗时 " + Math.max(0, Number(status?.recoveryElapsedSeconds) || 0).toFixed(1) + " 秒";
+    if (wallTime) {
+      const throughput=Number(status?.actualThroughput), wait=status?.estimatedWaitSeconds;
+      wallTime.textContent = "本次恢复耗时 " + Math.max(0, Number(status?.recoveryElapsedSeconds) || 0).toFixed(1) + " 秒" +
+        (status?.phase==="running" ? (throughput>0 ? ` · 最近结算速度 ×${throughput.toFixed(1)}` : " · 正在测量速度") +
+          (Number.isFinite(wait)&&wait>=0 ? ` · 预计等待 ${formatElapsedTime(wait)}` : " · 等待时间估算中") +
+          (status?.recentFastForward?.noEffectiveMerge ? " · 近期无有效合并，正在按原帧结算" : "") : "");
+    }
     const pauseButton = rawById("pause-offline-progress");
     if (pauseButton) pauseButton.hidden = status?.phase !== "running";
     const remainingSeconds = Math.max(0, Number(status?.pendingClockSeconds) || 0);
@@ -455,34 +499,41 @@
     if (!title || !detail || !pausePanel || !completePanel || !progressBar || !percent ||
         !remaining || !originalTotal || !originalProcessed || !originalPending) return;
 
+    progressBar.setAttribute("aria-label",activity+"进度");
     progressBar.value = status?.phase === "completed" ? 1 : progress;
-    percent.textContent = `${Math.round((status?.phase === "completed" ? 1 : progress) * 100)}%`;
+    percent.textContent = status?.phase === "completed" ? "100%" : `${Math.min(99.9,progress*100).toFixed(1)}%`;
     remaining.textContent = status?.phase === "completed"
-      ? "全部离线时间已结算"
-      : `剩余 ${formatElapsedTime(remainingSeconds)}`;
+      ? (online?"在线积压已追赶完成":offline?"全部离线时间已结算":"本次游戏进度已恢复")
+      : (mixed ? `在线待追赶 ${pendingTime(status?.onlinePendingGameSeconds||0)} · 离线待结算 ${pendingTime(status?.offlinePendingGameSeconds||0)}` : source==='unknown' ? `待恢复时间 ${pendingTime(status?.pendingGameSeconds||0)}（部分历史来源未知）`
+        : `${online?'待追赶时间':'待结算游戏时间'} ${pendingTime(Math.max(0, Number(status?.pendingGameSeconds) || 0))}`);
     originalTotal.textContent = formatElapsedTime(Math.max(0, Number(status?.originalClockSeconds) || 0));
     originalProcessed.textContent = formatElapsedTime(
       Math.max(0, Number(status?.originalProcessedClockSeconds) || 0)
     );
-    originalPending.textContent = formatElapsedTime(
+    originalPending.textContent = pendingTime(
       Math.max(0, Number(status?.originalPendingClockSeconds) || 0)
     );
     pausePanel.hidden = status?.phase !== "paused";
+    if(status?.phase!=="paused")rawById("offline-pause-reason").textContent="";
     completePanel.hidden = status?.phase !== "completed";
     if (abandonActions) abandonActions.hidden = !["running", "paused"].includes(status?.phase);
-    if (abandonButton) abandonButton.disabled = offlineAbandonPending || typeof context.abandonCatchUp !== "function";
+    if (abandonButton) {
+      abandonButton.disabled = offlineAbandonPending || typeof context.abandonCatchUp !== "function";
+      abandonButton.textContent = "无补偿直接放弃剩余时间";
+    }
 
     if (status?.phase === "paused") {
-      title.textContent = "离线结算已暂停";
-      detail.textContent = "剩余离线时间已保留，可重试或放弃剩余结算。暂停期间不产生新收益。";
-      rawById("offline-pause-reason").textContent = offlinePauseDescription(status.pauseReason);
+      title.textContent = activity+"已暂停";
+      detail.textContent = "剩余时间已保留，可手动继续。"+(status?.convertibleClockSeconds>0?"仅尚未处理的实际离线时间可以转换为两倍在线收益。":"")+"暂停等待不产生新收益。";
+      rawById("offline-pause-reason").textContent = offlinePauseDescription(status.pauseReason,status.pauseOrigin,source);
     } else if (status?.phase === "completed") {
-      title.textContent = "离线收益结算完成";
-      detail.textContent = "本次离线时间已结算，游戏已恢复运行。";
-      rawById("offline-progress-summary").textContent = status.report || "离线结算完成，当前没有可自动获取的资源。";
+      title.textContent = activity+"完成";
+      detail.textContent = "游戏已恢复正常在线推进，可阅读本次"+(mixed?"在线和离线混合恢复结果":offline?"离线收益报告":"进度恢复结果")+"，点击继续游戏关闭。";
+      rawById("offline-progress-summary").textContent = status.report || "本次进度恢复完成，当前没有可自动获取的资源。";
     } else {
-      title.textContent = "正在结算离线收益";
-      detail.textContent = "正在计算离线收益，请稍候。结算期间暂停在线收益。";
+      title.textContent = online?"正在追赶在线进度":offline?"正在结算离线收益":"正在恢复游戏进度";
+      detail.textContent = online?"在线积压按0.1游戏秒逻辑步追赶，不作为离线来源，不可转换为离线补偿。此阻塞窗口期间暂不产生新增在线收益。":
+        "离线每段最多60游戏秒，在线积压按0.1秒推进；新增效果下一步或下一段生效。此阻塞窗口期间暂不产生新增在线收益。";
     }
   }
 
@@ -504,20 +555,40 @@
       if (settlementLocked) appShell.setAttribute("aria-busy", "true");
       else appShell.removeAttribute("aria-busy");
     }
-    renderOfflineCatchUpStatus(offlineCatchUpStatus);
+    const completedOnline=offlineCatchUpStatus.phase==='completed'&&offlineCatchUpStatus.sessionSource==='online';
+    const autoCloseCompleted=state.autoCloseOfflineDialogEnabled!==false;
+    if(autoCloseCompleted)offlineCompletedSummary=null;
+    // Source is session provenance, never inferred from duration or presentation.
+    // A newer non-online report replaces the previous report. Online-only work
+    // may temporarily cover it but cannot replace it, even when blocking.
+    if(offlineCatchUpStatus.phase==='completed'&&!completedOnline&&!autoCloseCompleted) {
+      offlineCompletedSummary=Object.freeze({...offlineCatchUpStatus});
+    }
+    renderOfflineCatchUpStatus(offlineCompletedSummary && !settlementLocked
+      ? offlineCompletedSummary : offlineCatchUpStatus);
+
+    const quiet = offlineCatchUpStatus.presentation !== "blocking" && offlineCatchUpStatus.phase !== "paused";
+    const catchUpNotice = rawById("catch-up-notice");
+    if (catchUpNotice) {
+      const delayed = Number(offlineCatchUpStatus.recoveryElapsedSeconds) >= 1;
+      catchUpNotice.hidden = !quiet || !delayed || !(offlineCatchUpStatus.pendingGameSeconds > 0) || offlineCatchUpStatus.waitingForFrame;
+      const text = rawById("catch-up-notice-text");
+      if (text) text.textContent = `${offlineCatchUpStatus.sessionSource==='online'?'正在追赶在线进度':offlineCatchUpStatus.sessionSource==='offline'?'正在结算离线收益':'正在恢复游戏进度'} · 待处理 ${formatElapsedTime(offlineCatchUpStatus.pendingGameSeconds || 0)}`;
+    }
+    if (offlineCompletedSummary && !settlementLocked) {
+      openOfflineProgressDialog();
+      // Small online steps still finish/acknowledge normally beneath the report.
+      if (offlineCatchUpStatus.phase === "completed") acknowledgeCatchUp();
+      return;
+    }
+    if (quiet || completedOnline || (autoCloseCompleted && offlineCatchUpStatus.phase==='completed')) {
+      closeOfflineProgressDialog();
+      if (offlineCatchUpStatus.phase === "completed") acknowledgeCatchUp();
+      return;
+    }
 
     if (offlineCatchUpStatus.phase === "paused") {
       openOfflineProgressDialog();
-      return;
-    }
-    if (offlineCatchUpStatus.phase === "completed") {
-      const elapsedMs = Math.max(0, Date.now() - (Number(offlineCatchUpStatus.startedAt) || Date.now()));
-      if (rawById("offline-progress-dialog")?.open ||
-          (Number(offlineCatchUpStatus.originalClockSeconds) >= CONFIG.offlineNoticeMinSeconds && elapsedMs >= 300)) {
-        openOfflineProgressDialog();
-      } else {
-        acknowledgeCatchUp();
-      }
       return;
     }
     if (offlineCatchUpStatus.phase !== "running") {
@@ -546,8 +617,43 @@
     });
   }
 
+  function safeOperationNotice(message) {
+    try { showNotice(message,6000); } catch(error) { WIS.Core.Save.diagnose("notice",error); }
+  }
+
+  function performSavedAction(action, update, afterCommit) {
+    const storage=WIS.Core.Save;
+    let before=null;
+    try {before=JSON.stringify(WIS.Core.State.toSerializable(state));} catch(error) {storage.diagnose("operation-snapshot",error);}
+    let committed;
+    try {committed=action();} catch(error) {
+      storage.diagnose("operation",error);
+      let unchanged=false;
+      try {unchanged=before!==null && before===JSON.stringify(WIS.Core.State.toSerializable(state));} catch(_) {}
+      if (!unchanged) storage.noteFailure(error,"操作异常，无法确认是否完整提交；请勿重复购买或刷新，请先导出当前进度。");
+      safeOperationNotice(unchanged ? "购买失败，资源未扣除。" : "操作异常，状态可能已变化，不能确认购买未生效。请勿重复操作。");
+      return false;
+    }
+    if (!committed) return false;
+    storage.markPending();
+    let updateError=null;
+    try {afterCommit?.();} catch(error) {updateError=error;storage.diagnose("post-commit",error);}
+    const revision=storage.status().revision;
+    try {saveState();} catch(error) {
+      storage.noteFailure(error,"购买已生效，但保存失败。请勿刷新或关闭页面。");
+    }
+    const saved=storage.status().revision>revision;
+    try {update();render({forceGlobal:true,forcePage:true});} catch(error) {updateError=error;storage.diagnose("operation-ui",error);}
+    if (updateError) safeOperationNotice(saved ? "进度已保存，界面更新失败。" : "购买已生效，界面更新失败；保存尚未确认，请勿刷新或关闭页面。");
+    return true;
+  }
+
+  function renderSaveStatus(status=WIS.Core.Save.status()) {
+    byId("save-failure-panel").hidden=!status.unsaved;
+    byId("save-failure-message").textContent=status.message;
+  }
+
   function exportSave() {
-    saveState();
     const payload = WIS.Core.Save.envelope(state);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -557,15 +663,27 @@
     anchor.download = `WIS-存档-${timestamp}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-    showNotice("存档已导出");
+    safeOperationNotice("已生成当前进度备份并请求下载，请确认浏览器下载结果；这不会恢复浏览器自动保存。");
   }
 
   async function importSave(file) {
+    if (importSave.pending) { showNotice("正在导入，请等待当前操作完成。"); return; }
+    importSave.pending = true;
+    let previous = null, switched = false;
+    const previousSummary = offlineCompletedSummary;
     try {
       const parsed = JSON.parse(await file.text());
-      const schemaVersion = Number(parsed?.schemaVersion ?? parsed?.version) || 36;
+      const prepared = WIS.Core.Save.prepare(parsed);
+      // Validation and migration have no access to the current task queue.
+      // Backup must succeed before switching either progress or offline debt.
+      previous = context.captureImportState();
+      WIS.Core.Save.backup(state);
+      switched = true;
+      offlineCompletedSummary = null;
       cancelCatchUp();
-      runtime.setState(WIS.Core.State.migrate(schemaVersion, WIS.Core.Save.unwrap(parsed)));
+      runtime.setState(prepared.state);
+      achievementPresentation.reset();
+      WIS.Core.Save.acceptLoaded();
       configureBuildControlledUI();
       runtime.call("resetTransientAccumulators");
       markCostGroupsDirty();
@@ -573,7 +691,7 @@
       markGlobalDirty();
       markPagesDirty();
       const previousAchievements = achievementStates();
-      const restoredRecovery = context.restoreOfflineRecovery?.(parsed.offlineRecovery);
+      const restoredRecovery = context.restoreOfflineRecovery?.(prepared.offlineRecovery);
       const offlineReport = await simulateOfflineProgress(
         restoredRecovery ? 0 : Math.max(0, Date.now() - state.lastUpdateAt) / 1000
       );
@@ -591,17 +709,24 @@
       render({ forceGlobal: true, forcePage: true });
       byId("settings-dialog").close();
       showNotice("存档已导入");
-      notifyNewAchievements(previousAchievements);
+      if (context.getCatchUpStatus?.()?.phase !== "paused") notifyNewAchievements(previousAchievements);
       if (offlineReport) window.setTimeout(() => showNotice(offlineReport, 6000), 1500);
-    } catch {
-      showNotice("导入失败：文件内容无效");
-    }
+    } catch (error) {
+      if (switched) {
+        offlineCompletedSummary = previousSummary;
+        context.restoreImportState(previous);
+        achievementPresentation.reset();
+      }
+      showNotice(`导入失败，原进度和待结算时间已保留：${error.message || error}`);
+    } finally { importSave.pending = false; }
   }
 
   function resetGame() {
     if (!window.confirm("确定要清空全部游戏进度和个性化设置吗？")) return;
+    offlineCompletedSummary = null;
     cancelCatchUp();
     runtime.setState(freshDefaultState());
+    achievementPresentation.reset();
     runtime.call("resetTransientAccumulators");
     markCostGroupsDirty();
     markAchievementsDirty();
@@ -1315,7 +1440,7 @@
 
     const jDebug = byId("debug-j-sources");
     if (jDebug) {
-      jDebug.textContent = `来源层：基础 ${format(jBase)}；健身 ${format(jFitness)}（基础 ${format(effectiveFitnessLevel() * 2)}，基础乘区与加法 ${formatFitnessBaseBreakdown()}，来源倍率〔${formatDebugEffectGroups("fitness", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("fitness", "sourceExponent")}〕）；成就 ${format(jAchievement)}；杀气 ${format(jKillingIntent)}（集中古戈尔惩罚后的最终实际收益 ${format(currentFocusGainStages.afterGoogolPenalty)}战力/秒的${(killingIntentExtractionRatio() * 100).toFixed(5)}%，来源倍率〔${formatDebugEffectGroups("killingIntent", "sourceMultiplier")}〕，杀意波动 ^${killingIntentWaveExponent().toFixed(3)}；形成J来源后仍进入J区域与J惩罚）；元素化独立来源 ${format(jElementalization)}（来源倍率〔${formatDebugEffectGroups("elementalization", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("elementalization", "sourceExponent")}〕）${registeredJDebug ? `；${registeredJDebug}` : ""}。来源汇总 ${format(jSourceSum)}/秒；J区域乘区：${formatMultiplierGroups(currentJGroups)}；区域指数效果〔${formatDebugEffectGroups("joules", "regionExponent")}〕，合计 ^${jRegionExponent.toFixed(3)}：${format(jRaw)}/秒 → ${format(jAfterRegion)}/秒；自我抑制：空间震前基础软上限 ^${formatSoftcapExponent(jBaseSoftcapExponent)}，最终J指数 ^${currentSelfSuppressionExponent.toFixed(5)}；${resourceDeclineText} → ${format(jAfterExponent)}/秒；时间法则处理后 ^${daoTimeLawExponent().toFixed(4)} → ${format(jAfterTimeLaw)}/秒；正常量级软上限 ^${formatSoftcapExponent(jSoftcapExponent)}（实际/秒按固定积分格；触发：${activeSoftcapStages(state.joules)}；境界解除：${removedSoftcapStages()}）${state.activeChallenge === "planetSuppression" ? `；星球压制额外软上限 ^${formatSoftcapExponent(jPlanetSuppressionExponent)}` : ""}${jSoftcapSplitText}${googolPenaltySuffix("joules", state.joules)}：最终 ${format(jActual)}/秒`;
+      jDebug.textContent = `来源层：基础 ${format(jBase)}；健身 ${format(jFitness)}（基础 ${format(effectiveFitnessLevel() * 2)}，基础乘区与加法 ${formatFitnessBaseBreakdown()}，来源倍率〔${formatDebugEffectGroups("fitness", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("fitness", "sourceExponent")}〕）；成就 ${format(jAchievement)}；杀气 ${format(jKillingIntent)}（集中古戈尔惩罚后的最终实际收益 ${format(currentFocusGainStages.afterGoogolPenalty)}战力/秒的${(killingIntentExtractionRatio() * 100).toFixed(5)}%，来源倍率〔${formatDebugEffectGroups("killingIntent", "sourceMultiplier")}〕，杀意波动 ^${killingIntentWaveExponent().toFixed(3)}；形成J来源后仍进入J区域与J惩罚）；元素化独立来源 ${format(jElementalization)}（来源倍率〔${formatDebugEffectGroups("elementalization", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("elementalization", "sourceExponent")}〕）${registeredJDebug ? `；${registeredJDebug}` : ""}。来源汇总 ${format(jSourceSum)}/秒；J区域乘区：${formatMultiplierGroups(currentJGroups)}；区域指数效果〔${formatDebugEffectGroups("joules", "regionExponent")}〕，合计 ^${jRegionExponent.toFixed(3)}：${format(jRaw)}/秒 → ${format(jAfterRegion)}/秒；自我抑制：空间震前基础软上限 ^${formatSoftcapExponent(jBaseSoftcapExponent)}，最终J指数 ^${currentSelfSuppressionExponent.toFixed(5)}；${resourceDeclineText} → ${format(jAfterExponent)}/秒；时间法则处理后 ^${daoTimeLawExponent().toFixed(4)} → ${format(jAfterTimeLaw)}/秒；正常量级软上限 ^${formatSoftcapExponent(jSoftcapExponent)}（自动收益按步首／段首库存计算固定来源；触发：${activeSoftcapStages(state.joules)}；境界解除：${removedSoftcapStages()}）${state.activeChallenge === "planetSuppression" ? `；星球压制额外软上限 ^${formatSoftcapExponent(jPlanetSuppressionExponent)}` : ""}${jSoftcapSplitText}${googolPenaltySuffix("joules", state.joules)}：最终 ${format(jActual)}/秒`;
     }
 
     const focusSource = challengeAdjustedPowerSource(focusPowerPerSecond(), "focus");
@@ -1368,7 +1493,7 @@
     );
     const powerDebug = byId("debug-power-sources");
     if (powerDebug) {
-      powerDebug.textContent = `手动来源（不计入自动汇总）：锻炼 ${format(challengeAdjustedPowerSource(trainingPowerSource(), "training"))}/次（J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}，来源倍率〔${formatDebugEffectGroups("training", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("training", "sourceExponent")}〕）；自动来源层：集中 ${format(focusSource)}/秒（锻炼基础、J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}，来源倍率〔${formatDebugEffectGroups("focus", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("focus", "sourceExponent")}〕；集中来源平滑衰减：前期边际趋近 ^${FOCUS_SOURCE_CURVE_CONFIG.earlyExponent.toFixed(2)}，后期边际趋近 ^${FOCUS_SOURCE_CURVE_CONFIG.lateExponent.toFixed(2)}，衰减尺度 ${format(FOCUS_SOURCE_CURVE_CONFIG.scale)}；来源动态幂软上限 ^${formatSoftcapExponent(focusSoftcapExponent())}；单独结算：区域后 ${format(currentFocusGainStages.afterRegion)} → 常规软上限后 ${format(currentFocusGainStages.afterNormalSoftcap)} → 古戈尔惩罚后最终实际 ${format(currentFocusGainStages.afterGoogolPenalty)}）；打岩 ${format(rockSource)}/秒（生效等级 ${format(effectiveRockLevel())}，来源倍率〔${formatDebugEffectGroups("rock", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("rock", "sourceExponent")}〕）；鬼脑独立来源 ${format(ghostBrainSource)}/秒（连续衰减后基础 ${format(ghostBrainPotentialPowerBonus())}，衰减除数 ×${format(ghostBrainAttenuation)}，来源倍率〔${formatDebugEffectGroups("ghostBrain", "sourceMultiplier")}〕，脑域开发 ^${brainDomainDevelopmentExponent().toFixed(3)}）；极意独立来源 ${format(ultimateIntentSource)}/秒（来源倍率〔${formatDebugEffectGroups("ultimateIntent", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("ultimateIntent", "sourceExponent")}〕）${registeredPowerDebug ? `；${registeredPowerDebug}` : ""}。自动来源汇总 ${format(powerRaw)}/秒（以上自动来源明细之和，已计当前来源挑战限制）；战力区域乘区：${formatMultiplierGroups(currentPowerGroups)}；区域指数效果〔${formatDebugEffectGroups("power", "regionExponent")}〕，合计 ^${powerExponent.toFixed(3)}：${format(powerRegionMultiplied)}/秒 → ${format(powerAfterRegion)}/秒；${resourceDeclineText} → ${format(powerAfterExponent)}/秒；时间法则处理后 ^${daoTimeLawExponent().toFixed(4)} → ${format(powerAfterTimeLaw)}/秒；正常量级软上限 ^${formatSoftcapExponent(powerSoftcapExponent)}（实际/秒按固定积分格重新计算完整自动来源；集中在此承受第二次；触发：${activeSoftcapStages(state.power)}；境界解除：${removedSoftcapStages()}）${state.activeChallenge === "planetSuppression" ? `；星球压制额外软上限 ^${formatSoftcapExponent(powerPlanetSuppressionExponent)}` : ""}${powerSoftcapSplitText}${googolPenaltySuffix("power", state.power)}：最终 ${format(powerActual)}/秒；超自然发火当前倍率 ×${format(supernaturalFirePowerMultiplier(), 5)}（基准排除自身）`;
+      powerDebug.textContent = `手动来源（不计入自动汇总）：锻炼 ${format(challengeAdjustedPowerSource(trainingPowerSource(), "training"))}/次（J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}，来源倍率〔${formatDebugEffectGroups("training", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("training", "sourceExponent")}〕）；自动来源层：集中 ${format(focusSource)}/秒（锻炼基础、J衰减 ×${trainingPowerDecayMultiplier().toFixed(2)}，来源倍率〔${formatDebugEffectGroups("focus", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("focus", "sourceExponent")}〕；集中来源平滑衰减：前期边际趋近 ^${FOCUS_SOURCE_CURVE_CONFIG.earlyExponent.toFixed(2)}，后期边际趋近 ^${FOCUS_SOURCE_CURVE_CONFIG.lateExponent.toFixed(2)}，衰减尺度 ${format(FOCUS_SOURCE_CURVE_CONFIG.scale)}；来源动态幂软上限 ^${formatSoftcapExponent(focusSoftcapExponent())}；单独结算：区域后 ${format(currentFocusGainStages.afterRegion)} → 常规软上限后 ${format(currentFocusGainStages.afterNormalSoftcap)} → 古戈尔惩罚后最终实际 ${format(currentFocusGainStages.afterGoogolPenalty)}）；打岩 ${format(rockSource)}/秒（生效等级 ${format(effectiveRockLevel())}，来源倍率〔${formatDebugEffectGroups("rock", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("rock", "sourceExponent")}〕）；鬼脑独立来源 ${format(ghostBrainSource)}/秒（连续衰减后基础 ${format(ghostBrainPotentialPowerBonus())}，衰减除数 ×${format(ghostBrainAttenuation)}，来源倍率〔${formatDebugEffectGroups("ghostBrain", "sourceMultiplier")}〕，脑域开发 ^${brainDomainDevelopmentExponent().toFixed(3)}）；极意独立来源 ${format(ultimateIntentSource)}/秒（来源倍率〔${formatDebugEffectGroups("ultimateIntent", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("ultimateIntent", "sourceExponent")}〕）${registeredPowerDebug ? `；${registeredPowerDebug}` : ""}。自动来源汇总 ${format(powerRaw)}/秒（以上自动来源明细之和，已计当前来源挑战限制）；战力区域乘区：${formatMultiplierGroups(currentPowerGroups)}；区域指数效果〔${formatDebugEffectGroups("power", "regionExponent")}〕，合计 ^${powerExponent.toFixed(3)}：${format(powerRegionMultiplied)}/秒 → ${format(powerAfterRegion)}/秒；${resourceDeclineText} → ${format(powerAfterExponent)}/秒；时间法则处理后 ^${daoTimeLawExponent().toFixed(4)} → ${format(powerAfterTimeLaw)}/秒；正常量级软上限 ^${formatSoftcapExponent(powerSoftcapExponent)}（自动收益按步首／段首库存计算固定来源；集中在此承受第二次；触发：${activeSoftcapStages(state.power)}；境界解除：${removedSoftcapStages()}）${state.activeChallenge === "planetSuppression" ? `；星球压制额外软上限 ^${formatSoftcapExponent(powerPlanetSuppressionExponent)}` : ""}${powerSoftcapSplitText}${googolPenaltySuffix("power", state.power)}：最终 ${format(powerActual)}/秒；超自然发火当前倍率 ×${format(supernaturalFirePowerMultiplier(), 5)}（基准排除自身）`;
     }
 
     const debugExplorationPowerCost = renderValues.currentExplorationPowerCost ?? explorationPowerCost();
@@ -1414,7 +1539,7 @@
       const tribulationText = state.advancedRealmLevel >= 6
         ? "飞升仙界已使小天劫完全失效，负荷固定为0"
         : `小天劫 ^${explorationTribulationExponent.toFixed(3)}${debugTribulationPreview.triggered ? `（本次触发，负荷强度 ${format(debugTribulationPreview.loadFactor)}）` : ""}；负荷 ${format(state.minorTribulationExplorationLoad)} / ${format(minorTribulationTriggerLoad())}`;
-      manaDebug.textContent = `来源层：吐纳基础 ${format(breathingBase)}（J曲线 ^${breathingJCurveExponent().toFixed(2)}、自身法力衰减 ×${formatBreathingDecay()}，来源倍率〔${formatDebugEffectGroups("breathing", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("breathing", "sourceExponent")}〕），主动吐纳专属重修 ×${scatterRebuildManaMultiplier().toFixed(2)}，区域计算后 ${format(breathingActual)}/次；周天来源按不含重修倍率的吐纳来源的 ${format(mulBN(circulationPercent(), 100), 1)}%（比例效果〔${formatDebugEffectGroups("circulation", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("circulation", "sourceExponent")}〕），区域计算后 ${format(renderValues.circulationPotential ?? circulationManaPerSecond())}/秒；基础自动法力（周天${hasAchievement("refineTheVoid") ? "+炼化虚空" : ""}）${format(subBN(passiveManaGain, automaticExplorationManaRate))}/秒，纵横灵界自动探寻 ${format(automaticExplorationManaRate)}法力/秒、${format(automaticExplorationAmountRate)}有效探寻量/秒，自动法力合计 ${format(passiveManaGain)}/秒；原始探寻量 ${format(debugRawExplorationAmount)} → 有效探寻量 ${format(debugExplorationAmount)}（来源倍率〔${formatDebugEffectGroups("explorationAmount", "sourceMultiplier")}〕）→ 法力折算量 ${format(debugManaExplorationAmount)}（平滑衰减：前期近似线性，后期边际趋近 ^${EXPLORATION_MANA_CURVE_CONFIG.lateExponent.toFixed(2)}，衰减尺度 ${format(EXPLORATION_MANA_CURVE_CONFIG.scale)}；不影响真实探寻量、判定与负荷），普通探寻来源 ${format(explorationNormalSource)}（来源倍率〔${formatDebugEffectGroups("exploration", "sourceMultiplier")}〕）、仙道·符宝来源 ${format(explorationFuBao)}，汇总 ${format(explorationSourceSum)}，区域倍率〔${formatDebugEffectGroups("exploration", "regionMultiplier")}〕、来源指数〔${formatDebugEffectGroups("exploration", "sourceExponent")}〕、${tribulationText}：${format(explorationActual)}/次；${formatExplorationAccounting()}；法力区域乘区：${formatMultiplierGroups(manaMultiplierGroups())}；${manaDeclineText}（每跨下一境界需求的1%立即重算）`;
+      manaDebug.textContent = `来源层：吐纳基础 ${format(breathingBase)}（J曲线 ^${breathingJCurveExponent().toFixed(2)}、自身法力衰减 ×${formatBreathingDecay()}，来源倍率〔${formatDebugEffectGroups("breathing", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("breathing", "sourceExponent")}〕），主动吐纳专属重修 ×${scatterRebuildManaMultiplier().toFixed(2)}，区域计算后 ${format(breathingActual)}/次；周天来源按不含重修倍率的吐纳来源的 ${format(mulBN(circulationPercent(), 100), 1)}%（比例效果〔${formatDebugEffectGroups("circulation", "sourceMultiplier")}〕，来源指数〔${formatDebugEffectGroups("circulation", "sourceExponent")}〕），区域计算后 ${format(renderValues.circulationPotential ?? circulationManaPerSecond())}/秒；基础自动法力（周天${hasAchievement("refineTheVoid") ? "+炼化虚空" : ""}）${format(subBN(passiveManaGain, automaticExplorationManaRate))}/秒，纵横灵界自动探寻 ${format(automaticExplorationManaRate)}法力/秒、${format(automaticExplorationAmountRate)}有效探寻量/秒，自动法力合计 ${format(passiveManaGain)}/秒；原始探寻量 ${format(debugRawExplorationAmount)} → 有效探寻量 ${format(debugExplorationAmount)}（来源倍率〔${formatDebugEffectGroups("explorationAmount", "sourceMultiplier")}〕）→ 法力折算量 ${format(debugManaExplorationAmount)}（平滑衰减：前期近似线性，后期边际趋近 ^${EXPLORATION_MANA_CURVE_CONFIG.lateExponent.toFixed(2)}，衰减尺度 ${format(EXPLORATION_MANA_CURVE_CONFIG.scale)}；不影响真实探寻量、判定与负荷），普通探寻来源 ${format(explorationNormalSource)}（来源倍率〔${formatDebugEffectGroups("exploration", "sourceMultiplier")}〕）、仙道·符宝来源 ${format(explorationFuBao)}，汇总 ${format(explorationSourceSum)}，区域倍率〔${formatDebugEffectGroups("exploration", "regionMultiplier")}〕、来源指数〔${formatDebugEffectGroups("exploration", "sourceExponent")}〕、${tribulationText}：${format(explorationActual)}/次；${formatExplorationAccounting()}；法力区域乘区：${formatMultiplierGroups(manaMultiplierGroups())}；${manaDeclineText}（自动收益在下一逻辑步／离线段重新计算）`;
       manaDebug.textContent += `；天逆珠：原始倍率 ×${format(tianNiPearlRawManaMultiplier(), 2)}，动态衰减指数 ^${format(tianNiPearlManaDiminishingExponent(), 3)}，实际倍率 ×${format(tianNiPearlManaMultiplier(), 2)}；天材地宝：原始倍率 ×${format(naturalTreasureRawManaMultiplier(), 2)}，动态衰减指数 ^${format(naturalTreasureManaDiminishingExponent(), 3)}，实际倍率 ×${format(naturalTreasureManaMultiplier(), 2)}`;
       manaDebug.textContent += declineRealmLevel >= 10
         ? `；道祖衰劫详情：天人三衰与天人五衰均已取消，自动法力 ${format(passiveManaGain)}/秒`
@@ -1463,14 +1588,26 @@
         ? `超分形 ${f(v.progress)}% · +${f(v.speed)}%/秒`
         : `（+${f(v.rates[order])}/秒）`;
     }
-    const n = X.get(state), active = immortalCultivationActive() && X.unlocked(state);
-    const rates = active ? X.rates(state) : null;
+    const n = X.get(state), active = immortalCultivationActive() && X.available(state);
+    const status=getCatchUpStatus();
+    // Ordinary short online work is not a recovery session. Completed reports
+    // may retain blocking presentation, so remaining debt is also required.
+    const recovering=status.pendingGameSeconds>0 && (status.presentation==="blocking" || status.offlinePendingGameSeconds>0);
+    const execution=status.currentSource || {
+      source:"online",compensationEligible:WIS.Simulation.Compensation.eligibleAtEnqueue(state),clockRatio:1
+    };
+    const preview=active ? WIS.Simulation.FixedSources.previewXiuzhen(state, {
+      ...execution, source:document.hidden ? null : execution.source,
+      paused:status.phase==="paused" || !!WIS.Core.Save.getLoadError(), recovering
+    }) : null;
     for (const key of X.resourceKeys) {
       const visible = active && (n.abilities[key] || n.realm >= (key === "xianForce" ? 2 : 3));
       byId(key + "-resource").hidden = !visible;
       if (visible) {
         byId(key).textContent = format(X.amount(state, key));
-        byId(key + "-rate").textContent = `（+${format(rates[key])}/秒）`;
+        byId(key + "-rate").textContent = preview.rates
+          ? `（+${format(preview.rates[key])}/秒）`
+          : preview.label;
       }
     }
     byId("special-resources").hidden = ["mana", "immortal-power", ...X.resourceKeys]
@@ -1930,15 +2067,17 @@
     byId("longevity-800-cost").textContent = state.longevity800Level >= 4 ? "已达到等级上限" : `消耗 ${formatCost(nextLongevity800Cost)} 法力`;
     byId("buy-longevity-800").textContent = state.longevity800Level >= 4 ? "已达上限" : "升级";
     byId("buy-longevity-800").disabled = state.advancedRealmLevel < 1 || state.longevity800Level >= 4 || !canAffordMana(nextLongevity800Cost);
-    const naturalTreasureCap = naturalTreasureLevelCap();
-    byId("natural-treasure-ability").classList.toggle("purchased", gteBN(state.naturalTreasureLevel, naturalTreasureCap));
+    const naturalProgress = WIS.Cultivation.ExplorationProgress.view(state);
+    const naturalTreasureCap = naturalProgress.cap;
+    byId("natural-treasure-ability").classList.toggle("purchased", naturalProgress.atCap);
     byId("natural-treasure-level").textContent = `当前：${format(state.naturalTreasureLevel, 0)}/${format(naturalTreasureCap, 0)}级；原始倍率 ×${format(naturalTreasureRawManaMultiplier(), 3)}；动态指数 ^${format(naturalTreasureManaDiminishingExponent(), 3)}；实际倍率 ×${format(naturalTreasureManaMultiplier(), 3)}`;
-    byId("natural-treasure-chance").textContent = gteBN(state.naturalTreasureLevel, naturalTreasureCap)
+    if(naturalProgress.levelResidual.length)byId("natural-treasure-level").textContent+=`；另记等级余量 ${naturalProgress.levelResidual.map(w=>format(WIS.Meta.TreasureLedger.project(w),6)).join(" + ")}`;
+    byId("natural-treasure-chance").textContent = naturalProgress.atCap
       ? "已达到等级上限"
-      : `每 1 有效探寻量升级概率 ${formatProbability(naturalTreasureUpgradeChance())}`;
+      : `独立进度 ${format(naturalProgress.progress,6)} / ${naturalProgress.demand?format(naturalProgress.demand,6):"暂无法表示"} 有效探寻量；保留小数${naturalProgress.reason?"；"+naturalProgress.reason:""}`;
     byId("natural-treasure-state").textContent = !state.goldenCoreUnlocked
       ? "等待重新结丹"
-      : gteBN(state.naturalTreasureLevel, naturalTreasureCap) ? "已达上限" : "仅可通过探寻升级";
+      : naturalProgress.atCap ? "已达上限" : "仅可通过探寻升级";
     byId("golden-core-longevity-ability").classList.toggle("purchased", state.goldenCoreLongevityLevel >= 2);
     byId("golden-core-longevity-level").textContent = `当前：${state.goldenCoreLongevityLevel}/2级；健身上限 +${state.goldenCoreLongevityLevel * 10}；本能力健身倍率 ×${additiveLevelMultiplier(state.goldenCoreLongevityLevel, 4).toFixed(2)}`;
     byId("golden-core-longevity-cost").textContent = state.goldenCoreLongevityLevel >= 2 ? "已达到等级上限" : `消耗 ${formatCost(nextGoldenCoreLongevityCost)} 法力`;
@@ -1962,7 +2101,7 @@
       ? `当前周天最终比例 ${format(mulBN(circulationPercent(), 100), 1)}%（基础合计 ×1.8）`
       : "解锁后：周天最终比例 ×1.8";
     byId("spirit-transformation-abilities").hidden = !advancedRealmAbilityGroupVisible(1);
-    const spiritWorldAscensionTreasureCap = naturalTreasureCap + (state.spiritWorldAscensionUnlocked ? 0 : 10);
+    const spiritWorldAscensionTreasureCap = addBN(naturalTreasureCap, state.spiritWorldAscensionUnlocked ? 0 : 10);
     byId("spirit-world-ascension-preview").textContent = `${state.spiritWorldAscensionUnlocked ? "当前：" : "解锁后："}探寻法力 ×${CONFIG.exploration.spiritWorldAscensionMultiplier}；天材地宝上限 ${spiritWorldAscensionTreasureCap}`;
     byId("aura-control-preview").textContent = `${state.auraControlUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${format(auraControlPotentialMultiplier(), 2)}`;
     byId("equal-heaven-longevity-preview").textContent = `${state.equalHeavenLongevityUnlocked ? "当前：" : "解锁后："}健身 ×8；等级上限 +10`;
@@ -2416,8 +2555,8 @@
     sortCostGroups();
   }
 
-  const bigNumberPage = WIS.UI.BigNumbers.create(context);
-  const xiuzhenPage = WIS.UI.Xiuzhen.create(context);
+  const bigNumberPage = WIS.UI.BigNumbers.create({ ...context, performSavedAction });
+  const xiuzhenPage = WIS.UI.Xiuzhen.create({ ...context, performSavedAction });
   function renderActionsPage() {
     bigNumberPage.render();
     if (!bigNumberPage.isSelected()) renderPageContent("actions");
@@ -2454,9 +2593,14 @@
     pageRenderers[pageName]?.();
   }
 
-  function render({ forceGlobal = false, forcePage = false } = {}) {
-    if (WIS.Core.Runtime.isProjection()) return;
-    if (recordCurrentAchievements()) markAchievementsDirty();
+  function render(options) {
+    const diag=WIS.Simulation?.FixedSegment?.diagnostics;
+    return diag ? diag.measure("render",()=>renderNow(options)) : renderNow(options);
+  }
+  function renderNow({ forceGlobal = false, forcePage = false } = {}) {
+    if (!WIS.Core.Runtime.canPresentState()) return;
+    recordCurrentAchievements();
+    achievementPresentation.sync();
     updateLifetimeStatistics();
     renderCurrentPageOnly = true;
     try {
@@ -2611,6 +2755,8 @@
     const blockInteractionDuringCatchUp = (event) => {
       if (offlineCatchUpStatus.locked !== true) return;
       if (event.target?.closest?.("#offline-progress-dialog")) return;
+      if (offlineCatchUpStatus.phase === "paused" &&
+          event.target?.closest?.("#settings-dialog, #automation-dialog")) return;
       if (event.type === "keydown" || event.type === "submit") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -2870,19 +3016,53 @@
     const automationDialog = byId("automation-dialog");
     const offlineProgressDialog = byId("offline-progress-dialog");
     const importInput = byId("import-file");
-    byId("open-settings").addEventListener("click", () => {
-      byId("offline-fast-forward-toggle").checked = state.offlineFastForwardEnabled !== false;
+    const renderAutoCloseSetting = () => {
+      const enabled=state.autoCloseOfflineDialogEnabled!==false;
+      const button=byId("auto-close-offline-toggle");
+      button.setAttribute("aria-checked",String(enabled));
+      button.textContent=enabled?"已开启":"已关闭";
+    };
+    const openSettings = () => {
+      renderAutoCloseSetting();
       settingsDialog.showModal();
+    };
+    byId("toggle-resource-panel").addEventListener("click", () => {
+      const button=byId("toggle-resource-panel");
+      const collapsed=button.getAttribute("aria-expanded") === "true";
+      button.setAttribute("aria-expanded",String(!collapsed));
+      button.closest(".resource-panel").classList.toggle("resources-collapsed",collapsed);
+      byId("resource-panel-toggle-label").textContent=collapsed ? "展开 ▾" : "收起 ▴";
     });
-    byId("offline-fast-forward-toggle").addEventListener("change", (event) => {
-      const previous = state.offlineFastForwardEnabled;
-      state.offlineFastForwardEnabled = event.target.checked;
+    byId("open-settings").addEventListener("click", openSettings);
+    byId("offline-open-settings").addEventListener("click", openSettings);
+    byId("auto-close-offline-toggle").addEventListener("click", () => {
+      const previous = state.autoCloseOfflineDialogEnabled;
+      state.autoCloseOfflineDialogEnabled = previous === false;
       try { saveState(); } catch (error) {
-        state.offlineFastForwardEnabled = previous; event.target.checked = previous;
+        state.autoCloseOfflineDialogEnabled = previous;
         showNotice("设置保存失败：" + (error?.message || error), 6000);
       }
+      renderAutoCloseSetting();
+      handleOfflineCatchUpStatus(getCatchUpStatus());
     });
     byId("pause-offline-progress").addEventListener("click", () => context.pauseCatchUpByPlayer());
+    for (const id of ["convert-offline-progress", "convert-quiet-catch-up"]) byId(id).addEventListener("click", () => {
+      if (offlineAbandonPending) return;
+      offlineAbandonPending = true;
+      try {
+        const result = context.convertOfflineToCompensation();
+        if (result.converted) {
+          offlineCompletedSummary = null;
+          closeOfflineProgressDialog();
+          showNotice(`已保留已结算收益，新增 ${formatElapsedTime(result.clockSeconds)} 两倍在线收益额度。`, 6000);
+        } else if (result.error) showNotice(`转换失败，原时间与额度已保留：${result.error}`, 6000);
+      } catch (error) {
+        showNotice(`转换失败：${error?.message || error}`, 6000);
+      } finally {
+        offlineAbandonPending = false;
+        handleOfflineCatchUpStatus(getCatchUpStatus());
+      }
+    });
     byId("close-settings").addEventListener("click", () => settingsDialog.close());
     settingsDialog.addEventListener("click", (event) => {
       if (event.target === settingsDialog) settingsDialog.close();
@@ -2904,7 +3084,9 @@
       void abandonOfflineProgress();
     });
     byId("continue-after-offline").addEventListener("click", () => {
+      offlineCompletedSummary = null;
       acknowledgeCatchUp();
+      handleOfflineCatchUpStatus(getCatchUpStatus());
     });
     byId("automation-groups").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-automation-id]");
@@ -2922,11 +3104,26 @@
         saveState();
       });
     });
-    byId("save-game").addEventListener("click", () => {
-      saveState();
-      showNotice("进度已保存");
-    });
     byId("export-save").addEventListener("click", exportSave);
+    WIS.Core.Save.subscribeStatus(renderSaveStatus);
+    renderSaveStatus();
+    byId("retry-failed-save").addEventListener("click", () => {
+      try {saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
+    });
+    byId("export-unsaved-progress").addEventListener("click", () => {
+      try {exportSave();} catch(error) {WIS.Core.Save.diagnose("export",error);safeOperationNotice("当前进度备份生成失败，请保留页面。");}
+    });
+    byId("restore-save-backup").addEventListener("click", () => {
+      const text=localStorage.getItem(WIS.Core.Save.backupKey());
+      if (!text) { showNotice("还没有导入前备份。"); return; }
+      void importSave({ text: async () => text });
+    });
+    byId("export-protected-save").addEventListener("click", () => {
+      const text=WIS.Core.Save.storageSnapshot().text;
+      if (!text) { showNotice("没有本地存档文件。"); return; }
+      const url=URL.createObjectURL(new Blob([text],{type:"application/json"}));
+      const anchor=document.createElement("a");anchor.href=url;anchor.download="WIS-本地原始存档.json";anchor.click();URL.revokeObjectURL(url);
+    });
     byId("import-save").addEventListener("click", () => importInput.click());
     importInput.addEventListener("change", () => {
       const [file] = importInput.files;

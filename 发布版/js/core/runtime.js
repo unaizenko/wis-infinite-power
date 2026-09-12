@@ -9,6 +9,21 @@
   let offlineExecutionDepth = 0;
   let randomSource = null;
   let hooks = {};
+  let atomicScope = null;
+  const randomReplay = [];
+  function atomic(work) {
+    if (atomicScope) return work();
+    const scope = { effects: [], random: [] };
+    atomicScope = scope;
+    let result;
+    try { result = work(); }
+    catch (error) { randomReplay.unshift(...scope.random); throw error; }
+    finally { atomicScope = null; }
+    // Rendering/notifications see only the completed candidate. A failed frame
+    // never publishes its queued resource, treasure or achievement notices.
+    for (const effect of scope.effects) effect();
+    return result;
+  }
   const PROJECTION_SIDE_EFFECT_HOOK = /^(save|render|show|mark|notify|play|request|flush)/;
 
   function currentState() {
@@ -126,13 +141,26 @@
 
   function random() {
     if (randomSource) return randomSource();
-    return isProjection() ? 1 - Number.EPSILON : Math.random();
+    if (isProjection()) return 1 - Number.EPSILON;
+    const current = currentState();
+    if (current?.core?.runtime) {
+      let value = (current.core.runtime.randomState >>> 0) || 0x6d2b79f5;
+      value ^= value << 13; value ^= value >>> 17; value ^= value << 5;
+      current.core.runtime.randomState = value >>> 0;
+      return (value >>> 0) / 0x100000000;
+    }
+    const value = randomReplay.length ? randomReplay.shift() : Math.random();
+    atomicScope?.random.push(value);
+    return value;
   }
 
   function call(name, ...args) {
     if ((isProjection() || WIS.Simulation?.FastForward?.isComputing()) && PROJECTION_SIDE_EFFECT_HOOK.test(name)) return undefined;
     const hook = hooks[name];
     if (typeof hook !== "function") throw new Error(`Runtime hook 未绑定：${name}`);
+    if (atomicScope && PROJECTION_SIDE_EFFECT_HOOK.test(name)) {
+      atomicScope.effects.push(() => hook(...args)); return undefined;
+    }
     return hook(...args);
   }
 
@@ -141,8 +169,11 @@
   }
 
   WIS.Core.Runtime = Object.freeze({
-    state, bind, setState, withState, withProjection, withRandomSource, withTreasurePrediction,
+    atomic, state, bind, setState, withState, withProjection, withRandomSource, withTreasurePrediction,
     withOfflineExecution, isOfflineExecution,
+    // UI publication is allowed only from the installed state at a render boundary.
+    canPresentState: () => !atomicScope && !projectedState && !isProjection() &&
+      !WIS.Simulation?.FastForward?.isComputing(),
     isProjection, isTreasurePrediction, random,
     call, has, getState: currentState
   });

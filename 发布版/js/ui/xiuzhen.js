@@ -14,9 +14,8 @@
     }
     function perform(action) {
       if (context.getCatchUpStatus().locked) return;
-      try { if (action(R.getState())) {
-        WIS.Meta.Challenges.checkActiveChallengeCompletion(); context.saveState(); R.call("render"); render();
-      } } catch (error) { R.call("showNotice", `操作未完成：${error.message}`); }
+      context.performSavedAction(() => action(R.getState()), () => {R.call("render");render();},
+        () => WIS.Meta.Challenges.checkActiveChallengeCompletion());
     }
     function row(parent, name, description, cost, resource, action, key) {
       const item = el("article", "", "item-row"), content = el("div", "", "item-content");

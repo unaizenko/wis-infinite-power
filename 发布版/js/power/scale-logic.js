@@ -545,249 +545,109 @@
     return maxBN(ZERO, settledGain);
   }
 
+  // Integrate a raw rate with an explicit settlement callback. Callers whose
+  // provider already applies penalties must pass the identity callback. Every
+  // sample, including after normal caps are removed, uses this same contract.
   function applyResourceSoftcapDynamicRateOverTime(
-    rawRateAtAmount,
-    currentAmount,
-    elapsedSeconds,
+    rawRateAtAmount, currentAmount, elapsedSeconds,
     settleRateAtAmount = applyResourceSoftcapSettlement
   ) {
-    let remainingTime = Math.max(0, Number(elapsedSeconds) || 0);
-    const initialAmount = maxBN(ZERO, currentAmount);
-    if (typeof rawRateAtAmount !== "function"
-      || !(remainingTime > 0)
-      || !isFiniteBN(initialAmount)) return ZERO;
-    if (!Number.isFinite(remainingTime)) return ZERO;
-    const dynamicLogStep = state.activeChallenge === "planetSuppression"
-      ? RESOURCE_SOFTCAP_CHALLENGE_LOG_STEP
-      : RESOURCE_SOFTCAP_DYNAMIC_LOG_STEP;
-
-    const cellStart = (amount) => {
-      if (!gt(amount, ZERO) || !hasStartedUnremovedResourceSoftcap(amount)) return amount;
-      const logarithm = toNumber(log10(amount), NaN);
-      if (!Number.isFinite(logarithm)) return amount;
-      const index = Math.floor(logarithm / dynamicLogStep + 1e-12);
-      return maxBN(pow10(index * dynamicLogStep), latestStartedResourceSoftcapThreshold(amount));
-    };
-    const nextAdaptiveBoundary = (amount) => {
-      const nextThreshold = nextResourceSoftcapThreshold(amount);
-      if (state.activeChallenge === "planetSuppression" && !gt(amount, ZERO)) return nextThreshold ? minBN(nextThreshold, ONE) : ONE;
-      if (!gt(amount, ZERO) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
-      const logarithm = toNumber(log10(amount), NaN);
-      if (!Number.isFinite(logarithm)) return nextThreshold;
-      const index = Math.floor(logarithm / dynamicLogStep + 1e-12) + 1;
-      let boundary = pow10(index * dynamicLogStep);
-      if (!gt(boundary, amount)) boundary = pow10((index + 1) * dynamicLogStep);
-      return nextThreshold ? minBN(nextThreshold, boundary) : boundary;
-    };
-
-    let settledAmount = initialAmount;
-    let settledGain = ZERO;
-    let lastRate = ZERO;
-    let previousSample = null;
-    let lastSample = null;
-    let evaluations = 0;
-    const settleRate = typeof settleRateAtAmount === "function"
-      ? settleRateAtAmount
-      : applyResourceSoftcapSettlement;
-    const rateAt = (amount) => {
-      evaluations += 1;
-      const rawRate = maxBN(ZERO, rawRateAtAmount(amount));
-      const rate = isFiniteBN(rawRate)
-        ? settleRate(rawRate, amount)
-        : ZERO;
-      previousSample = lastSample;
-      lastSample = { amount, rawRate, rate };
+    const seconds = Number(elapsedSeconds), initial = maxBN(ZERO, currentAmount);
+    if (typeof rawRateAtAmount !== "function" || !Number.isFinite(seconds) || seconds < 0 || !isFiniteBN(initial))
+      throw Error("动态积分输入无效，结算未提交");
+    if (seconds === 0) return ZERO;
+    let remaining = BN(seconds), amount = initial, gain = ZERO, evaluations = 0, suggestedLogSpan = null;
+    const rateAt = x => {
+      WIS.Simulation.FastForward?.recordCost("integrationEvaluations",1);
+      if (++evaluations > 768) throw Error(`动态积分精度预算不足，剩余时间保留（库存 ${amount}；剩余 ${remaining} 秒）`);
+      const raw = rawRateAtAmount(x), rate = settleRateAtAmount(raw, x);
+      if (!isFiniteBN(raw) || !isFiniteBN(rate) || lt(rate, ZERO)) throw Error("动态收益无法安全表示，结算未提交");
       return rate;
     };
-    while (evaluations < RESOURCE_SOFTCAP_DYNAMIC_MAX_EVALUATIONS && remainingTime > 0) {
-      const lowerAmount = cellStart(settledAmount);
-      const boundary = nextAdaptiveBoundary(settledAmount);
-      if (!boundary) {
-        lastRate = rateAt(settledAmount);
-        if (!isFiniteBN(lastRate)) return ZERO;
-        settledGain = add(settledGain, mul(lastRate, remainingTime));
-        remainingTime = 0;
-        break;
+    const nextBoundary = x => {
+      const normal = nextResourceSoftcapThreshold(x);
+      const googol = WIS.Core.Config.googolPenalty.threshold;
+      return lt(x, googol) ? normal ? minBN(normal, googol) : googol : normal;
+    };
+    // x+1 permits zero inventory. A power-law rate on this coordinate has a
+    // closed-form time and inverse; x'=K/x at large x is solved directly.
+    const differencePower = (logRatio, q) => {
+      const z = mul(logRatio, q), n = toNumber(z, NaN);
+      return Number.isFinite(n) && Math.abs(n) < 0.01
+        ? BN(Math.expm1(n * Math.LN10)) : sub(pow10(z), ONE);
+    };
+    while (gt(remaining, ZERO)) {
+      const startRate = rateAt(amount);
+      if (!gt(startRate, ZERO)) return gain;
+      const linearGain = mul(startRate, remaining), projected = add(amount, linearGain);
+      if (lte(projected, amount)) return add(gain, linearGain);
+      let boundary = nextBoundary(amount);
+      let end = boundary ? minBN(boundary, projected) : projected;
+      const u = add(amount, ONE);
+      if (suggestedLogSpan) end = minBN(end, sub(mul(u, pow10(suggestedLogSpan)), ONE));
+      if (!gt(end, amount)) throw Error(`动态积分边界无法推进: amount=${amount}, end=${end}, projected=${projected}, boundary=${boundary}, gain=${linearGain}, time=${remaining}`);
+      let logSpan, slope, q, duration;
+      for (;;) {
+        const v = add(end, ONE);
+        // log((x+dx+1)/(x+1)) loses a positive dx when the ratio rounds to 1.
+        // Form dx first, then use log1p; keep a sub-Number ratio in Decimal.
+        const relativeSpan = div(sub(end, amount), u), smallSpan = toNumber(relativeSpan, NaN);
+        logSpan = gt(relativeSpan, ZERO) && Number.isFinite(smallSpan) && smallSpan < .01
+          ? smallSpan > 0 ? BN(Math.log1p(smallSpan) / Math.LN10) : div(relativeSpan, Math.LN10)
+          : log10(div(v, u));
+        if (!gt(logSpan, ZERO)) {
+          // A sub-ULP increment in x+1; verify that the rate is constant here.
+          if (!eq(rateAt(end), startRate)) throw Error("动态积分微区间无法辨认，输入保留");
+          return add(gain, linearGain);
+        }
+        const endRate = rateAt(end);
+        if (!gt(endRate, ZERO)) { end = maxBN(amount, sub(mul(u, pow10(mul(logSpan, 0.5))), ONE)); continue; }
+        slope = div(log10(div(endRate, startRate)), logSpan);
+        q = sub(ONE, slope);
+        if (!isFiniteBN(slope)) throw Error("动态积分速率斜率无效");
+        let error = ZERO;
+        for (const fraction of [0.25, 0.5, 0.75]) {
+          const x = maxBN(ZERO, sub(mul(u, pow10(mul(logSpan, fraction))), ONE));
+          const actual = rateAt(x), expected = mul(startRate, pow10(mul(mul(logSpan, fraction), slope)));
+          if (!gt(actual, ZERO)) { error = ONE; break; }
+          error = maxBN(error, abs(log10(div(actual, expected))));
+        }
+        if (lte(error, "1e-6")) {
+          duration = eq(q, ZERO)
+            ? mul(div(u, startRate), mul(logSpan, Math.LN10))
+            : mul(div(u, startRate), div(differencePower(logSpan, q), q));
+          break;
+        }
+        end = sub(mul(u, pow10(mul(logSpan, 0.5))), ONE);
+        if (!gt(end, amount)) throw Error("动态积分误差无法收敛，输入保留");
       }
-      // 每个固定对数单元只采样一次；0.4 位置用于贴近旧 0.01 网格的左端积分结果，
-      // 同时把跨越多少单元映射为自适应采样数。
-      const evaluationAmount = gt(lowerAmount, ZERO)
-        ? mul(lowerAmount, pow(div(boundary, lowerAmount), 0.4))
-        : ZERO;
-      lastRate = rateAt(evaluationAmount);
-      if (!isFiniteBN(lastRate)) return ZERO;
-      if (!gt(lastRate, ZERO)) {
-        remainingTime = 0;
-        break;
+      if (eq(slope, ZERO) && eq(end, projected)) return add(gain, linearGain);
+      if (!isFiniteBN(duration) || !gt(duration, ZERO)) throw Error("动态积分边界时长无法表示，输入保留");
+      // Never convert boundary time to Number: a positive e-1000 is a real
+      // crossed segment even when subtracting it cannot change remaining time.
+      if (lte(duration, remaining)) {
+        gain = add(gain, sub(end, amount));
+        amount = end;
+        suggestedLogSpan = mul(logSpan, 2);
+        remaining = maxBN(ZERO, sub(remaining, duration));
+        continue;
       }
-      const timeToBoundary = toNumber(div(sub(boundary, settledAmount), lastRate), Infinity);
-      if (!(timeToBoundary > 0) || !Number.isFinite(timeToBoundary) || timeToBoundary >= remainingTime) {
-        settledGain = add(settledGain, mul(lastRate, remainingTime));
-        remainingTime = 0;
-        break;
+      const scaledTime = mul(div(startRate, u), remaining);
+      let logGrowth;
+      if (eq(q, ZERO)) logGrowth = div(scaledTime, Math.LN10);
+      else {
+        const term = mul(q, scaledTime), small = toNumber(term, NaN);
+        if (lte(add(ONE, term), ZERO)) throw Error("动态积分出现有限时间奇点，输入保留");
+        logGrowth = Number.isFinite(small) && Math.abs(small) < 0.01
+          ? div(BN(Math.log1p(small) / Math.LN10), q)
+          : div(log10(add(ONE, term)), q);
       }
-      settledAmount = boundary;
-      settledGain = add(settledGain, mul(lastRate, timeToBoundary));
-      remainingTime -= timeToBoundary;
+      const increment = mul(u, differencePower(logGrowth, ONE));
+      if (!isFiniteBN(increment) || lt(increment, ZERO) || gt(add(amount, increment), mul(end, 1.00001)))
+        throw Error("动态积分终点超出已验证区间，输入保留");
+      return add(gain, increment);
     }
-    if (remainingTime > 0 && gt(lastRate, ZERO) && lastSample) {
-      // 完整收益公式达到采样上限后，只外推“软上限前”的局部趋势；每个尾段仍按
-      // 新资源位置重新结算软上限。这样 provider/effect 动态部分仍最多求值 32 次，
-      // 同时不会把最后一个已结算速率直接线性铺满剩余时间。
-      const rawLogSlope = previousSample
-        && gt(previousSample.amount, ZERO)
-        && gt(lastSample.amount, previousSample.amount)
-        && gt(previousSample.rawRate, ZERO)
-        && gt(lastSample.rawRate, ZERO)
-        ? toNumber(log10(div(lastSample.rawRate, previousSample.rawRate)), 0) /
-          toNumber(log10(div(lastSample.amount, previousSample.amount)), 1)
-        : 0;
-      const extrapolatedRawRate = (amount) => {
-        if (!gt(lastSample.rawRate, ZERO)) return ZERO;
-        if (!gt(amount, ZERO) || !gt(lastSample.amount, ZERO) || !Number.isFinite(rawLogSlope)) {
-          return lastSample.rawRate;
-        }
-        return mul(lastSample.rawRate, pow(div(amount, lastSample.amount), rawLogSlope));
-      };
-      const tailBoundary = (amount, logStep) => {
-        const nextThreshold = nextResourceSoftcapThreshold(amount);
-        if (state.activeChallenge === "planetSuppression" && !gt(amount, ZERO)) {
-          return nextThreshold ? minBN(nextThreshold, ONE) : ONE;
-        }
-        if (!gt(amount, ZERO) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
-        const logBoundary = mul(amount, pow10(logStep));
-        return nextThreshold ? minBN(nextThreshold, logBoundary) : logBoundary;
-      };
-
-      for (let segment = 0;
-        segment < RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS && remainingTime > 0;
-        segment += 1) {
-        const startRawRate = extrapolatedRawRate(settledAmount);
-        const startRate = isFiniteBN(startRawRate)
-          ? settleRate(startRawRate, settledAmount)
-          : ZERO;
-        if (!isFiniteBN(startRate)) return ZERO;
-        if (!gt(startRate, ZERO)) break;
-        const remainingSegments = RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS - segment;
-        if (remainingSegments === 1) {
-          // The final budget segment always covers all remaining time. Use a short
-          // fixed-point midpoint correction rather than a stale left-end rate, while
-          // leaving an exact stage crossing for the stage pass below.
-          let evaluationAmount = settledAmount;
-          let representativeRate = startRate;
-          for (let correction = 0; correction < 3; correction += 1) {
-            const rawRate = extrapolatedRawRate(evaluationAmount);
-            representativeRate = isFiniteBN(rawRate)
-              ? settleRate(rawRate, evaluationAmount)
-              : ZERO;
-            if (!isFiniteBN(representativeRate) || !gt(representativeRate, ZERO)) break;
-            const projectedAmount = add(settledAmount, mul(representativeRate, remainingTime));
-            evaluationAmount = logarithmicAmountInterpolation(settledAmount, projectedAmount, 0.5);
-          }
-          if (!isFiniteBN(representativeRate) || !gt(representativeRate, ZERO)) break;
-          const nextStageBoundary = nextResourceSoftcapThreshold(settledAmount);
-          const projectedGain = mul(representativeRate, remainingTime);
-          if (nextStageBoundary && gte(add(settledAmount, projectedGain), nextStageBoundary)) {
-            const timeToStage = toNumber(div(sub(nextStageBoundary, settledAmount), representativeRate), Infinity);
-            if (timeToStage > 0 && Number.isFinite(timeToStage) && timeToStage < remainingTime) {
-              settledGain = add(settledGain, sub(nextStageBoundary, settledAmount));
-              settledAmount = nextStageBoundary;
-              remainingTime -= timeToStage;
-              break;
-            }
-          }
-          settledGain = add(settledGain, projectedGain);
-          remainingTime = 0;
-          break;
-        }
-        const projectedOrders = gt(settledAmount, ZERO)
-          ? Math.max(0, toNumber(log10(add(ONE, div(mul(startRate, remainingTime), settledAmount))), 0))
-          : dynamicLogStep;
-        const adaptiveLogStep = Math.max(
-          dynamicLogStep,
-          projectedOrders * 1.1 / remainingSegments
-        );
-        const boundary = tailBoundary(settledAmount, adaptiveLogStep);
-        if (!boundary) {
-          const projectedAmount = add(settledAmount, mul(startRate, remainingTime));
-          const evaluationAmount = gt(settledAmount, ZERO) && isFiniteBN(projectedAmount)
-            ? sqrt(mul(settledAmount, projectedAmount))
-            : settledAmount;
-          const rawRate = extrapolatedRawRate(evaluationAmount);
-          const rate = isFiniteBN(rawRate)
-            ? settleRate(rawRate, evaluationAmount)
-            : ZERO;
-          if (!isFiniteBN(rate)) return ZERO;
-          settledGain = add(settledGain, mul(rate, remainingTime));
-          remainingTime = 0;
-          break;
-        }
-        const evaluationAmount = gt(settledAmount, ZERO)
-          ? mul(settledAmount, pow(div(boundary, settledAmount), 0.4))
-          : ZERO;
-        const rawRate = extrapolatedRawRate(evaluationAmount);
-        const rate = isFiniteBN(rawRate)
-          ? settleRate(rawRate, evaluationAmount)
-          : ZERO;
-        if (!isFiniteBN(rate)) return ZERO;
-        if (!gt(rate, ZERO)) {
-          remainingTime = 0;
-          break;
-        }
-        const timeToBoundary = toNumber(div(sub(boundary, settledAmount), rate), Infinity);
-        if (!(timeToBoundary > 0) || !Number.isFinite(timeToBoundary) || timeToBoundary >= remainingTime) {
-          settledGain = add(settledGain, mul(rate, remainingTime));
-          remainingTime = 0;
-          break;
-        }
-        settledAmount = boundary;
-        settledGain = add(settledGain, mul(rate, timeToBoundary));
-        remainingTime -= timeToBoundary;
-      }
-      let tailStagePasses = 0;
-      while (remainingTime > 0 && tailStagePasses <= RESOURCE_SOFTCAP_STAGES.length) {
-        let evaluationAmount = settledAmount;
-        let finalRate = ZERO;
-        for (let correction = 0; correction < 3; correction += 1) {
-          const rawRate = extrapolatedRawRate(evaluationAmount);
-          finalRate = isFiniteBN(rawRate) ? settleRate(rawRate, evaluationAmount) : ZERO;
-          if (!isFiniteBN(finalRate) || !gt(finalRate, ZERO)) break;
-          const projectedAmount = add(settledAmount, mul(finalRate, remainingTime));
-          evaluationAmount = logarithmicAmountInterpolation(settledAmount, projectedAmount, 0.5);
-        }
-        if (!isFiniteBN(finalRate) || !gt(finalRate, ZERO)) {
-          remainingTime = 0;
-          break;
-        }
-        const nextStageBoundary = nextResourceSoftcapThreshold(settledAmount);
-        const projectedGain = mul(finalRate, remainingTime);
-        if (nextStageBoundary && gte(add(settledAmount, projectedGain), nextStageBoundary)) {
-          const timeToStage = toNumber(div(sub(nextStageBoundary, settledAmount), finalRate), Infinity);
-          if (timeToStage > 0 && Number.isFinite(timeToStage) && timeToStage < remainingTime) {
-            settledGain = add(settledGain, sub(nextStageBoundary, settledAmount));
-            settledAmount = nextStageBoundary;
-            remainingTime -= timeToStage;
-            tailStagePasses += 1;
-            continue;
-          }
-        }
-        settledGain = add(settledGain, projectedGain);
-        remainingTime = 0;
-      }
-    }
-    if (remainingTime > 0) {
-      // Defensive completeness path: reuse the final sampled raw rate so elapsed time
-      // can never be dropped even if an extreme Decimal edge case exits the tail early.
-      const fallbackRawRate = lastSample?.rawRate || ZERO;
-      const fallbackRate = isFiniteBN(fallbackRawRate)
-        ? settleRate(fallbackRawRate, settledAmount)
-        : ZERO;
-      if (isFiniteBN(fallbackRate) && gt(fallbackRate, ZERO)) {
-        settledGain = add(settledGain, mul(fallbackRate, remainingTime));
-      }
-      remainingTime = 0;
-    }
-    return maxBN(ZERO, settledGain);
+    return maxBN(ZERO, gain);
   }
 
   function applyResourceSoftcapOverTime(rawRate, currentAmount, elapsedSeconds) {
@@ -1681,10 +1541,19 @@
     ).ceil();
   }
 
+  const repeatedCostWords = new Map();
   function repeatedLevelIntervalCost(startLevel, targetLevel, costAtLevel) {
-    let total = ZERO;
-    for (let level = startLevel; level < targetLevel; level += 1) total = add(total, costAtLevel(level));
-    return total;
+    // Reuse each actual rounded unit price. Prefix words retain all small
+    // costs and avoid re-enumerating the range at every binary-search probe.
+    let prefix = repeatedCostWords.get(costAtLevel);
+    if (!prefix) { prefix = [[]]; repeatedCostWords.set(costAtLevel, prefix); }
+    const L = WIS.Core.Resources.ledger();
+    while (prefix.length <= targetLevel) {
+      const cost = BN(costAtLevel(prefix.length - 1));
+      if (!cost.isFinite() || !cost.gt(0)) throw Error("批量强化成本无效，未提交");
+      prefix.push(L.add(prefix.at(-1), [cost]));
+    }
+    return L.subtract(prefix[targetLevel], prefix[startLevel]);
   }
 
   function buyMaxPowerLevels(stateKey, levelCap, costAtLevel, unitCostCeiling = null) {
@@ -1700,12 +1569,12 @@
       const totalCost = respectsPriority
         ? repeatedLevelIntervalCost(startLevel, target, costAtLevel)
         : add(availablePower, ONE);
-      if (respectsPriority && lte(totalCost, availablePower)) lower = target;
+      if (respectsPriority && WIS.Core.Resources.canAffordTerms("power", totalCost)) lower = target;
       else upper = target;
     }
     if (lower <= startLevel) return 0;
     const totalCost = repeatedLevelIntervalCost(startLevel, lower, costAtLevel);
-    if (!WIS.Core.Resources.spend("power", totalCost)) return 0;
+    if (!WIS.Core.Resources.spendTerms("power", totalCost)) return 0;
     state[stateKey] = lower;
     WIS.Core.Effects.invalidate();
     return lower - startLevel;
@@ -2149,6 +2018,8 @@
       const available = candidate.available;
       candidate.available = () => upgradeAutomationActive && hasManuallyUpgradedScale(candidate.historyKey) && available();
     });
+    if (WIS.Simulation.FixedSegment?.collectCandidates?.("scale",
+      [...candidates, ...starEnhancementCandidates], "power", 32)) return 0;
     const audit = WIS.Simulation?.FastForward?.auditCandidates;
     if (audit) { audit.push(...[...candidates,...starEnhancementCandidates].map((c, index) => {
       const available = c.available();
@@ -2186,6 +2057,7 @@
     state.currentRebirthTotalPower = add(state.currentRebirthTotalPower, gained);
     state.maxSinglePowerGain = maxBN(state.maxSinglePowerGain, gained);
     updateScaleProgress();
+    WIS.Meta.Achievements.recordCurrent();
     saveState();
     render();
 
@@ -2195,7 +2067,7 @@
   function buyRunning() {
     const cost = runningCost();
     if (!upgradesUnlocked() || state.runningLevel >= fitnessLevelCap() || !WIS.Core.Resources.canAfford("power", cost)) return;
-    WIS.Core.Resources.spend("power", cost);
+    if (!WIS.Core.Resources.spend("power", cost)) return false;
     state.runningLevel += 1;
     saveState();
     render();
@@ -2203,7 +2075,7 @@
 
   function buyGym() {
     if (!upgradesUnlocked() || state.gymPurchased || !WIS.Core.Resources.canAfford("power", GYM_COST)) return;
-    WIS.Core.Resources.spend("power", GYM_COST);
+    if (!WIS.Core.Resources.spend("power", GYM_COST)) return false;
     state.gymPurchased = true;
     saveState();
     render();
@@ -2211,7 +2083,7 @@
 
   function buyExercise() {
     if (!upgradesUnlocked() || state.exercisePurchased || !WIS.Core.Resources.canAfford("power", EXERCISE_COST)) return;
-    WIS.Core.Resources.spend("power", EXERCISE_COST);
+    if (!WIS.Core.Resources.spend("power", EXERCISE_COST)) return false;
     state.exercisePurchased = true;
     saveState();
     render();
@@ -2219,7 +2091,7 @@
 
   function buyTranscendent() {
     if (!state.brickUnlocked || state.transcendentPurchased || !WIS.Core.Resources.canAfford("power", TRANSCENDENT_COST)) return;
-    WIS.Core.Resources.spend("power", TRANSCENDENT_COST);
+    if (!WIS.Core.Resources.spend("power", TRANSCENDENT_COST)) return false;
     state.transcendentPurchased = true;
     saveState();
     render();
@@ -2227,7 +2099,7 @@
 
   function buyFocus() {
     if (!state.brickUnlocked || state.focusPurchased || !WIS.Core.Resources.canAfford("power", FOCUS_COST)) return;
-    WIS.Core.Resources.spend("power", FOCUS_COST);
+    if (!WIS.Core.Resources.spend("power", FOCUS_COST)) return false;
     state.focusPurchased = true;
     saveState();
     render();
@@ -2235,7 +2107,7 @@
 
   function buyBreathingMethod() {
     if (!state.brickUnlocked || state.breathingMethodPurchased || !WIS.Core.Resources.canAfford("power", BREATHING_METHOD_COST)) return;
-    WIS.Core.Resources.spend("power", BREATHING_METHOD_COST);
+    if (!WIS.Core.Resources.spend("power", BREATHING_METHOD_COST)) return false;
     state.breathingMethodPurchased = true;
     saveState();
     render();
@@ -2243,7 +2115,7 @@
 
   function buyExtremeExercise() {
     if (!state.brickUnlocked || state.extremeExercisePurchased || !WIS.Core.Resources.canAfford("power", EXTREME_EXERCISE_COST)) return;
-    WIS.Core.Resources.spend("power", EXTREME_EXERCISE_COST);
+    if (!WIS.Core.Resources.spend("power", EXTREME_EXERCISE_COST)) return false;
     state.extremeExercisePurchased = true;
     saveState();
     render();
@@ -2252,7 +2124,7 @@
   function buyRock() {
     const cost = rockCost();
     if (!state.wallUnlocked || state.rockLevel >= rockLevelCap() || !WIS.Core.Resources.canAfford("power", cost)) return;
-    WIS.Core.Resources.spend("power", cost);
+    if (!WIS.Core.Resources.spend("power", cost)) return false;
     state.rockLevel += 1;
     saveState();
     render();
@@ -2260,7 +2132,7 @@
 
   function buyWater() {
     if (!state.wallUnlocked || state.waterPurchased || !WIS.Core.Resources.canAfford("power", WATER_COST)) return;
-    WIS.Core.Resources.spend("power", WATER_COST);
+    if (!WIS.Core.Resources.spend("power", WATER_COST)) return false;
     state.waterPurchased = true;
     saveState();
     render();
@@ -2268,7 +2140,7 @@
 
   function buyGhostBrain() {
     if (!state.wallUnlocked || state.ghostBrainPurchased || !WIS.Core.Resources.canAfford("power", GHOST_BRAIN_COST)) return;
-    WIS.Core.Resources.spend("power", GHOST_BRAIN_COST);
+    if (!WIS.Core.Resources.spend("power", GHOST_BRAIN_COST)) return false;
     state.ghostBrainPurchased = true;
     saveState();
     render();
@@ -2276,7 +2148,7 @@
 
   function buyNaturalStrength() {
     if (!state.wallUnlocked || state.naturalStrengthPurchased || !WIS.Core.Resources.canAfford("power", NATURAL_STRENGTH_COST)) return;
-    WIS.Core.Resources.spend("power", NATURAL_STRENGTH_COST);
+    if (!WIS.Core.Resources.spend("power", NATURAL_STRENGTH_COST)) return false;
     state.naturalStrengthPurchased = true;
     saveState();
     render();
@@ -2284,7 +2156,7 @@
 
   function buyMentalPower() {
     if (!state.wallUnlocked || state.mentalPowerPurchased || !WIS.Core.Resources.canAfford("power", MENTAL_POWER_COST)) return;
-    WIS.Core.Resources.spend("power", MENTAL_POWER_COST);
+    if (!WIS.Core.Resources.spend("power", MENTAL_POWER_COST)) return false;
     state.mentalPowerPurchased = true;
     saveState();
     render();
@@ -2292,7 +2164,7 @@
 
   function buyLifePower() {
     if (!state.wallUnlocked || state.lifePowerPurchased || !WIS.Core.Resources.canAfford("power", LIFE_POWER_COST)) return;
-    WIS.Core.Resources.spend("power", LIFE_POWER_COST);
+    if (!WIS.Core.Resources.spend("power", LIFE_POWER_COST)) return false;
     state.lifePowerPurchased = true;
     saveState();
     render();
@@ -2300,7 +2172,7 @@
 
   function buyMyStyle() {
     if (state.highestScaleIndex < 3 || state.myStylePurchased || !WIS.Core.Resources.canAfford("power", MY_STYLE_COST)) return;
-    WIS.Core.Resources.spend("power", MY_STYLE_COST);
+    if (!WIS.Core.Resources.spend("power", MY_STYLE_COST)) return false;
     state.myStylePurchased = true;
     saveState();
     render();
@@ -2308,7 +2180,7 @@
 
   function buyIntuition() {
     if (state.highestScaleIndex < 3 || state.intuitionPurchased || !WIS.Core.Resources.canAfford("power", INTUITION_COST)) return;
-    WIS.Core.Resources.spend("power", INTUITION_COST);
+    if (!WIS.Core.Resources.spend("power", INTUITION_COST)) return false;
     state.intuitionPurchased = true;
     saveState();
     render();
@@ -2316,7 +2188,7 @@
 
   function buySonicMovement() {
     if (state.highestScaleIndex < 3 || state.sonicMovementPurchased || !WIS.Core.Resources.canAfford("power", SONIC_MOVEMENT_COST)) return;
-    WIS.Core.Resources.spend("power", SONIC_MOVEMENT_COST);
+    if (!WIS.Core.Resources.spend("power", SONIC_MOVEMENT_COST)) return false;
     state.sonicMovementPurchased = true;
     saveState();
     render();
@@ -2324,7 +2196,7 @@
 
   function buyCarbonLimit() {
     if (state.highestScaleIndex < 3 || state.carbonLimitPurchased || !WIS.Core.Resources.canAfford("power", CARBON_LIMIT_COST)) return;
-    WIS.Core.Resources.spend("power", CARBON_LIMIT_COST);
+    if (!WIS.Core.Resources.spend("power", CARBON_LIMIT_COST)) return false;
     state.carbonLimitPurchased = true;
     saveState();
     render();
@@ -2332,7 +2204,7 @@
 
   function buyKillingIntent() {
     if (state.highestScaleIndex < 3 || state.killingIntentPurchased || !WIS.Core.Resources.canAfford("power", KILLING_INTENT_COST)) return;
-    WIS.Core.Resources.spend("power", KILLING_INTENT_COST);
+    if (!WIS.Core.Resources.spend("power", KILLING_INTENT_COST)) return false;
     state.killingIntentPurchased = true;
     saveState();
     render();
@@ -2340,7 +2212,7 @@
 
   function buyRockStrike() {
     if (state.highestScaleIndex < 4 || state.rockStrikePurchased || !WIS.Core.Resources.canAfford("power", ROCK_STRIKE_COST)) return;
-    WIS.Core.Resources.spend("power", ROCK_STRIKE_COST);
+    if (!WIS.Core.Resources.spend("power", ROCK_STRIKE_COST)) return false;
     state.rockStrikePurchased = true;
     saveState();
     render();
@@ -2348,7 +2220,7 @@
 
   function buyHighSpeedMetabolism() {
     if (state.highestScaleIndex < 4 || state.highSpeedMetabolismPurchased || !WIS.Core.Resources.canAfford("power", HIGH_SPEED_METABOLISM_COST)) return;
-    WIS.Core.Resources.spend("power", HIGH_SPEED_METABOLISM_COST);
+    if (!WIS.Core.Resources.spend("power", HIGH_SPEED_METABOLISM_COST)) return false;
     state.highSpeedMetabolismPurchased = true;
     saveState();
     render();
@@ -2356,7 +2228,7 @@
 
   function buyEnduranceEnhancement() {
     if (state.highestScaleIndex < 4 || state.enduranceEnhancementPurchased || !WIS.Core.Resources.canAfford("power", ENDURANCE_ENHANCEMENT_COST)) return;
-    WIS.Core.Resources.spend("power", ENDURANCE_ENHANCEMENT_COST);
+    if (!WIS.Core.Resources.spend("power", ENDURANCE_ENHANCEMENT_COST)) return false;
     state.enduranceEnhancementPurchased = true;
     saveState();
     render();
@@ -2364,7 +2236,7 @@
 
   function buyBulletTime() {
     if (state.highestScaleIndex < 4 || state.bulletTimePurchased || !WIS.Core.Resources.canAfford("power", BULLET_TIME_COST)) return;
-    WIS.Core.Resources.spend("power", BULLET_TIME_COST);
+    if (!WIS.Core.Resources.spend("power", BULLET_TIME_COST)) return false;
     state.bulletTimePurchased = true;
     saveState();
     render();
@@ -2372,7 +2244,7 @@
 
   function buyDynamicFocus() {
     if (state.highestScaleIndex < 4 || state.dynamicFocusPurchased || !WIS.Core.Resources.canAfford("power", DYNAMIC_FOCUS_COST)) return;
-    WIS.Core.Resources.spend("power", DYNAMIC_FOCUS_COST);
+    if (!WIS.Core.Resources.spend("power", DYNAMIC_FOCUS_COST)) return false;
     state.dynamicFocusPurchased = true;
     saveState();
     render();
@@ -2380,7 +2252,7 @@
 
   function buySuperPerception() {
     if (state.highestScaleIndex < 5 || state.superPerceptionPurchased || !WIS.Core.Resources.canAfford("power", SUPER_PERCEPTION_COST)) return;
-    WIS.Core.Resources.spend("power", SUPER_PERCEPTION_COST);
+    if (!WIS.Core.Resources.spend("power", SUPER_PERCEPTION_COST)) return false;
     state.superPerceptionPurchased = true;
     saveState();
     render();
@@ -2388,7 +2260,7 @@
 
   function buyInvulnerable() {
     if (state.highestScaleIndex < 5 || state.invulnerablePurchased || !WIS.Core.Resources.canAfford("power", INVULNERABLE_COST)) return;
-    WIS.Core.Resources.spend("power", INVULNERABLE_COST);
+    if (!WIS.Core.Resources.spend("power", INVULNERABLE_COST)) return false;
     state.invulnerablePurchased = true;
     saveState();
     render();
@@ -2396,7 +2268,7 @@
 
   function buyRegeneration() {
     if (state.highestScaleIndex < 5 || state.regenerationPurchased || !WIS.Core.Resources.canAfford("power", REGENERATION_COST)) return;
-    WIS.Core.Resources.spend("power", REGENERATION_COST);
+    if (!WIS.Core.Resources.spend("power", REGENERATION_COST)) return false;
     state.regenerationPurchased = true;
     saveState();
     render();
@@ -2404,7 +2276,7 @@
 
   function buySuperpower() {
     if (state.highestScaleIndex < 5 || state.superpowerPurchased || !WIS.Core.Resources.canAfford("power", SUPERPOWER_COST)) return;
-    WIS.Core.Resources.spend("power", SUPERPOWER_COST);
+    if (!WIS.Core.Resources.spend("power", SUPERPOWER_COST)) return false;
     state.superpowerPurchased = true;
     saveState();
     render();
@@ -2412,7 +2284,7 @@
 
   function buySuperSpeedThinking() {
     if (state.highestScaleIndex < 5 || state.superSpeedThinkingPurchased || !WIS.Core.Resources.canAfford("power", SUPER_SPEED_THINKING_COST)) return;
-    WIS.Core.Resources.spend("power", SUPER_SPEED_THINKING_COST);
+    if (!WIS.Core.Resources.spend("power", SUPER_SPEED_THINKING_COST)) return false;
     state.superSpeedThinkingPurchased = true;
     saveState();
     render();
@@ -2420,7 +2292,7 @@
 
   function buyMountainCollapse() {
     if (state.highestScaleIndex < 5 || state.mountainCollapsePurchased || !WIS.Core.Resources.canAfford("power", MOUNTAIN_COLLAPSE_COST)) return;
-    WIS.Core.Resources.spend("power", MOUNTAIN_COLLAPSE_COST);
+    if (!WIS.Core.Resources.spend("power", MOUNTAIN_COLLAPSE_COST)) return false;
     state.mountainCollapsePurchased = true;
     saveState();
     render();
@@ -2429,7 +2301,7 @@
   function buyMindDivision() {
     const cost = mindDivisionCost();
     if (state.highestScaleIndex < 6 || !state.focusPurchased || state.mindDivisionLevel >= 3 || !WIS.Core.Resources.canAfford("power", cost)) return;
-    WIS.Core.Resources.spend("power", cost);
+    if (!WIS.Core.Resources.spend("power", cost)) return false;
     state.mindDivisionLevel += 1;
     saveState();
     render();
@@ -2437,7 +2309,7 @@
 
   function buyPowerOneTime(stateKey, cost, prerequisiteMet = true, requiredScaleIndex = 6) {
     if (state.highestScaleIndex < requiredScaleIndex || !prerequisiteMet || state[stateKey] || !WIS.Core.Resources.canAfford("power", cost)) return;
-    WIS.Core.Resources.spend("power", cost);
+    if (!WIS.Core.Resources.spend("power", cost)) return false;
     state[stateKey] = true;
     saveState();
     render();
@@ -2445,7 +2317,7 @@
 
   function buyStarPowerOneTime(stateKey, cost, requiredScaleIndex = 10) {
     if (state.highestScaleIndex < requiredScaleIndex || state[stateKey] || !WIS.Core.Resources.canAfford("power", cost)) return;
-    WIS.Core.Resources.spend("power", cost);
+    if (!WIS.Core.Resources.spend("power", cost)) return false;
     state[stateKey] = true;
     saveState();
     render();
@@ -2562,7 +2434,7 @@
       const nextCompetingCost = affordableCandidates.find((candidate) => candidate !== affordable)?.currentCost || null;
       return affordable.buyMax(nextCompetingCost);
     }
-    WIS.Core.Resources.spend(resourceKey, affordable.currentCost);
+    if (!WIS.Core.Resources.spend(resourceKey, affordable.currentCost)) return false;
     affordable.apply();
     WIS.Core.Effects.invalidate();
     return 1;

@@ -1,4 +1,4 @@
-// Generated from the verified E-drive prototype. Rebuild: 测试/离线快进接入-20260909/sync.js --bundle-only
+// Development bundle; 2026-09-10 settlement fixes are maintained here. Do not overwrite with the older prototype generator.
 (function(WIS){
   'use strict';
   const modules={
@@ -49,7 +49,8 @@ function fingerprint() {
   const s=R.getState(),abilities={...s.cultivation.systems.immortal.abilities};delete abilities.naturalTreasureLevel;
   return JSON.stringify([s.powerSystem.systems.scale.upgrades,s.powerSystem.systems.scale.actions,
     s.qiRefiningUnlocked,s.foundationUnlocked,s.goldenCoreUnlocked,s.advancedRealmLevel,s.currentQiLayer,abilities,s.meta.achievements,
-    s.highestScaleIndex,s.activeChallenge,s.challengeCompletions]);
+    s.highestScaleIndex,s.activeChallenge,s.challengeCompletions,
+    [WIS.Simulation.Compensation.factor(),s.core.runtime.compensation?.balance>0,s.core.runtime.compensation?.grantSequence]]);
 }
 function reviveModel(data){return {data,at:n=>data.map(d=>d.constant!==undefined?B.BN(d.constant):
   B.BN(0).constructor.fromComponents(1,d.layer,d.mag+d.l*n+d.q*n*n))};}
@@ -68,7 +69,7 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
   const stats={sections:0,acceptedNodes:0,representedFrames:0,trueSamples:0,trialFrames:0,originalFallbackFrames:0,
     originalSubsteps:0,intervalSubsteps:0,rejectedNodes:0,checkpoints:0,restores:0,correctionCuts:0,feedbackProbes:0,feedbackModelResets:0,
     rareEventCuts:0,weakModels:0,diagnosticErrors:0,transitionFrames:0,transitionNodes:0,reasonCounts:{}};
-  const trace=[],nodeLog=[],rejectLog=[];let samples=[],carry=null,part=0,sectionEnd=0,sectionBase=0,failure=null,retryN=null,retries=0,transitionSamples=0;
+  const trace=[],nodeLog=[],rejectLog=[];let samples=[],carry=null,part=0,sectionEnd=0,sectionBase=0,failure=null,retryN=null,retries=0,transitionSamples=0,blockedKey=null,blockedUntil=0;
   function capture(kind) {const s=R.getState();diagnostics?.validate();if(session.ticks%traceEvery===0||kind!=="sample")trace.push({frame:session.ticks,time:session.ticks/10,kind,
     resources:rt.resources.map(k=>coord(s[k])),gains:session.sim.gains.map(coord),
     exploration:coord(diagnostics?.result().effective||0),
@@ -110,16 +111,17 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
   function statePoint() {return {version:1,originalSeconds:seconds,targets,nodes,partitions,
     game:session.checkpoint(),stats:{...stats,reasonCounts:{...stats.reasonCounts}},samples:samples.slice(),
     carry:carry?{data:carry.data,frames:carry.frames,treasures:carry.treasures}:null,
-    part,sectionEnd,sectionBase,retryN,retries,transitionSamples,diagnostics:diagnostics?.checkpoint(),trace:trace.slice(),nodeLog:nodeLog.slice(),rejectLog:rejectLog.slice()};}
+    part,sectionEnd,sectionBase,retryN,retries,transitionSamples,blockedKey,blockedUntil,diagnostics:diagnostics?.checkpoint(),trace:trace.slice(-32),nodeLog:nodeLog.slice(-32),rejectLog:rejectLog.slice(-32)};}
   if(resume){assert.equal(resume.originalSeconds,seconds);assert.equal(resume.targets,targets);session.restore(resume.game);
     Object.assign(stats,resume.stats);samples=resume.samples;carry=resume.carry?{...resume.carry,...reviveModel(resume.carry.data)}:null;
     ({part,sectionEnd,sectionBase,retryN,retries}=resume);diagnostics?.restore(resume.diagnostics);
-    transitionSamples=resume.transitionSamples||0;
+    transitionSamples=resume.transitionSamples||0;blockedKey=resume.blockedKey||null;blockedUntil=resume.blockedUntil||0;
     trace.push(...resume.trace);nodeLog.push(...resume.nodeLog);rejectLog.push(...resume.rejectLog);
   } else capture("initial");
   while(session.ticks<stop&&performance.now()<deadline) {
     // Host scheduling boundary only: no rule, model, feedback node or RNG change.
     // A browser may yield to a macrotask here; synchronous Node run drains it.
+    for(const history of [trace,nodeLog,rejectLog])if(history.length>32)history.splice(0,history.length-32);
     yield {session,point:statePoint,processed:session.ticks/10,supported:supported(),stats};
     onProgress?.(session,statePoint);
     if(session.ticks===parts[part+1]&&session.ticks<total) {
@@ -136,15 +138,19 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
     const left=Math.min(sectionEnd,stop)-session.ticks;
     if(exact||sectionBase<20||left<4) {reason(exact?"exact-reference":"short-interval-cheaper");originalLocal();continue;}
     if(!supported()) {reason("event-or-layer-needs-original-frame");originalLocal();continue;}
+    const modelKey=()=>fingerprint()+JSON.stringify(samples.length ? vector(samples.at(-1)).map(v=>[v.sign,v.layer,
+      Math.floor(v.mag / Math.pow(10, Math.floor(Math.log10(Math.max(1,Math.abs(v.mag))))-2))]) : []);
+    if(blockedKey && blockedKey===modelKey() && session.ticks<blockedUntil){reason("model-backoff");originalLocal();continue;}
+    if(blockedKey){blockedKey=null;samples=[];carry=null;retries=0;}
     if(samples.length<8) {
       const counterfactual=!samples.length&&carry?.treasures?originalProbe(R.getState(),carry.treasures):null;
       if(counterfactual)stats.feedbackProbes++;
-      const rareBefore=diagnostics?.result().awards.length||0,sample=real();
+      const rareBefore={...diagnostics?.result().awardCounts},sample=real();
       if(counterfactual&&vector(sample).some((v,i)=>!B.eq(v,vector(counterfactual)[i]))) {
         // A real represented loot effect is NOT a forecast-correction transient.
         carry=null;stats.feedbackModelResets++;
       }
-      if(diagnostics?.result().awards.slice(rareBefore).some(x=>timedKeys.includes(x.key))){samples=[];carry=null;stats.feedbackModelResets++;}
+      if(timedKeys.some(k=>(diagnostics?.result().awardCounts[k]||0)>(rareBefore[k]||0))){samples=[];carry=null;stats.feedbackModelResets++;}
       if(supported(sample))samples.push(sample);else{samples=[];carry=null;}continue;
     }
     // All candidate availability closures are evaluated from original code.
@@ -153,6 +159,13 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
     // on capped levels/owned flags/realm (not continuously growing resources).
     // Any eligible purchase/realm uses the original local .1 event handler.
     if(audit().some(c=>c.available)) {reason("eligible-automation-needs-original-frame");samples=[];carry=null;originalLocal();continue;}
+    // A small error in a high-layer coordinate can mean an enormous error in
+    // the original resource. Also, a Decimal product cannot encode the count
+    // of sub-ULP repeated terms. Retain their original counted-ledger frames.
+    if(samples.some(sample=>vector(sample).some(v=>
+        !WIS.Simulation.Accuracy.precision(v,{relativeTolerance:.001}).resolvable))) {
+      reason("original-resource-precision");blockedKey=modelKey();blockedUntil=session.ticks+256;originalLocal();continue;
+    }
     let model;
     try {model=fit(samples,carry,true,false);}catch(e){model={defer:true};reason(e.message);}
     if(model.defer) {
@@ -162,21 +175,18 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
         // a rejected post-event curvature straight to a 1000-frame forecast.
         originalLocal();transitionSamples++;stats.transitionFrames++;continue;
       }
-      // Deliberately retain a numerically legal but weak model for this isolated
-      // experiment. No 5% (or .1% coordinate) gate masquerades as acceptance.
-      try {const rows=samples.map(vector),cols=rows[0].map((_,i)=>columnFit(rows.map(r=>r[i])));
-        model={at:n=>cols.map(c=>c.at(n)),data:cols.map(c=>c.data),decisions:[]};stats.weakModels++;}
-      catch(e){reason("invalid-model:"+e.message);originalLocal();continue;}
+      reason("unverified-model");blockedKey=modelKey();blockedUntil=session.ticks+256;originalLocal();continue;
     }
+
     stats.correctionCuts+=model.decisions?.length??0;
     let n=Math.min(left,retryN??Math.ceil(sectionBase/nodes));
     if(transitionGuard&&transitionSamples>=8){n=Math.min(n,32);stats.transitionNodes++;}
     const rare=nextTimedReward(n);
     if(rare.key&&rare.frames<=n){stats.rareEventCuts++;n=rare.frames-1;
       if(n<4){originalLocal();samples=[];carry=null;continue;}}
-    if(n<4||retries>=4) {reason("local-retry-limit");originalLocal();retryN=null;retries=0;continue;}
+    if(n<4||retries>=4) {reason("local-retry-limit");if(retries>0)blockedKey=modelKey();blockedUntil=session.ticks+256;originalLocal();retryN=null;retries=0;continue;}
     const before=point(),start=session.ticks,eventBefore=fingerprint(),sampleTreasures={main:{...R.getState().meta.treasures},tails:{...R.getState().meta.treasureStockResidual}};
-    const naturalBefore=String(R.getState().naturalTreasureLevel);
+    const naturalBefore=JSON.stringify(WIS.Cultivation.ExplorationProgress.levelWords(R.getState()));
     try {
       const plan=integratedPlan(samples.at(-1),model,n);
       global.__jointFrame=start+n;global.__percentFrames=n;
@@ -185,7 +195,7 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
       stats.intervalSubsteps+=committed.substeps;
       assert(String(WIS.Meta.TreasureProgress.unitGain(R.getState(),"fiveElementsTreasure"))===rare.fiveElementsGain,
         "five-elements-source-rate-changed");
-      assert(!diagnostics?.result().awards.slice(before.diagnostics?.awards.length||0).some(x=>timedKeys.includes(x.key)),"unexpected-time-reward-in-prefix");
+      assert(!timedKeys.some(k=>(diagnostics?.result().awardCounts[k]||0)>(before.diagnostics?.awardCounts[k]||0)),"unexpected-time-reward-in-prefix");
       assert(!committed.result.formulaChanged&&!committed.result.discreteEvent&&fingerprint()===eventBefore,"interval-formula-event");
       // Independent true original recurrences at the forecast end. All their
       // state, treasures, accounting and RNG are restored before accepting.
@@ -195,21 +205,28 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
         const values=vector(actual),predicted=model.at(n+k),origin=model.at(0);
         errors.push(values.map((v,i)=>{
           assert(v.layer===predicted[i].layer&&v.sign===predicted[i].sign,"endpoint-layer-transition");
-          if(v.sign===0)return 0;
+          if(B.eq(v,predicted[i]))return 0;
+          const sourceError=WIS.Simulation.Accuracy.compare(v,predicted[i],{relativeTolerance:.001});
+          assert(sourceError.pass&&sourceError.verified,"endpoint-original-resource-error");
           const growth=Math.abs(predicted[i].mag-origin[i].mag);
-          assert(growth>1e-10,"endpoint-zero-or-unresolved-growth");
+          // Constant/decreasing sources have no positive growth denominator.
+          if(growth<=1e-10 || B.lte(predicted[i],origin[i])) {
+            const comparison=WIS.Simulation.Accuracy.compare(v,predicted[i],{relativeTolerance:.001});
+            assert(comparison.pass,"endpoint-unresolved-source");
+            return comparison.relativeError||0;
+          }
           return (predicted[i].mag-v.mag)/growth;
         }));
       }
       restore(end);
       // EXPLORATION model check only; not a raw-resource accuracy certificate.
       assert(errors.flat().every(x=>Number.isFinite(x)),"invalid-endpoint-coordinate");
-      if(errors.flat().some(x=>Math.abs(x)>.001))stats.diagnosticErrors++;
+      if(errors.flat().some(x=>Math.abs(x)>.001)){stats.diagnosticErrors++;throw Error("endpoint-coordinate-error");}
       if(failNode===stats.acceptedNodes+1){failNode=null;throw Error("injected-interval-rollback");}
       stats.acceptedNodes++;stats.representedFrames+=n;
       nodeLog.push({start,frames:n,endpointSourceProgressErrors:errors});capture("interval");
       carry={at:model.at,data:model.data,frames:n,treasures:sampleTreasures};
-      if(String(R.getState().naturalTreasureLevel)!==naturalBefore) {carry=null;stats.feedbackModelResets++;}
+      if(JSON.stringify(WIS.Cultivation.ExplorationProgress.levelWords(R.getState()))!==naturalBefore) {carry=null;stats.feedbackModelResets++;}
       samples=[];retryN=null;retries=0;transitionSamples=0;
     } catch(e) {
       global.__percentFrames=null;restore(before);stats.rejectedNodes++;reason(e.message);
@@ -238,7 +255,7 @@ const assert=require("node:assert/strict"),rt=require("../runtime"),{B,R}=rt;
 function create() {
   const L=WIS.Meta.TreasureLedger,T=WIS.Meta.Treasures;
   let data={effective:B.ZERO,attempts:B.ZERO,explorationCalls:0,progressCalls:0,progressUnits:{},
-    awards:[],spends:[],cosmicFiber:[],natural:[],captures:[]};
+    awards:[],awardCounts:{},spends:[],cosmicFiber:[],natural:[],captures:[]};
   function advance(state,key,units,gain,run) {
     const before=[state.meta.treasures[key]||B.ZERO,...(state.meta.treasureStockResidual[key]||[])];
     const result=run();
@@ -253,7 +270,9 @@ function create() {
         assert(L.sign(delta)>=0&&B.eq(L.value(delta),result),"HARD: award/stock ledger mismatch");
         const row={frame:global.__jointFrame,time:global.__jointFrame/10,key,award:String(result),
           inventory:String(T.count(state,key)),progress:String(L.value(L.progress(state,key))),gain:String(gain)};
-        data.awards.push(row);if(key==="cosmicFiber")data.cosmicFiber.push(row);
+        data.awardCounts[key]=(data.awardCounts[key]||0)+1;
+        data.awards.push(row);if(data.awards.length>32)data.awards.shift();
+        if(key==="cosmicFiber"){data.cosmicFiber.push(row);if(data.cosmicFiber.length>2)data.cosmicFiber.shift();}
       }
     },null,[]);
     return result;
@@ -267,14 +286,15 @@ function create() {
         assert(L.sign(L.progress(state,key))>=0,`HARD: negative progress ${key}`);}
     },null,[]);
   }
-  function checkpoint(){return {...data,progressUnits:{...data.progressUnits},awards:data.awards.slice(),spends:data.spends.slice(),
+  function checkpoint(){return {...data,awardCounts:{...data.awardCounts},progressUnits:{...data.progressUnits},awards:data.awards.slice(),spends:data.spends.slice(),
     cosmicFiber:data.cosmicFiber.slice(),natural:data.natural.slice(),captures:data.captures.slice()};}
-  function restore(p){data={...p,progressUnits:{...p.progressUnits},awards:p.awards.slice(),spends:p.spends.slice(),
+  function restore(p){data={...p,awardCounts:{...p.awardCounts},progressUnits:{...p.progressUnits},awards:p.awards.slice(),spends:p.spends.slice(),
     cosmicFiber:p.cosmicFiber.slice(),natural:p.natural.slice(),captures:p.captures.slice()};}
   function capture(kind,session){
     const state=R.getState();
     const natural={frame:session.ticks,time:session.ticks/10,level:String(state.naturalTreasureLevel),seized:!!state.unlockedAchievements.seizeFoundation};
     if(!data.natural.length||data.natural.at(-1).level!==natural.level||data.natural.at(-1).seized!==natural.seized)data.natural.push(natural);
+    if(data.natural.length>2)data.natural.shift();
   }
   return {advance,exploration,validate,checkpoint,restore,capture,start(){},result:()=>data};
 }
@@ -435,14 +455,22 @@ module.exports={create};
 // a mutable state identity. No approximate merging, tail removal or stale N.
 function create(){
   const maps={project:new Map(),normalize:new Map(),decimalWord:new Map()},powers=new Map();
+  const texts=new WeakMap();
+  function word(value){
+    if(!WIS.Core.BigNum.isDecimal(value))return String(value);
+    const old=texts.get(value);
+    if(old&&old.sign===value.sign&&old.layer===value.layer&&Object.is(old.mag,value.mag))return old.text;
+    const text=String(value);texts.set(value,{sign:value.sign,layer:value.layer,mag:value.mag,text});return text;
+  }
   return {
     pow10(e){if(!powers.has(e))powers.set(e,10n**BigInt(e));return powers.get(e);},
     wordText(w){return w._originalC===w.c&&w._originalE===w.e?w._canonical:`${w.c}e${w.e}`;},
     coefficientLength(w){return w._originalC===w.c?w._coefficientLength:w.c.toString().length;},
     get(kind,input,calculate){
-    const key=kind==='normalize'?JSON.stringify(input.map(String)):String(input),map=maps[kind];
+    const prepared=kind==='normalize'?input.map(word):word(input);
+    const key=kind==='normalize'?JSON.stringify(prepared):prepared,map=maps[kind];
     if(map.has(key)){global.__jointRevision?.count('ledgerCache.'+kind+'Hit');const v=map.get(key);return kind==='normalize'?v.slice():v;}
-    global.__jointRevision?.count('ledgerCache.'+kind+'Miss');const value=calculate();
+    global.__jointRevision?.count('ledgerCache.'+kind+'Miss');const value=calculate(prepared);
     if(kind==='decimalWord'&&value){const coefficient=String(value.c);Object.assign(value,{_originalC:value.c,_originalE:value.e,
       _coefficientLength:coefficient.length,_canonical:coefficient+'e'+value.e});}
     if(map.size>=8192)map.delete(map.keys().next().value);map.set(key,kind==='normalize'?value.slice():value);
@@ -982,7 +1010,16 @@ function bind(next){context=next;
   }});
   const immortal=Object.freeze({...c,planAutomaticGain(state,dt,options){
     if(override)return override.cultivation;
-    const result=c.planAutomaticGain(state,dt,options);if(observer){observer.cultivation=result;observer.formulaEvaluations=(observer.formulaEvaluations||0)+1;}return result;
+    // This is the actual cultivation projection: J/power and clocks have
+    // already advanced, mana/immortal power have not. Label that source here,
+    // not at the earlier start-of-frame snapshot.
+    const normalization=observer?require('./general-engine').manaNormalization():null;
+    const result=c.planAutomaticGain(state,dt,options);
+    if(observer){observer.cultivation=result;observer.formulaEvaluations=(observer.formulaEvaluations||0)+1;
+      if(normalization&&B.eq(result.explorationMana??0,0)&&B.eq(result.explorationAmount??0,0)&&
+        B.lt(B.add(state.mana,result.mana??0),WIS.Core.Config.googolPenalty.threshold))observer.manaNormalization=normalization;
+      else delete observer.manaNormalization;}
+    return result;
   },commitAutomaticGain(state,plan,options){const result=c.commitAutomaticGain(state,plan,options);
     if(observer)observer.committedExploration=plan.explorationAmount;return result;}});
   WIS.Core.Registries=Object.freeze({...registry,
@@ -996,10 +1033,36 @@ function createSession(){
   const host=context,random=host.random;let ticks=0,elapsed=0,approximateTicks=0,randomCalls=0;
   const gains=host.gains.slice(),originFlags=flags(),metrics={},automaticEvents=[],discreteEvents=[];
   const scope=fn=>R.withOfflineExecution(()=>R.withRandomSource(()=>{randomCalls++;return random.next();},fn));
+  function preview({disposableSource=false}={}){
+    assert(typeof host.calculateAutomaticStepPlan==='function','missing source preview');
+    return scope(()=>R.withProjection(()=>{
+      const s=R.getState();
+      return host.calculateAutomaticStepPlan(.1,WIS.Core.Registries.getActivePower(s),
+        WIS.Core.Registries.getActiveCultivation(s),{sourceState:s,disposableSource,integrationMethod:'end',projection:true});
+    }));
+  }
+  function project(plan,n,query){
+    const s=WIS.Core.State.cloneForSimulation(R.getState()),A=WIS.Core.Resources;
+    // Disposable source projection only; no global resource writer, treasure,
+    // automation, random call or journal commit is invoked here.
+    for(const key of resources){const box=resources.indexOf(key)<2?s.core.resources:s.cultivation.systems.immortal.resources;
+      const gain=resources.indexOf(key)<2?plan.power[key]:plan.cultivation[key];
+      Object.assign(box,A.prepare(box,key,gain));}
+    s.cultivation.systems.immortal.xiuzhen=WIS.Cultivation.Xiuzhen.prepare(s,plan.cultivation.xiuzhen);
+    const totals={joules:['lifetimeTotalJ','currentRebirthTotalJ'],power:['totalPower','lifetimeTotalPower','currentRebirthTotalPower'],
+      mana:['lifetimeTotalMana','currentRebirthTotalMana'],immortalPower:['lifetimeTotalImmortalPower','currentRebirthTotalImmortalPower']};
+    for(const key of resources)for(const field of totals[key])s[field]=B.add(s[field],(resources.indexOf(key)<2?plan.power:plan.cultivation)[key]);
+    s.highestPower=B.max(s.highestPower,s.power);
+    host.projectStepTimes(s,n/10);s.totalElapsedSeconds+=n/10;
+    return scope(()=>R.withProjection(()=>R.withState(s,()=>WIS.Core.Effects.withIsolatedState(s,()=>query({disposableSource:true})))));
+  }
   function tick(plan=null,skipTreasureRolls=false,intervalFrames=1){
     assert(Number.isInteger(intervalFrames)&&intervalFrames>0);assert(intervalFrames===1||plan);
     const sample={};observer=sample;override=plan;global.__jointPredictedFrame=!!plan;
     const dt=intervalFrames/10,frameGains=resources.map(()=>B.ZERO);let remaining=dt,substeps=0,last,formulaChanged=false,discreteEvent=null;
+    const repeated=plan?.exactBaseRepeat ? Object.fromEntries(['totalElapsedSeconds','reincarnationElapsedSeconds','currentScaleElapsedSeconds',
+      'lifetimeTotalJ','currentRebirthTotalJ'].map(k=>[k,Number(R.getState()[k])])) : null;
+    const repeatedGains=repeated?gains[0].toNumber():0;
     try{while(remaining>1e-10){
       last=scope(()=>host.advanceGameStep(remaining,true,{offline:false,integrationMethod:'end',skipTreasureRolls}));
       assert(last.processedSeconds>0||last.eventCommitted,'Original frame must advance');
@@ -1013,19 +1076,30 @@ function createSession(){
       host.recordCurrentAchievements();
       if(last.formulaChanged||last.discreteEvent)discreteEvents.push({frame:ticks+1,time:elapsed,
         event:last.discreteEvent||null,formulaChanged:last.formulaChanged});
+      if(discreteEvents.length>32)discreteEvents.shift();
     }}finally{observer=null;override=null;global.__jointPredictedFrame=false;}
+    if(repeated){
+      // Keep the original IEEE additions of clocks and old statistic fields.
+      // These cheap loops do not invoke formulas, transactions or RNG.
+      const sum=value=>{for(let i=0;i<intervalFrames;i++)value+=.1;return value;};
+      for(const [key,value] of Object.entries(repeated))R.getState()[key]=key.endsWith('Seconds')?sum(value):B.BN(sum(value));
+      gains[0]=B.BN(sum(repeatedGains));
+      const lastGain={joules:B.BN(.1),power:B.ZERO,mana:B.ZERO,immortalPower:B.ZERO,xianForce:B.ZERO,yuanForce:B.ZERO};
+      const recent=R.getState().core.runtime.lastSettlement;
+      if(recent){recent.seconds=.1;recent.gains=lastGain;let at=repeated.totalElapsedSeconds;for(let i=1;i<intervalFrames;i++)at+=.1;recent.at=at;}
+    }
     ticks+=intervalFrames;if(plan)approximateTicks+=intervalFrames;
     assert.deepEqual(flags(),originFlags,'HARD: player automation settings changed');
     return {...sample,result:{...last,resourceGains:Object.fromEntries(resources.map((k,i)=>[k,frameGains[i]])),
       formulaChanged,discreteEvent:discreteEvent??last.discreteEvent},substeps};
   }
-  function checkpoint(){return {state:host.snapshotState(),random:random.snapshot(),randomCalls,ticks,elapsed,
+  function checkpoint(){const started=performance.now(),state=host.snapshotState();WIS.Simulation.FastForward.recordCost("snapshotMs",performance.now()-started);return {state,random:random.snapshot(),randomCalls,ticks,elapsed,
     approximateTicks,gains:gains.slice(),metrics,automaticEvents:automaticEvents.slice(),discreteEvents:discreteEvents.slice()};}
   function restore(point){host.restoreState(point.state);random.restore(point.random);randomCalls=point.randomCalls;
     ticks=point.ticks;elapsed=point.elapsed;approximateTicks=point.approximateTicks;
     gains.splice(0,gains.length,...point.gains.map(B.BN));automaticEvents.splice(0,automaticEvents.length,...point.automaticEvents);
     discreteEvents.splice(0,discreteEvents.length,...point.discreteEvents);observer=null;override=null;global.__jointPredictedFrame=false;}
-  return {tick,scope,checkpoint,restore,snapshot:()=>({ticks,elapsed,gains:gains.slice()}),
+  return {tick,preview,project,scope,checkpoint,restore,snapshot:()=>({ticks,elapsed,gains:gains.slice()}),
     sim:{snapshotState:host.snapshotState,restoreState:host.restoreState,gains,metrics},get ticks(){return ticks;},get elapsed(){return elapsed;}};
 }
 module.exports={B,R,resources,bind,createSession,hash:value=>String(value)};
@@ -1043,15 +1117,39 @@ const vector=s=>[s.power?.joules,s.power?.power,s.cultivation?.mana,s.cultivatio
   s.cultivation?.explorationAmount,s.cultivation?.passiveMana,s.cultivation?.explorationMana].map(v=>B.BN(v??0));
 function relative(a,b){
   if(B.eq(a,b))return 0;
-  if(a.layer>1||b.layer>1)return Infinity;
+  if(![a,b].every(v=>WIS.Simulation.Accuracy.precision(v,{relativeTolerance:.001}).resolvable))return Infinity;
   const scale=B.max(B.abs(a),B.abs(b));
   return B.eq(scale,0)?0:B.toNumber(B.div(B.abs(B.sub(a,b)),scale),Infinity);
+}
+function sourceChange(a,b){
+  // Control tolerance only: keep both original words in samples and ledgers.
+  if(![a,b].every(v=>v.isFinite()&&v.sign>=0))return true;
+  if(B.eq(a,b))return false;
+  if(a.sign===0||b.sign===0)return true;
+  const precision=[a,b].map(v=>WIS.Simulation.Accuracy.precision(v,{relativeTolerance:.001}));
+  if(precision.some(p=>!p.resolvable))return true;
+  const spacing=Math.max(...precision.map(p=>Math.expm1((p.oneUlpLog10ResourceRatio??Infinity)*Math.LN10)));
+  const tolerance=Math.min(1e-7,Math.max(1e-8,spacing*8));
+  // The absolute allowance is evaluated in Decimal against the source's own
+  // scale, even below Number.MIN_VALUE. There is no fixed epsilon that could
+  // conceal a large relative jump of an extremely small, but real, income.
+  const absoluteAllowance=B.mul(B.max(B.abs(a),B.abs(b)),tolerance);
+  return B.gt(B.abs(B.sub(a,b)),absoluteAllowance);
 }
 function column(values){
   const last=values.at(-1);
   assert(values.every(v=>v.isFinite()&&v.sign>=0),'invalid-source');
+  assert(values.every(v=>WIS.Simulation.Accuracy.precision(v,{relativeTolerance:.001}).resolvable),
+    'original-resource-precision');
   if(values.every(v=>B.eq(v,last)))return {kind:'constant',at:()=>last,sum:n=>B.mul(last,n)};
   assert(values.every(v=>v.layer<=1),'mixed-high-source-needs-local');
+  // A drifting source followed by a single step must not become an exponential
+  // trend. Provenance below is the primary guard; adjacent differences also
+  // reject an unannounced jump without rejecting a consistent geometric curve.
+  const differences=values.slice(1).map((v,i)=>B.abs(B.sub(v,values[i])));
+  const projectedDifference=B.gt(differences[0],0)?B.div(B.mul(differences[1],differences[1]),differences[0]):B.ZERO;
+  assert(!(relative(last,values[2])>1e-8&&B.gt(differences[2],
+    B.mul(B.max(differences[0],B.max(differences[1],projectedDifference)),8))),'sample-source-jump');
   const delta=B.sub(values[2],values[1]),linearError=relative(B.add(values[2],delta),last);
   let kind='linear',logRatio=0,bestError=linearError;
   if(values.every(v=>B.gt(v,0))){
@@ -1062,78 +1160,221 @@ function column(values){
   }
   const slope=B.sub(last,values[2]);
   function at(n){return kind==='geometric'?B.mul(last,B.pow(10,logRatio*n)):B.add(last,B.mul(slope,n));}
-  function sum(n){
+  function sum(n,offset=0){
     if(n===0)return B.ZERO;
-    if(kind!=='geometric')return B.add(B.mul(last,n),B.mul(slope,n*(n+1)/2));
+    const anchor=at(offset);
+    if(kind!=='geometric')return B.add(B.mul(anchor,n),B.mul(slope,n*(n+1)/2));
+    // Exact q=1 limit of this fitted model, before either division.
+    if(logRatio===0)return B.mul(anchor,n);
     const x=logRatio*Math.LN10;
     // expm1 avoids losing a slowly varying geometric series to cancellation.
     const factor=Math.abs(x*n)<650?Math.exp(x)*Math.expm1(x*n)/Math.expm1(x):NaN;
-    if(Number.isFinite(factor)&&factor>=0)return B.mul(last,factor);
+    if(Number.isFinite(factor)&&factor>=0)return B.mul(anchor,factor);
     const q=B.pow(10,logRatio);
-    return B.mul(last,B.div(B.mul(q,B.sub(B.pow(q,n),1)),B.sub(q,1)));
+    return B.mul(anchor,B.div(B.mul(q,B.sub(B.pow(q,n),1)),B.sub(q,1)));
   }
   assert(bestError<.002,'sample-curvature');
   return {kind,at,sum};
 }
-function model(samples){const rows=samples.map(vector),cols=rows[0].map((_,i)=>column(rows.map(r=>r[i])));
-  return {kind:cols.every(c=>c.kind==='constant')?'constant':'varying',
-    at:n=>cols.map(c=>c.at(n)),sum:n=>cols.map(c=>c.sum(n))};}
-function fingerprint(){const s=R.getState();return JSON.stringify([
+function manaNormalization(){
+  const s=R.getState(),I=WIS.Cultivation.ImmortalLogic;
+  if(!I.immortalCultivationActive()||!s.qiRefiningUnlocked||!I.circulationEffective()||
+    s.unlockedAchievements?.refineTheVoid||s.roamSpiritWorldUnlocked||
+    !B.lt(s.mana,WIS.Core.Config.googolPenalty.threshold))return null;
+  const p=I.offlineManaRounding();if(p.mode!=='integer')return null;
+  const scale=B.pow(p.floor,p.elasticity);
+  return scale.isFinite()&&B.gt(scale,0)?scale:null;
+}
+function sameStructure(a,b){return JSON.stringify(JSON.parse(a).slice(1))===JSON.stringify(JSON.parse(b).slice(1));}
+function model(samples,cache=null,offset=0){
+  const rule=fingerprint(),scale=manaNormalization();
+  const normalized=scale&&samples.every(s=>s.manaNormalization&&sameStructure(s.sourceRule,rule));
+  assert(samples.every(s=>s.sourceRule===rule)||normalized,'mixed-source-rules');
+  const rows=samples.map(vector),support=WIS.Cultivation.Xiuzhen.intervalSupport(R.getState());
+  const yuan=support.discreteYuan?WIS.Cultivation.Xiuzhen.discreteYuanModel(R.getState(),rows.at(-1)[4]):null;
+  if(support.stableXian)assert(rows.every(r=>B.eq(r[4],rows[0][4])),'stable-xian-proof-invalid');
+  const cols=rows[0].map((_,i)=>{
+    if(i===5&&yuan)return yuan;
+    if(i===4&&support.stableXian&&rows.every(r=>B.eq(r[i],rows[0][i]))) {
+      const term=rows[0][i];return {kind:'constant',at:()=>term,sum:n=>B.mul(term,n)};
+    }
+    // Pure homogeneous passive mana factor: preserve the other seven source
+    // histories, divide each actual sample by ITS pre-frame floor factor, then
+    // restore the CURRENT plateau factor. Low floors remain event boundaries.
+    const manaColumn=normalized&&(i===2||i===7);
+    const values=rows.map((r,j)=>manaColumn?B.div(r[i],samples[j].manaNormalization):r[i]);
+    const key=values.map(v=>[v.sign,v.layer,v.mag].join(',')).join(';');
+    let value;
+    if(cache?.[i]?.key===key)value=cache[i].value;
+    else {value=column(values);if(cache)cache[i]={key,value};}
+    return manaColumn?{kind:value.kind,at:n=>B.mul(value.at(n),scale),sum:(n,start=0)=>B.mul(value.sum(n,start),scale)}:value;
+  });
+  // This closure owns the model identity and origin. Yuan is freshly anchored
+  // to current state; all other columns retain the original sample offset.
+  const sumColumn=(i,n)=>cols[i].sum(n,i===5&&yuan?0:offset);
+  return {kind:cols.every(c=>c.kind==='constant')?'constant':'varying',yuanDiagnostics:yuan?.diagnostics,maxFrames:support.maxFrames??65536,
+    at:n=>cols.map((c,i)=>c.at(n+(i===5&&yuan?0:offset))),sumColumn,sum:n=>cols.map((_,i)=>sumColumn(i,n))};}
+function formulaRegime(s=R.getState()){
+  const query=()=>{
+    const I=WIS.Cultivation.ImmortalLogic;
+    const enabled=I.immortalCultivationActive()&&s.qiRefiningUnlocked&&I.circulationEffective();
+    let mana=['disabled'];
+    if(enabled){const rounding=I.offlineManaRounding();
+      mana=rounding.mode==='integer'?['integer',String(rounding.floor)]:[rounding.mode];}
+    return JSON.stringify([mana,
   s.powerSystem.active,s.powerSystem.systems.scale.actions,s.powerSystem.systems.scale.upgrades,
   s.cultivation.active,s.cultivation.systems.immortal.abilities,s.cultivation.systems.immortal.persistent,
   s.highestScaleIndex,s.brickUnlocked,s.wallUnlocked,s.activeChallenge,s.meta.achievements,
   s.challengeCompletions,s.symbolicPowerMilestones,s.qiRefiningUnlocked,s.foundationUnlocked,s.goldenCoreUnlocked,
   s.advancedRealmLevel,s.currentQiLayer,s.cultivation.systems.immortal.xiuzhen?.realm,
-  s.cultivation.systems.immortal.xiuzhen?.abilities]);}
+  s.cultivation.systems.immortal.xiuzhen?.abilities,
+  [s.scaleUpgradeAutomationEnabled,s.scaleActionAutomationEnabled,s.immortalAbilityAutomationEnabled,s.immortalRealmAutomationEnabled],
+  // Inventory and ownership are inputs to treasure multipliers. Progress,
+  // timers and Effects cache revisions are deliberately absent.
+  [WIS.Simulation.Compensation.factor(),s.core.runtime.compensation?.balance>0,s.core.runtime.compensation?.grantSequence],
+  s.meta.treasures,s.meta.treasureStockResidual,[s.naturalTreasureLevel,s.explorationRewards?.levelResidual],s.unlockedAchievements?.seizeFoundation]);
+  };
+  // Query the supplied state; never cache a speculative state's result.
+  return s===R.getState()?query():R.withState(s,()=>WIS.Core.Effects.withIsolatedState(s,query));
+}
+function fingerprint(){return formulaRegime();}
 function treasureKey(){const s=R.getState();return JSON.stringify([s.meta.treasures,s.meta.treasureStockResidual,
-  s.naturalTreasureLevel,s.unlockedAchievements?.seizeFoundation]);}
+  [s.naturalTreasureLevel,s.explorationRewards?.levelResidual],s.unlockedAchievements?.seizeFoundation]);}
+function exactBaseFrames(left,last,audit) {
+  const s=R.getState(),zero=v=>B.eq(v??0,0);
+  // Proof scope: only the built-in +1 J/s source. No cultivation, actions,
+  // purchased effects, treasure sources, challenge rewards or automation can
+  // change a multiplier. The only time event is trainingUp at 600 seconds.
+  if(!last||s.powerSystem.active!=='scale'||s.cultivation.active!==null||s.activeChallenge||s.highestScaleIndex!==0||
+    !zero(s.power)||!zero(s.totalPower)||!zero(s.maxSinglePowerGain)||s.brickUnlocked||s.wallUnlocked||
+    Object.values(s.powerSystem.systems.scale.actions).some(v=>!zero(v))||
+    Object.values(s.powerSystem.systems.scale.upgrades).some(v=>!zero(v))||
+    Object.values(s.cultivation.systems.immortal.persistent).some(v=>!zero(v))||
+    Object.values(s.challengeCompletions).some(v=>!zero(v))||
+    Object.entries(s.unlockedAchievements).some(([k,v])=>v&&k!=='trainingUp')||
+    Object.values(s.meta.treasures).some(v=>!zero(v))||
+    Object.values(s.meta.treasureStockResidual||{}).some(v=>v.length)||
+    Object.values(s.meta.treasureProgressPending||{}).some(v=>v.length)||
+    audit().some(c=>c.available)||!B.eq(vector(last)[0],.1)||vector(last).slice(1).some(v=>!zero(v)))return 0;
+  if(['joules','lifetimeTotalJ','currentRebirthTotalJ'].some(k=>!Number.isFinite(Number(s[k]))||Number(s[k])>1e9))return 0;
+  let n=Math.min(left,65536,Math.floor((1e9-Number(s.joules))*10));
+  if(!s.unlockedAchievements.trainingUp)n=Math.min(n,Math.max(0,Math.floor((600-s.totalElapsedSeconds)*10)-2));
+  return Math.max(0,n);
+}
 function supported(sample){const s=R.getState(),c=sample?.cultivation;
-  return !s.activeChallenge&&s.powerSystem.active==='scale'&&
+  const challengeAllowed=!s.activeChallenge || ["mortalTransformation","yinVoidYangReal"].includes(s.activeChallenge);
+  return WIS.Cultivation.Xiuzhen.intervalSupport(s).supported&&challengeAllowed&&s.powerSystem.active==='scale'&&
     (s.cultivation.active===null||s.cultivation.active==='immortal')&&
     B.eq(s.minorTribulationExplorationLoad??0,0)&&
     (!sample||(!sample.result.formulaChanged&&!sample.result.discreteEvent&&
       (!c||(c.completed!==false&&!c.event&&!c.instantEvent&&B.eq(c.finalExplorationLoad??0,0)))));
 }
 function plan(last,m,n){const v=m.sum(n),end=m.at(n);
-  assert(v.every(v=>v.isFinite()&&v.sign>=0)&&end.every(v=>v.isFinite()&&v.sign>=0),'invalid-model');
+  assert([...v,...end].every(v=>v.isFinite()),'nonfinite-model');
+  assert([...v,...end].every(v=>v.sign>=0),'negative-model');
   const p=predictedPlan(last,[...v.slice(0,4),...v.slice(6)]),dt=n/10;
   p.cultivation.xiuzhen={xianForce:v[4],yuanForce:v[5]};
+  if(WIS.Cultivation.Xiuzhen.intervalSupport(R.getState()).stableXian) {
+    const term=vector(last)[4];
+    assert(B.eq(v[4],B.mul(term,n)),'stable-xian-proof-invalid');
+    p.cultivation.xiuzhen.repeat={xianForce:{term,count:n}};
+  }
   Object.assign(p.power.rates,{joulesPerSecond:B.div(end[0],.1),powerPerSecond:B.div(end[1],.1)});
   Object.assign(p.cultivation,{elapsedSeconds:dt,processedSeconds:dt,
     immortalPowerActiveSeconds:(last.cultivation?.immortalPowerActiveSeconds??0)*n});
   return p;
 }
 function* runSteps(_initial,{seconds,audit,resume=null,diagnostics=null}={}){
-  const session=rt.createSession(),total=Math.round(seconds*10);
-  let samples=[],span=16,cooldown=0,lastFailure='',failureCount=0,signature='',retry=null,planning=null;
+  const session=rt.createSession(),total=Math.round(seconds*10),columnCache=[];
+  let samples=[],span=16,cooldown=0,lastFailure='',failureCount=0,signature='',retry=null,planning=null,blockedSignature=null;
+  let failedSpan=null,successSpan=0,ceilingUntil=0,blockedUntil=0,shortReprobeAt=0;
+  let modelOffset=0,carryCount=0,carryDisabledUntil=0;
+  let nextProbeTick=0,shortEventStreak=0;
+  let crystalWidth=32,crystalProbeAt=0;
+  const minimumPredictionFrames=12,shortResampleFrames=64;
   const stats={algorithm:'normal-discrete',sections:0,acceptedNodes:0,representedFrames:0,trueSamples:0,
     trialFrames:0,originalFallbackFrames:0,originalSubsteps:0,intervalSubsteps:0,rejectedNodes:0,
     formulaCalls:0,predictionCalls:0,boundaryQueries:0,eventCuts:0,reasonCounts:{},constantFrames:0,varyingFrames:0,
-    maxSourceError:0,formulaMs:0,predictionMs:0,events:[]};
+    maxSourceError:0,formulaMs:0,predictionMs:0,trialMs:0,recentAcceptedSpans:[],events:[],eventTypes:{},boundaryStatus:{}};
   if(resume){session.restore(resume.game);Object.assign(stats,resume.stats);
-    ({samples,span,cooldown,lastFailure,failureCount,signature,retry}=resume);planning=resume.planning||null;}
+    ({samples,span,cooldown,lastFailure,failureCount,signature,retry}=resume);planning=resume.planning||null;blockedSignature=resume.blockedSignature||null;
+    failedSpan=resume.failedSpan??null;successSpan=resume.successSpan||0;ceilingUntil=resume.ceilingUntil||0;blockedUntil=resume.blockedUntil||0;shortReprobeAt=resume.shortReprobeAt||0;
+    modelOffset=resume.modelOffset??0;carryCount=resume.carryCount??0;carryDisabledUntil=resume.carryDisabledUntil??0;
+    nextProbeTick=resume.nextProbeTick??0;shortEventStreak=resume.shortEventStreak??0;
+    crystalWidth=resume.crystalWidth??32;crystalProbeAt=resume.crystalProbeAt??0;
+    assert(Number.isInteger(crystalWidth)&&crystalWidth>=2&&crystalWidth<=8192,'invalid-crystal-width');
+    assert(Number.isSafeInteger(crystalProbeAt)&&crystalProbeAt>=0,'invalid-crystal-probe');
+    assert(Number.isSafeInteger(nextProbeTick)&&nextProbeTick>=0&&nextProbeTick<=session.ticks+64,'invalid-probe-tick');
+    assert(Number.isInteger(shortEventStreak)&&shortEventStreak>=0&&shortEventStreak<=4,'invalid-probe-streak');
+    assert(Number.isSafeInteger(modelOffset)&&modelOffset>=0&&modelOffset<=65536,'invalid-model-offset');
+    assert(Number.isSafeInteger(carryCount)&&carryCount>=0&&carryCount<=3,'invalid-model-carry');}
   function point(){return {version:1,engine:'normal-discrete',originalSeconds:seconds,game:session.checkpoint(),
     stats:{...stats,reasonCounts:{...stats.reasonCounts},events:stats.events.slice()},samples,span,cooldown,
-    lastFailure,failureCount,signature,retry,planning};}
+    lastFailure,failureCount,signature,retry,planning,blockedSignature,failedSpan,successSpan,ceilingUntil,blockedUntil,shortReprobeAt,modelOffset,carryCount,carryDisabledUntil,nextProbeTick,shortEventStreak,crystalWidth,crystalProbeAt};}
   function reason(name){stats.reasonCounts[name]=(stats.reasonCounts[name]||0)+1;}
-  function real(trial=false){const t=performance.now(),sample=session.tick();stats.formulaMs+=performance.now()-t;
+  function buildModel(rows,offset=0){stats.modelBuildCalls=(stats.modelBuildCalls||0)+1;return model(rows,columnCache,offset);}
+  function recordAdapter(m){const d=m?.yuanDiagnostics;if(!d)return;
+    stats.discreteYuanEvaluations=(stats.discreteYuanEvaluations||0)+d.evaluations-(d.recordedEvaluations||0);
+    stats.discreteYuanBlocks=(stats.discreteYuanBlocks||0)+d.blocks-(d.recordedBlocks||0);
+    stats.maxDiscreteYuanBound=Math.max(stats.maxDiscreteYuanBound||0,d.maxRelativeBound);
+    d.recordedEvaluations=d.evaluations;d.recordedBlocks=d.blocks;
+  }
+  function noteSpan(n){
+    const bucket=n<12?'1-11-exact':n<16?'12-15':n<64?'16-63':n<256?'64-255':n<1024?'256-1023':n<4096?'1024-4095':'4096+';
+    stats.acceptedSpanCounts??={};stats.acceptedSpanCounts[bucket]=(stats.acceptedSpanCounts[bucket]||0)+1;
+    stats.recentAcceptedSpans.push({frame:session.ticks,span:n});
+    if(stats.recentAcceptedSpans.length>64)stats.recentAcceptedSpans.shift();
+  }
+  function real(trial=false,sourceRule=fingerprint()){
+    const t=performance.now(),sample=session.tick();stats.formulaMs+=performance.now()-t;
+    sample.sourceRule=sourceRule;
     assert(keys.every(k=>B.BN(R.getState()[k]).isFinite()&&B.gte(R.getState()[k],0)),
       'HARD: invalid original resource');
     stats.formulaCalls+=sample.substeps;stats.formulaEvaluations=(stats.formulaEvaluations||0)+(sample.formulaEvaluations||0);
     stats.originalSubsteps+=sample.substeps;if(trial)stats.trialFrames++;else stats.trueSamples++;
     return sample;}
-  function local(why){planning=null;const before=fingerprint(),balances=keys.map(k=>R.getState()[k]),sample=real();reason(why);stats.originalFallbackFrames++;
-    const next=fingerprint();
-    if(next!==before||!supported(sample)){samples=[];retry=null;span=16;
-      if(next!==before){cooldown=0;failureCount=0;stats.events.push({time:session.elapsed,reason:'original-event',
+  function resetModel(next,why){
+    // A floor step already handled by the original frame is not new evidence
+    // that the repeatedly short window can now amortize a complete forecast.
+    if(why!=='confirmed-mana-tier'){nextProbeTick=0;shortEventStreak=0;}
+    samples=[];planning=null;retry=null;lastFailure='';failureCount=0;cooldown=0;
+    failedSpan=null;successSpan=0;ceilingUntil=0;blockedSignature=null;blockedUntil=0;
+    span=16;shortReprobeAt=0;modelOffset=0;carryCount=0;if(why.startsWith('confirmed-'))carryDisabledUntil=0;signature=next;stats.successSpan=0;stats.errorFailureSpan=null;reason(why);
+  }
+  function local(why){planning=null;
+    // A carried model stores four ORIGINAL samples at an earlier origin. A
+    // new local sample must never be appended as if that time gap were .1s.
+    if(modelOffset){samples=[];modelOffset=0;carryCount=0;}
+const before=fingerprint(),lootBefore=treasureKey(),balances=keys.map(k=>R.getState()[k]),sample=real(false,before);reason(why);stats.originalFallbackFrames++;
+    const next=fingerprint(),lootChanged=lootBefore!==treasureKey();
+    if(next!==before||!supported(sample)){
+      const oldParts=JSON.parse(before),newParts=JSON.parse(next);
+      const manaOnly=next!==before&&JSON.stringify(oldParts.slice(1))===JSON.stringify(newParts.slice(1))&&supported(sample);
+      // A clean treasure event invalidates every old sample and numerical
+      // ceiling, but not the usefulness of a conservative trial length. Only
+      // retain that proposal when all non-treasure rules (including mana tier)
+      // are unchanged. Four NEW samples and full midpoint/endpoint validation
+      // are still required; no old treasure model is carried across the award.
+      const treasureOnly=lootChanged&&JSON.stringify(oldParts.slice(0,-4))===JSON.stringify(newParts.slice(0,-4))&&supported(sample);
+      const reuseSpan=(manaOnly||treasureOnly)&&failedSpan===null&&!blockedSignature&&!lastFailure?
+        Math.min(span,treasureOnly?4096:65536):16;
+      const reuseRows=manaOnly&&reuseSpan===span&&sample.manaNormalization&&manaNormalization()&&
+        samples.every(s=>s.manaNormalization&&sameStructure(s.sourceRule,next))?[...samples,sample].slice(-4):null;
+      resetModel(next,lootChanged?'confirmed-treasure-source':manaOnly?'confirmed-mana-tier':next!==before?'confirmed-formula-regime':'confirmed-special-state');
+      if(reuseSpan>16){span=reuseSpan;const key=manaOnly?'manaSpanReuses':'treasureSpanReuses';stats[key]=(stats[key]||0)+1;}
+      if(reuseRows){samples=reuseRows;stats.manaHistoryReuses=(stats.manaHistoryReuses||0)+1;}
+
+      if(next!==before){stats.events.push({time:session.elapsed,reason:'original-event',
         realm:R.getState().advancedRealmLevel,foundation:R.getState().foundationUnlocked,
         gym:R.getState().gymPurchased,running:R.getState().runningLevel,rock:R.getState().rockLevel,
         balancesBefore:balances,balancesAfter:keys.map(k=>R.getState()[k]),gains:sample.result.resourceGains});}}
     else {
-      if(samples.length>=2){const prev=vector(samples.at(-1)),older=vector(samples.at(-2)),now=vector(sample);
-        if(now.some((v,i)=>B.eq(prev[i],older[i])&&!B.eq(v,prev[i]))){
-          cooldown=0;failureCount=0;retry=null;samples=[];reason('source-step-resample');}}
+      if(samples.length>=2){const control=s=>vector(s).map((v,i)=>s.manaNormalization&&(i===2||i===7)?B.div(v,s.manaNormalization):v);
+        const prev=control(samples.at(-1)),older=control(samples.at(-2)),now=control(sample);
+        if(now.some((v,i)=>B.eq(prev[i],older[i])&&sourceChange(v,prev[i]))){
+          cooldown=0;failureCount=0;retry=null;samples=[];nextProbeTick=0;shortEventStreak=0;reason('source-step-resample');}}
       samples.push(sample);if(samples.length>4)samples.shift();}
+    if(stats.events.length>32)stats.events.splice(0,stats.events.length-32);
     signature=next;
   }
   function boundary(m,n){
@@ -1144,13 +1385,17 @@ function* runSteps(_initial,{seconds,audit,resume=null,diagnostics=null}={}){
     const s=R.getState(),candidates=audit().filter(c=>c.available&&c.cost!==undefined&&keys.includes(c.resourceKey));
     const nextScale=WIS.Core.Config.scales[s.highestScaleIndex+1];
     if(nextScale)candidates.push({resourceKey:'power',cost:WIS.Power.ScaleLogic.scaleRequirement(s.highestScaleIndex+1)});
-    if(s.cultivation.active==='immortal'&&s.qiRefiningUnlocked&&s.circulationUnlocked)
-      candidates.push({resourceKey:'joules',cost:WIS.Cultivation.ImmortalLogic.joulesForNextBaseMana()});
+    if(s.cultivation.active==='immortal'&&s.qiRefiningUnlocked&&s.circulationUnlocked) {
+      const event=WIS.Cultivation.ImmortalLogic.nextBaseManaBoundary();
+      const status=event.reason||event.status;stats.boundaryStatus[status]=(stats.boundaryStatus[status]||0)+1;
+      if(event.status==='future'&&WIS.Cultivation.ImmortalLogic.offlineManaRounding().mode!=='bounded-rounding')
+        candidates.push({resourceKey:'joules',cost:event.cost});
+    }
     // Nonnegative model increments -> monotone accumulated resource. This is
     // an algebraic search, not repeated full formula / state simulation.
     const costs=new Map();for(const c of candidates){const i=keys.indexOf(c.resourceKey),cost=B.BN(c.cost);
       if(B.gt(cost,0)&&(!costs.has(i)||B.lt(cost,costs.get(i))))costs.set(i,cost);}
-    planning={n,costs:[...costs],index:0,lo:0,hi:null,treasureIndex:0};
+    planning={n,costs:[...costs],index:0,lo:0,hi:null,treasureIndex:0,treasures:null};
     }
     const work=planning,s=R.getState();
     // At most four resource thresholds, selected from original candidates.
@@ -1159,18 +1404,22 @@ function* runSteps(_initial,{seconds,audit,resume=null,diagnostics=null}={}){
     while(work.index<work.costs.length){
       if(exhausted()){reason('prediction-budget-yield');return null;}
       const [i,cost]=work.costs[work.index];
-      const reaches=k=>{stats.boundaryQueries++;return B.gte(B.add(s[keys[i]],m.sum(k)[i]),cost);};
+      const reaches=k=>{stats.boundaryQueries++;return B.gte(B.add(s[keys[i]],m.sumColumn(i,k)),cost);};
       if(work.hi===null){if(!reaches(work.n)){work.index++;continue;}work.lo=0;work.hi=work.n;}
       if(work.hi-work.lo>1){const mid=Math.floor((work.lo+work.hi)/2);if(reaches(mid))work.hi=mid;else work.lo=mid;continue;}
-      work.n=Math.min(work.n,Math.max(0,work.hi-2));stats.eventCuts++;work.index++;work.hi=null;
+      work.n=Math.min(work.n,Math.max(0,work.hi-2));stats.eventCuts++;stats.eventTypes[keys[i]]=(stats.eventTypes[keys[i]]||0)+1;work.index++;work.hi=null;
     }
     if(!s.unlockedAchievements?.trainingUp&&s.totalElapsedSeconds<600)
       work.n=Math.min(work.n,Math.max(0,Math.ceil((600-s.totalElapsedSeconds)*10-1e-8)-1));
+    // No aggregate will be attempted at this size. Original frames perform
+    // every event, so computing other ETAs cannot improve this decision.
+    if(work.n<12){const result=work.n;planning=null;return result;}
+    work.treasures ||= WIS.Meta.TreasureProgress.boundarySnapshot(s);
     // Ordinary progress awards are sparse: cut near their current completion.
     // Dense high-layer exploration remains handled by the existing late path.
-    while(work.treasureIndex<WIS.Meta.Treasures.keys.length){
+    while(work.treasureIndex<work.treasures.length){
       if(exhausted()){reason('prediction-budget-yield');return null;}
-      const key=WIS.Meta.Treasures.keys[work.treasureIndex++],info=WIS.Meta.TreasureProgress.view(s,key);
+      const info=work.treasures[work.treasureIndex++];
       if(info.pausedReason||info.remainingSeconds===null)continue;
       const eta=B.toNumber(B.BN(info.remainingSeconds),Infinity);
       if(Number.isFinite(eta)&&eta>=0)work.n=Math.min(work.n,Math.max(0,Math.ceil(eta*10-1e-8)-2));}
@@ -1179,20 +1428,91 @@ function* runSteps(_initial,{seconds,audit,resume=null,diagnostics=null}={}){
   while(session.ticks<total){
     yield {session,point,stats,processed:session.ticks/10};
     const left=total-session.ticks;
-    if(!supported()){local('special-state');continue;}
-    if(fingerprint()!==signature){samples=[];retry=null;cooldown=0;signature=fingerprint();}
+    const crystal=WIS.Simulation.CrystalInterval;
+    const crystalEligible=crystal&&left>=12&&session.ticks>=crystalProbeAt&&crystal.eligible();
+    if(!supported()&&!crystalEligible){const support=WIS.Cultivation.Xiuzhen.intervalSupport(R.getState());local(support.supported?'special-state':'unsupported-'+support.code);continue;}
+    stats.support=WIS.Cultivation.Xiuzhen.intervalSupport(R.getState()).code;
+    const repeat=exactBaseFrames(left,samples.at(-1),audit);
+    if(repeat>=4){
+      const before=session.checkpoint(),oldFingerprint=fingerprint();
+      try{
+        const term=B.BN(.1),p=predictedPlan(samples.at(-1),[B.mul(term,repeat),...Array(6).fill(B.ZERO)]);
+        p.exactBaseRepeat=true;p.power.repeatJoules={term,count:repeat};p.power.rates.joulesPerSecond=B.ONE;
+        global.__percentFrames=repeat;
+        const result=session.tick(p,false,repeat);
+        assert(!result.result.formulaChanged&&!result.result.discreteEvent&&oldFingerprint===fingerprint(),'HARD: base-repeat proof invalid');
+        stats.exactRepeatedFrames=(stats.exactRepeatedFrames||0)+repeat;stats.representedFrames+=repeat;stats.intervalSubsteps+=result.substeps;
+        stats.acceptedNodes++;noteSpan(repeat);stats.support='exact-base-j';continue;
+      }catch(e){session.restore(before);throw e;}finally{global.__percentFrames=null;}
+    }
+    const confirmedRegime=fingerprint();
+    if(confirmedRegime!==signature)resetModel(confirmedRegime,'confirmed-formula-regime');
+    if(crystalEligible){
+      const began=performance.now();
+      const result=crystal.attempt({session,preview:session.preview,project:session.project,vector,fingerprint,relative,
+        aggregate:(sample,sum,end,n)=>plan(sample,{sum:()=>sum,at:()=>end},n),
+        intervalTick:(value,n)=>{global.__percentFrames=n;try{return session.tick(value,false,n);}finally{global.__percentFrames=null;}}},
+        Math.min(left,crystalWidth*4,65536),crystalWidth);
+      stats.crystalTrialMs=(stats.crystalTrialMs||0)+performance.now()-began;
+      stats.crystalSourceQueries=(stats.crystalSourceQueries||0)+result.stats.queries;
+      stats.crystalTrialPieces=(stats.crystalTrialPieces||0)+result.stats.pieces;
+      stats.crystalTrialEvents=(stats.crystalTrialEvents||0)+result.stats.events;
+      if(result.accepted){
+        stats.crystalIntervals=(stats.crystalIntervals||0)+1;
+        stats.crystalCommittedEvents=(stats.crystalCommittedEvents||0)+result.events.length;
+        stats.crystalCommittedPieces=(stats.crystalCommittedPieces||0)+result.pieces;
+        stats.crystalFrames=(stats.crystalFrames||0)+result.frames;
+        stats.maxCrystalIncomeEstimate=Math.max(stats.maxCrystalIncomeEstimate||0,...result.errors);
+        stats.acceptedNodes++;stats.representedFrames+=result.frames;noteSpan(result.frames);
+        crystalWidth=Math.min(8192,Math.ceil(crystalWidth*1.5));
+        resetModel(fingerprint(),'crystal-interval-committed');continue;
+      }
+      reason(result.reason);stats.crystalRejected=(stats.crystalRejected||0)+1;
+      if(result.reason==='crystal-whole-income-error')crystalWidth=Math.max(2,Math.floor(crystalWidth/2));
+      crystalProbeAt=session.ticks+(result.retryFrames??(result.reason==='crystal-whole-income-error'?16:64));
+    }
+    // IP -> X -> body is supported only by the independently refined crystal
+    // adapter. Its rejected/reprobe frames must not use the older X-constant
+    // general model outside that model's declared domain.
+    if(!supported()){local('crystal-feedback-exact-reprobe');continue;}
+    if(session.ticks<nextProbeTick){local('short-event-backoff');continue;}
     if(samples.length<4){local('sampling');continue;}
+    const modelSignature=fingerprint()+JSON.stringify(vector(samples.at(-1)).map(v=>[v.sign,v.layer,
+      Math.floor(v.mag / Math.pow(10,Math.floor(Math.log10(Math.max(1,Math.abs(v.mag))))-2))]));
+    if(blockedSignature&&session.ticks<blockedUntil){local('model-backoff');continue;}
+    if(blockedSignature){resetModel(fingerprint(),'scheduled-resample');continue;}
+    if(failedSpan!==null&&session.ticks>=ceilingUntil){resetModel(fingerprint(),'span-reprobe');continue;}
     if(cooldown>0){cooldown--;local('retry-backoff');continue;}
-    if(left<4){local('short-tail');continue;}
+    if(left<minimumPredictionFrames){local('short-tail');continue;}
+    // Below twelve, the former trial executed at least n original validation
+    // frames in addition to the forecast and endpoint. Commit only real frames.
+    // A fixed confirmed-frame deadline prevents a small span from trapping us.
+    if((retry??span)<minimumPredictionFrames){
+      if(failedSpan!==null){local('short-error-ceiling');continue;}
+      if(!shortReprobeAt)shortReprobeAt=session.ticks+shortResampleFrames;
+      if(session.ticks>=shortReprobeAt){
+        planning=null;retry=null;span=Math.max(16,span);shortReprobeAt=0;
+        samples=[];lastFailure='';failureCount=0;cooldown=0;reason('short-span-reprobe');continue;
+      }
+      local('short-retry-window');continue;
+    }
+    shortReprobeAt=0;
     let m,n;
     const start=performance.now();
-    try{m=model(samples);n=boundary(m,Math.min(left,retry??span));stats.predictionCalls++;}
-    catch(e){reason(e.message);samples=[];planning=null;cooldown=Math.min(16,++failureCount*2);continue;}
-    finally{stats.predictionMs+=performance.now()-start;}
+    try{m=buildModel(samples,modelOffset);
+      n=boundary(m,Math.min(left,retry??span,m.maxFrames));stats.predictionCalls++;}
+    catch(e){reason(e.message);samples=[];modelOffset=0;carryCount=0;planning=null;cooldown=Math.min(16,++failureCount*2);if(failureCount>=4){blockedSignature=modelSignature;blockedUntil=session.ticks+256;}continue;}
+    finally{stats.predictionMs+=performance.now()-start;recordAdapter(m);}
     if(n===null)continue;
-    if(n<4){local('event-neighborhood');continue;}
+    if(n<minimumPredictionFrames){
+      shortEventStreak=Math.min(4,shortEventStreak+1);
+      nextProbeTick=session.ticks+Math.min(64,4*2**shortEventStreak);
+      stats.shortEventReprobes=(stats.shortEventReprobes||0)+1;
+      local(n<4?'event-neighborhood':'short-event-interval');continue;
+    }
+    nextProbeTick=0;shortEventStreak=0;
     const before=session.checkpoint(),f=fingerprint(),treasures=treasureKey(),last=samples.at(-1);
-    let accepted=false;
+    let accepted=false;const trialStarted=performance.now();
     try{
       const predicted=plan(last,m,n);global.__percentFrames=n;
       let committed;try{committed=session.tick(predicted,false,n);}finally{global.__percentFrames=null;}
@@ -1201,6 +1521,9 @@ function* runSteps(_initial,{seconds,audit,resume=null,diagnostics=null}={}){
       assert(treasures===treasureKey(),'treasure-feedback-boundary');
       assert(supported(),'interval-special-state');
       const end=session.checkpoint(),actual=real(true),actualVector=vector(actual),predictedVector=m.at(n+1);
+      assert(supported(actual)&&f===fingerprint()&&treasures===treasureKey(),'endpoint-formula-event');
+      const reuseEndpoint=n<left;
+      const afterEndpoint=reuseEndpoint?session.checkpoint():null;
       const error=Math.max(...actualVector.map((v,i)=>relative(v,predictedVector[i])));
       if(error>=.0015)stats.lastEndpointError={frames:n,columns:actualVector.map((v,i)=>({i,actual:String(v),
         predicted:String(predictedVector[i]),error:relative(v,predictedVector[i])}))};
@@ -1208,30 +1531,106 @@ function* runSteps(_initial,{seconds,audit,resume=null,diagnostics=null}={}){
       assert(error<.0015,'endpoint-source-error');
       // Keep the next real event for the original frame, never accept a
       // counterfactual award/consumption generated by this endpoint probe.
-      session.restore(end);
+      session.restore(before);
+      // Independently re-fit after advancing to the middle. Compare whole
+      // interval income, including the four real middle recurrences. This is
+      // an error estimator, not a proof derived from endpoint source error.
+      const checkGains=vector(last).map(()=>B.ZERO);
+      const addSample=sample=>vector(sample).forEach((v,i)=>checkGains[i]=B.add(checkGains[i],v));
+      const checkedTick=p=>{let value;global.__percentFrames=p.frames;
+        try{value=session.tick(p.value,false,p.frames);}finally{global.__percentFrames=null;}
+        stats.validationSubsteps=(stats.validationSubsteps||0)+value.substeps;
+        assert(!value.result.formulaChanged&&!value.result.discreteEvent&&f===fingerprint()&&treasures===treasureKey(),'validation-event');
+        return value;};
+      {
+        const half=Math.floor(n/2),first=plan(last,m,half);
+        checkedTick({value:first,frames:half});addSample(first);
+        const middle=[];
+        for(let i=0;i<4;i++){const sample=real(true);middle.push(sample);addSample(sample);
+          assert(supported(sample)&&f===fingerprint()&&treasures===treasureKey(),'validation-event');}
+        const right=buildModel(middle),rest=n-half-4;
+        try {
+          const second=plan(middle.at(-1),right,rest);
+          checkedTick({value:second,frames:rest});addSample(second);
+          const check=real(true);
+          assert(supported(check)&&f===fingerprint()&&treasures===treasureKey(),'validation-event');
+          const rightEndpoint=right.at(rest+1);
+          assert(Math.max(...vector(check).map((v,i)=>relative(v,rightEndpoint[i])))<.0015,'validation-endpoint-error');
+        } finally {recordAdapter(right);}
+      }
+      const predictedGains=m.sum(n);
+      const gainError=Math.max(...checkGains.map((v,i)=>relative(v,predictedGains[i])));
+      stats.maxTrialGainError=Math.max(stats.maxTrialGainError||0,Number.isFinite(gainError)?gainError:1);
+      assert(gainError<.001,'whole-interval-gain-error');
+      stats.maxAcceptedGainError=Math.max(stats.maxAcceptedGainError||0,gainError);
+      session.restore(afterEndpoint||end);
+      if(reuseEndpoint){stats.trialFrames--;stats.trueSamples++;stats.originalFallbackFrames++;reason('verified-endpoint-reused');}
       assert(keys.every(k=>R.getState()[k].isFinite()&&B.gte(R.getState()[k],0)),'HARD: invalid resource');
-      stats.acceptedNodes++;stats.sections++;stats.representedFrames+=n;
+      stats.acceptedNodes++;stats.sections++;stats.representedFrames+=n;noteSpan(n);
       stats.maxAcceptedSourceError=Math.max(stats.maxAcceptedSourceError||0,error);
       stats[m.kind==='constant'?'constantFrames':'varyingFrames']+=n;
-      accepted=true;samples=[];retry=null;span=Math.min(512,Math.max(16,n*2));failureCount=0;cooldown=0;
+      accepted=true;
+      // Advance a validated model's origin, not fabricated new samples. Keep
+      // the original four observations and explicit frame offset in the saved
+      // cursor. The next segment still runs the full independent middle fit
+      // and both endpoint checks. Carry at most three times with tenfold
+      // tighter observed error and no active numerical failure ceiling.
+      const carry=reuseEndpoint&&n>=64&&failedSpan===null&&session.ticks>=carryDisabledUntil&&
+        carryCount<3&&modelOffset+n+1<=65536&&Math.max(error,gainError)<1e-4;
+      if(carry){modelOffset+=n+1;carryCount++;stats.carriedModelNodes=(stats.carriedModelNodes||0)+1;}
+      else {samples=reuseEndpoint?[actual]:[];modelOffset=0;carryCount=0;}
+      retry=null;successSpan=n;
+      // Event truncation does not reduce the learned model span. An error
+      // ceiling survives successful smaller intervals until a bounded reprobe.
+      if(n>=span||failedSpan!==null)span=Math.min(65536,Math.max(4,Math.floor(n*1.25)),failedSpan===null?65536:failedSpan-1);
+      stats.successSpan=successSpan;stats.errorFailureSpan=failedSpan;failureCount=0;cooldown=0;
       signature=fingerprint();
     }catch(e){session.restore(before);stats.rejectedNodes++;reason(e.message);
       if(e.message.startsWith('HARD:'))throw e;
-      failureCount=e.message===lastFailure?failureCount+1:1;lastFailure=e.message;
-      retry=Math.floor(n/2);
-      if(retry<4||failureCount>=4){retry=null;samples=[];span=16;cooldown=Math.min(16,failureCount*2);}
-    }finally{global.__percentFrames=null;}
+      const event=['interval-event','treasure-feedback-boundary','interval-special-state','endpoint-formula-event','validation-event'].includes(e.message);
+      if(modelOffset&&!event){
+        // A stale carried fit is not evidence that a new four-sample model at
+        // this boundary also fails. Restore the confirmed state and re-fit;
+        // prevent repeated carry probes for a deterministic confirmed interval.
+        modelOffset=0;carryCount=0;samples=[];retry=null;planning=null;
+        carryDisabledUntil=session.ticks+4096;reason('carried-model-refresh');
+      }else if(event){
+        // A speculative formula/event boundary is rolled back, never learned
+        // as a permanent numerical ceiling. Confirm it with original frames.
+        stats.eventRejections=(stats.eventRejections||0)+1;retry=Math.floor(n/2);cooldown=0;
+      }else{
+        failureCount=e.message===lastFailure?failureCount+1:1;lastFailure=e.message;
+        failedSpan=Math.min(failedSpan??Infinity,n);ceilingUntil=session.ticks+4096;
+        stats.errorFailureSpan=failedSpan;
+        retry=Math.floor(n/2);span=Math.max(4,retry);
+        if(retry<4||failureCount>=4){blockedSignature=modelSignature;blockedUntil=session.ticks+256;retry=null;cooldown=0;}
+      }
+    }finally{global.__percentFrames=null;stats.trialMs+=performance.now()-trialStarted;recordAdapter(m);}
     // A rejected attempt yields with only the last confirmed state restored;
     // samples/retry cursor survive pause or refresh. No speculative RNG escapes.
     if(!accepted)continue;
   }
   yield {session,point,stats,processed:session.ticks/10};
 }
-module.exports={runSteps,supported,column,relative};
+module.exports={runSteps,supported,column,relative,formulaRegime,sourceChange,manaNormalization};
 
 }
 },cache=new Map(),global={};
-  let computing=false,activeContext=null;
+  const CHECKPOINT_BUILD='offline-repair-20260911-r8';
+  let computing=false,activeContext=null,activeCosts=null;
+  function recordCost(name,amount){if(activeCosts)activeCosts[name]=(activeCosts[name]||0)+amount;}
+  function cloneMemory(value) {
+    if(WIS.Core.BigNum.isDecimal(value))return value.constructor.fromComponents_noNormalize(value.sign,value.layer,value.mag);
+    if(Array.isArray(value))return value.map(cloneMemory);
+    if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,cloneMemory(v)]));
+    return value;
+  }
+  function memoryPoint(raw) {
+    // Domain and transients are already independent host snapshots. The
+    // mutable model/diagnostic cursors also need their own independent copy.
+    const {game,...cursor}=raw;
+    return {...cloneMemory(cursor),game:{...game,metrics:{...game.metrics}},build:CHECKPOINT_BUILD};
+  }
   const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
   const assert=(value,message='Fast-forward assertion failed')=>{if(!value)throw Error(message);};
   Object.assign(assert,{equal:(a,b,message)=>assert(Object.is(a,b),message||`${a} !== ${b}`),
@@ -1293,11 +1692,12 @@ module.exports={runSteps,supported,column,relative};
     return pack({...point,game:{...point.game,
       automaticEvents:[],discreteEvents:[]},trace:[],nodeLog:[],rejectLog:[],diagnostics:diagnostic});
   }
-  function applicable(){try{return load('percent/engine').supported()||load('general-engine').supported();}catch{return false;}}
+  function applicable(){try{return load('percent/engine').supported()||load('general-engine').supported()||WIS.Simulation.CrystalInterval?.eligible();}catch{return false;}}
   function createDriver(context,{seconds,random,gains,resume=null}){
     assert(!activeContext,'Concurrent fast-forward jobs are unsupported');
     const runtime=load('runtime'),late=load('percent/engine'),diagnostics=load('percent/observe').create();
-    let saved=resume?unpack(resume):null;
+    const costs={snapshotMs:0,encodingMs:0,encodingCount:0,integrationEvaluations:0,advanceMs:0};
+    let saved=resume?(resume.memory?cloneMemory(resume.point):unpack(resume)):null;
     if(saved)validatePoint(saved,seconds);
     const engine=saved ? load(saved.engine==='normal-discrete'?'general-engine':'percent/engine')
       : late.supported()&&!audit().some(c=>c.available)?late:load('general-engine');
@@ -1308,21 +1708,24 @@ module.exports={runSteps,supported,column,relative};
     const iterator=engine.runSteps(null,{seconds:original,targets:50,nodes:2,limitMs:Infinity,audit,
       diagnostics,resume:saved,traceEvery:1000000000});
     let current=null,point=saved,closed=false;
-    function invoke(){activeContext=context;computing=true;global.__progressAudit=diagnostics;
-      try{return iterator.next();}finally{computing=false;activeContext=null;global.__progressAudit=null;global.__percentFrames=null;}}
-    current=invoke();point=current.value.point();
-    function advance(){assert(!closed,'Fast-forward driver closed');const before=point;
-      try{current=invoke();if(current.done)throw Error(current.value.failure||'Fast-forward stopped before its fixed debt completed');point=current.value.point();
-        return {seconds:(point.game.ticks-before.game.ticks)/10,gains:point.game.gains,stats:point.stats,
+    function invoke(){activeContext=context;computing=true;activeCosts=costs;global.__progressAudit=diagnostics;
+      try{return iterator.next();}finally{computing=false;activeContext=null;activeCosts=null;global.__progressAudit=null;global.__percentFrames=null;}}
+    function confirmedPoint(){const t=performance.now();try{const p=memoryPoint(current.value.point());p.hostTailSeconds=hostTailSeconds;return p;}
+      finally{costs.snapshotMs+=performance.now()-t;}}
+    current=invoke();point=confirmedPoint();
+    function advance(){assert(!closed,'Fast-forward driver closed');const before=point,started=performance.now();
+      try{current=invoke();if(current.done)throw Error(current.value.failure||'Fast-forward stopped before its fixed debt completed');point=confirmedPoint();
+        return {seconds:(point.game.ticks-before.game.ticks)/10,gains:point.game.gains,stats:{...point.stats,costs:{...costs,advanceMs:costs.advanceMs+performance.now()-started}},
           replan:point.engine==='normal-discrete'&&late.supported()&&!audit().some(c=>c.available),
           completed:point.game.ticks===original*10};
-      }catch(error){current.value?.session?.restore(before.game);point=before;closed=true;throw error;}}
-    return {advance,export:()=>({...compact(point),hostTailSeconds}),point:()=>point,close(){closed=true;},
+      }catch(error){current.value?.session?.restore(before.game);point=before;closed=true;throw error;}finally{costs.advanceMs+=performance.now()-started;}}
+    return {advance,export:()=>{const t=performance.now();try{return {...compact(point),hostTailSeconds};}finally{costs.encodingMs+=performance.now()-t;costs.encodingCount++;}},point:()=>point,close(){closed=true;},
       get processed(){return point.game.ticks/10;},get original(){return original;}};
   }
   WIS.Simulation=WIS.Simulation||{};
-  WIS.Simulation.FastForward=Object.freeze({version:1,targets:50,ledgerCache,applyTreasure,audit,applicable,createDriver,
-    pack,unpack,validatePoint,get intervalFrames(){return global.__percentFrames||1;},isComputing:()=>computing,
+  WIS.Simulation.FastForward=Object.freeze({version:1,checkpointBuild:CHECKPOINT_BUILD,targets:50,ledgerCache,applyTreasure,audit,applicable,createDriver,
+    sourceModel:Object.freeze({column:load('general-engine').column,formulaRegime:load('general-engine').formulaRegime,sourceChange:load('general-engine').sourceChange}),
+    pack,unpack,cloneMemory,recordCost,exportPoint:compact,validatePoint,get intervalFrames(){return global.__percentFrames||1;},isComputing:()=>computing,
     get auditCandidates(){return global.__percentAudit;},
     exploration:(attempts,effective)=>global.__progressAudit?.exploration(attempts,effective)});
 }(window.WIS));

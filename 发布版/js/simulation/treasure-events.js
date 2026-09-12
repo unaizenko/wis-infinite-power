@@ -91,7 +91,7 @@
         const mysteriousGreenBottleAvailable = immortalSystemActive && treasureSystemAvailable && hasAchievement("goldenCore");
         const fuBaoAvailable = immortalSystemActive && hasAchievement("trueScale3");
         const naturalTreasureAvailable = immortalSystemActive && source.goldenCoreUnlocked &&
-          lt(source.naturalTreasureLevel, naturalTreasureLevelCap());
+          WIS.Cultivation.ExplorationProgress.belowCap(source);
         const xuTianDingAvailable = immortalSystemActive && source.heavenlyTreasureLevel >= 1;
         const baLingChiAvailable = immortalSystemActive && source.heavenlyTreasureLevel >= 2;
         const wanYaoFanAvailable = immortalSystemActive && source.heavenlyTreasureLevel >= 3;
@@ -174,7 +174,7 @@
         return [
           recordSignature(source.treasureImprints, WIS.Meta.Treasures.keys),
           JSON.stringify(source.meta?.treasureStockResidual || {}),
-          Number(source.naturalTreasureLevel) || 0,
+          JSON.stringify(WIS.Cultivation.ExplorationProgress.levelWords(source)),
           source.unlockedAchievements?.seizeFoundation === true
         ].join("|");
       }

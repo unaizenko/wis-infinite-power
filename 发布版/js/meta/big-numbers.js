@@ -54,8 +54,7 @@
     const n = get(state), r = requirements(state);
     if (r.cosmic && r.achievement) n.unlocked = true;
     if (n.beyondFractal && !state.unlockedAchievements.beyondFractal) {
-      if (WIS.Meta.Achievements?.record) WIS.Meta.Achievements.record(state, "beyondFractal");
-      else state.unlockedAchievements.beyondFractal = true;
+      WIS.Meta.Achievements.record(state, "beyondFractal");
     }
     return n.unlocked;
   }
@@ -191,8 +190,10 @@
     if (!syncUnlock(state)) return { milestoneCrossings: 0 };
     return transaction(state, n => {
       const q = amount(state, 4);
-      const milestoneCrossings = advanceGraham(n, seconds, q);
-      const currentRates = rates(state);
+      const startingRates = options.fixedSources ? rates(state) : null;
+      const milestoneCrossings = options.fixedSources
+        ? advanceGrahamFixed(n, seconds, q) : advanceGraham(n, seconds, q);
+      const currentRates = startingRates || rates(state);
       if (options.endPower !== undefined) currentRates[0] = B.add(baseYRate(options.endPower), n.fractalLevel >= 1 ? 1 : 0);
       let yGain = B.mul(currentRates[0], seconds);
       // Preserve discrete 0.1-second sampling; a continuous log mean would
@@ -205,6 +206,19 @@
       n.elapsedSeconds += seconds;
       return { milestoneCrossings };
     });
+  }
+  function advanceGrahamFixed(n, seconds, q) {
+    if (!n.gIndex) return 0;
+    const oldIndex=n.gIndex, L=ledger();
+    const rate=B.mul("0.008",B.mul(milestoneMultiplier(oldIndex),fractalMultiplier(q,n.beyondFractal)));
+    let progress=L.add([n.superProgress,...n.superResidual],[B.mul(rate,seconds)]);
+    if(oldIndex<64) {
+      let levels=Math.min(64-oldIndex,Math.max(0,Math.floor(B.toNumber(L.value(progress),6400)/100)));
+      if(levels>0&&L.compare(progress,[levels*100])<0) levels--;
+      progress=L.subtract(progress,[levels*100]);n.gIndex+=levels;
+    }
+    n.superProgress=L.value(progress);n.superResidual=L.subtract(progress,[n.superProgress]);
+    return MILESTONES.filter(value=>value>oldIndex&&value<=n.gIndex).length;
   }
   // Validate the new ledger before any old-resource commit. The caller installs
   // this plan only after the original step succeeds; errors cannot replay J gains.

@@ -727,10 +727,10 @@
     return pow(add(ONE, div(maxBN(ZERO, currentMana), manaScale)), -0.25);
   }
 
-  function rawBaseBreathingManaGain(currentMana = state.mana) {
-    if (lt(state.joules, 3000)) return ZERO;
+  function rawBaseBreathingManaGain(currentMana = state.mana, currentJoules = state.joules) {
+    if (lt(currentJoules, 3000)) return ZERO;
     const { base } = breathingRealmConfig();
-    const jMagnitude = log10(div(state.joules, 3000));
+    const jMagnitude = log10(div(currentJoules, 3000));
     const jCurve = pow(add(ONE, jMagnitude), breathingJCurveExponent());
     return mul(mul(base, jCurve), breathingManaDecayMultiplier(currentMana));
   }
@@ -1332,7 +1332,7 @@
   }
 
   function naturalTreasureRawManaMultiplier() {
-    return mul(add(ONE, mul(state.naturalTreasureLevel, 0.1)), xuTianDingMultiplier());
+    return mul(add(ONE, mul(WIS.Meta.TreasureLedger.value(WIS.Cultivation.ExplorationProgress.levelWords(state)), 0.1)), xuTianDingMultiplier());
   }
 
   function naturalTreasureManaDiminishingExponent() {
@@ -1350,19 +1350,14 @@
   }
 
   function naturalTreasureUpgradeChance(level = state.naturalTreasureLevel) {
-    const currentLevel = maxBN(ZERO, BN(level)).floor();
-    if (gte(currentLevel, naturalTreasureLevelCap())) return ZERO;
-    if (gte(currentLevel, 10)) {
-      return decayingChance(0.0005, 0.6, sub(currentLevel, 10));
-    }
-    return decayingChance(0.1, 0.65, currentLevel);
+    // Legacy diagnostic accessor: production consumes independent progress.
+    if (!WIS.Cultivation.ExplorationProgress.belowCap(state)) return ZERO;
+    const view=WIS.Cultivation.ExplorationProgress.view(state);
+    return view.demand && gt(view.demand,ZERO) ? div(ONE,view.demand) : ZERO;
   }
 
   function naturalTreasureLevelCap() {
-    return minBN(Number.MAX_SAFE_INTEGER, add(
-      state.spiritWorldAscensionUnlocked ? 20 : 10,
-      mul(mysticHeavenSacredTreeCount(), 2)
-    ));
+    return WIS.Meta.TreasureLedger.value(WIS.Cultivation.ExplorationProgress.capWords(state));
   }
 
   function xuTianDingCount() {
@@ -1480,6 +1475,42 @@
 
   function formatProbability(probability) {
     return formatPercent(probability);
+  }
+
+  // A rounded inverse is not necessarily a future event. Keep the failure
+  // classification separate from the numeric display helper below.
+  function nextBaseManaBoundary() {
+    const current = baseBreathingManaGain(), next = add(current, ONE);
+    if (!gt(next, current)) return { status: "precision-limited", reason: "indistinguishable-unit" };
+    const cost = joulesForNextBaseMana();
+    if (!cost.isFinite()) return { status: "precision-limited", reason: "nonfinite-inverse" };
+    if (!gt(cost, state.joules)) {
+      return { status: "precision-limited", reason: "inverse-not-future" };
+    }
+    if (lt(rawBaseBreathingManaGain(state.mana, cost).floor(), next))
+      return { status: "precision-limited", reason: "forward-check-failed" };
+    return { status: "future", cost, current, next };
+  }
+
+  // Offline classification only. Production sources still use floor(raw).
+  // For fixed other inputs, positive multipliers and the optional +1 source
+  // cannot increase log sensitivity beyond the product of these exponents.
+  // This bounds ONE quantization unit, not model error or later feedback.
+  function offlineManaRounding(raw = rawBaseBreathingManaGain()) {
+    const floor = raw.floor();
+    if (!gt(floor, ZERO)) return { mode: eq(raw, ZERO) ? "zero" : "fractional", floor };
+    const exponents = [
+      WIS.Core.Formulas.multiply(WIS.Core.Effects.values("breathing", "sourceExponent", state)),
+      circulationSourceExponent(),
+      add(WIS.Core.Effects.product("mana", "regionExponent", state), greatLuoManaExponentBonus()),
+      daoTimeLawExponent(), immortalPowerManaSuppressionExponent()
+    ].map(v => toNumber(v, NaN));
+    const elasticity = exponents.reduce((a, b) => a * b, 1);
+    const reciprocal = toNumber(div(ONE, floor), NaN);
+    const relativeUnit = Math.expm1(Math.log1p(reciprocal) * elasticity);
+    const safe = exponents.every(v => Number.isFinite(v) && v >= 0) &&
+      Number.isFinite(relativeUnit) && relativeUnit >= 0 && relativeUnit <= 1e-8;
+    return { mode: safe ? "bounded-rounding" : "integer", floor, elasticity, relativeUnit };
   }
 
   function joulesForNextBaseMana() {
@@ -2067,12 +2098,16 @@
     let immortalPowerActiveSeconds = 0;
     let currentExplorationLoad = state.minorTribulationExplorationLoad;
 
+    const incomeFactor = WIS.Simulation.Compensation.factor();
     let rateEvaluations = 0;
     const evaluate = (currentMana, currentImmortalPower, explorationLoad) => {
       rateEvaluations += 1;
       return withCoupledResourceState(currentMana, currentImmortalPower, () => {
-        const manaDetail = automaticManaComponentsBeforeGoogol(1, currentMana, context, explorationLoad);
-        const immortalPowerBase = maxBN(ZERO, immortalPowerBeforeGoogolPenaltyPerSecond(currentMana));
+        const baseDetail = automaticManaComponentsBeforeGoogol(1, currentMana, context, explorationLoad);
+        const manaDetail = incomeFactor === 1 ? baseDetail : Object.fromEntries(
+          Object.entries(baseDetail).map(([key,value]) => [key,mul(value,incomeFactor)]));
+        const normalImmortalPower = maxBN(ZERO, immortalPowerBeforeGoogolPenaltyPerSecond(currentMana));
+        const immortalPowerBase = incomeFactor === 1 ? normalImmortalPower : mul(normalImmortalPower, incomeFactor);
         return {
           manaBase: maxBN(ZERO, manaDetail.mana),
           passiveManaBase: maxBN(ZERO, manaDetail.passiveMana),
@@ -2231,7 +2266,7 @@
       const current = state[resource];
       const eventCommitted = resource && boundary && !eq(current, boundary);
       if (eventCommitted) {
-        WIS.Core.Resources.setSystem("immortal", resource, boundary);
+        WIS.Core.Resources.rebaseSystem("immortal", resource, boundary);
         WIS.Core.Effects.invalidate();
       }
       return { ...plan, rewards, tribulationTriggered: false, eventCommitted };
@@ -2242,7 +2277,7 @@
     WIS.Core.Resources.accumulateSystemResourceGain("immortal", "mana", plan.mana);
     WIS.Core.Resources.accumulateSystemResourceGain("immortal", "immortalPower", plan.immortalPower);
     if (plan.event?.resource && plan.event?.boundary) {
-      WIS.Core.Resources.setSystem("immortal", plan.event.resource, plan.event.boundary);
+      WIS.Core.Resources.rebaseSystem("immortal", plan.event.resource, plan.event.boundary);
     }
 
     let tribulationTriggered = false;
@@ -2326,6 +2361,21 @@
 
   function automaticManaBeforeGoogolPenaltyPerSecond() {
     return add(automaticBaseManaPerSecond(), automaticExplorationManaPerSecond());
+  }
+
+  function fixedAutomaticSources() {
+    const context = automaticExplorationContext({ cache: false });
+    const factor = WIS.Simulation.Compensation.factor();
+    const passiveMana = applyGoogolPenalty("mana", state.mana,
+      mul(automaticBaseManaPerSecond(), factor), state);
+    const explorationMana = context ? applyGoogolPenalty("mana", state.mana,
+      mul(explorationPotentialManaGain(context.powerCost, state.mana,
+        minorTribulationExplorationManaExponent(), context.fullExplorationAmount),
+        AUTOMATIC_EXPLORATION_EFFICIENCY * factor), state) : ZERO;
+    return { passiveMana, explorationMana, mana: add(passiveMana, explorationMana),
+      immortalPower: mul(immortalPowerPerSecond(), factor),
+      explorationAmount: context?.explorationAmountPerSecond || ZERO,
+      circulation: gt(circulationManaPerSecond(), ZERO) };
   }
 
   function automaticManaPerSecond() {
@@ -2541,29 +2591,7 @@
   }
 
   function rollNaturalTreasureAttempts(attempts) {
-    const previousLevel = state.naturalTreasureLevel;
-    const awardLevels = (count) => {
-      const targetLevel = minBN(
-        naturalTreasureLevelCap(),
-        add(state.naturalTreasureLevel, maxBN(ZERO, BN(count)).floor())
-      );
-      state.naturalTreasureLevel = Math.max(
-        0,
-        Math.floor(toNumber(targetLevel, Number.MAX_SAFE_INTEGER))
-      );
-    };
-    rollDynamicAttempts(
-      attempts,
-      () => state.goldenCoreUnlocked && lt(state.naturalTreasureLevel, naturalTreasureLevelCap()),
-      naturalTreasureUpgradeChance,
-      () => { awardLevels(ONE); },
-      {
-        probabilityAtOffset: (offset) => naturalTreasureUpgradeChance(add(state.naturalTreasureLevel, offset)),
-        awardMany: awardLevels,
-        deferInitialBatch: true
-      }
-    );
-    return Math.max(0, Math.floor(toNumber(sub(state.naturalTreasureLevel, previousLevel), 0)));
+    return WIS.Cultivation.ExplorationProgress.natural(state, attempts);
   }
 
   function rollXuTianDingAttempts(attempts) {
@@ -2629,12 +2657,7 @@
   }
 
   function rollSeizeFoundationAttempts(attempts) {
-    const count = maxBN(ZERO, BN(attempts)).floor();
-    if (!gt(count, ZERO) || hasAchievement("seizeFoundation")) return false;
-    const failureChance = toNumber(pow(0.99, count), 0);
-    if (WIS.Core.Runtime.random() >= 1 - failureChance) return false;
-    WIS.Meta.Achievements.record(state, "seizeFoundation");
-    return true;
+    return WIS.Cultivation.ExplorationProgress.seize(state, attempts);
   }
 
   function processExplorationJudgements(attempts, effectiveAmount = attempts) {
@@ -2650,19 +2673,20 @@
       tianNiPearl: rollTianNiPearlAttempts(progressUnits, true),
       greenBottle: rollMysteriousGreenBottleAttempts(progressUnits),
       fuBao: rollFuBaoAttempts(progressUnits),
-      naturalTreasure: rollNaturalTreasureAttempts(count),
+      naturalTreasure: rollNaturalTreasureAttempts(progressUnits),
       xuTianDing: rollXuTianDingAttempts(progressUnits),
       wanYaoFan: rollWanYaoFanAttempts(progressUnits),
       phantomHeavenMirror: rollPhantomHeavenMirrorAttempts(progressUnits),
       mysticHeavenSacredTree: rollMysticHeavenSacredTreeAttempts(progressUnits),
       mysticHeavenSpiritSlayingSword: rollMysticHeavenSpiritSlayingSwordAttempts(progressUnits),
-      seizeFoundation: rollSeizeFoundationAttempts(count)
+      seizeFoundation: rollSeizeFoundationAttempts(progressUnits)
     };
   }
 
   function prepareExplorationProgress(explorationAmount) {
     if (!isFiniteBN(explorationAmount) || lt(explorationAmount, ZERO)) throw Error("探寻输入必须为有限非负数");
     WIS.Meta.TreasureProgress?.ensure(state);
+    WIS.Cultivation.ExplorationProgress.ensure(state);
     const L = WIS.Meta.TreasureLedger;
     const integerWords = [], fractionalWords = [];
     // Split exact decimal words before projection: never add a tiny fraction
@@ -2860,7 +2884,7 @@
       const lastUnitCost = immortalApertureCost(target - 1);
       const respectsPriority = !unitCostCeiling || lte(lastUnitCost, unitCostCeiling);
       const totalCost = respectsPriority ? immortalApertureIntervalCost(startLevel, target) : add(availablePower, ONE);
-      if (respectsPriority && lte(totalCost, availablePower)) lower = target;
+      if (respectsPriority && WIS.Core.Resources.canAffordSystem("immortal", "immortalPower", totalCost)) lower = target;
       else upper = target;
     }
     if (lower <= startLevel) return 0;
@@ -2984,6 +3008,7 @@
       candidate.available = () => hasManuallyUpgradedImmortalAbility(candidate.historyKey) && available();
     });
     // 散功重修与转世重修会重置进度并要求确认，永远不进入自动升级候选。
+    if (WIS.Simulation.FixedSegment?.collectCandidates?.("ability", candidates, "mana", 32)) return 0;
     const audit = WIS.Simulation?.FastForward?.auditCandidates;
     if (audit) { audit.push(...candidates.map(c => {
       const available = c.available();
@@ -3008,6 +3033,9 @@
   function autoBreakthroughImmortalRealms() {
     if (!state.immortalRealmAutomationEnabled || !hasAchievement("bodyIntegration") || state.cultivation.active !== "immortal") return 0;
     if (qiRefiningChallengeActive()) {
+      if (WIS.Simulation.FixedSegment?.collectCandidates?.("realm", [{
+        available: () => true, run: () => advanceQiLayersBatch(false)
+      }], "mana", 1)) return 0;
       return advanceQiLayersBatch(false);
     }
     const candidates = [
@@ -3032,6 +3060,7 @@
       const available = candidate.available;
       candidate.available = () => manualRealmLevel >= index + 1 && available();
     });
+    if (WIS.Simulation.FixedSegment?.collectCandidates?.("realm", candidates, "mana", 3 + ADVANCED_REALMS.length)) return 0;
     const audit = WIS.Simulation?.FastForward?.auditCandidates;
     if (audit) { audit.push(...candidates.map((c, index) => {
       const available = c.available();
@@ -3049,8 +3078,7 @@
         ? WIS.Core.Resources.canAfford("power", cost)
         : WIS.Core.Resources.canAffordSystem("immortal", next.resourceKey, cost);
       if (!affordable) break;
-      if (next.resourceKey === "power") WIS.Core.Resources.spend("power", cost);
-      else WIS.Core.Resources.spendSystem("immortal", next.resourceKey, cost);
+      if (!(next.resourceKey === "power" ? WIS.Core.Resources.spend("power", cost) : WIS.Core.Resources.spendSystem("immortal", next.resourceKey, cost))) break;
       next.apply();
       breakthroughs += 1;
     }
@@ -3103,8 +3131,9 @@
   function unlockQiRefining() {
     if (state.cultivation.active !== "immortal" || state.qiRefiningUnlocked || !WIS.Core.Resources.canAfford("power", QI_REFINING_COST)) return;
     const previousAchievements = achievementStates();
-    WIS.Core.Resources.spend("power", QI_REFINING_COST);
+    if (!WIS.Core.Resources.spend("power", QI_REFINING_COST)) return false;
     state.qiRefiningUnlocked = true;
+    WIS.Meta.Achievements.recordCurrent();
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
@@ -3179,8 +3208,9 @@
     const cost = foundationCost();
     if (!state.qiRefiningUnlocked || state.foundationUnlocked || !canAffordMana(cost)) return;
     const previousAchievements = achievementStates();
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.foundationUnlocked = true;
+    WIS.Meta.Achievements.recordCurrent();
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
@@ -3191,8 +3221,9 @@
     const cost = goldenCoreCost();
     if (!state.foundationUnlocked || state.goldenCoreUnlocked || !canAffordMana(cost)) return;
     const previousAchievements = achievementStates();
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.goldenCoreUnlocked = true;
+    WIS.Meta.Achievements.recordCurrent();
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
@@ -3209,9 +3240,10 @@
         )) ||
         !WIS.Core.Resources.canAffordSystem("immortal", resourceKey, cost)) return;
     const previousAchievements = achievementStates();
-    WIS.Core.Resources.spendSystem("immortal", resourceKey, cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", resourceKey, cost)) return false;
     applyAdvancedRealmBreakthrough(index);
     checkActiveChallengeCompletion();
+    WIS.Meta.Achievements.recordCurrent();
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
@@ -3222,7 +3254,7 @@
     const safeTargetLayer = Math.max(currentLayer, Math.floor(Number(targetLayer) || currentLayer));
     if (safeTargetLayer <= currentLayer || !isFiniteBN(totalCost) || !gt(totalCost, ZERO) ||
         !canAffordMana(totalCost)) return 0;
-    WIS.Core.Resources.spendSystem("immortal", "mana", totalCost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", totalCost)) return 0;
     state.currentQiLayer = safeTargetLayer;
     if (safeTargetLayer >= QI_CHALLENGE_CONFIG.targetLayer &&
         WIS.Meta.Challenges.completionCount(state, "qiRefiningHundredThousandYears") < 1) {
@@ -3254,7 +3286,7 @@
 
   function unlockImmortalLife() {
     if (!state.qiRefiningUnlocked || state.immortalLifeUnlocked || !canAffordMana(IMMORTAL_LIFE_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", IMMORTAL_LIFE_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", IMMORTAL_LIFE_COST)) return false;
     state.immortalLifeUnlocked = true;
     saveState();
     render();
@@ -3263,7 +3295,7 @@
   function buyQiSpell() {
     const cost = qiSpellCost();
     if (!state.qiRefiningUnlocked || state.qiSpellLevel >= 3 || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.qiSpellLevel += 1;
     saveState();
     render();
@@ -3271,7 +3303,7 @@
 
   function unlockCirculation() {
     if (!state.foundationUnlocked || state.circulationUnlocked || !canAffordMana(CIRCULATION_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", CIRCULATION_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", CIRCULATION_COST)) return false;
     state.circulationUnlocked = true;
     saveState();
     render();
@@ -3279,7 +3311,7 @@
 
   function unlockManaLiquefaction() {
     if (!state.foundationUnlocked || state.manaLiquefactionUnlocked || !canAffordMana(MANA_LIQUEFACTION_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", MANA_LIQUEFACTION_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", MANA_LIQUEFACTION_COST)) return false;
     state.manaLiquefactionUnlocked = true;
     saveState();
     render();
@@ -3287,7 +3319,7 @@
 
   function unlockTechnique() {
     if (!state.foundationUnlocked || state.techniqueUnlocked || !canAffordMana(TECHNIQUE_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", TECHNIQUE_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", TECHNIQUE_COST)) return false;
     state.techniqueUnlocked = true;
     saveState();
     render();
@@ -3296,7 +3328,7 @@
   function buyFoundationSpell() {
     const cost = foundationSpellCost();
     if (!state.foundationUnlocked || state.foundationSpellLevel >= 3 || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.foundationSpellLevel += 1;
     saveState();
     render();
@@ -3305,7 +3337,7 @@
   function buyLongevity() {
     const cost = longevityCost();
     if (!state.foundationUnlocked || state.longevityLevel >= 2 || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.longevityLevel += 1;
     saveState();
     render();
@@ -3314,7 +3346,7 @@
   function buyGoldenCoreLongevity() {
     const cost = goldenCoreLongevityCost();
     if (!state.goldenCoreUnlocked || state.goldenCoreLongevityLevel >= 2 || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.goldenCoreLongevityLevel += 1;
     saveState();
     render();
@@ -3322,7 +3354,7 @@
 
   function unlockManaSolidification() {
     if (!state.goldenCoreUnlocked || state.manaSolidificationUnlocked || !canAffordMana(MANA_SOLIDIFICATION_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", MANA_SOLIDIFICATION_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", MANA_SOLIDIFICATION_COST)) return false;
     state.manaSolidificationUnlocked = true;
     saveState();
     render();
@@ -3330,7 +3362,7 @@
 
   function unlockMagicTreasure() {
     if (!state.goldenCoreUnlocked || state.magicTreasureUnlocked || !canAffordMana(MAGIC_TREASURE_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", MAGIC_TREASURE_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", MAGIC_TREASURE_COST)) return false;
     state.magicTreasureUnlocked = true;
     saveState();
     render();
@@ -3338,7 +3370,7 @@
 
   function unlockMinorTechnique() {
     if (!state.goldenCoreUnlocked || state.minorTechniqueUnlocked || !canAffordMana(MINOR_TECHNIQUE_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", MINOR_TECHNIQUE_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", MINOR_TECHNIQUE_COST)) return false;
     state.minorTechniqueUnlocked = true;
     saveState();
     render();
@@ -3346,7 +3378,7 @@
 
   function unlockFlyingEscape() {
     if (state.advancedRealmLevel < 1 || state.flyingEscapeUnlocked || !canAffordMana(FLYING_ESCAPE_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", FLYING_ESCAPE_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", FLYING_ESCAPE_COST)) return false;
     state.flyingEscapeUnlocked = true;
     saveState();
     render();
@@ -3354,7 +3386,7 @@
 
   function unlockMaterialControl() {
     if (state.advancedRealmLevel < 1 || state.materialControlUnlocked || !canAffordMana(MATERIAL_CONTROL_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", MATERIAL_CONTROL_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", MATERIAL_CONTROL_COST)) return false;
     state.materialControlUnlocked = true;
     saveState();
     render();
@@ -3362,7 +3394,7 @@
 
   function unlockDivineSense() {
     if (state.advancedRealmLevel < 1 || state.divineSenseUnlocked || !canAffordMana(DIVINE_SENSE_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", DIVINE_SENSE_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", DIVINE_SENSE_COST)) return false;
     state.divineSenseUnlocked = true;
     saveState();
     render();
@@ -3370,7 +3402,7 @@
 
   function unlockGreatCultivator() {
     if (state.advancedRealmLevel < 1 || state.greatCultivatorUnlocked || !canAffordMana(GREAT_CULTIVATOR_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", GREAT_CULTIVATOR_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", GREAT_CULTIVATOR_COST)) return false;
     state.greatCultivatorUnlocked = true;
     saveState();
     render();
@@ -3378,7 +3410,7 @@
 
   function unlockSecondNascentSoul() {
     if (state.advancedRealmLevel < 1 || state.secondNascentSoulUnlocked || !canAffordMana(SECOND_NASCENT_SOUL_COST)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", SECOND_NASCENT_SOUL_COST);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", SECOND_NASCENT_SOUL_COST)) return false;
     state.secondNascentSoulUnlocked = true;
     saveState();
     render();
@@ -3387,7 +3419,7 @@
   function buyLongevity800() {
     const cost = longevity800Cost();
     if (state.advancedRealmLevel < 1 || state.longevity800Level >= 4 || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.longevity800Level += 1;
     saveState();
     render();
@@ -3395,7 +3427,7 @@
 
   function unlockManaAbility(stateKey, cost) {
     if (state.advancedRealmLevel < 2 || state[stateKey] || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state[stateKey] = true;
     saveState();
     render();
@@ -3403,7 +3435,7 @@
 
   function unlockVoidRefinementAbility(stateKey, cost) {
     if (state.advancedRealmLevel < 3 || state[stateKey] || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state[stateKey] = true;
     saveState();
     render();
@@ -3411,7 +3443,7 @@
 
   function unlockBodyIntegrationAbility(stateKey, cost) {
     if (state.advancedRealmLevel < 4 || state[stateKey] || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state[stateKey] = true;
     saveState();
     render();
@@ -3419,7 +3451,7 @@
 
   function unlockMahayanaAbility(stateKey, cost) {
     if (state.advancedRealmLevel < 5 || state[stateKey] || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state[stateKey] = true;
     saveState();
     render();
@@ -3427,7 +3459,7 @@
 
   function unlockTrueImmortalAbility(stateKey, cost) {
     if (state.advancedRealmLevel < 6 || state[stateKey] || !canAffordImmortalPower(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost)) return false;
     state[stateKey] = true;
     saveState();
     render();
@@ -3436,7 +3468,7 @@
   function unlockAdvancedImmortalAbility(stateKey, cost, requiredAdvancedRealmLevel, prerequisite = () => true) {
     if (state.advancedRealmLevel < requiredAdvancedRealmLevel || state[stateKey] ||
         !prerequisite() || !canAffordImmortalPower(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost)) return false;
     state[stateKey] = true;
     saveState();
     render();
@@ -3449,7 +3481,7 @@
   function unlockSeverThreeCorpses() {
     const cost = IMMORTAL_POWER_ABILITY_COSTS.severThreeCorpses;
     if (state.advancedRealmLevel < 9 || state.threeCorpseChallengesUnlocked || !canAffordImmortalPower(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost)) return false;
     state.severThreeCorpsesUnlocked = true;
     state.threeCorpseChallengesUnlocked = true;
     saveState();
@@ -3459,7 +3491,7 @@
   function buyImmortalAperture() {
     const cost = immortalApertureCost();
     if (state.advancedRealmLevel < 6 || state.immortalApertureLevel >= immortalApertureCap() || !canAffordImmortalPower(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "immortalPower", cost)) return false;
     state.immortalApertureLevel += 1;
     saveState();
     render();
@@ -3468,7 +3500,7 @@
   function buyHeavenlyTreasure() {
     const cost = heavenlyTreasureCost();
     if (state.advancedRealmLevel < 2 || state.heavenlyTreasureLevel >= 3 || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.heavenlyTreasureLevel += 1;
     saveState();
     render();
@@ -3477,7 +3509,7 @@
   function buyTrueSpiritTransformation() {
     const cost = trueSpiritTransformationCost();
     if (state.advancedRealmLevel < 3 || state.trueSpiritTransformationLevel >= 5 || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.trueSpiritTransformationLevel += 1;
     saveState();
     render();
@@ -3486,7 +3518,7 @@
   function buyMysticHeavenlyTreasure() {
     const cost = mysticHeavenlyTreasureCost();
     if (state.advancedRealmLevel < 5 || state.mysticHeavenlyTreasureLevel >= 3 || !canAffordMana(cost)) return;
-    WIS.Core.Resources.spendSystem("immortal", "mana", cost);
+    if (!WIS.Core.Resources.spendSystem("immortal", "mana", cost)) return false;
     state.mysticHeavenlyTreasureLevel += 1;
     saveState();
     render();
@@ -3504,6 +3536,14 @@
   }
 
   function explore() {
+    const R=WIS.Core.Runtime, before=WIS.Core.State.cloneForSimulation(R.getState());
+    const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
+    try{return R.atomic(performExploration);}
+    catch(error){R.setState(before);WIS.Power.Scale.restoreTreasureTransient(power);
+      WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();throw error;}
+  }
+
+  function performExploration() {
     if (!explorationEnabled()) return;
     const powerCost = explorationPowerCost();
     if (!state.goldenCoreUnlocked || lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return;
@@ -3513,7 +3553,7 @@
     if (lt(previewGain, ONE)) return;
     const explorationAccounting = prepareExplorationProgress(explorationAmount);
     const previousAchievements = achievementStates();
-    WIS.Core.Resources.spend("power", powerCost);
+    if (!WIS.Core.Resources.spend("power", powerCost)) return false;
     const { mana: gained } = applyManaGainProgressive(
       1,
       (actionFraction, currentMana) => mul(explorationPotentialManaGain(
@@ -3531,6 +3571,7 @@
 
     const rewards = processExplorationJudgements(commitExplorationProgress(explorationAccounting), explorationAmount);
     const tribulationTriggered = registerSuccessfulExploration(explorationAmount, tribulationPreview);
+    WIS.Meta.Achievements.recordCurrent();
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
@@ -3579,8 +3620,7 @@
       const nextCompetingCost = affordableCandidates.find((candidate) => candidate !== affordable)?.currentCost || null;
       return affordable.buyMax(nextCompetingCost);
     }
-    if (isCultivationResource) WIS.Core.Resources.spendSystem("immortal", resourceKey, affordable.currentCost);
-    else WIS.Core.Resources.spend(resourceKey, affordable.currentCost);
+    if (!(isCultivationResource ? WIS.Core.Resources.spendSystem("immortal", resourceKey, affordable.currentCost) : WIS.Core.Resources.spend(resourceKey, affordable.currentCost))) return false;
     affordable.apply();
     WIS.Core.Effects.invalidate();
     return 1;
@@ -3759,7 +3799,7 @@
     immortalApertureCost, unlockTrueImmortalAbility, unlockAdvancedImmortalAbility,
     ultimateImmortalAperturePrerequisiteMet,
     unlockSeverThreeCorpses, buyImmortalAperture,
-    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, rawBaseBreathingManaGain, baseBreathingManaGain, effectiveBaseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, descendRealmPotentialTreasureMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureRawManaMultiplier, naturalTreasureManaDiminishingExponent, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, phantomHeavenMirrorLoadMultiplier, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlRawManaMultiplier, tianNiPearlManaDiminishingExponent, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, joulesForNextBaseMana, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
+    immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, rawBaseBreathingManaGain, baseBreathingManaGain, effectiveBaseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, descendRealmPotentialTreasureMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureRawManaMultiplier, naturalTreasureManaDiminishingExponent, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, phantomHeavenMirrorLoadMultiplier, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlRawManaMultiplier, tianNiPearlManaDiminishingExponent, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, nextBaseManaBoundary, offlineManaRounding, joulesForNextBaseMana, fixedAutomaticSources, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
     unlockBodyIntegrationAbility, unlockMahayanaAbility, scatterAndRebuild, reincarnate,
     explorationEnabled,
     getManaPerSecond: automaticManaPerSecond,

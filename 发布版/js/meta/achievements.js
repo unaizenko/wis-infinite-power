@@ -94,7 +94,7 @@
       { key: "qiPathComplete", system: "仙道", name: "炼气已全", description: "解锁炼气道所有境界。", reward: "开启修真道，解锁仙道挑战·化凡", completed: completedAchievement("qiPathComplete", state.advancedRealmLevel >= 10 || state.lifetimeHighestCultivationRealmLevel >= 13 || hasAchievement("selfSeveringSlash")) },
       { key: "threeDeficiencies", name: "三缺", description: "福、禄、寿三种挑战各完成1次。", reward: "非挑战转生类重置后获得1000 战力", completed: completedAchievement("threeDeficiencies", threeDeficienciesCompleted()) },
       { key: "fiveMisfortunesThreeDeficiencies", name: "五弊三缺", description: "福、禄、寿、五弊挑战全部完成3次。", reward: "纪念性成就", completed: completedAchievement("fiveMisfortunesThreeDeficiencies", allFortuneChallengesCompleted()) },
-      { key: "seizeFoundation", system: "仙道", name: "夺基", description: "每累计 1 有效探寻量进行一次1% 判定。", reward: "下品灵根失效，获得中品灵根", completed: completedAchievement("seizeFoundation", false) }
+      { key: "seizeFoundation", system: "仙道", name: "夺基", description: `累计 100 有效探寻量触发一次，保留小数；当前 ${format(WIS.Cultivation.ExplorationProgress.math.project(WIS.Cultivation.ExplorationProgress.ensure(state).seize), 4)}/100。`, reward: "下品灵根失效，获得中品灵根", completed: completedAchievement("seizeFoundation", false) }
     ];
 
     SCALE_THRESHOLDS.slice(2).forEach((scale, offset) => {
@@ -193,18 +193,42 @@
     return changed;
   }
 
-  function notifyNewAchievements(previousAchievements) {
-    const definitions = achievementDefinitions();
-    definitions.forEach((achievement) => {
-      if (achievement.completed && !hasAchievement(achievement.key)) {
-        WIS.Meta.Achievements.record(state, achievement.key);
+  function notifyNewAchievements() {
+    // Compatibility for action/startup/offline callers. Acquisition is explicit;
+    // the next actual UI render publishes the final committed set, in one batch.
+    // Never capture a candidate's names in a deferred notification closure.
+    if (runtime.canPresentState() && runtime.has("render")) runtime.call("render");
+    return [];
+  }
+
+  function notifyConfirmedAchievements(keys) {
+    if (!runtime.canPresentState()) return [];
+    const selected = new Set(keys);
+    const names = achievementDefinitions()
+      .filter(a => selected.has(a.key) && hasAchievement(a.key)).map(a => a.name);
+    if (names.length) showAchievementNotice(names);
+    return names;
+  }
+
+  function createPresentation(invalidate) {
+    const keys = () => WIS.Meta.Achievements.unlockedKeys(state).sort();
+    // Presentation-only snapshot, never saved and never used for rewards.
+    // Loaded flags are history, not newly acquired notifications.
+    let observed = keys();
+    return Object.freeze({
+      reset() { observed = keys(); invalidate(); },
+      sync({ notify = true } = {}) {
+        if (!runtime.canPresentState()) return false;
+        const next = keys();
+        if (next.length === observed.length && next.every((key, i) => key === observed[i])) return false;
+        const previous = new Set(observed), added = next.filter(key => !previous.has(key));
+        observed = next;
+        // Invalidation is independent of notifications, including silent batches.
+        invalidate();
+        if (notify) notifyConfirmedAchievements(added);
+        return true;
       }
     });
-    const unlocked = definitions
-      .filter((achievement) => !previousAchievements[achievement.key] && achievement.completed)
-      .map((achievement) => achievement.name);
-    if (unlocked.length > 0) showAchievementNotice(unlocked);
-    return unlocked;
   }
 
   WIS.Meta.Achievements = Object.freeze({
@@ -212,14 +236,17 @@
       return state.meta.achievements?.[key] === true;
     },
     record(state, key) {
+      if (state.meta.achievements[key] === true) return false;
       state.meta.achievements[key] = true;
       WIS.Core.Effects?.invalidate?.();
+      return true;
     },
     unlockedKeys(state) {
       return Object.keys(state.meta.achievements || {}).filter((key) => state.meta.achievements[key]);
     },
     hasCurrent: hasAchievement, definitions: achievementDefinitions, states: achievementStates,
     recordCurrent: recordCurrentAchievements, notifyNew: notifyNewAchievements,
+    createPresentation,
     registerTrainingClick,
     achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
     challengesUnlocked, statisticsUnlocked

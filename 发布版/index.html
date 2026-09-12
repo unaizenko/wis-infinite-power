@@ -5,17 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="WIS-无限战力系统网页试玩版" />
     <title>WIS-无限战力系统</title>
-    <link rel="stylesheet" href="styles.css?v=0.1.5.1-resource-tiers-1" />
+    <link rel="stylesheet" href="styles.css?v=0.1.5.2-release-20260912-r22" />
   </head>
   <body>
+    <aside id="save-failure-panel" class="save-failure-panel" role="status" hidden>
+      <span id="save-failure-message"></span>
+      <button id="retry-failed-save" type="button">重试保存</button>
+      <button id="export-unsaved-progress" type="button">导出当前进度</button>
+    </aside>
     <div class="app">
       <header class="app-header">
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.5.1</small>
+          <small id="game-version" class="game-version">v0.1.5.2</small>
         </div>
         <div class="header-actions">
+          <small id="online-compensation-balance" hidden></small>
           <div class="scale-progress">
             <p>量级论 · 当前量级：<b id="current-scale">普通人</b></p>
             <small id="next-scale-progress">下一量级：爆砖（需要 200 战力）</small>
@@ -26,7 +32,10 @@
 
       <div class="app-body">
       <section class="resource-panel" aria-label="资源概览">
-        <div class="resource-items resource-base" aria-label="基础资源">
+        <button id="toggle-resource-panel" class="resource-panel-toggle" type="button" aria-expanded="true" aria-controls="primary-resources special-resources">
+          <span>资源</span><span id="resource-panel-toggle-label">收起 ▴</span>
+        </button>
+        <div id="primary-resources" class="resource-items resource-base" aria-label="基础资源">
           <div class="resource-row">
             <span>J</span>
             <div class="resource-value">
@@ -71,7 +80,6 @@
           </div>
         </div>
       </section>
-
 
         <aside class="sidebar">
           <nav class="navigation" aria-label="功能界面">
@@ -898,14 +906,9 @@
         </section>
 
         <section class="settings-row">
-          <div><h3>离线快进（试用）</h3><p>自动选择区间算法；事件附近和未覆盖机制按原逻辑处理。</p></div>
-          <label class="offline-fast-forward-setting"><input id="offline-fast-forward-toggle" type="checkbox" /> 开启</label>
+          <div><h3>自动关闭离线弹窗</h3><p>结算完成后自动返回游戏；关闭后保留收益汇总，等待确认。暂停或异常时仍显示窗口。</p></div>
+          <button id="auto-close-offline-toggle" class="secondary-button settings-toggle" type="button" role="switch" aria-label="自动关闭离线弹窗" aria-checked="true">已开启</button>
         </section>
-        <section class="settings-row">
-          <div><h3>存档</h3><p>立即保存当前进度和页面风格。</p></div>
-          <button id="save-game" class="secondary-button" type="button">保存</button>
-        </section>
-
         <section class="settings-row">
           <div><h3>导出</h3><p>将当前存档导出为文件。</p></div>
           <button id="export-save" class="secondary-button" type="button">导出</button>
@@ -917,6 +920,17 @@
           <input id="import-file" type="file" accept="application/json,.json" hidden />
         </section>
 
+        <details id="save-recovery-tools" class="settings-recovery">
+          <summary>存档恢复与故障处理</summary>
+          <section class="settings-row">
+            <div><h3>恢复导入前进度</h3><p>恢复最近一次导入前保留的进度。</p></div>
+            <button id="restore-save-backup" class="secondary-button" type="button">恢复进度</button>
+          </section>
+          <section class="settings-row">
+            <div><h3>导出原始存档（排查故障）</h3><p>原样导出浏览器保存的数据；读档失败时可用于备份与排查。</p></div>
+            <button id="export-protected-save" class="secondary-button" type="button">导出原始存档</button>
+          </section>
+        </details>
         <section class="settings-row danger-row">
           <div><h3>重置</h3><p>清空全部游戏进度和个性化设置。</p></div>
           <button id="reset-game" class="danger-button" type="button">重置</button>
@@ -940,46 +954,53 @@
       </div>
     </dialog>
 
+    <aside id="catch-up-notice" role="status" hidden style="position:fixed;bottom:1rem;right:1rem;z-index:50;padding:.8rem;background:var(--panel-bg,#20232b);color:var(--text-color,#fff);border:1px solid currentColor;border-radius:.6rem">
+      <span id="catch-up-notice-text"></span>
+      <button id="convert-quiet-catch-up" type="button">放弃剩余结算，转为 2 倍在线收益</button>
+    </aside>
     <dialog id="offline-progress-dialog" class="settings-dialog offline-progress-dialog" aria-labelledby="offline-progress-title">
       <div class="settings-header">
         <div>
           <p class="section-label">进度恢复</p>
-          <h2 id="offline-progress-title">正在结算离线收益</h2>
+          <h2 id="offline-progress-title">正在恢复游戏进度</h2>
         </div>
       </div>
 
       <div class="offline-progress-content">
-        <p class="offline-progress-detail">离线期间正常获得资源与宝物，自动购买、升级、行动及境界突破按已保存的开关执行。恢复期间游戏时间暂停，不追加在线收益。</p>
+        <p id="offline-progress-intro" class="offline-progress-detail">正在恢复游戏进度。</p>
         <div class="offline-progress-copy">
           <strong id="offline-progress-percent">0%</strong>
           <span id="offline-progress-remaining">剩余 0秒</span>
         </div>
-        <progress id="offline-progress-bar" max="1" value="0" aria-label="本次离线结算进度"></progress>
+        <progress id="offline-progress-bar" max="1" value="0" aria-label="本次进度恢复"></progress>
         <p class="offline-progress-times">
-          本次离线时间 <span id="offline-progress-original-total">0秒</span>
+          <span id="offline-progress-total-label">本次恢复时间</span> <span id="offline-progress-original-total">0秒</span>
           <span aria-hidden="true">·</span>
           已处理 <span id="offline-progress-original-processed">0秒</span>
           <span aria-hidden="true">·</span>
-          待结算 <span id="offline-progress-original-pending">0秒</span>
+          <span id="offline-progress-pending-label">待恢复</span> <span id="offline-progress-original-pending">0秒</span>
         </p>
         <p id="offline-progress-wall-time" class="offline-progress-detail"></p>
-        <p id="offline-progress-detail" class="offline-progress-detail" role="status" aria-live="polite">正在计算离线收益，请稍候。</p>
+        <p id="offline-progress-detail" class="offline-progress-detail" role="status" aria-live="polite">正在恢复游戏进度，请稍候。</p>
 
         <section id="offline-pause-panel" class="offline-result-panel offline-pause-panel" hidden>
-          <h3>离线结算已暂停</h3>
+          <h3 id="offline-pause-title">游戏进度恢复已暂停</h3>
           <p id="offline-pause-reason"></p>
           <div class="offline-progress-actions">
             <button id="retry-offline-progress" class="secondary-button" type="button">重试结算</button>
+            <button id="offline-open-settings" class="secondary-button" type="button">存档与设置</button>
           </div>
         </section>
 
         <div id="offline-abandon-actions" class="offline-progress-actions" hidden>
+          <button id="convert-offline-progress" type="button">放弃剩余结算，转为 2 倍在线收益</button>
+          <p id="offline-conversion-help">仅将未处理的离线时间转为在线补偿额度，已结算收益保留。六类自动资源收益两倍，游戏时钟、自动操作频率和宝物进度正常。15小时额度需在线推进15小时，收益按回归后的状态计算。</p>
           <button id="pause-offline-progress" class="secondary-button" type="button">暂停并保存</button>
           <button id="abandon-offline-progress" class="danger-button" type="button">放弃剩余结算</button>
         </div>
 
         <section id="offline-complete-panel" class="offline-result-panel offline-complete-panel" hidden>
-          <h3>离线结算完成</h3>
+          <h3 id="offline-complete-title">游戏进度恢复结果</h3>
           <p id="offline-progress-summary"></p>
           <div class="offline-progress-actions">
             <button id="continue-after-offline" class="secondary-button" type="button">继续游戏</button>
@@ -997,45 +1018,50 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=0.1.5.1"></script>
-    <script src="js/vendor/break_eternity.min.js?v=0.1.5.1"></script>
-    <script src="js/core/namespace.js?v=0.1.5.1"></script>
-    <script src="js/core/bignum.js?v=0.1.5.1"></script>
-    <script src="js/core/config.js?v=0.1.5.1-treasure-credit-1"></script>
-    <script src="js/meta/big-numbers.js?v=0.1.5.1"></script>
-    <script src="js/core/registry.js?v=0.1.5.1"></script>
-    <script src="js/core/formulas.js?v=0.1.5.1"></script>
-    <script src="js/core/penalties.js?v=0.1.5.1"></script>
-    <script src="js/core/integration.js?v=0.1.5.1"></script>
-    <script src="js/core/runtime.js?v=0.1.5.1"></script>
-    <script src="js/cultivation/xiuzhen.js?v=0.1.5.1"></script>
-    <script src="js/core/probability.js?v=0.1.5.1"></script>
-    <script src="js/core/state.js?v=0.1.5.1-treasure-credit-1"></script>
-    <script src="js/core/save.js?v=0.1.5.1"></script>
-    <script src="js/core/resources.js?v=0.1.5.1"></script>
-    <script src="js/core/effects.js?v=0.1.5.1"></script>
-    <script src="js/core/sources.js?v=0.1.5.1"></script>
-    <script src="js/core/reset.js?v=0.1.5.1-treasure-credit-1"></script>
-    <script src="js/power/scale-logic.js?v=0.1.5.1"></script>
-    <script src="js/power/scale.js?v=0.1.5.1"></script>
-    <script src="js/cultivation/immortal-logic.js?v=0.1.5.1-mortal-exploration-1"></script>
-    <script src="js/cultivation/immortal.js?v=0.1.5.1"></script>
-    <script src="js/meta/achievements.js?v=0.1.5.1-resource-tiers-1"></script>
-    <script src="js/simulation/fast-forward.js?v=0.1.5.1"></script>
-    <script src="js/meta/treasures.js?v=0.1.5.1-treasure-credit-1"></script>
-    <script src="js/meta/challenges.js?v=0.1.5.1-resource-tiers-1"></script>
-    <script src="js/simulation/automation.js?v=0.1.5.1"></script>
-    <script src="js/simulation/step.js?v=0.1.5.1"></script>
-    <script src="js/simulation/treasure-events.js?v=0.1.5.1"></script>
-    <script src="js/simulation/projection.js?v=0.1.5.1"></script>
-    <script src="js/simulation/discrete-batch.js?v=0.1.5.1"></script>
-    <script src="js/simulation/offline.js?v=0.1.5.1"></script>
-    <script src="js/simulation/loop.js?v=0.1.5.1"></script>
-    <script src="js/ui/cards.js?v=0.1.5.1"></script>
-    <script src="js/ui/big-numbers.js?v=0.1.5.1"></script>
-    <script src="js/ui/xiuzhen.js?v=0.1.5.1-challenge-copy-1"></script>
-    <script src="js/ui/treasures.js?v=0.1.5.1"></script>
-    <script src="js/ui/app.js?v=0.1.5.1-resource-tiers-1"></script>
-    <script src="game.js?v=0.1.5.1"></script>
+    <script src="js/core/build-config.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/vendor/break_eternity.min.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/namespace.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/bignum.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/config.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/meta/big-numbers.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/registry.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/formulas.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/penalties.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/integration.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/runtime.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/cultivation/xiuzhen.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/probability.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/compensation.js?v=0.1.5.2-release-20260912-r22"></script>
+  <script src="js/core/state.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/save.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/resources.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/effects.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/sources.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/reset.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/power/scale-logic.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/power/scale.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/cultivation/immortal-logic.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/cultivation/immortal.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/meta/achievements.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/crystal-interval.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/fast-forward.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/meta/treasures.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/cultivation/exploration-progress.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/meta/challenges.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/automation.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/fixed-sources.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/fixed-segment.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/step.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/treasure-events.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/projection.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/discrete-batch.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/offline.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/simulation/loop.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/ui/cards.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/ui/big-numbers.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/ui/xiuzhen.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/ui/treasures.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/ui/app.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="game.js?v=0.1.5.2-release-20260912-r22"></script>
   </body>
 </html>

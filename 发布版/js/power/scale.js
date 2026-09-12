@@ -99,13 +99,14 @@
 
   function calculateAutomaticGains(state, elapsedSeconds) {
     const safeElapsed = Math.max(0, Number(elapsedSeconds) || 0);
+    const incomeFactor = WIS.Simulation.Compensation.factor();
     const jRateProfile = WIS.Power.ScaleLogic.createAutomaticJRateProfile();
     const passiveJ = applyResourceSoftcapDynamicRateOverTime(
       (evaluationJoules) =>
         WIS.Power.ScaleLogic.automaticJSettledPerSecondAt(evaluationJoules, jRateProfile),
       state.joules,
       safeElapsed,
-      (settledRate) => settledRate
+      (settledRate) => mul(settledRate, incomeFactor)
     );
     const powerRateProfile = WIS.Power.ScaleLogic.createAutomaticPowerRateProfile();
     const passivePower = applyResourceSoftcapDynamicRateOverTime(
@@ -113,7 +114,7 @@
         WIS.Power.ScaleLogic.automaticPowerSettledPerSecondAt(evaluationPower, powerRateProfile),
       state.power,
       safeElapsed,
-      (settledRate) => settledRate
+      (settledRate) => mul(settledRate, incomeFactor)
     );
     const rates = {
       joulesPerSecond: safeElapsed > 0 ? div(passiveJ, safeElapsed) : ZERO,
@@ -125,7 +126,13 @@
   function commitAutomaticGains(state, result, { writeRates = true } = {}) {
     const plan = result || { joules: ZERO, power: ZERO, rates: {} };
     if (writeRates) Object.assign(WIS.tmp.rates, plan.rates);
-    WIS.Core.Resources.add("joules", plan.joules);
+    if (plan.repeatJoules) {
+      const { term, count } = plan.repeatJoules;
+      if (!Number.isSafeInteger(count) || count < 1 || !WIS.Core.BigNum.isFiniteBN(term) ||
+          !WIS.Core.BigNum.gte(term,0) || !WIS.Core.BigNum.eq(mul(term,count),plan.joules))
+        throw Error("J重复收益计划无效，未提交");
+      Object.assign(state.core.resources, WIS.Core.Resources.prepareTerms(state.core.resources,"joules",[`${term}*${count}`]));
+    } else WIS.Core.Resources.add("joules", plan.joules);
     WIS.Core.Resources.add("power", plan.power);
     state.lifetimeTotalJ = add(state.lifetimeTotalJ, plan.joules);
     state.currentRebirthTotalJ = add(state.currentRebirthTotalJ, plan.joules);

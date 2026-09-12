@@ -31,7 +31,37 @@
         : { name: "下品灵根", manaMultiplier: 1.1 });
   }
 
+  let effectDescriptors = null;
+  const effectCacheCounts = { builds: 0, hits: 0, crystalRefreshes: 0 };
   function effects(state) {
+    // Only descriptor/static coefficients are reused. Resource-dependent
+    // functions and celestial-decline transforms still resolve against the
+    // current projected resources in Effects; clocks/exponents remain in the
+    // original source formulas. A crystal affects this provider's one base
+    // multiplier, BEFORE those exponents and the downstream mana suppression.
+    if (!WIS.Core.Runtime.isOfflineExecution()) return buildEffects(state);
+    const immortal=state.cultivation.systems.immortal;
+    const withoutCrystal=box=>Object.fromEntries(Object.entries(box||{}).filter(([k])=>k!=='immortalCrystal'));
+    const signature=JSON.stringify([state.cultivation.active,immortal.abilities,immortal.persistent,state.explorationRewards?.levelResidual,
+      state.qiRefiningUnlocked,state.foundationUnlocked,state.goldenCoreUnlocked,state.advancedRealmLevel,
+      state.currentQiLayer,state.bestQiLayer,state.activeChallenge,state.challengeCompletions,
+      state.unlockedAchievements,state.highestScaleIndex,immortal.xiuzhen?.realm,immortal.xiuzhen?.entered,
+      withoutCrystal(state.meta.treasures),withoutCrystal(state.meta.treasureStockResidual)]);
+    const crystal=String(WIS.Meta.Treasures.count(state,'immortalCrystal'));
+    const logic=WIS.Cultivation.ImmortalLogic;
+    if(effectDescriptors?.signature===signature&&effectDescriptors.logic===logic){
+      effectCacheCounts.hits++;
+      if(effectDescriptors.crystal!==crystal){
+        effectCacheCounts.crystalRefreshes++;
+        effectDescriptors={...effectDescriptors,crystal,list:effectDescriptors.list.map(effect=>
+          effect.id==='immortalCrystalPower'?{...effect,value:logic.immortalCrystalMultiplier()}:effect)};
+      }
+      return effectDescriptors.list;
+    }
+    effectCacheCounts.builds++;
+    const list=buildEffects(state);effectDescriptors={signature,crystal,logic,list};return list;
+  }
+  function buildEffects(state) {
     if (state.cultivation?.active !== "immortal") return [];
     if (WIS.Cultivation.Xiuzhen?.sealed(state)) state = WIS.Cultivation.Xiuzhen.abilityView(state);
     const list = [
@@ -206,6 +236,7 @@
     getActions: WIS.Cultivation.ImmortalLogic.getActionIds,
     getAbilities: WIS.Cultivation.ImmortalLogic.getAbilityIds,
     getEffects: effects, planAutomaticGain, commitAutomaticGain,
+    effectCacheStatistics: () => ({...effectCacheCounts}),
     getState: (state) => WIS.Core.State.domainView(state).cultivation.systems.immortal,
     reset: (type) => WIS.Core.Reset.describe(type),
     rollPassiveManaTreasure, rollCirculationTreasure, rollImmortalPowerTreasure,
