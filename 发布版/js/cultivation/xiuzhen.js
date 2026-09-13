@@ -157,7 +157,7 @@
       xianForce = B.mul("2e4", B.add(1, B.log10(B.add(1, B.div(state.immortalPower, "1e40")))));
       if (has(state, "materialSpirit")) xianForce = B.mul(xianForce, B.pow(B.add(1, x), .08));
       if (has(state, "rules")) xianForce = B.mul(xianForce, B.pow(B.add(1, y), .18));
-      if (yinYang(state)) xianForce = B.pow(B.pow(xianForce, .85), WIS.Cultivation.ImmortalLogic.celestialFiveDeclineExponent());
+      if (yinYang(state)) xianForce = B.pow(xianForce, .85);
     }
     if (has(state, "yuanForce")) {
       yuanForce = yuanFromXian(x);

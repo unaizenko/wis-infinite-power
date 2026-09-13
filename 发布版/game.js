@@ -318,6 +318,7 @@
   const acknowledgeCatchUp = (...args) => offlineSimulation.acknowledgeCatchUp(...args);
   const getCatchUpStatus = (...args) => offlineSimulation.getCatchUpStatus(...args);
   const subscribeCatchUpStatus = (...args) => offlineSimulation.subscribeCatchUpStatus(...args);
+  const claimPauseNotice = (...args) => offlineSimulation.claimPauseNotice(...args);
   const setLastTickAt = (value) => simulationLoop?.setLastTickAt(value);
   function restoreOfflineRecovery(snapshot) {
     const restored = offlineSimulation.restorePersistenceSnapshot(snapshot, 0, { checkpoint: false });
@@ -341,7 +342,7 @@
       Object.assign(WIS.tmp.rates, snapshot.rates);
       WIS.Core.Save.restoreStorage(snapshot.storage);
     },
-    getCatchUpStatus, subscribeCatchUpStatus, restoreOfflineRecovery, achievementStates, recordCurrentAchievements,
+    getCatchUpStatus, subscribeCatchUpStatus, claimPauseNotice, restoreOfflineRecovery, achievementStates, recordCurrentAchievements,
     updateLifetimeStatistics, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost,
     multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain,
     formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent,

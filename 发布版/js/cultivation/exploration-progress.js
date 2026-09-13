@@ -33,38 +33,34 @@
     precisionCache.set(digits,ctx);return ctx;
   }
   const pack=(c,e)=>{if(!c)return null;while(c%10n===0n){c/=10n;e++;}return `${c}e${e}`;};
-  function parse(word){const text=String(word).replace(/^(-?)\./,(_m,sign)=>sign+'0.');
+  function parse(word){const counted=/^(.*?)\*([1-9]\d*)$/.exec(String(word));
+    const text=String(counted?counted[1]:word).replace(/^(-?)\./,(_m,sign)=>sign+'0.');
     const m=/^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(text);
     if(!m||m[2].length+(m[3]||'').length>8192||(m[4]||'').length>4096)fail('进度词项格式或容量无效');
-    return {c:BigInt((m[1]||'')+m[2]+(m[3]||'')),e:BigInt(m[4]||0)-BigInt((m[3]||'').length)};}
+    return {c:BigInt((m[1]||'')+m[2]+(m[3]||''))*BigInt(counted?counted[2]:1),e:BigInt(m[4]||0)-BigInt((m[3]||'').length)};}
   function fromLog(log,ctx){const {FP,DP,LN10,exp}=ctx;let exponent=log/FP,tail=log%FP;if(tail<0n){tail+=FP;exponent--;}
     return pack(exp(tail*LN10/FP),exponent-DP);}
   function input(value){
     if(/^-?\d+(?:\.\d*)?(?:e[+-]?\d+)?$/i.test(String(value)))return normalize([String(value)]);
     const v=B.BN(value);if(!v.isFinite()||v.sign<0)fail('有效探寻量必须有限非负');if(v.eq(0))return [];
     if(v.layer===0)return normalize([String(v)]);
+    if(v.layer>=3||(v.layer===2&&Math.abs(v.mag)>4000))return normalize([String(v)]);
     let exponent;const ctx=precision(v.layer===2?Math.ceil(Math.abs(v.mag))+1:1);
     if(v.layer===1)exponent=ctx.fixed(String(v.mag));
     else if(v.layer===2&&Math.abs(v.mag)<=4000)exponent=ctx.exp(ctx.fixed(String(Math.abs(v.mag)))*ctx.LN10/ctx.FP)*(v.mag<0?-1n:1n);
-    else fail('当前来源层级超出可验证指数域');
+    else return normalize([String(v)]);
     return [fromLog(exponent,ctx)];
   }
-  function normalize(values){const terms=values.flatMap(v=>v==null?[]:[parse(v)]).filter(v=>v.c).sort((a,b)=>a.e<b.e?-1:a.e>b.e?1:0),merged=[];
-    for(const t of terms){const last=merged.at(-1),gap=last?t.e-last.e:0n;
-      if(last&&gap<=4096n&&BigInt(abs(t.c).toString().length)+gap<=8192n){last.c+=t.c*10n**gap;if(!last.c)merged.pop();}
-      else merged.push({...t});}
-    if(merged.length>128)fail('进度残差容量已满');
-    return merged.map(t=>pack(t.c,t.e)).filter(Boolean).sort((a,b)=>{const x=parse(a),y=parse(b),u=x.e+BigInt(abs(x.c).toString().length),v=y.e+BigInt(abs(y.c).toString().length);return u>v?-1:u<v?1:0;});}
-  const add=(a,b)=>normalize([...a,...b]);
-  const minus=(a,b)=>normalize([...a,...b.map(t=>String(t).startsWith('-')?String(t).slice(1):'-'+t)]);
-  function sign(words){const n=normalize(words);if(!n.length)return 0;const lead=parse(n[0]),order=t=>t.e+BigInt(abs(t.c).toString().length);
-    for(const w of n.slice(1)){const t=parse(w);if((t.c<0n)!==(lead.c<0n)&&order(lead)-order(t)<4n)fail('进度余额符号无法确认');}
-    return lead.c<0n?-1:1;}
-  const compare=(a,b)=>sign(minus(a,b));
+  const signed=()=>WIS.Core.SignedLedger;
+  const normalize=values=>signed().normalize(values);
+  const add=(a,b)=>signed().add(a,b);
+  const minus=(a,b)=>signed().subtract(a,b);
+  const sign=words=>signed().sign(words);
+  const compare=(a,b)=>signed().compare(a,b);
   const scale=(a,n,d=1n)=>normalize(a.map(word=>{const t=parse(word);if((t.c*n)%d===0n)return pack(t.c*n/d,t.e);
     // Used only with denominator 2 in the cumulative analytic expression.
     if(d===2n)return pack(t.c*n*5n,t.e-1n);fail('非有限十进制缩放');}));
-  function project(words){return normalize(words).reduceRight((sum,word)=>{const t=parse(word),digits=abs(t.c).toString();
+  function project(words){return normalize(words).reduceRight((sum,word)=>{if(!/^-?\d/.test(word))return B.add(sum,signed().project(word));const t=parse(word),digits=abs(t.c).toString();
     // A thousand-digit exponent cannot go through the vendor's Number-first
     // scientific string parser. This is a UI/formula projection only; the
     // exact signed word is retained for all requirement/debit decisions.
@@ -72,7 +68,7 @@
     const value=B.mul(B.pow10(exponent),B.BN(`${digits[0]}.${digits.slice(1,33)||0}`));
     return B.add(sum,t.c<0n?B.mul(value,-1):value);},B.ZERO);}
   function integer(words){const all=normalize(words);let n=0n;
-    for(const w of all){const t=parse(w);if(t.e<0n||t.e>4096n)fail('等级整数超出可验证范围');n+=t.c*10n**t.e;}
+    for(const w of signed().expand(all)){const t=parse(w);if(t.e<0n||t.e>4096n)fail('等级整数超出可验证范围');n+=t.c*10n**t.e;}
     if(n<0n)fail('等级为负');return n;}
   function logValue(words,ctx=precision()){const {FP,DP,LN10,ln}=ctx;const n=normalize(words);if(sign(n)<=0)fail('累计需求必须为正');
     const t=parse(n[0]),digits=t.c.toString(),head=BigInt((digits+'0'.repeat(Number(DP))).slice(0,Number(DP)+1));
@@ -102,12 +98,43 @@
   function validate(s){const p=ensure(s);if(p.version!==1)fail('不支持的进度版本');
     for(const key of ['natural','seize']){if(!Array.isArray(p[key]))fail('进度格式无效');const words=normalize(p[key]);if(sign(words)<0)fail('进度为负');}
     const words=levelWords(s);if(L().sign(words)<0)fail('等级余额为负');
-    for(const w of words)L().integer(w);return s;}
+    for(const w of signed().expand(words))L().integer(String(w).replace(/^-/,'').replace(/\*\d+$/,''));return s;}
+  function localInteger(words){try{const n=integer(words);return String(n).length<=3900?n:null;}catch(error){
+    if(!signed().value(words).isFinite()||sign(words)<0)throw error;return null;}}
+  const layeredCost=n=>B.mul(3000,B.pow(B.div(5,3),B.sub(n,10)));
+  function layeredNatural(s,incoming,ceiling){
+    const previous=ensure(s),progress=add(previous.natural,incoming),current=levelWords(s);
+    const n=signed().value(current),pv=signed().value(progress),cv=layeredCost(n);
+    // The same geometric inverse, evaluated in the vendor's layer model.
+    // Once a single integer level is unresolvable, report the approximation
+    // explicitly. No loop expands levels or exponent digits.
+    const credit=B.add(cv,pv),target=B.min(signed().value(ceiling),
+      B.max(n,B.add(10,B.div(B.log10(B.div(credit,3000)),B.log10(B.div(5,3))))).floor());
+    if(!B.gt(target,n)){s.explorationRewards={...previous,natural:progress};return B.ZERO;}
+    const words=[...signed().expand(progress)];
+    const low=words.filter(w=>!String(w).startsWith('-')&&signed().project(w).abs().layer<2);
+    const closed=words.filter(w=>String(w).startsWith('-')||signed().project(w).abs().layer>=2);
+    // Preserve every exactly represented low word. The high closure follows
+    // the existing inverse-batch convention and keeps its source receipt.
+    const atCap=compare([target],ceiling)>=0;
+    const main=atCap?signed().value(ceiling):target;
+    s.naturalTreasureLevel=main;
+    s.explorationRewards={...previous,natural:atCap?[]:normalize(low),
+      levelResidual:atCap?minus(ceiling,[main]):[],
+      approximation:{version:1,code:'high-geometric-batch',exactRemainder:false,
+        previousLevel:current,estimatedLevel:String(main),closedProgress:closed,
+        remainderLower:'0',remainderUpper:String(layeredCost(B.add(main,1))),
+        policy:'represented-layer inverse; unresolved phase retained as an interval, not exact zero'}};
+    WIS.Core.Effects?.invalidate?.();return B.sub(main,n);
+  }
   function natural(s,amount,frozen){const previous=ensure(s);const ceiling=frozen?.cap || capWords(s);
     if(!(frozen?.eligible ?? s.goldenCoreUnlocked)||L().compare(levelWords(s),ceiling)>=0)return B.ZERO;
     const incoming=Array.isArray(amount)?normalize(amount):input(amount);if(sign(incoming)<0)fail('收入为负');
     if(!incoming.length&&!previous.natural.length)return B.ZERO;
-    const current=integer(levelWords(s)),cap=integer(ceiling);
+    const current=localInteger(levelWords(s)),cap=localInteger(ceiling);
+    if(current===null||[...signed().expand(incoming),...signed().expand(previous.natural)].some(w=>
+      !/^[-\d]/.test(w)||abs(parse(w).e).toString().length>3900))
+      return layeredNatural(s,incoming,ceiling);
     const priorProgress=previous.natural,progress=add(priorProgress,incoming),credit=add(cumulative(current),progress);
     if(compare(credit,cumulative(current+1n))<0){s.explorationRewards={...previous,natural:progress};return B.ZERO;}
     let target;
@@ -116,9 +143,9 @@
       const leading=parse(scaled[0]),ctx=precision(abs(leading.e).toString().length+1);
       target=10n+(logValue(scaled,ctx)-ctx.BASE-ctx.LOG15)/ctx.HIGH;
       if(target<10n)target=10n;}
-    if(target>cap)target=cap;if(target<current)target=current;
+    if(cap!==null&&target>cap)target=cap;if(target<current)target=current;
     let checks=0;while(compare(credit,cumulative(target))<0){if(++checks>8)fail('升级下界无法确认');target--;}
-    while(target<cap&&compare(credit,cumulative(target+1n))>=0){if(++checks>8)fail('升级上界无法确认');target++;}
+    while((cap===null||target<cap)&&compare(credit,cumulative(target+1n))>=0){if(++checks>8)fail('升级上界无法确认');target++;}
     const gained=target-current,words=L().normalize([String(target)]),main=L().value(words);
     // The old partial progress was consumed in reaching this new cap. Excess
     // from this input is discarded for this system alone. If ALREADY capped
@@ -134,13 +161,16 @@
     if(compare(progress,['100'])<0){s.explorationRewards={...previous,seize:progress};return false;}
     WIS.Meta.Achievements.record(s,'seizeFoundation');s.explorationRewards={...previous,seize:[]};return true;}
   function view(s){const p=ensure(s),atCap=!belowCap(s);let demand=null,reason=null;
-    try{if(!atCap){const n=integer(levelWords(s));demand=project(minus(cumulative(n+1n),cumulative(n)));}}catch(e){reason=e.message;}
+    try{if(!atCap){const n=localInteger(levelWords(s));demand=n===null
+      ? B.mul(B.div(2,3),layeredCost(signed().value(levelWords(s))))
+      : project(minus(cumulative(n+1n),cumulative(n)));}}catch(e){reason=e.message;}
     return {level:L().value(levelWords(s)),levelResidual:p.levelResidual,cap:L().value(capWords(s)),atCap,
       progress:project(p.natural),demand,seizeProgress:project(p.seize),reason};}
   function boundaries(s,rate){if(!B.gt(rate,0))return [];const p=ensure(s),rows=[];
     if(s.goldenCoreUnlocked&&belowCap(s)){
-      const n=integer(levelWords(s));
-      const left=minus(minus(cumulative(n+1n),cumulative(n)),p.natural);
+      const n=localInteger(levelWords(s));
+      const demand=n===null?[String(B.mul(B.div(2,3),layeredCost(signed().value(levelWords(s)))))]:minus(cumulative(n+1n),cumulative(n));
+      const left=minus(demand,p.natural);
       rows.push({key:'naturalTreasure',pausedReason:null,remainingSeconds:B.div(B.max(0,project(left)),rate)});
     }
     if(!s.unlockedAchievements?.seizeFoundation)rows.push({key:'seizeFoundation',pausedReason:null,

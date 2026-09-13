@@ -9,8 +9,21 @@
       throw Error("结算来源展示元数据无效");
     return {version:1,online:value.online,offline:value.offline,unknown:value.unknown};
   }
+  // A controller-owned identity survives repeated status publications and UI
+  // teardown. Retrying the same queue cursor/error does not create a new alert.
+  function createPauseNotices() {
+    let shown = null;
+    const identity = status => JSON.stringify([status.pauseReason?.reason,
+      status.pauseReason?.error?.name, status.pauseReason?.error?.message,
+      status.pauseReason?.task?.clockCursor ?? null]);
+    return Object.freeze({claim(status) {
+      if (status?.phase !== 'paused') return false;
+      const id = identity(status); if (shown === id) return false;
+      shown = id; return true;
+    }, reset() { shown = null; }});
+  }
   WIS.Simulation.Offline = Object.freeze({
-    validateConfirmedSources,
+    validateConfirmedSources, createPauseNotices,
     create(context) {
       const {
         getState, advanceGameStep, nextKnownSimulationBoundarySeconds,
@@ -50,6 +63,7 @@
       let catchUpNoticePromise = null;
       let catchUpPaused = false;
       let catchUpPauseReason = null;
+      const pauseNotices = createPauseNotices();
       let pauseRestored = false;
       let catchUpSessionBefore = null;
       let catchUpSessionStartedAt = 0;
@@ -315,6 +329,7 @@
       }
 
       function resetCatchUpSession() {
+        pauseNotices.reset();
         confirmedSources=freshConfirmedSources();
         presentation=null;
         fastForwardUsed = false; fastForwardMetrics = null;
@@ -642,6 +657,7 @@
           pendingClockSeconds: pendingCatchUpClockSeconds,
           planningBudgetExhaustions: catchUpPlanningBudgetExhaustions,
           task: task ? {
+            id: task.id,
             clockCursor: task.clockCursor,
             remainingGameSeconds: task.remainingGameSeconds,
             remainingClockSeconds: task.remainingClockSeconds,
@@ -654,7 +670,9 @@
           state: catchUpStateSummary(),
           error: error ? {
             name: String(error.name || "Error"),
+            code: error.code ?? null,
             message: String(error.message || error),
+            stack: typeof error.stack === 'string' ? error.stack.slice(0, 4000) : null,
             ...(error.treasureContext ? { treasureContext: error.treasureContext } : {})
           } : null
         };
@@ -670,6 +688,7 @@
       }
 
       function pauseCatchUp(diagnostic) {
+        if (catchUpPaused) return;
         catchUpPaused = true;
         catchUpPauseReason = diagnostic;
         pauseRestored = false;
@@ -1287,9 +1306,13 @@
           const activePromise = catchUpPromise || Promise.resolve("");
           return activePromise.then(() => retryCatchUp());
         }
+        if(catchUpPauseReason?.error?.code==='signed-interval')WIS.Core.SignedLedger?.retryPrecision?.();
         catchUpPaused = false;
         catchUpPauseReason = null;
         pauseRestored = false;
+        // Explicit retry accepts the complete preserved queue, including its
+        // sub-frame tail. Normal foreground accumulation still waits for 0.1s.
+        sealOnlineTail();
         const task = catchUpTasks[0];
         if (task) {
           task.legacyRetryUsed = false;
@@ -1484,6 +1507,7 @@
                 pauseCatchUp(catchUpDiagnostic("exception", task, requestedSeconds, result, stepError));
                 break;
               }
+              if (acceptedSeconds > 0) pauseNotices.reset();
               if (result?.eventCommitted) {
                 task.currentStepDiscreteEvents += 1;
                 madeProgress = true;
@@ -1620,6 +1644,7 @@
           catchUpTasks.filter(t=>t.source==='online'&&t.compensationEligible).reduce((sum,t)=>sum+t.remainingClockSeconds,0)),
         isInternalWork:()=>internalWork,
         getPersistenceSnapshot,
+        claimPauseNotice: status => pauseNotices.claim(status),
         restorePersistenceSnapshot,
         getCatchUpStatus,
         subscribeCatchUpStatus,

@@ -980,7 +980,8 @@
     // Preserve the lexical integer BEFORE Decimal rounds it, including one
     // level above its current resolution. Existing signed tails remain exact.
     const residual=L?L.subtract([String(value),...(raw?.levelResidual||[])],[main]):clone(raw?.levelResidual||[]);
-    return {version:raw?.version??0,natural:clone(raw?.natural||[]),seize:clone(raw?.seize||[]),levelResidual:residual};
+    return {version:raw?.version??0,natural:clone(raw?.natural||[]),seize:clone(raw?.seize||[]),levelResidual:residual,
+      ...(raw?.approximation ? {approximation:clone(raw.approximation)} : {})};
   }
   function normalizeLegacy(input) {
     const domain=fromFlat(normalizeFlat(input));

@@ -23,13 +23,19 @@
       const control = el("div", "", "purchase-control"), price = el("small", `消耗 ${f(cost)} ${X.labels[resource]}`);
       const button = el("button", "强化", "primary-button"); button.type = "button"; button.id = "xiuzhen-" + key;
       button.addEventListener("click", () => perform(action)); control.append(price, button); item.append(content, control); parent.append(item);
-      return { item, price, button };
+      let preview;
+      if (["buy-xianForce", "buy-yuanForce"].includes(key)) {
+        preview = el("span", "", "source-gain-preview"); preview.id = key + "-source-preview";
+        control.prepend(preview);
+      }
+      return { item, price, button, preview };
     }
     function bind() {
       if (mounted) return; mounted = true;
       const oldRealm = $("realm-card-list").closest("details");
       oldRealm.querySelector("b").textContent = "仙道·炼气道";
       const realms = fold("仙道·修真道", "xiuzhen-realms");
+      realms.open = false;
       $("immortal-realms-panel").append(realms);
       const note = el("p", "", "big-number-note"); note.id = "xiuzhen-unlock-note"; realms.append(note);
       X.realms.forEach(r => rows.push({ type: "realm", definition: r, ...row(realms, r.name,
@@ -47,7 +53,7 @@
       });
       for (const [key, description, reward] of [
         ["mortalTransformation", "禁用探寻及已获得的仙道能力、倍率、指数和特殊效果，保留吐纳、其他法力来源及炼气道基础突破，重新抵达炼气道·化神。", "可突破修真道·化神"],
-        ["yinVoidYangReal", "元力以外的资源收益 ^0.85；福、禄、寿最高档与天人五衰重新生效，重新抵达第一步·问鼎。", "可突破第二步·窥涅。"]
+        ["yinVoidYangReal", "使J、战力、法力、仙灵力、仙力获取变为^0.85；同时受到福、禄、寿最高档挑战限制，重新抵达第一步·问鼎。", "可突破第二步·窥涅。"]
       ]) {
         const card = el("article", "", "item-row"); card.id = "xiuzhen-challenge-" + key;
         card.dataset.challengeKey = key; card.dataset.catalogSystem = "仙道";
@@ -92,6 +98,7 @@
         r.button.textContent = done ? r.type === "ability" ? "已强化" : "已突破"
           : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : "突破") : "强化";
         r.button.disabled = locked || done || !available;
+        if (r.preview) WIS.UI.SourcePreview.write(r.preview, d.key, context.format, s, { assumeUnlocked: !done });
       });
       if (n.realm !== lastRealm) {
         groups.forEach(({ group, level }) => { group.open = level === Math.max(1, n.realm); }); lastRealm = n.realm;

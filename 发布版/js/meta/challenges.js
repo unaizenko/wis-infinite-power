@@ -6,12 +6,10 @@
   const scaleThresholds = WIS.Core.Config.scales;
   const {
     BN, ZERO, ONE, add, sub, mul, div, pow, sqrt, log10,
-    max: maxBN, gt, gte, sum: sumBN, toNumber
+    max: maxBN, clamp, gt, gte, sum: sumBN, toNumber
   } = WIS.Core.BigNum;
-  const explosiveStarThreshold = scaleThresholds[10].power;
   const stellarThreshold = scaleThresholds[11].power;
-  const explosiveStarLog = log10(explosiveStarThreshold);
-  const stellarProgressLogSpan = sub(log10(stellarThreshold), explosiveStarLog);
+  const solarPowerProgressLogSpan = log10(add(ONE, stellarThreshold));
   const superclusterThreshold = scaleThresholds[13].power;
   const cosmicStructureThreshold = scaleThresholds[14].power;
   const blackHoleProgressLogSpan = log10(add(ONE, cosmicStructureThreshold));
@@ -94,25 +92,28 @@
     const amount = resource === "joules" ? state.joules : state.power;
     return WIS.Power.ScaleLogic.planetSuppressionRewardExponent(amount);
   }
+  // Global logarithmic resource ratio; keep even layered resources in Decimal.
+  function solarPowerLogRatio(amount) {
+    return div(log10(add(ONE, maxBN(ZERO, amount))), solarPowerProgressLogSpan);
+  }
   function solarPowerLogProgress(amount) {
-    const safeAmount = maxBN(ZERO, amount);
-    if (!gt(safeAmount, explosiveStarThreshold)) return ZERO;
-    if (gte(safeAmount, stellarThreshold)) return ONE;
-    return div(sub(log10(safeAmount), explosiveStarLog), stellarProgressLogSpan);
+    return clamp(solarPowerLogRatio(amount), ZERO, ONE);
   }
   function solarPowerLimitExponent(state, resource) {
     if (state.activeChallenge !== "solarPower") return ONE;
     const opposingAmount = resource === "joules" ? state.power : state.joules;
-    return sub(ONE, mul("0.28", pow(solarPowerLogProgress(opposingAmount), "1.3")));
+    return sub(ONE, mul("0.28", pow(solarPowerLogProgress(opposingAmount), 2)));
   }
   function solarPowerRewardExponent(state, resource) {
     if (completionCount(state, "solarPower") < 1) return ONE;
     const opposingAmount = resource === "joules" ? state.power : state.joules;
-    const firstLog = log10(add(ONE, div(maxBN(ZERO, opposingAmount), explosiveStarThreshold)));
-    const secondLog = log10(add(ONE, firstLog));
-    const progress = pow(secondLog, "0.8");
-    const rawBonus = mul("0.02", progress);
-    return add("1.04", div(rawBonus, add(ONE, div(rawBonus, "0.16"))));
+    if (!gt(opposingAmount, stellarThreshold)) {
+      return add("1.04", mul("0.08", sqrt(solarPowerLogProgress(opposingAmount))));
+    }
+    // q=log10(1+X)/log10(1+H). At q=1, both branches give 1.12
+    // with slope 0.04 in q; afterwards growth slows towards 1.20.
+    // Reciprocal form avoids dividing two huge, nearly equal values.
+    return sub("1.20", div("0.16", add(ONE, solarPowerLogRatio(opposingAmount))));
   }
   function blackHoleLogProgress(amount) {
     const safeAmount = maxBN(ZERO, amount);

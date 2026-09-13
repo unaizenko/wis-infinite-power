@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="WIS-无限战力系统网页试玩版" />
     <title>WIS-无限战力系统</title>
-    <link rel="stylesheet" href="styles.css?v=0.1.5.2-release-20260912-r22" />
+    <link rel="stylesheet" href="styles.css?v=0.1.5.3-release-20260913-r27" />
   </head>
   <body>
     <aside id="save-failure-panel" class="save-failure-panel" role="status" hidden>
@@ -18,7 +18,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.5.2</small>
+          <small id="game-version" class="game-version">v0.1.5.3</small>
         </div>
         <div class="header-actions">
           <small id="online-compensation-balance" hidden></small>
@@ -79,6 +79,13 @@
             <div class="resource-value"><strong id="yuanForce">0</strong><small id="yuanForce-rate"></small></div>
           </div>
         </div>
+      </section>
+      <section class="resource-source-tools" aria-label="独立资源来源">
+<details id="independent-resource-sources" class="independent-resource-sources">
+        <summary>独立资源来源</summary>
+        <p>按当前状态单独预览各来源；最终获取不作相加。</p>
+        <div id="independent-resource-source-list"></div>
+      </details>
       </section>
 
         <aside class="sidebar">
@@ -163,7 +170,7 @@
               <article class="item-row" id="ghost-back-action" hidden>
                 <div class="item-content">
                   <h2>鬼背</h2>
-                  <p>激活时降低 J 获取，提升战力获取倍率。</p>
+                  <p>激活时降低J获取倍率，提升战力获取倍率。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="ghost-back-state">当前未激活</span>
@@ -199,8 +206,8 @@
             <div id="big-number-panel" class="big-number-panel" role="tabpanel" aria-labelledby="big-number-tab" hidden>
               <section class="big-number-current">
                 <p class="section-label">当前大数</p>
-                <h2 id="big-number-dominant"></h2>
-                <p id="big-number-rate"></p><p id="big-number-secondary"></p>
+                <h2 id="big-number-page-dominant"></h2>
+                <p id="big-number-page-rate"></p><p id="big-number-secondary"></p>
                 <small id="big-number-base"></small>
               </section>
               <details id="fractal-panel" open>
@@ -266,7 +273,7 @@
 
               <details class="upgrade-group" id="street-upgrades" hidden>
                 <summary>
-                  <span><b>量级 · 爆街</b><small>超感知、金刚不坏、再生、异能、超速思维、崩山</small></span>
+                  <span><b>量级 · 爆街</b><small>超直感、金刚不坏、再生、异能、超速思维、崩山</small></span>
                 </summary>
 <div class="item-list" id="street-upgrade-list" data-sort-by-cost></div>
               </details>
@@ -718,13 +725,13 @@
               <article class="item-row" id="solar-power-challenge" data-challenge-key="solarPower" hidden>
                 <div class="item-content">
                   <h2>太阳之力</h2>
-                  <p>真恒星后解锁。J与战力根据对方在爆星至恒星之间的进度，相互压制最终获取指数。同时受到福、禄、寿初级挑战限制。</p>
+                  <p>真恒星后解锁。对方资源越高，自身最终获取指数越低；该限制全局生效，并在对方达到恒星时降至 ^0.72。同时受到福、禄、寿初级挑战限制。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="solar-power-progress">完成：0/1次</span>
-                  <small id="solar-power-limit">限制：双方最终获取指数最低 ^0.72</small>
+                  <small id="solar-power-limit">限制：全局生效，对方达到恒星时自身指数降至 ^0.72</small>
                   <small id="solar-power-target">目标：J与战力均达到恒星</small>
-                  <small id="solar-power-reward">奖励·阴阳相生：根据对方资源永久提高获取指数，后期平滑趋近 ^1.20</small>
+                  <small id="solar-power-reward">奖励·阴阳相生：根据对方当前资源永久提高获取指数，从 ^1.04 起步，对方达到恒星时为 ^1.12，之后缓慢趋近 ^1.20</small>
                   <button id="toggle-solar-power" class="primary-button" type="button">开启挑战</button>
                 </div>
               </article>
@@ -956,6 +963,7 @@
 
     <aside id="catch-up-notice" role="status" hidden style="position:fixed;bottom:1rem;right:1rem;z-index:50;padding:.8rem;background:var(--panel-bg,#20232b);color:var(--text-color,#fff);border:1px solid currentColor;border-radius:.6rem">
       <span id="catch-up-notice-text"></span>
+      <button id="show-paused-catch-up" type="button" hidden>查看暂停／重试追赶</button>
       <button id="convert-quiet-catch-up" type="button">放弃剩余结算，转为 2 倍在线收益</button>
     </aside>
     <dialog id="offline-progress-dialog" class="settings-dialog offline-progress-dialog" aria-labelledby="offline-progress-title">
@@ -989,6 +997,7 @@
           <div class="offline-progress-actions">
             <button id="retry-offline-progress" class="secondary-button" type="button">重试结算</button>
             <button id="offline-open-settings" class="secondary-button" type="button">存档与设置</button>
+            <button id="dismiss-paused-catch-up" class="secondary-button" type="button">关闭提示，保持暂停</button>
           </div>
         </section>
 
@@ -1018,50 +1027,51 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/vendor/break_eternity.min.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/namespace.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/bignum.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/config.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/meta/big-numbers.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/registry.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/formulas.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/penalties.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/integration.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/runtime.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/cultivation/xiuzhen.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/probability.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/compensation.js?v=0.1.5.2-release-20260912-r22"></script>
-  <script src="js/core/state.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/save.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/resources.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/effects.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/sources.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/core/reset.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/power/scale-logic.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/power/scale.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/cultivation/immortal-logic.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/cultivation/immortal.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/meta/achievements.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/crystal-interval.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/fast-forward.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/meta/treasures.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/cultivation/exploration-progress.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/meta/challenges.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/automation.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/fixed-sources.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/fixed-segment.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/step.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/treasure-events.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/projection.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/discrete-batch.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/offline.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/simulation/loop.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/ui/cards.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/ui/big-numbers.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/ui/xiuzhen.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/ui/treasures.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="js/ui/app.js?v=0.1.5.2-release-20260912-r22"></script>
-    <script src="game.js?v=0.1.5.2-release-20260912-r22"></script>
+    <script src="js/core/build-config.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/vendor/break_eternity.min.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/namespace.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/bignum.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/config.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/meta/big-numbers.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/registry.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/formulas.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/penalties.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/integration.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/runtime.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/cultivation/xiuzhen.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/probability.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/compensation.js?v=0.1.5.3-release-20260913-r27"></script>
+  <script src="js/core/state.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/save.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/resources.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/effects.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/sources.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/core/reset.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/power/scale-logic.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/power/scale.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/cultivation/immortal-logic.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/cultivation/immortal.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/meta/achievements.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/crystal-interval.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/fast-forward.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/meta/treasures.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/cultivation/exploration-progress.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/meta/challenges.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/automation.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/fixed-sources.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/fixed-segment.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/step.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/treasure-events.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/projection.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/discrete-batch.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/offline.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/simulation/loop.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/ui/source-preview.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/ui/cards.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/ui/big-numbers.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/ui/xiuzhen.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/ui/treasures.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="js/ui/app.js?v=0.1.5.3-release-20260913-r27"></script>
+    <script src="game.js?v=0.1.5.3-release-20260913-r27"></script>
   </body>
 </html>

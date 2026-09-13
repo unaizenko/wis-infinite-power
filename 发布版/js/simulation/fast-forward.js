@@ -343,11 +343,33 @@ function create(){
     state.meta.treasureProgressStatus[key]={state:'approximate',code:'high-geometric-batch',
       message:'高数量近似奖励已入库；不可分辨余量以区间记录，非精确归零；误差预算不是待发奖励',approximation};
   }
-  function sourcePotential(s,key,units,gain){const a=BN(T.getTreasureAwardMultiplier(s,key)),n=BN(T.count(s,key));
+  // Coalesce only adjacent sources with identical saved gain/award. Exact
+  // normalization stays bounded at MAX_TERMS; distinct contexts keep their order.
+  // This avoids thousands of inverse/settlement calls for a blocked old queue.
+  function compactPending(entries,currentAward){
+    const result=[];let words=[],gain=null,award=null;
+    const flush=()=>{if(words.length)result.push({units:L.normalize(words),gain,award});words=[];};
+    for(const entry of entries){
+      const g=String(entry.gain),a=String(entry.award??currentAward);
+      const awardValue=L.project(a);
+      assert(L.project(g).gte(0)&&awardValue.gt(0)&&awardValue.floor().eq(awardValue)&&L.sign(entry.units)>=0,
+        'HARD: invalid saved source context');
+      if(g!==gain||a!==award){flush();gain=g;award=a;}
+      for(const word of entry.units){
+        words.push(word);
+        if(words.length===L.MAX_TERMS){
+          words=L.normalize(words);
+          if(words.length===L.MAX_TERMS)flush();
+        }
+      }
+    }
+    flush();return result;
+  }
+  function sourcePotential(s,key,units,gain,fixedAward){const a=BN(fixedAward??T.getTreasureAwardMultiplier(s,key)),n=BN(T.count(s,key));
     const p=L.value(L.progress(s,key));
-    if(unresolvable(inverse(key,n,p,a)))return true;
     const entries=[...(s.meta.treasureProgressPending[key]||[])];
     if(BN(units).gt(0)&&BN(gain).gt(0))entries.push({units:[units],gain,award:a});
+    if(unresolvable(inverse(key,n,p,L.project(entries[0]?.award??a))))return true;
     for(const e of entries){const u=L.value(e.units),g=L.project(e.gain),award=L.project(e.award??a),d=P.requirement(key,n);
       if(g.gte(d)){
         const cap=context(key,award),capM=g.ln().sub(cap.logBase).div(cap.k).sub(n).div(award).floor().add(1);
@@ -356,18 +378,25 @@ function create(){
       if(unresolvable(inverse(key,n,p.add(u.mul(g)),award)))return true;
     }return false;
   }
-  function apply(s,key,units,gain,original){
+  function apply(s,key,units,gain,original,fixedAward){
     const oldStatus=s.meta.treasureProgressStatus[key];
-    if(P.rules[key].type!=='exponential'||!sourcePotential(s,key,units,gain)){
+    if(P.rules[key].type!=='exponential'||!sourcePotential(s,key,units,gain,fixedAward)){
       const result=original();
       if(oldStatus?.approximation&&!s.meta.treasureProgressStatus[key]?.approximation)
         s.meta.treasureProgressStatus[key]={...(s.meta.treasureProgressStatus[key]||oldStatus),approximation:oldStatus.approximation};
       count('bulk.ordinary');return result;
     }
     return timed('bulk.commit',()=>L.transaction(s,()=>{
-      count('bulk.high');let stock=L.stock(s,key),p=L.progress(s,key),rewards=[],a=BN(T.getTreasureAwardMultiplier(s,key));
+      count('bulk.high');let stock=L.stock(s,key),p=L.progress(s,key),rewards=[];
+      const currentAward=BN(fixedAward??T.getTreasureAwardMultiplier(s,key));
       let pending=[...(s.meta.treasureProgressPending[key]||[])];
-      if(BN(units).gt(0)&&BN(gain).gt(0))pending.push({units:L.normalize([units]),gain:String(gain),award:String(a)});
+      if(BN(units).gt(0)&&BN(gain).gt(0))pending.push({units:L.normalize([units]),gain:String(gain),award:String(currentAward)});
+      pending=compactPending(pending,currentAward);
+      let a=L.project(pending[0]?.award??currentAward);
+      // A successful replay replaces the old transient blockage, while earlier
+      // approximation receipts remain attached to the same ledger.
+      if(oldStatus?.state==='blocked')s.meta.treasureProgressStatus[key]=oldStatus.approximation
+        ? {...oldStatus,state:'approximate',code:'high-geometric-batch'} : null;
       const grant=m=>{const delta=L.scale([m],a);stock=L.add(stock,delta);rewards=L.add(rewards,delta);};
       function settle(){
         if(L.sign(p)<=0)return;const n=L.value(stock).floor(),pv=L.value(p),m=inverse(key,n,pv,a);
@@ -389,6 +418,7 @@ function create(){
         }
         // Close only the dominant positive high-layer component. All other
         // exact words, including tiny progress, remain in the ordinary ledger.
+        p=[...WIS.Core.SignedLedger.expand(p)];
         const index=p.findIndex(t=>L.project(t).gt(0)&&L.project(t).eq(pv));
         assert(index>=0,'HARD: high batch cannot isolate a positive dominant source');
         // A prior cap debit may be a separate negative word. It belongs to the
@@ -410,33 +440,59 @@ function create(){
           estimatedLogCost:String(logCost(key,n,estimate,a)),reward:String(reward),
           roundingStock:String(bounds.hi.sub(bounds.lo).mul(a)),remainderLower:'0',remainderUpper:String(upper),
           exactRemainder:false,knownLowWords:rest.length,frame:global.__jointFrame??null});
-        p=rest;grant(estimate);count('bulk.closedInputs');
+        p=WIS.Core.SignedLedger.normalize(rest);grant(estimate);count('bulk.closedInputs');
       }
       settle();
       for(const input of pending){count('bulk.pendingVisited');
-        a=L.project(input.award??a);const g=L.project(input.gain),n=L.value(stock).floor(),d=P.requirement(key,n);
+        a=L.project(input.award??currentAward);const g=L.project(input.gain),n=L.value(stock).floor(),d=P.requirement(key,n);
         assert(g.gte(0)&&a.gt(0)&&a.floor().eq(a)&&L.sign(input.units)>=0,'HARD: invalid saved source context');
         if(g.lt(d)){
           const incoming=L.scale(input.units,g);
-          if(p.length+incoming.length>L.MAX_TERMS&&unresolvable(inverse(key,n,L.value(incoming),a))){
-            // Separate one high source transaction from retained ordinary low
-            // credits before normalization, rather than overflowing the ledger.
-            const low=p;p=incoming;settle();p=L.add(low,p);count('bulk.capacitySeparated');
-          }else{p=L.add(p,incoming);settle();}
+          let combined;
+          try {combined=L.add(p,incoming);}
+          catch(error){
+            if(!(error instanceof L.LedgerError))throw error;
+            if(!unresolvable(inverse(key,n,L.value(incoming),a))){
+              if(error.code!=='ledger-capacity')throw error;
+              // A small unpaid source cannot be granted as a high batch.
+              // Archive its exact words in bounded pages until a later source
+              // pays the boundary; comparisons can refine those pages.
+              combined=WIS.Core.SignedLedger.add(p,incoming);
+            }else{
+            // Normalize in isolation first: term count is only a signal, since
+            // incoming words may merge exactly even with a full ledger. When
+            // the actual merge is unsafe, close the eligible high component
+            // before any write, then reattach ALL retained low words.
+            const low=p;p=incoming;settle();combined=WIS.Core.SignedLedger.add(low,p);count('bulk.capacitySeparated');
+            }
+          }
+          p=combined;settle();
           continue;
         }
         // Source-unit cap: first consume event credits only until the current
         // formula's cap transition. Do NOT apply an uncapped geometric sum to
         // this part. Reward multiplier changes the next inventory by A each time.
-        let credits=L.add(L.scale(p,ONE.div(d)),input.units);
         const c=context(key,a),capN=g.ln().sub(c.logBase).div(c.k),capM=B.max(0,capN.sub(n).div(a).floor().add(1));
+        let credits,retained=[];
+        try {credits=L.add(L.scale(p,ONE.div(d)),input.units);}
+        catch(error){
+          if(!(error instanceof L.LedgerError)||L.compare(input.units,[capM])<0||
+              !unresolvable(inverse(key,n,L.value(input.units).mul(g),a)))throw error;
+          // The incoming units alone pay the entire capped span, so its batch
+          // count is independent of prior progress. Carry that exact progress
+          // through the same demand conversion, outside the full credit array.
+          retained=p;credits=L.normalize(input.units);p=[];
+          count('bulk.capacitySeparated');
+        }
         const m=B.min(L.value(credits).floor(),capM);
         assert(L.compare(credits,[m])>=0,'HARD: capped credit debit exceeds input');
         credits=L.subtract(credits,[m]);grant(m);count('bulk.capSegments');
         if(unresolvable(m)){const bounds=uncertainBounds(m);record(s,key,{kind:'capped-credits',beforeStock:String(n),
           gain:String(g),award:String(a),batches:String(m),reward:String(m.mul(a)),closedProgress:'0',
           roundingStock:String(bounds.hi.sub(bounds.lo).mul(a)),remainderUpper:'0',exactCreditLedger:true});}
-        p=L.scale(credits,B.min(g,P.requirement(key,L.value(stock).floor())));settle();
+        const nextGain=B.min(g,P.requirement(key,L.value(stock).floor()));
+        p=L.scale(credits,nextGain);settle();
+        if(retained.length){p=L.add(p,L.scale(L.scale(retained,ONE.div(d)),nextGain));settle();}
       }
       L.write(s,key,stock,true);L.write(s,key,p);s.meta.treasureProgressPending[key]=[];
       if(L.sign(rewards)>0){WIS.Core.Effects.invalidate();P.rememberQualifications(s);}
@@ -1651,9 +1707,9 @@ module.exports={runSteps,supported,column,relative,formulaRegime,sourceChange,ma
   // required audit callbacks; measured profiling belongs in the E:\...\测试 tools.
   global.__jointRevision={count(){},timed(_key,fn,receiver,args){return Reflect.apply(fn,receiver,args);}};
   const ledgerCache=load('percent/ledger-cache').create();let bulk=null;
-  function applyTreasure(state,key,units,gain,ordinary){
+  function applyTreasure(state,key,units,gain,ordinary,fixedAward){
     bulk??=load('percent/bulk-progress').create();
-    const run=()=>bulk.apply(state,key,units,gain,ordinary);
+    const run=()=>bulk.apply(state,key,units,gain,ordinary,fixedAward);
     return global.__progressAudit?global.__progressAudit.advance(state,key,units,gain,run):run();
   }
   function audit(){global.__percentAudit=[];
