@@ -15,7 +15,7 @@
   function fresh() {
     return { version: 1, unlocked: false, fractalLevel: 0, purchases: [false, false, false, false, false],
       resources: SYMBOLS.map(entry), gIndex: 0, superProgress: B.BN(0), superResidual: [],
-      beyondFractal: false, elapsedSeconds: 0 };
+      beyondFractal: false, elapsedSeconds: 0, ySample: null };
   }
   const nonnegative = v => {
     if (!B.isFiniteBN(v ?? 0) || B.lt(v ?? 0, 0)) throw Error("大数存档包含非法系数");
@@ -31,6 +31,11 @@
     n.gIndex = n.fractalLevel === 5 ? Math.max(1, integer(raw.gIndex, 64)) : 0;
     n.beyondFractal = raw.beyondFractal === true || n.fractalLevel === 5;
     n.elapsedSeconds = Number.isFinite(raw.elapsedSeconds) ? Math.max(0, raw.elapsedSeconds) : 0;
+    if(raw.ySample!=null){
+      const remaining=Number(raw.ySample.remaining);
+      if(!Number.isFinite(remaining)||remaining<0||remaining>1)throw Error('大数 Y 秒内进度无效');
+      n.ySample={remaining,rate:nonnegative(raw.ySample.rate),baseRate:raw.ySample.baseRate==null?null:nonnegative(raw.ySample.baseRate)};
+    }
     const tails = v => Array.isArray(v) ? v.map(String) : [];
     n.resources = SYMBOLS.map((_, i) => {
       const e = raw.resources?.[i] || {};
@@ -85,28 +90,42 @@
     try { return work(copy); } catch (error) { state.meta.bigNumbers = before; throw error; }
   }
   function baseYRate(power) { return B.div(B.log10(B.max(1, power)), "1e8"); }
-  function intervalYGain(startPower, endPower, seconds, stepSeconds = 0.1) {
-    const a = baseYRate(startPower), b = baseYRate(endPower), frames = seconds / stepSeconds;
-    if (!(frames > 1)) return B.mul(b, seconds);
-    if (B.eq(a, b)) return B.mul(b, seconds);
-    if (!B.gt(a, 0) || !B.gt(b, 0)) {
-      // Linear endpoint model for crossing zero; sum its discrete samples.
-      return B.mul(B.add(B.div(B.add(a, b), 2), B.div(B.sub(b, a), 2 * frames)), seconds);
+  // Official rule: the Y rate is sampled at the START of each second and
+  // remains fixed for that second, independently of caller dt or UI cadence.
+  // A legacy save has no recoverable historical sample: seed the current
+  // partial second from its current state, preserving all previously earned Y.
+  function sampledYGain(n,state,seconds,options={}) {
+    let remaining=seconds,offset=0,gain=B.ZERO;
+    let sample=n.ySample?{...n.ySample}:null;
+    while(remaining>1e-10){
+      if(!sample||sample.remaining<=1e-10){
+        const fraction=sample?0:Math.max(0,n.elapsedSeconds-Math.floor(n.elapsedSeconds));
+        const power=options.powerAt?options.powerAt(offset):state.power;
+        sample={remaining:fraction>1e-10?1-fraction:1,
+          baseRate:baseYRate(power),rate:B.add(baseYRate(power),n.fractalLevel>=1?1:0)};
+      }
+      const dt=Math.min(remaining,sample.remaining);
+      gain=B.add(gain,B.mul(sample.rate,dt));
+      remaining=Math.max(0,Number((remaining-dt).toPrecision(14)));
+      offset+=dt;sample.remaining=Math.max(0,Number((sample.remaining-dt).toPrecision(14)));
+      // Long fixed-source spans with no power trajectory need no per-second loop.
+      if(sample.remaining<=1e-10&&remaining>=1&&!options.powerAt){
+        const whole=Math.floor(remaining),baseRate=baseYRate(state.power);
+        sample={remaining:0,baseRate,rate:B.add(baseRate,n.fractalLevel>=1?1:0)};
+        gain=B.add(gain,B.mul(sample.rate,whole));offset+=whole;remaining-=whole;
+      }
     }
-    const delta = B.sub(B.log10(b), B.log10(a));
-    const logStep = B.div(delta, frames), rising = B.gt(delta, 0);
-    const x = B.toNumber(B.mul(B.abs(logStep), Math.LN10), Infinity);
-    if (x < 1e-12) return B.mul(B.div(B.add(a, b), 2), seconds);
-    // r + ... + r^N, anchored to the larger endpoint. expm1 avoids
-    // cancellation near r=1; never enumerate N original logic frames.
-    const ratio = Number.isFinite(x) ? -Math.expm1(-x * frames) / -Math.expm1(-x) : 1;
-    const anchor = rising ? b : B.mul(a, B.pow10(logStep));
-    return B.mul(B.mul(anchor, ratio), stepSeconds);
+    if(sample&&sample.remaining<1e-10)sample.remaining=0;
+    n.ySample=sample;return gain;
+  }
+  function currentBaseYRate(state) {
+    const sample=get(state).ySample;
+    return sample?.remaining>1e-10&&sample.baseRate!=null?sample.baseRate:baseYRate(state.power);
   }
   function rates(state) {
     const n = get(state);
     return SYMBOLS.map((_, i) => !n.unlocked ? B.ZERO : i === 0
-      ? B.add(baseYRate(state.power), n.fractalLevel >= 1 ? 1 : 0)
+      ? n.ySample?.remaining>1e-10?n.ySample.rate:B.add(baseYRate(state.power), n.fractalLevel >= 1 ? 1 : 0)
       : B.BN(n.fractalLevel >= i + 1 ? 1 : 0));
   }
   function canPurchase(state, level) {
@@ -195,13 +214,7 @@
         ? advanceGrahamFixed(n, seconds, q) : advanceGraham(n, seconds, q);
       const currentRates = startingRates || rates(state);
       if (options.endPower !== undefined) currentRates[0] = B.add(baseYRate(options.endPower), n.fractalLevel >= 1 ? 1 : 0);
-      let yGain = B.mul(currentRates[0], seconds);
-      // Preserve discrete 0.1-second sampling; a continuous log mean would
-      // severely undercount rapidly growing Y even with correct endpoints.
-      if (options.startPower !== undefined && options.interval === true) {
-        yGain = B.add(intervalYGain(options.startPower, options.endPower ?? state.power, seconds, options.stepSeconds),
-          n.fractalLevel >= 1 ? seconds : 0);
-      }
+      const yGain=sampledYGain(n,state,seconds,options);
       for (let i = 0; i < 5; i++) credit(n.resources[i], i === 0 ? yGain : B.mul(currentRates[i], seconds));
       n.elapsedSeconds += seconds;
       return { milestoneCrossings };
@@ -237,6 +250,7 @@
       dominantOrder: Math.max(0, n.fractalLevel - 1),
       progress: ledger().value(ledger().normalize([n.superProgress, ...n.superResidual])),
       milestoneMultiplier: milestoneMultiplier(n.gIndex), fractalMultiplier: fractalMultiplier(q, n.beyondFractal),
+      baseSpeed: n.gIndex ? B.BN("0.008") : B.ZERO,
       speed: n.gIndex ? B.mul("0.008", B.mul(milestoneMultiplier(n.gIndex), fractalMultiplier(q, n.beyondFractal))) : B.ZERO };
   }
   function compareSymbolic(a, b) {
@@ -252,6 +266,6 @@
     return a.order !== b.order ? Math.sign(a.order - b.order) : a.order === 5 ? Math.sign(a.gIndex - b.gIndex) : ca.cmp(cb);
   }
   WIS.Meta.BigNumbers = Object.freeze({ SYMBOLS, COSTS, MILESTONES, fresh, normalize, get, requirements,
-    syncUnlock, baseYRate, intervalYGain, rates, amount, canPurchase, purchase, milestoneMultiplier, fractalMultiplier,
+    syncUnlock, baseYRate, currentBaseYRate, sampledYGain, rates, amount, canPurchase, purchase, milestoneMultiplier, fractalMultiplier,
     exposure, advance, prepare, view, compareSymbolic, maximumGIndex: 64 });
 }(window.WIS));

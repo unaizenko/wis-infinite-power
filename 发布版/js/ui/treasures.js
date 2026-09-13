@@ -15,21 +15,22 @@
     fiveElementsTreasure: "仙灵力获取", immortalCrystal: "仙灵力获取"
   });
   const reported = new Map();
-  function time(seconds, format) {
+  function time(seconds, format, conservative = false) {
     if (seconds === null || seconds === undefined || !B.isFiniteBN(seconds) || B.lt(seconds, 0)) return "—";
     const value = B.BN(seconds);
     if (B.lt(value, .1)) return "即将获得";
     if (B.gte(value, 86400)) {
       const days = B.div(value, 86400), n = B.toNumber(days, Infinity);
-      return `约${n < 10 ? n.toFixed(1).replace(/\.0$/, "") : n < 1e9 ? Math.round(n) : format(days, 3)}天`;
+      return `约${n < 10 ? (conservative ? Math.ceil(n * 10) / 10 : n).toFixed(1).replace(/\.0$/, "") : n < 1e9 ? (conservative ? Math.ceil(n) : Math.round(n)) : format(days, 3)}天`;
     }
-    const n = Math.max(1, Math.round(B.toNumber(value, 0)));
+    const n = Math.max(1, (conservative ? Math.ceil : Math.round)(B.toNumber(value, 0)));
     if (n < 60) return `约${n}秒`;
     if (n < 3600) return `约${Math.floor(n / 60)}分${n % 60 ? n % 60 + "秒" : ""}`;
-    return `约${Math.floor(n / 3600)}小时${Math.floor(n % 3600 / 60) ? Math.floor(n % 3600 / 60) + "分" : ""}`;
+    const minutes = conservative ? Math.ceil(n / 60) : Math.floor(n / 60);
+    return `约${Math.floor(minutes / 60)}小时${minutes % 60 ? minutes % 60 + "分" : ""}`;
   }
   function percentage(info) {
-    if (info.precision || info.pendingInputs > 0 || !B.isFiniteBN(info.progress) || !B.isFiniteBN(info.demand) ||
+    if (info.remainderCertainty !== 'exact' || info.pendingInputs > 0 || !B.isFiniteBN(info.progress) || !B.isFiniteBN(info.demand) ||
         B.lt(info.progress, 0) || !B.gt(info.demand, 0) || B.gt(info.progress, info.demand)) return null;
     const fraction = B.div(info.progress, info.demand), n = B.toNumber(fraction, NaN);
     if (!Number.isFinite(n) || (n === 0 && B.gt(info.progress, 0)) || (n >= 1 && info.remainingPositive)) return null;
@@ -56,7 +57,7 @@
   function acquisition(key, info, format) {
     const sources = (info.sources || []).map(s => sourceNames[s]).filter(Boolean).join("、") || sourcesByKey[key] || "暂无来源";
     const lines = ["来源：" + sources];
-    const blocked = info.precision?.state === "blocked";
+    const blocked = info.remainderCertainty === 'blocked' || info.precision?.state === "blocked";
     if (blocked) {
       const failed = /ledger|invalid|failed|capacity/.test(info.precision?.code || "");
       lines.push(failed ? "结算异常，请重试" : "结算中");
@@ -69,15 +70,17 @@
       }
     } else {
       reported.delete(key);
-      const eta = info.precision?.approximation ? "—" : info.remainingSeconds === null ? "暂无来源" : time(info.remainingSeconds, format);
+      const known = info.remainderCertainty === 'known-lower-bound';
+      const seconds = info.displayRemainingSeconds;
+      const eta = !B.gt(info.rate, 0) ? "暂无来源"
+        : info.displayEtaMode === 'unavailable' || seconds == null ? "暂无法估计"
+        : info.displayEtaMode === 'conservative' ? `≤${B.lt(seconds, .1) ? '约0.1秒' : time(seconds, format, true)}`
+        : time(seconds, format);
       const percent = percentage(info);
-      if (percent !== null) lines.push(`下一件：${percent} · ${eta}`);
-      else {
-        // An unknown residual is neither spendable progress nor an exact zero.
-        lines.push(info.precision?.approximation && !B.gt(info.progress, 0) ? "进度：—"
-          : `进度：${format(info.progress, 4)} / ${info.precision ? "目标" : format(info.demand, 4)}`);
-        lines.push(`预计：${eta}`);
-      }
+      const demand = B.isFiniteBN(info.demand) && B.gt(info.demand, 0) ? format(info.demand, 4) : "暂无法计算";
+      lines.push(`${known ? '已知进度' : '进度'}：${format(info.progress, 4)} / ${demand}`);
+      lines.push(`预计：${eta}`);
+      if (percent !== null) lines.push(`下一件：${percent}`);
     }
     const pause = pauseReason(key, info);
     if (pause) lines.push("暂停：" + pause);

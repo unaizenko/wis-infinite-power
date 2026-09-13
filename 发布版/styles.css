@@ -840,14 +840,20 @@ button { font: inherit; }
 
 /* Consistent two-line previews for independent resource sources. */
 .source-gain-preview { white-space: pre-line; line-height: 1.55; overflow-wrap: anywhere; }
-.independent-resource-sources { margin: 0.6rem 0; padding: 0.6rem 0.8rem; border: 1px solid var(--border, #c8ccd2); border-radius: 8px; }
-.independent-resource-sources summary { cursor: pointer; font-weight: 600; }
-.independent-resource-sources p { margin: 0.65rem 0; }
-.independent-resource-sources b, .independent-resource-sources .source-gain-preview { display: block; }
-#independent-resource-source-list { max-height: 60vh; overflow-y: auto; }
 
 .debug-source-preview { display: block; margin-bottom: 0.65rem; }
 
-/* Player source previews remain available without developer tools. */
-.resource-source-tools { grid-area: resource-debug; padding: 12px 24px; background: var(--subtle); border-bottom: 1px solid var(--border); }
-@media (max-width: 700px) { .resource-source-tools { padding: 10px 16px; } }
+/* Separate each mobile resource while retaining the compact two-column layout. */
+@media (max-width: 900px) {
+  .resource-panel .resource-items { gap: 8px; }
+  .resource-panel .resource-items > .resource-row {
+    border: 1px solid #d6dad7;
+    border-radius: 6px;
+    padding: 6px 8px;
+    min-width: 0;
+  }
+  html[data-theme="dark"] .resource-panel .resource-items > .resource-row { border-color: #525b55; }
+}
+@media (max-width: 600px) and (orientation: portrait) {
+  .resource-panel { gap: 6px 8px; }
+}

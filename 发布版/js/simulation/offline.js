@@ -133,6 +133,7 @@
       }
       const catchUpStatusListeners = new Set();
       let yieldChannel = null;
+      let treasureRecoveryJob=null,treasureRecoveryResult=null;
       const hostYieldQueue = [];
 
       function offlineProgressSnapshot() {
@@ -244,6 +245,11 @@
 
       function getCatchUpStatus() {
         const phase = catchUpPhase();
+        const sourceView=sessionSourceView();
+        // Automatic online work is a background task, even if clock pressure
+        // temporarily stops new foreground input. Presentation must not turn
+        // that ordinary pressure-control cycle into a recurring modal.
+        const inlineOnline=sourceView.sessionSource==='online'&&phase!=='paused'&&!treasureRecoveryJob;
         const processedClockSeconds = Math.max(0, catchUpSessionProcessedClockSeconds);
         const remainingClockSeconds = Math.max(0, pendingCatchUpClockSeconds);
         const totalClockSeconds = Math.max(0, catchUpOriginalClockSeconds);
@@ -254,8 +260,10 @@
         );
         return Object.freeze({
           phase,
-          locked: phase === "paused" || (phase === "running"&&presentation==='blocking'),
-          presentation: presentation||'blocking',
+          treasureRecovery:treasureRecoveryJob?.status()||treasureRecoveryResult,
+          locked: !!treasureRecoveryJob || phase === "paused" || (phase === "running"&&presentation==='blocking'&&!inlineOnline),
+          clockSuspended:!!treasureRecoveryJob||phase==='paused'||((phase==='running'||pendingCatchUpSeconds>epsilon)&&presentation==='blocking'),
+          presentation: treasureRecoveryJob?'blocking':inlineOnline?'notice':presentation||'blocking',
           awaySuspended,
           waitingForFrame: catchUpTasks[0]?.source==='online'&&!catchUpTasks[0]?.sealed&&catchUpTasks[0]?.remainingGameSeconds<simulationStepSeconds-epsilon,
           // Display metadata from the actual queue head; never infer old eligibility from current credit.
@@ -267,7 +275,7 @@
           }) : null,
           pendingGameSeconds: Math.max(0, pendingCatchUpSeconds),
           pendingClockSeconds: remainingClockSeconds,
-          ...sessionSourceView(),
+          ...sourceView,
           convertibleClockSeconds: catchUpTasks.filter(t=>t.source==='offline').reduce((sum,t)=>sum+t.remainingClockSeconds,0),
           compensation: {...getState().core.runtime.compensation},
           processedClockSeconds,
@@ -304,6 +312,7 @@
           estimatedWaitSeconds: estimateStable&&recentThroughput>0 ? pendingCatchUpSeconds/recentThroughput : null,
           estimateStatus: phase!=="running" ? "inactive" : estimateStable ? "available" : "sampling",
           settlementCosts: {...settlementCosts},
+          onlineSegments: context.onlineMetrics?.()||null,
           recoveryElapsedSeconds: catchUpSessionStartedAt ? (Date.now() - catchUpSessionStartedAt) / 1000 : 0,
           logicalStepSeconds: simulationStepSeconds,
           discreteMetrics: Object.freeze({ ...discreteMetrics }),
@@ -528,7 +537,7 @@
       }
 
       function invalidateSourceModels() {
-        for(const task of catchUpTasks){task.fixedWork?.close?.();task.fixedWork=null;task.fixedToken=null;
+        for(const task of catchUpTasks){task.onlineWork?.close?.();task.onlineWork=null;task.onlineToken=null;task.fixedWork?.close?.();task.fixedWork=null;task.fixedToken=null;
           task.fastDriver?.close?.();task.fastDriver=null;
           task.fastForward=null;task.fastFinished=false;clearAssignedCatchUpStep(task);}
       }
@@ -565,9 +574,13 @@
       function prepareQueueHead() {
         const task=catchUpTasks[0];if(!task)return false;
         if(task.source==='online'&&!task.sealed&&!task.started){
-          const frames=Math.floor((task.remainingGameSeconds+epsilon)*10);
+          const minimum=CONFIG.fixedSettlement.onlineCollectionSeconds;
+          if(task.remainingGameSeconds+epsilon<minimum)return false;
+          const first=task.logicalTickRemaining>epsilon?task.logicalTickRemaining:
+            getState().core.runtime.onlineCadenceRemaining||simulationStepSeconds;
+          const frames=1+Math.floor((task.remainingGameSeconds-first+epsilon)/simulationStepSeconds);
           if(frames===0)return false;
-          const whole=Math.min(task.remainingGameSeconds,frames/10),ratio=task.remainingClockSeconds/task.remainingGameSeconds;
+          const whole=Math.min(task.remainingGameSeconds,first+(frames-1)*simulationStepSeconds),ratio=task.remainingClockSeconds/task.remainingGameSeconds;
           const rest=task.remainingGameSeconds-whole;
           if(rest>epsilon){
             const tail=makeCatchUpTask(rest,rest*ratio,{...task,id:undefined,clockCursor:task.clockCursor+whole*ratio});
@@ -1084,6 +1097,7 @@
         return {
           confirmedSources:{...confirmedSources},
           fixedConfirmed: WIS.Simulation.FixedSegment.confirmed(),
+          onlineConfirmed:context.onlineMetrics?.(),
           state: confirmedState ?? (typeof snapshotState === "function" ? snapshotState({ borrow }) : null),
           random: typeof task?.random?.snapshot === "function" ? task.random.snapshot() : null,
           task: task ? {
@@ -1128,6 +1142,7 @@
       function restoreCatchUpStep(task, snapshot) {
         confirmedSources={...snapshot.confirmedSources};
         WIS.Simulation.FixedSegment.restoreConfirmed(snapshot.fixedConfirmed);
+        context.restoreOnlineMetrics?.(snapshot.onlineConfirmed);
         let restoreError = null;
         if (snapshot?.state !== null && typeof restoreState === "function") {
           try { restoreState(snapshot.state); } catch (error) { restoreError = error; }
@@ -1342,6 +1357,31 @@
         void (async () => {
           while (generation === catchUpGeneration && !catchUpPaused && !awaySuspended) {
             if (catchUpTasks.length === 0||!prepareQueueHead()) break;
+            // Historical treasure work never runs inside the simulation's
+            // 0.1-second domain transaction. No clock or RNG advances here.
+            const recovery=WIS.Meta.TreasureProgress.Recovery;
+            if(recovery.needed(getState())){
+              treasureRecoveryJob=recovery.create(getState());publishCatchUpStatus();
+              const paint=()=>typeof context.yieldToHost==='function'?context.yieldToHost():
+                typeof window.requestAnimationFrame==='function'&&!document.hidden
+                  ?new Promise(resolve=>window.requestAnimationFrame(()=>window.setTimeout(resolve,0)))
+                  :yieldForFirstPaint();
+              try{
+                await paint();
+                while(generation===catchUpGeneration&&!catchUpPaused&&!awaySuspended){
+                  const result=treasureRecoveryJob.advance(performance.now()+6);
+                  publishCatchUpStatus();
+                  if(result.done){treasureRecoveryResult={...result.stats,stocks:undefined};break;}
+                  await paint();
+                }
+              }finally{
+                treasureRecoveryJob?.cancel();treasureRecoveryJob=null;
+                context.setLastTickAt?.(Date.now());publishCatchUpStatus();
+              }
+              if(generation!==catchUpGeneration||catchUpPaused||awaySuspended)break;
+              checkpointCatchUp(true);
+              await yieldForFirstPaint();
+            }
             const frameStartedAt = catchUpClockNow();
             const planningDeadlineMs = Math.min(
               frameStartedAt + frameBudgetMs,
@@ -1360,8 +1400,18 @@
               // but preserve its already committed partial-tick position.
               const bridgeSeconds = Math.min(task.remainingGameSeconds, task.source === "offline"
                 ? CONFIG.fixedSettlement.offlineSeconds
+                : context.prepareOnlineWork&&task.randomMode==="state" ? (pendingCatchUpSeconds>2?CONFIG.fixedSettlement.onlineBacklogSeconds:CONFIG.fixedSettlement.onlineSeconds)
                 : task.logicalTickRemaining > epsilon ? task.logicalTickRemaining : simulationStepSeconds);
               if (!(bridgeSeconds > epsilon)) { catchUpTasks.shift(); continue; }
+              if(task.source==='online'&&context.prepareOnlineWork&&task.randomMode==='state'){
+                try{
+                  task.onlineWork ||= context.prepareOnlineWork(bridgeSeconds,{source:'online',compensationEligible:task.compensationEligible,
+                    clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,logicalTickRemaining:task.logicalTickRemaining});
+                  const work=task.onlineWork.advance(frameStartedAt+frameBudgetMs);
+                  if(!work.done){planningYieldRequested=true;break;}
+                  task.onlineToken=work.token;task.onlineWork=null;
+                }catch(error){task.onlineWork?.close?.();task.onlineWork=null;task.onlineToken=null;pauseCatchUp(catchUpDiagnostic('online-plan-failed',task,bridgeSeconds,null,error));break;}
+              }
               if (task.source === "offline" && context.prepareFixedWork) {
                 try {
                   task.fixedWork ||= context.prepareFixedWork(bridgeSeconds);
@@ -1391,12 +1441,13 @@
                 beginTransaction();
                 transactionStarted = true;
                 const preparedFixedSegment=task.fixedToken;task.fixedToken=null;
+                const preparedOnlineSegment=task.onlineToken;task.onlineToken=null;
                 result = WIS.Core.Runtime.withRandomSource(
                   () => task.random.next(),
                   () => WIS.Core.Runtime.withOfflineExecution(() =>
                     advanceGameStep(requestedSeconds, true, {
                       offline: false,
-                      preparedFixedSegment,
+                      preparedFixedSegment, preparedOnlineSegment,
                       timeSegment: {source:task.source, compensationEligible:task.compensationEligible,
                         clockRatio:task.remainingGameSeconds>0?task.remainingClockSeconds/task.remainingGameSeconds:0},
                       integrationMethod: "end", preparedStepPlan: task.preparedStepPlan
@@ -1415,12 +1466,12 @@
                   // including when the fast driver was ineligible at entry.
                   // An event-shortened prefix must not start a fresh frame.
                   {
-                    const originalTick = task.source === "offline" ? acceptedSeconds
+                    const originalTick = result?.clockCommitted ? acceptedSeconds : task.source === "offline" ? acceptedSeconds
                       : task.logicalTickRemaining > epsilon ? task.logicalTickRemaining : simulationStepSeconds;
                     task.logicalTickRemaining = Math.max(0, originalTick - acceptedSeconds);
                     if (task.logicalTickRemaining <= epsilon) {
                       discreteMetrics.logicalTicks += 1;
-                      if (task.source === "online") discreteMetrics.exactTicks += 1;
+                      if (task.source === "online") discreteMetrics.exactTicks += result.compatibilitySubsteps||1;
                       else { discreteMetrics.batches++; discreteMetrics.largestBatch = Math.max(discreteMetrics.largestBatch, acceptedSeconds); }
                       discreteMetrics.verification = "fixed-start-sources-v1";
                     }
@@ -1434,7 +1485,7 @@
                     ? task.currentOuterStepClockSeconds / task.currentOuterStepGameSeconds
                     : 0;
                   const acceptedClockSeconds = Math.min(task.currentClockRemaining, acceptedSeconds * clockRatio);
-                  getState().totalElapsedSeconds += acceptedClockSeconds;
+                  if(!result.clockCommitted)getState().totalElapsedSeconds += acceptedClockSeconds;
                   if (!getState().unlockedAchievements?.trainingUp &&
                       getState().totalElapsedSeconds >= 600 && recordCurrentAchievements()) {
                     markAchievementsDirty();

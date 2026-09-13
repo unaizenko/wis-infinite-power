@@ -6,7 +6,8 @@
   const GAME_VERSION = CONFIG.gameVersion;
   const LOGIC_INTERVAL_MS = 100;
   const RENDER_INTERVAL_MS = 250;
-  const SIMULATION_STEP_SECONDS = 0.1;
+  const DISCRETE_CADENCE_SECONDS = CONFIG.fixedSettlement.discreteCadenceSeconds;
+  const SIMULATION_STEP_SECONDS = DISCRETE_CADENCE_SECONDS; // legacy local-rule adapters
   const MAX_ONLINE_STEPS_PER_FRAME = 8;
   const MAX_DISCRETE_EVENTS_PER_STEP = 128;
   const SIMULATION_EPSILON = 1e-10;
@@ -433,6 +434,9 @@
   });
   offlineSimulation = WIS.Simulation.Offline.create({
     prepareFixedWork: stepSimulation.prepareFixedWork,
+    prepareOnlineWork: stepSimulation.prepareOnlineWork,
+    onlineMetrics: stepSimulation.onlineMetrics,
+    restoreOnlineMetrics: stepSimulation.restoreOnlineMetrics,
     getState: () => state,
     advanceGameStep: stepSimulation.advanceGameStep,
     calculateAutomaticStepPlan: stepSimulation.calculateAutomaticStepPlan,

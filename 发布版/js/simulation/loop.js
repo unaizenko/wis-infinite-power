@@ -14,13 +14,17 @@
       const previous=lastTickAt;lastTickAt=now;
       if(!isInitialLoadComplete()||ledger().awaySince!==null||(!leaving&&document.hidden))return 0;
       const status=offline.getCatchUpStatus();
-      if(status.phase==='paused'||((status.phase==='running'||status.pendingGameSeconds>epsilon)&&status.presentation==='blocking'))return 0;
+      if(status.clockSuspended||status.treasureRecovery?.active||status.phase==='paused'||((status.phase==='running'||status.pendingGameSeconds>epsilon)&&status.presentation==='blocking'))return 0;
       const seconds=Math.max(0,now-previous)/1000;
       if(!(seconds>0))return 0;
       const speed=effectiveDevSpeed();
       // Reserve eligibility without spending credit. Earlier queued online
       // time keeps its original qualification even if a new grant is added.
-      const covered=eligible()?Math.min(seconds,offline.availableCompensationClockSeconds()):0;
+      const available=eligible()?Math.min(seconds,offline.availableCompensationClockSeconds()):0;
+      // Sub-resolution quota stays in the compensation ledger for a later grant.
+      // Never manufacture an unexecutable tiny task before every ordinary tick:
+      // it repeatedly seals the following source and defeats segment coalescing.
+      const covered=available>epsilon?available:0;
       for(const [clock,compensationEligible] of [[covered,true],[seconds-covered,false]])if(clock>0)
         offline.appendCatchUpTask(clock*speed,clock,{source:'online',compensationEligible,
           randomMode:'state',speed,sealed:false,presentation:'quiet',mergeWithTail:true,external:true});
@@ -50,6 +54,9 @@
       const now=Date.now();
       if(!isInitialLoadComplete()){lastTickAt=now;return;}
       if(document.hidden)return;
+      // Recovery publishes its own small progress view. Re-rendering every
+      // ability/ledger here repeatedly traverses the still-uncommitted backlog.
+      if(offline.getCatchUpStatus().treasureRecovery?.active){lastTickAt=now;return;}
       // The visibility event normally handles this. Recover a missed event
       // through the SAME watermark, without inferring offline from duration.
       if(ledger().awaySince!==null)registerReturn(now);

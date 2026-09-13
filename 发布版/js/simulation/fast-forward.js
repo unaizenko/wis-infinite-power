@@ -339,7 +339,7 @@ function create(){
       stockRoundingSensitivity:String(B.add(old.stockRoundingSensitivity||0,receipt.roundingStock||0)),
       unresolvedRemainderUpper:String(B.add(old.unresolvedRemainderUpper||0,receipt.remainderUpper||0)),
       boundScope:'16-coordinate-ulp representation sensitivity only; NOT a certified mathematical reward/remainder bound',
-      policy:'close-high-inverse-once; known low words retained; unknown phase projected to lower bound 0, NOT exact zero',last:receipt};
+      policy:'close-high-inverse-once; known low words retained; unknown phase projected to lower bound 0, NOT exact zero',last:P.receipt(receipt)};
     state.meta.treasureProgressStatus[key]={state:'approximate',code:'high-geometric-batch',
       message:'高数量近似奖励已入库；不可分辨余量以区间记录，非精确归零；误差预算不是待发奖励',approximation};
   }
@@ -347,25 +347,9 @@ function create(){
   // normalization stays bounded at MAX_TERMS; distinct contexts keep their order.
   // This avoids thousands of inverse/settlement calls for a blocked old queue.
   function compactPending(entries,currentAward){
-    const result=[];let words=[],gain=null,award=null;
-    const flush=()=>{if(words.length)result.push({units:L.normalize(words),gain,award});words=[];};
-    for(const entry of entries){
-      const g=String(entry.gain),a=String(entry.award??currentAward);
-      const awardValue=L.project(a);
-      assert(L.project(g).gte(0)&&awardValue.gt(0)&&awardValue.floor().eq(awardValue)&&L.sign(entry.units)>=0,
-        'HARD: invalid saved source context');
-      if(g!==gain||a!==award){flush();gain=g;award=a;}
-      for(const word of entry.units){
-        words.push(word);
-        if(words.length===L.MAX_TERMS){
-          words=L.normalize(words);
-          if(words.length===L.MAX_TERMS)flush();
-        }
-      }
-    }
-    flush();return result;
+    return P.Pending.compact(entries,currentAward);
   }
-  function sourcePotential(s,key,units,gain,fixedAward){const a=BN(fixedAward??T.getTreasureAwardMultiplier(s,key)),n=BN(T.count(s,key));
+  function* sourcePotential(s,key,units,gain,fixedAward){const a=BN(fixedAward??T.getTreasureAwardMultiplier(s,key)),n=BN(T.count(s,key));
     const p=L.value(L.progress(s,key));
     const entries=[...(s.meta.treasureProgressPending[key]||[])];
     if(BN(units).gt(0)&&BN(gain).gt(0))entries.push({units:[units],gain,award:a});
@@ -376,31 +360,33 @@ function create(){
         if(unresolvable(B.min(u,capM)))return true;
       }
       if(unresolvable(inverse(key,n,p.add(u.mul(g)),award)))return true;
+      yield {phase:'decision'};
     }return false;
   }
-  function apply(s,key,units,gain,original,fixedAward){
+  function* steps(s,key,units,gain,original,fixedAward){
     const oldStatus=s.meta.treasureProgressStatus[key];
-    if(P.rules[key].type!=='exponential'||!sourcePotential(s,key,units,gain,fixedAward)){
-      const result=original();
+    if(P.rules[key].type!=='exponential'||!(yield* sourcePotential(s,key,units,gain,fixedAward))){
+      const value=original(),result=value?.next?yield* value:value;
       if(oldStatus?.approximation&&!s.meta.treasureProgressStatus[key]?.approximation)
         s.meta.treasureProgressStatus[key]={...(s.meta.treasureProgressStatus[key]||oldStatus),approximation:oldStatus.approximation};
       count('bulk.ordinary');return result;
     }
-    return timed('bulk.commit',()=>L.transaction(s,()=>{
+    {
+      L.transaction(s,()=>{});
       count('bulk.high');let stock=L.stock(s,key),p=L.progress(s,key),rewards=[];
       const currentAward=BN(fixedAward??T.getTreasureAwardMultiplier(s,key));
-      let pending=[...(s.meta.treasureProgressPending[key]||[])];
-      if(BN(units).gt(0)&&BN(gain).gt(0))pending.push({units:L.normalize([units]),gain:String(gain),award:String(currentAward)});
-      pending=compactPending(pending,currentAward);
+      let pending=s.meta.treasureProgressPending[key]||[];
+      if(BN(units).gt(0)&&BN(gain).gt(0))pending=P.Pending.append(pending,units,gain,currentAward);
+      pending=yield* P.Pending.compactSteps(pending,currentAward);
       let a=L.project(pending[0]?.award??currentAward);
       // A successful replay replaces the old transient blockage, while earlier
       // approximation receipts remain attached to the same ledger.
       if(oldStatus?.state==='blocked')s.meta.treasureProgressStatus[key]=oldStatus.approximation
         ? {...oldStatus,state:'approximate',code:'high-geometric-batch'} : null;
       const grant=m=>{const delta=L.scale([m],a);stock=L.add(stock,delta);rewards=L.add(rewards,delta);};
-      function settle(){
+      function* settle(){
         if(L.sign(p)<=0)return;const n=L.value(stock).floor(),pv=L.value(p),m=inverse(key,n,pv,a);
-        if(!m.gt(0))return;
+        if(!m.gt(0))return;yield {phase:'inverse',key};
         if(!unresolvable(m)){
           let batches;
           try {batches=P.affordable(key,n,pv,a);}catch(error){
@@ -410,7 +396,7 @@ function create(){
             // never undo the confirmed cap or claim this tail was spent.
             const old=s.meta.treasureProgressStatus[key]||{};
             s.meta.treasureProgressStatus[key]={...old,tailBoundary:{code:error.code,
-              stock:stock.slice(),progress:p.slice(),message:'Unconfirmed post-cap tail remains spendable progress; no reward posted for this tail'}};
+              stock:P.ledgerSummary(stock),progress:P.ledgerSummary(p),message:'Unconfirmed post-cap tail remains spendable progress; no reward posted for this tail'}};
             count('bulk.retainedTailBoundary');return;
           }
           const cost=P.cumulative(key,n,batches,a);
@@ -418,7 +404,7 @@ function create(){
         }
         // Close only the dominant positive high-layer component. All other
         // exact words, including tiny progress, remain in the ordinary ledger.
-        p=[...WIS.Core.SignedLedger.expand(p)];
+        p=[...WIS.Core.SignedLedger.expand(p)];yield {phase:'expand',key};
         const index=p.findIndex(t=>L.project(t).gt(0)&&L.project(t).eq(pv));
         assert(index>=0,'HARD: high batch cannot isolate a positive dominant source');
         // A prior cap debit may be a separate negative word. It belongs to the
@@ -432,6 +418,7 @@ function create(){
         const closed=t=>{const v=L.project(t);return (v.layer>=2&&v.mag>0)||v.lt(0);};
         const chargedWords=p.filter((t,i)=>i===index||closed(t));
         const rest=p.filter((t,i)=>i!==index&&!closed(t));
+        yield {phase:'partition',key};
         const charged=L.value(chargedWords),estimate=inverse(key,n,charged,a),bounds=uncertainBounds(estimate);
         assert(charged.gt(0)&&L.sign(rest)>=0,'HARD: cannot safely partition net progress');
         const reward=estimate.mul(a),upper=P.requirement(key,n.add(bounds.hi.mul(a)));
@@ -440,14 +427,15 @@ function create(){
           estimatedLogCost:String(logCost(key,n,estimate,a)),reward:String(reward),
           roundingStock:String(bounds.hi.sub(bounds.lo).mul(a)),remainderLower:'0',remainderUpper:String(upper),
           exactRemainder:false,knownLowWords:rest.length,frame:global.__jointFrame??null});
+        yield {phase:'receipt',key};
         p=WIS.Core.SignedLedger.normalize(rest);grant(estimate);count('bulk.closedInputs');
       }
-      settle();
-      for(const input of pending){count('bulk.pendingVisited');
+      yield* settle();yield {phase:'settle',key};
+      for(const input of P.Pending.inputs(pending)){count('bulk.pendingVisited');
         a=L.project(input.award??currentAward);const g=L.project(input.gain),n=L.value(stock).floor(),d=P.requirement(key,n);
         assert(g.gte(0)&&a.gt(0)&&a.floor().eq(a)&&L.sign(input.units)>=0,'HARD: invalid saved source context');
         if(g.lt(d)){
-          const incoming=L.scale(input.units,g);
+          const incoming=L.scale(input.units,g);yield {phase:'scale',key};
           let combined;
           try {combined=L.add(p,incoming);}
           catch(error){
@@ -463,10 +451,10 @@ function create(){
             // incoming words may merge exactly even with a full ledger. When
             // the actual merge is unsafe, close the eligible high component
             // before any write, then reattach ALL retained low words.
-            const low=p;p=incoming;settle();combined=WIS.Core.SignedLedger.add(low,p);count('bulk.capacitySeparated');
+            const low=p;p=incoming;yield* settle();combined=WIS.Core.SignedLedger.add(low,p);count('bulk.capacitySeparated');
             }
           }
-          p=combined;settle();
+          p=combined;yield* settle();yield {phase:"settle",key,block:input._endBlock};
           continue;
         }
         // Source-unit cap: first consume event credits only until the current
@@ -491,16 +479,23 @@ function create(){
           gain:String(g),award:String(a),batches:String(m),reward:String(m.mul(a)),closedProgress:'0',
           roundingStock:String(bounds.hi.sub(bounds.lo).mul(a)),remainderUpper:'0',exactCreditLedger:true});}
         const nextGain=B.min(g,P.requirement(key,L.value(stock).floor()));
-        p=L.scale(credits,nextGain);settle();
-        if(retained.length){p=L.add(p,L.scale(L.scale(retained,ONE.div(d)),nextGain));settle();}
+        p=L.scale(credits,nextGain);yield* settle();
+        if(retained.length){p=L.add(p,L.scale(L.scale(retained,ONE.div(d)),nextGain));yield* settle();}
+        yield {phase:"settle",key,block:input._endBlock};
       }
-      L.write(s,key,stock,true);L.write(s,key,p);s.meta.treasureProgressPending[key]=[];
+      L.write(s,key,stock,true);yield {phase:'stock-write',key};L.write(s,key,p);s.meta.treasureProgressPending[key]=[];
       if(L.sign(rewards)>0){WIS.Core.Effects.invalidate();P.rememberQualifications(s);}
       assert(L.sign(L.stock(s,key))>=0&&L.sign(L.progress(s,key))>=0,'HARD: negative committed balance');
       return L.value(rewards);
-    }));
+    }
   }
-  return {apply,inverse,logCost,unresolvable};
+  function apply(s,key,units,gain,original,fixedAward){
+    const previous=s.meta;
+    try{const iterator=steps(s,key,units,gain,original,fixedAward);let item;
+      do{item=iterator.next();}while(!item.done);return item.value;
+    }catch(error){s.meta=previous;WIS.Core.Effects.invalidate();throw error;}
+  }
+  return {apply,steps,inverse,logCost,unresolvable};
 }
 module.exports={create};
 
@@ -1712,6 +1707,20 @@ module.exports={runSteps,supported,column,relative,formulaRegime,sourceChange,ma
     const run=()=>bulk.apply(state,key,units,gain,ordinary,fixedAward);
     return global.__progressAudit?global.__progressAudit.advance(state,key,units,gain,run):run();
   }
+  function treasureRecoverySteps(state,key,award){
+    bulk??=load('percent/bulk-progress').create();
+    const P=WIS.Meta.TreasureProgress;
+    function* ordinary(){
+      const queue=state.meta.treasureProgressPending[key];state.meta.treasureProgressPending[key]=[];
+      for(const input of P.Pending.inputs(queue)){
+        const row={...input};delete row._endBlock;state.meta.treasureProgressPending[key]=[row];
+        P.advanceFixed(state,key,0,{eligible:true,gain:0,award:input.award??award});
+        if(state.meta.treasureProgressPending[key]?.length)throw new WIS.Meta.TreasureLedger.LedgerError('宝物来源未能安全结算；原始输入保留');
+        yield {phase:'settle',key,block:input._endBlock};
+      }return WIS.Core.BigNum.ZERO;
+    }
+    return bulk.steps(state,key,0,0,ordinary,award);
+  }
   function audit(){global.__percentAudit=[];
     try{WIS.Cultivation.ImmortalLogic.autoBreakthroughImmortalRealms();
       WIS.Cultivation.Xiuzhen?.automation(WIS.Core.Runtime.state,'realm');
@@ -1779,7 +1788,7 @@ module.exports={runSteps,supported,column,relative,formulaRegime,sourceChange,ma
       get processed(){return point.game.ticks/10;},get original(){return original;}};
   }
   WIS.Simulation=WIS.Simulation||{};
-  WIS.Simulation.FastForward=Object.freeze({version:1,checkpointBuild:CHECKPOINT_BUILD,targets:50,ledgerCache,applyTreasure,audit,applicable,createDriver,
+  WIS.Simulation.FastForward=Object.freeze({version:1,checkpointBuild:CHECKPOINT_BUILD,targets:50,ledgerCache,applyTreasure,treasureRecoverySteps,audit,applicable,createDriver,
     sourceModel:Object.freeze({column:load('general-engine').column,formulaRegime:load('general-engine').formulaRegime,sourceChange:load('general-engine').sourceChange}),
     pack,unpack,cloneMemory,recordCost,exportPoint:compact,validatePoint,get intervalFrames(){return global.__percentFrames||1;},isComputing:()=>computing,
     get auditCandidates(){return global.__percentAudit;},

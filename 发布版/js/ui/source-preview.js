@@ -19,7 +19,7 @@
   };
   const primary = Object.keys(names);
   const penalty = (resource, gain, state) => WIS.Core.Penalties.applyGoogolPenalty(resource, state[resource], gain, state);
-  function query(ids, currentState = R.getState(), { assumeUnlocked = false } = {}) {
+  function query(ids, currentState = R.getState(), { assumeUnlocked = false, includeProcess = false } = {}) {
     if (currentState === R.state) currentState = R.getState();
     const needsUnlock = assumeUnlocked && (ids || []).some(id =>
       (unlocks[id] && !currentState[unlocks[id]]) ||
@@ -54,6 +54,78 @@
           ), state);
         }
         return penalty(resource, I.finalManaGainFromSources([raw]), state);
+      }
+      // Detail-only metadata: use the settlement's current helpers, never final/raw.
+      // Source multipliers are already included in raw and must not be applied twice.
+      function processFor(id, resource) {
+        const steps = [];
+        const add = (label, op, value, groups) => steps.push({ label, op, value: B.BN(value), groups });
+        const note = label => steps.push({ label, op: "note" });
+        const product = values => values.reduce((total, value) => B.mul(total, value), B.ONE);
+        const grouped = (label, op, groups, total, bonus = B.ZERO) => {
+          const factors = Object.entries(groups).map(([name, effects]) => ({
+            name, value: product(effects.map(effect => effect.value))
+          })).filter(group => !B.eq(group.value, 1));
+          add(label, op, total ?? product(factors.map(group => group.value)), factors);
+          if (!B.eq(bonus, 0)) steps[steps.length - 1].bonus = B.BN(bonus);
+        };
+        const exponent = (label, value) => { if (!B.eq(value, 1)) add(label, "power", value); };
+        const time = () => exponent("时间法则", I.daoTimeLawExponent());
+        const googol = () => {
+          const value = WIS.Core.Penalties.googolPenaltyMultiplier(resource, state[resource], state);
+          if (!B.eq(value, 1)) add("古戈尔惩罚", "multiply", value);
+        };
+        if (["joules", "power"].includes(resource)) {
+          if (resource === "power") {
+            const limit = S.activePowerSourceChallengeExponent(id);
+            if (B.lt(limit, 1)) add("来源挑战限制", "shiftedPower", limit);
+          }
+          grouped("区域倍率", "multiply", resource === "joules" ? S.jMultiplierGroups() : S.powerMultiplierGroups());
+          grouped("区域指数", "power", E.groups(resource, "regionExponent", state),
+            resource === "joules" ? S.jGainExponent() : S.powerGainExponent());
+          exponent("天人衰劫", I.celestialDeclineExponent());
+          time();
+          const manaSource = id === "manaJ" || id === "qiManaPower";
+          const progressive = id === "training";
+          add((manaSource && I.qiRefiningChallengeActive() ? "法力来源软上限" : "资源软上限") +
+            (progressive ? "（起始指数）" : ""), "softcap",
+            S.resourceSoftcapExponent(state[resource], manaSource ? "mana" : "normal"));
+          const planet = S.planetSuppressionSoftcapExponent(state[resource]);
+          if (!B.eq(planet, 1)) add("星球压制" + (progressive ? "（起始指数）" : ""), "softcap", planet);
+          if (progressive) note("单次锻炼按库存变化分段结算软上限，以上为起始参数");
+          else googol();
+        } else if (resource === "mana") {
+          const exploration = ["exploration", "explorationNormal", "explorationFuBao", "automaticExploration"].includes(id);
+          const automatic = id === "automaticExploration";
+          const progressive = id === "breathing" || (exploration && !automatic);
+          if (automatic) add("还原单次探寻来源", "divide", WIS.Core.Config.exploration.automaticEfficiency);
+          grouped(progressive ? "法力区域倍率（起始值）" : "法力区域倍率", "multiply", I.manaMultiplierGroups());
+          if (id === "breathing") add("主动吐纳重修", "multiply", I.scatterRebuildManaMultiplier());
+          grouped("法力区域指数", "power", E.groups("mana", "regionExponent", state),
+            B.add(E.product("mana", "regionExponent", state), I.greatLuoManaExponentBonus()), I.greatLuoManaExponentBonus());
+          time();
+          if (exploration) {
+            grouped("探寻区域倍率", "multiply", E.groups("exploration", "regionMultiplier", state));
+            grouped("探寻指数", "power", E.groups("exploration", "sourceExponent", state));
+            exponent("小天劫", automatic ? I.minorTribulationExplorationManaExponent() : explorationSources().exponent);
+          }
+          exponent("天人衰劫", I.immortalPowerManaSuppressionExponent());
+          if (automatic) add("自动探寻效率", "multiply", WIS.Core.Config.exploration.automaticEfficiency);
+          if (!progressive) googol();
+          if (progressive) note(`按本次行动的法力变化分段结算，${id === "breathing" ? "吐纳来源衰减与" : ""}境界瓶颈随库存更新；以上为起始参数`);
+        } else if (resource === "immortalPower") {
+          grouped("仙灵力区域倍率", "multiply", I.immortalPowerMultiplierGroups());
+          const groups = { ...E.groups(resource, "regionExponent", state) };
+          if (state.activeChallenge === "severSelfCorpse") groups["斩自我尸额外限制"] = [{ value: I.selfCorpseImmortalPowerLimitExponent() }];
+          grouped("仙灵力区域指数", "power", groups, I.immortalPowerRegionExponent(),
+            B.add(I.goldenNatureImmortalPowerExponentBonus(), I.greatLuoManaExponentBonus()));
+          time(); googol();
+        } else {
+          // Xiuzhen raw already includes all its own ability multipliers.
+          if (resource === "xianForce" && WIS.Cultivation.Xiuzhen.yinYang(state)) add("阴虚阳实", "power", .85);
+          else add("来源层之后无额外乘区", "multiply", 1);
+        }
+        return steps;
       }
       function one(id) {
         let raw = B.ZERO, final, resource = "power", unit = "秒", extra = [];
@@ -115,18 +187,38 @@
         }
         if (["power", "joules"].includes(resource) && state.powerSystem.active !== "scale") raw = final = B.ZERO;
         return { id, name: names[id] || externalSources().find(s => s.id === id)?.name || id,
-          resource, raw: B.BN(raw), final: B.BN(final ?? resourceFinal(resource, raw, id)), unit, extra };
+          resource, raw: B.BN(raw), final: B.BN(final ?? resourceFinal(resource, raw, id)), unit, extra,
+          ...(includeProcess ? { process: processFor(id, resource),
+            extraProcess: extra.length ? [{ label: "探寻量：神识", op: "multiply", value: B.BN(I.divineSenseMultiplier()) }] : [] } : {}) };
       }
       return (ids || [...primary, ...externalSources().map(s => s.id)]).map(one);
     })));
   }
-  function text(records, format) {
+  function processText(steps, format) {
+    const amount = value => B.gt(value, 0) && B.lt(value, "0.001")
+      ? B.BN(value).toExponential(3) : format(value, 5);
+    return steps.map(step => {
+      if (step.op === "note") return step.label;
+      const value = amount(step.value);
+      const expression = step.op === "power" ? `^${value}`
+        : step.op === "divide" ? `÷${value}`
+        : ["softcap", "shiftedPower"].includes(step.op) ? `(1 + x)^${value} − 1` : `×${value}`;
+      const factors = (step.groups || []).map(group =>
+        `${group.name}${step.op === "power" ? "^" : "×"}${amount(group.value)}`);
+      if (step.bonus) factors.push(`指数乘积后加成 +${amount(step.bonus)}`);
+      const groups = factors.length ? `〔${factors.join("，")}〕` : "";
+      return `${step.label} ${expression}${groups}`;
+    }).join(" → ");
+  }
+  function text(records, format, { includeProcess = false } = {}) {
     if (!Array.isArray(records)) records = [records];
     const parts = records.flatMap(r => [{ ...r, label: r.label || labels[r.resource] }, ...(r.extra || [])]);
     const amount = value => B.gt(value, 0) && B.lt(value, "0.001")
       ? B.BN(value).toExponential(3) : format(value);
     const line = key => parts.map(r => `${amount(r[key])} ${key === "raw" ? r.rawLabel || r.label : r.label}/${r.unit}`).join("；");
-    return `原始获取：${line("raw")}\n最终获取：${line("final")}`;
+    const process = includeProcess ? `\n乘区：${records.map(r => processText(r.process || [], format) +
+      (r.extraProcess?.length ? `；${processText(r.extraProcess, format)}` : "")).join("；")}` : "";
+    return `原始获取：${line("raw")}${process}\n最终获取：${line("final")}`;
   }
   function write(element, ids, format, state, options) {
     if (!element) return;

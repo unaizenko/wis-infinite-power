@@ -32,11 +32,11 @@
       if (!selected) return;
       const v = M.view(state), order = v.dominantOrder, graham = v.gIndex > 0;
       text("big-number-page-dominant", graham ? `G${v.gIndex}` : quantity(v.amounts[order], order));
-      source("big-number-page-rate", graham ? v.speed : v.rates[order], graham ? v.speed : v.rates[order], graham ? "%" : M.SYMBOLS[order]);
+      source("big-number-page-rate", graham ? v.baseSpeed : v.rates[order], graham ? v.speed : v.rates[order], graham ? "%" : M.SYMBOLS[order]);
       text("big-number-secondary", graham ? `次级：${quantity(v.amounts[4], 4)}；Q = ${f(v.amounts[4])}`
         : order > 0 ? `次级：${quantity(v.amounts[order - 1], order - 1)}` : "更高阶符号尚未解锁");
-      source("big-number-base", M.baseYRate(state.power), M.baseYRate(state.power), "Y");
-      $("big-number-base").title = "战力提供的 Y 来源；Y 是固定符号，数字表示持有系数。";
+      source("big-number-base", M.currentBaseYRate(state), M.currentBaseYRate(state), "Y");
+      $("big-number-base").title = "战力提供的 Y 来源：每秒开始时取值，该秒内保持固定。Y 是固定符号，数字表示持有系数。";
       $("super-fractal-panel").hidden = !graham;
       if (graham !== lastGraham) $("fractal-panel").open = !graham;
       lastGraham = graham;

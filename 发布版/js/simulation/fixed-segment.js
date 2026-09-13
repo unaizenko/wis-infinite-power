@@ -36,7 +36,7 @@
     const started = clock();
     WIS.Meta.TreasureProgress.ensure(state);
     WIS.Cultivation.ExplorationProgress.ensure(state);
-    const snapshot = S.cloneForSimulation(state);
+    const snapshot = options.borrowSources ? state : S.cloneForSimulation(state);
     const sources = WIS.Simulation.FixedSources.query(snapshot), groups = [];
     const plan = WIS.Simulation.FixedSources.calculate(snapshot, sources.rates, seconds, sources.processes, sources.caps);
     R.withState(snapshot, () => E.withIsolatedState(snapshot, () => {
@@ -57,7 +57,8 @@
       cultivation.finalExplorationLoad=preview.nextLoad;
     }));
     const bigNumbers = R.withState(snapshot,()=>E.withIsolatedState(snapshot,()=>
-      WIS.Meta.BigNumbers?.syncUnlock(snapshot) ? WIS.Meta.BigNumbers.prepare(snapshot,seconds,{fixedSources:true}) : null));
+      WIS.Meta.BigNumbers?.syncUnlock(snapshot) ? WIS.Meta.BigNumbers.prepare(snapshot,seconds,{fixedSources:true,
+        powerAt:offset=>B.add(snapshot.power,B.mul(sources.rates.power,offset))}) : null));
     const sourceMs=clock()-started;statistics.sourceMs+=sourceMs;recordCost("sourcePreparation",sourceMs);
     return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, options, started };
   }
@@ -81,21 +82,25 @@
     const x=from.cultivation.systems.immortal.xiuzhen;
     if(x) {
       const n=to.cultivation.systems.immortal.xiuzhen;
-      n.resources=S.toSerializable(from).cultivation.systems.immortal.xiuzhen.resources;
+      n.resources=Object.fromEntries(Object.entries(x.resources).map(([key,value])=>[key,
+        Object.fromEntries(Object.entries(value).map(([field,item])=>[field,Array.isArray(item)?item.slice():item]))]));
       for(const k of ["manaSpent","manaSpentResidual","manaDebitResidual"]) n[k]=Array.isArray(x[k])?x[k].slice():x[k];
     }
   }
   function* runAutomations(state, unit) {
-    const frames=Math.max(1,Math.ceil(unit.seconds/0.1-1e-9));
+    const frames=unit.options.automationOpportunities ?? Math.max(1,Math.ceil(unit.seconds/WIS.Core.Config.fixedSettlement.discreteCadenceSeconds-1e-9));
     let count=0;
     for (const group of unit.groups) {
       let opportunities=frames*group.operationsPerTick;
       for (const candidate of group.candidates) {
         const began=clock();
         if (opportunities<=0) break;
-        const shadow=S.cloneForSimulation(unit.snapshot);
-        copySpendable(state,shadow);
-        const before=S.toSerializable(shadow);
+        const base=unit.options.borrowSources ? S.shallowBranch(unit.snapshot) : S.cloneForSimulation(unit.snapshot);
+        if(unit.options.borrowSources){base.core={...base.core};base.cultivation={...base.cultivation,systems:{...base.cultivation.systems,immortal:{...base.cultivation.systems.immortal,xiuzhen:{...base.cultivation.systems.immortal.xiuzhen}}}};}
+        copySpendable(state,base);
+        const draft=unit.options.borrowSources ? S.createDraft(base) : null;
+        const shadow=draft?draft.state:base;
+        const before=draft?base:S.toSerializable(shadow);
         let operations=0, purchased=0;
         R.withState(shadow,()=>E.withIsolatedState(shadow,()=> {
           if (candidate.runOn) { purchased=Number(candidate.runOn(shadow))||0;operations=purchased?1:0; }
@@ -110,7 +115,7 @@
             candidate.apply(); operations++; purchased++;
           }
         }));
-        if(operations) {installChanges(state,before,S.toSerializable(shadow));opportunities-=operations;count+=purchased;}
+        if(operations) {installChanges(state,before,draft?draft.finish():S.toSerializable(shadow));opportunities-=operations;count+=purchased;}
         const automationMs=clock()-began;statistics.automationMs+=automationMs;recordCost("automation",automationMs);
         yield;
       }
@@ -217,7 +222,9 @@
     confirm(value.unit,value.result,value.workMs);
     return value.result;
   }
-  WIS.Simulation.FixedSegment=Object.freeze({diagnostics,collectCandidates,prepare,commit,createWork,takePrepared,installPrepared,
+  WIS.Simulation.FixedSegment=Object.freeze({diagnostics,collectCandidates,prepare,commit,commitParts,confirm,createWork,
+    confirmOnlineSegment(seconds,result,workMs){statistics.onlineTicks+=result.compatibilitySubsteps||Math.ceil(seconds/WIS.Core.Config.fixedSettlement.discreteCadenceSeconds-1e-9);
+      statistics.onlineGameSeconds+=seconds;statistics.operations+=result.operations;statistics.maxUnitMs=Math.max(statistics.maxUnitMs,workMs);},takePrepared,installPrepared,
     confirmed:()=>({segments:statistics.segments,onlineTicks:statistics.onlineTicks,offlineGameSeconds:statistics.offlineGameSeconds,onlineGameSeconds:statistics.onlineGameSeconds,operations:statistics.operations}),
     restoreConfirmed:point=>{if(point)Object.assign(statistics,point);},
     metrics:()=>({...statistics,sourceEvaluations:WIS.Simulation.FixedSources.evaluations()}),

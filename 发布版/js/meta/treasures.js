@@ -229,6 +229,12 @@
     if(m[2].length+(m[3]||'').length>8192||(m[4]||'').length>4096)
       throw new LedgerError('账本词项文本超过局部安全容量，输入保留');
     const result={c:BigInt(m[1]+m[2]+(m[3]||'')),e:BigInt(m[4]||0)-BigInt((m[3]||'').length)};
+    // The common normalizer repeatedly carries unchanged exact words through
+    // signed tails. Retain their canonical text, including arbitrary BigInt
+    // exponents; stringifying a thousand-digit exponent on every pass dominates
+    // browser settlement cost. Arithmetic still uses the original exact integers.
+    Object.assign(result,{_originalC:result.c,_originalE:result.e,
+      _coefficientLength:String(result.c).length,_canonical:`${result.c}e${result.e}`});
     if(wordCache.size>=8192)wordCache.delete(wordCache.keys().next().value);wordCache.set(text,result);return result;
   }
   // Directed fixed-point intervals for the rare true near-cancellation case.
@@ -312,6 +318,13 @@
   function sign(terms, limit = MAX_TERMS) {
     terms = safeNormalize(terms, limit);
     if (!terms.length) return 0;
+    // Normalization has already validated atoms and removed exact zeros. A
+    // one-sided sum needs no sparse BigInt alignment or logarithm interval.
+    // Archive pages may contain mixed signs, so they still use full refinement.
+    if(!terms.some(t=>/^-?@sum:/.test(t))){
+      if(terms.every(t=>!String(t).startsWith('-')))return 1;
+      if(terms.every(t=>String(t).startsWith('-')))return -1;
+    }
     const exact=exactSign(terms);if(exact!==null)return exact;
     const refined=safeNormalize([...expand(terms)],limit);
     const atoms=[...expand(refined)];
@@ -337,11 +350,14 @@
       // cancellation falls through to exact decimal blocks, not a sign guess.
       return ratio.gt(BN(b.length).log10().add(4));
     };
-    const refinedSign=intervalSign(atoms);if(refinedSign!==null)return refinedSign;
     // Outside the local logarithm domain, canonical layer spacing dwarfs all
     // bounded integer coefficients. A magnitude gap still must be proved;
     // equal projections never choose a sign here.
     if(dominates(p[0],n))return 1;if(dominates(n[0],p))return -1;
+    // Refine only genuine near cancellation. Building thousands of BigInt
+    // logarithm digits before this already-proven bound can block a tick for
+    // seconds after a high batch, despite an obvious dominant sign.
+    const refinedSign=intervalSign(atoms);if(refinedSign!==null)return refinedSign;
     const error=new LedgerError('账本区间包含零，需要精确抵消或批量边界恢复');
     error.code='signed-interval';error.interval={low:negative.slice(),high:positive.slice(),representation:'exact signed word sums'};
     error.recoverable=true;
@@ -735,12 +751,72 @@
     }
     throw new PrecisionError("batch-boundary","宝物奖励边界无法可靠定位；输入已保留");
   }
+  // Pending blocks preserve consecutive, identical fixed-start contexts. Text
+  // identity is deliberate: Decimal projection is not context equivalence.
+  const pendingKnown=new WeakSet();
+  const pendingContext=e=>JSON.stringify(Object.keys(e).filter(k=>!['units','unitsLedger','unitChunks','_endBlock'].includes(k)).sort().map(k=>[k,e[k]]));
+  const pendingPage=words=>'@sum:'+words.map(w=>String(w).length+':'+w).join('');
+  function* compactPendingSteps(entries,currentAward){
+    if(pendingKnown.has(entries))return entries;
+    const result=[];let context=null,template=null,words=[],pages=[];
+    function* flush(){
+      if(!template)return;
+      if(words.length)pages.push(L.normalize(words));
+      // A context block retains the old exact-capacity execution boundaries.
+      // Combining these high inverses would change rounding/award history.
+      if(pages.length<=1)result.push({...template,units:pages[0]||[]});
+      else{const units=[];for(const chunk of pages){
+        const children=[];for(let i=0;i<chunk.length;i+=64)children.push(pendingPage(chunk.slice(i,i+64)));
+        units.push(children.length===1?children[0]:pendingPage(children));yield {phase:'compact'};
+      }result.push({...template,units,unitChunks:true});}
+      words=[];pages=[];
+    }
+    for(const entry of entries){
+      const row={...entry,gain:String(entry.gain),award:String(entry.award??currentAward)};
+      delete row.unitsLedger;delete row.units;delete row.unitChunks;
+      const id=pendingContext(row);
+      if(id!==context){yield* flush();template=row;context=id;}
+      const g=L.project(row.gain),a=L.project(row.award);
+      if(!g.gte(0)||!a.gt(0)||!a.floor().eq(a)||L.sign(entry.units??entry.unitsLedger)<0)
+        throw new L.LedgerError('宝物来源上下文无效');
+      if(entry.unitChunks){
+        if(words.length){pages.push(L.normalize(words));words=[];}
+        for(const chunk of entry.units){pages.push([...WIS.Core.SignedLedger.expand([chunk])]);yield {phase:'compact'};}
+      }else for(const word of entry.units??entry.unitsLedger){words.push(String(word));
+        if(words.length===L.MAX_TERMS){words=L.normalize(words);if(words.length===L.MAX_TERMS){pages.push(words);words=[];}}}
+      yield {phase:'compact',input:true};
+    }
+    yield* flush();pendingKnown.add(result);return result;
+  }
+  function compactPending(entries,award){const it=compactPendingSteps(entries,award);let item;do{item=it.next();}while(!item.done);return item.value;}
+  function appendPending(entries,units,gain,award){
+    const result=entries.slice(),row={units:[String(units)],gain:String(gain),award:String(award)},last=result.at(-1);
+    if(last&&pendingContext(last)===pendingContext(row)){
+      if(last.unitChunks){const parts=last.units.slice(),tail=[...WIS.Core.SignedLedger.expand([parts.at(-1)])];
+        let merged;try{merged=L.add(tail,row.units);}catch(error){if(!(error instanceof L.LedgerError))throw error;}
+        if(merged&&merged.length<=64)parts[parts.length-1]=pendingPage(merged);else parts.push(pendingPage(row.units));
+        result[result.length-1]={...last,units:parts};
+      }else result[result.length-1]={...last,units:WIS.Core.SignedLedger.add(last.units,row.units)};
+    }
+    else result.push(row);
+    if(pendingKnown.has(entries)||!entries.length)pendingKnown.add(result);return result;
+  }
+  function* pendingInputs(entries){for(const entry of entries){
+    if(!entry.unitChunks){yield {...entry,_endBlock:true};continue;}
+    for(let i=0;i<entry.units.length;i++){const row={...entry,units:[...WIS.Core.SignedLedger.expand([entry.units[i]])],_endBlock:i===entry.units.length-1};delete row.unitChunks;yield row;}
+  }}
+  const Pending=Object.freeze({inputs:pendingInputs,compactSteps:compactPendingSteps,compact:compactPending,append:appendPending});
+  function ledgerSummary(words){let hash=2166136261,size=0;for(const word of words||[]){const text=String(word);size+=text.length;
+    for(let i=0;i<text.length;i++)hash=Math.imul(hash^text.charCodeAt(i),16777619);}
+    return {termCount:words?.length||0,characters:size,hash:(hash>>>0).toString(16)};}
+  function receipt(row){const out={...row};for(const key of ['closedLedger','progressBefore','progressAfter','progress','stock'])
+    if(Array.isArray(out[key]))out[key]=ledgerSummary(out[key]);return out;}
   const evaluatedEvents=Object.create(null);
   function diagnosticBefore(state,key,units,gain,meta=state.meta) {
     const original={meta};
     return {key,logicalTime:state.totalElapsedSeconds,input:String(units),gain:String(gain),
       before:String(T.count(original,key)),demand:String(requirement(key,held(original,key))),
-      progressBefore:L.progress(original,key).map(String),pendingBefore:(meta.treasureProgressPending?.[key]||[]).length};
+      progressBefore:ledgerSummary(L.progress(original,key)),pendingBefore:(meta.treasureProgressPending?.[key]||[]).length};
   }
   function apply(state,key,units,gain) {
     evaluatedEvents[key]=(evaluatedEvents[key]||0)+1;
@@ -762,7 +838,7 @@
       const row={...diagnosticBefore(state,key,units,gain,before),sequence,
         after:String(T.count(state,key)),awarded:String(reward),
         batches:String(reward.div(T.getTreasureAwardMultiplier(state,key))),
-        progressAfter:L.progress(state,key).map(String),pendingAfter:(state.meta.treasureProgressPending?.[key]||[]).length,
+        progressAfter:ledgerSummary(L.progress(state,key)),pendingAfter:(state.meta.treasureProgressPending?.[key]||[]).length,
         reason:status?.code||null};
       // Copy-on-write: the outer frame/checkpoint owns commit identity. Trial
       // restoration discards both counts and receipts, including accepted
@@ -797,13 +873,8 @@
       let credit=C.read(record),unit=BN(record.unit),award=currentAward;
       const oldStatus=state.meta.treasureProgressStatus?.[key];
       let status=oldStatus?.approximation || oldStatus?.state==='limited' ? oldStatus : null;
-      const pending=[...(state.meta.treasureProgressPending?.[key]||[])];
-      if(BN(units).gt(0) && BN(gain).gt(0)) {
-        const last=pending.at(-1);
-        if(last && L.project(last.gain).eq(gain) && L.project(last.award??currentAward).eq(currentAward))
-          pending[pending.length-1]={...last,units:L.add(last.units,[units])};
-        else pending.push({units:L.normalize([units]),gain:String(gain),award:String(currentAward)});
-      }
+      const oldPending=state.meta.treasureProgressPending?.[key]||[];
+      const pending=BN(units).gt(0)&&BN(gain).gt(0)?Pending.append(oldPending,units,gain,currentAward):oldPending.slice();
       const actual=()=>C.times(credit,C.fromDecimal(unit));
       const align=()=>{const d=requirement(key,n);if(!unit.eq(d)){credit=C.quotient(actual(),C.fromDecimal(d));unit=d;}};
       const grant=m=>{const delta=L.scale([m],award);stock=L.add(stock,delta);rewards=L.add(rewards,delta);n=L.value(stock).floor();};
@@ -883,19 +954,9 @@
         ? state.meta.treasureProgressStatus[key] : null;
       // Pending source units retain their original unit gain. In particular a
       // cap transition cannot be replaced with "units * today's multiplier".
-      const pending=[...(state.meta.treasureProgressPending?.[key]||[])];
-      const u=nonnegative(units), g=BN(gain);
-      if(u.gt(0) && g.gt(0)) {
-        const last=pending[pending.length-1];
-        let merged=false;
-        if(last && L.project(last.gain).eq(g) && L.project(last.award??currentAward).eq(currentAward)) {
-          try {pending[pending.length-1]={...last,units:L.add(last.units,[u])};merged=true;}
-          catch(error) {if(!(error instanceof L.LedgerError)) throw error;}
-        }
-        // A full additive ledger does not authorize dropping an incoming source.
-        // Keep a separate unprocessed chunk; do not enlarge MAX_TERMS or round it.
-        if(!merged) pending.push({units:L.normalize([u]),gain:String(g),award:String(currentAward)});
-      }
+      const oldPending=state.meta.treasureProgressPending?.[key]||[];
+      const u=nonnegative(units),g=BN(gain);
+      const pending=u.gt(0)&&g.gt(0)?Pending.append(oldPending,u,g,currentAward):oldPending.slice();
       const blocked=error=>{
         if(!(error instanceof L.LedgerError)) throw error;
         precision={state:"blocked",code:error.code||"ledger-resolution",message:error.message+"；未处理来源保留在存档中"};
@@ -924,7 +985,7 @@
           if(['batch-cost','batch-resolution'].includes(error.code)&&n.add(award).eq(n)){
             precision={...precision,state:'limited',code:'precision-limited',
               message:'相邻奖励边界小于当前层级精度；原进度完整保留，后续来源继续累计并重试批处理',
-              tailBoundary:{stock:String(n),award:String(award),progress:p.slice(),code:error.code}};
+              tailBoundary:{stock:String(n),award:String(award),progress:ledgerSummary(p),code:error.code}};
             return true;
           }
           blocked(error);return false;
@@ -1010,6 +1071,18 @@
       else L.write(state,key,L.add(L.progress(state,key),[gained]));
     }
   }
+  function remainderCertainty(precision) {
+    if (precision?.state === 'blocked') return 'blocked';
+    const audit = precision?.approximation;
+    // Receipts survive later exact postings. An empty pending queue cannot
+    // resolve the unrepresented, nonnegative phase left by a closed batch.
+    if (precision?.exactRemainder === false || audit?.exactRemainder === false ||
+        audit?.last?.exactRemainder === false ||
+        (audit?.unresolvedRemainderUpper != null && B.gt(BN(audit.unresolvedRemainderUpper), ZERO)) ||
+        (audit?.last?.remainderUpper != null && audit.last.exactRemainder !== true && B.gt(BN(audit.last.remainderUpper), ZERO)))
+      return 'known-lower-bound';
+    return 'exact';
+  }
   function view(state, key) {
     ensure(state);
     const S = WIS.Power.ScaleLogic, I = WIS.Cultivation.ImmortalLogic;
@@ -1030,6 +1103,7 @@
     const progress = L.value(L.progress(state,key));
     const demand = requirement(key, held(state, key));
     let precision=state.meta.treasureProgressStatus?.[key]||null;
+    let certainty=remainderCertainty(precision), remainingAvailable=false;
     const pending=state.meta.treasureProgressPending?.[key]||[];
     let remainingSign=0,remainingValue=ZERO;
     if(precision?.state!=="blocked") {
@@ -1039,15 +1113,22 @@
           const C=L.Credit,remaining=C.minus(C.fromDecimal(demand),C.actual(credit));
           remainingSign=remaining.n>0n?1:remaining.n<0n?-1:0;remainingValue=C.value(remaining);
         } else {const remaining=L.subtract([demand],L.progress(state,key));
-          remainingSign=L.sign(remaining);remainingValue=L.value(remaining);}}
+          remainingSign=L.sign(remaining);remainingValue=L.value(remaining);}
+        remainingAvailable=B.isFiniteBN(demand)&&B.gt(demand,ZERO)&&B.isFiniteBN(remainingValue);}
       catch(error) {if(!(error instanceof L.LedgerError)) throw error;
-        precision={state:"blocked",code:"remaining-resolution",message:"剩余需求暂无法可靠分辨；保留原账本，未据此清零"};}
+        if(certainty==='exact') {
+          precision={...precision,state:"blocked",code:"remaining-resolution",message:"剩余需求暂无法可靠分辨；保留原账本，未据此清零"};
+          certainty='blocked';
+        }}
     }
-    const remainingSeconds=precision?.state==="blocked" || !rate.gt(0) ? null
+    let displayRemainingSeconds=certainty==='blocked'||!remainingAvailable||!B.isFiniteBN(rate)||!rate.gt(0) ? null
       : remainingSign<=0 ? ZERO : remainingValue.div(rate);
+    if(displayRemainingSeconds!==null&&!B.isFiniteBN(displayRemainingSeconds))displayRemainingSeconds=null;
+    const remainingSeconds=certainty==='exact'?displayRemainingSeconds:null;
     return { progress, demand, rate, sources, precision, pendingInputs:pending.length,
       remainingPositive:remainingSign>0, award: T.getTreasureAwardMultiplier(state, key),
-      remainingSeconds,
+      remainderCertainty:certainty, remainingSeconds, displayRemainingSeconds,
+      displayEtaMode:displayRemainingSeconds===null?'unavailable':certainty==='exact'?'exact':'conservative',
       pausedReason: reason || (rate.gt(0) ? null : `来源暂无实际产出${sources.length ? `（${sources.join("、")}）` : ""}`) };
   }
   function boundarySnapshot(state) {
@@ -1060,6 +1141,8 @@
     const rows=T.keys.map(key=>{
       const reason=qualification(state,key);
       if(reason)return {key,pausedReason:reason,remainingSeconds:null};
+      if(remainderCertainty(state.meta.treasureProgressStatus?.[key])!=='exact')
+        return {key,pausedReason:'uncertain-or-blocked-remainder',remainingSeconds:null};
       let units=ZERO;
       if(explorationKeys.includes(key))units=once('exploration',()=>I.automaticExplorationAmountPerSecond());
       const produced=(name,fn)=>once(name,()=>fn().gt(0)?ONE:ZERO);
@@ -1093,7 +1176,78 @@
       rows.push(...WIS.Cultivation.ExplorationProgress.boundaries(state,once('exploration',()=>I.automaticExplorationAmountPerSecond())));
     return rows;
   }
+  function needsRecovery(state){
+    for(const list of Object.values(state.meta.treasureProgressPending||{})){
+      if(list.length>=32)return true;
+      for(const entry of list)if(entry.unitChunks||(entry.units||[]).length>=64||
+        (entry.units||[]).some(w=>String(w).length>8192))return true;
+    }
+    for(const [key,list] of Object.entries(state.meta.treasureProgressPending||{}))
+      if(list.length&&state.meta.treasureProgressStatus?.[key]?.state==='blocked')return true;
+    return false;
+  }
+  function createRecovery(state){
+    const originalMeta=state.meta,work=WIS.Core.State.shallowBranch(state);
+    // Only treasure maps are writable. All nested entries remain immutable;
+    // one final root swap commits the complete job, or discards it on failure.
+    L.transaction(work,()=>{});
+    const keys=Object.keys(originalMeta.treasureProgressPending||{}).filter(k=>originalMeta.treasureProgressPending[k].length);
+    const stats={active:true,phase:'compact',processed:0,total:keys.reduce((n,k)=>n+originalMeta.treasureProgressPending[k].length,0),
+      blocks:0,remainingBlocks:0,slices:0,maxSliceMs:0,maxOperationMs:0,compressionMs:0,settlementMs:0,stocks:{}};
+    let finished=false,cancelled=false;
+    function* run(){
+      const compactStarted=performance.now();
+      for(const key of keys){
+        const award=T.getTreasureAwardMultiplier(work,key),entries=work.meta.treasureProgressPending[key];
+        const iterator=Pending.compactSteps(entries,award);let item;
+        do{item=iterator.next();if(item.value?.input)stats.processed++;if(!item.done)yield item.value;}while(!item.done);
+        work.meta.treasureProgressPending[key]=item.value;stats.blocks+=item.value.length;
+      }
+      stats.compressionMs=performance.now()-compactStarted;stats.remainingBlocks=stats.blocks;
+      stats.phase='settle';yield;
+      const settlementStarted=performance.now();
+      for(const key of keys){
+        stats.stocks[key]={before:String(T.count(work,key))};
+        const award=L.project(work.meta.treasureProgressPending[key][0]?.award??T.getTreasureAwardMultiplier(work,key));
+        const iterator=WIS.Simulation.FastForward.treasureRecoverySteps(work,key,award);let item;
+        do{item=iterator.next();if(item.value?.block)stats.remainingBlocks--;if(!item.done)yield item.value;}while(!item.done);
+        if(work.meta.treasureProgressPending[key]?.length)throw new L.LedgerError('宝物积压尚未安全结算；全部原始输入保留，可重试');
+        stats.stocks[key].after=String(T.count(work,key));stats.stocks[key].code=work.meta.treasureProgressStatus[key]?.code;
+        yield;
+      }
+      // Old diagnostic payloads cannot remain a hidden second large ledger.
+      if(work.meta.treasureDiagnostics)work.meta.treasureDiagnostics={...work.meta.treasureDiagnostics,
+        recent:(work.meta.treasureDiagnostics.recent||[]).slice(-32).map(receipt)};
+      for(const [key,status] of Object.entries(work.meta.treasureProgressStatus||{})){
+        if(!status)continue;const next={...status};
+        if(next.tailBoundary)next.tailBoundary=receipt(next.tailBoundary);
+        if(next.approximation?.last)next.approximation={...next.approximation,last:receipt(next.approximation.last)};
+        work.meta.treasureProgressStatus[key]=next;yield;
+      }
+      stats.settlementMs=performance.now()-settlementStarted;
+    }
+    const iterator=run();
+    return {status:()=>({...stats,stocks:undefined}),cancel(){cancelled=true;iterator.return();},
+      advance(deadline){
+        if(cancelled)throw new L.LedgerError('宝物整理已取消；原始输入保留');
+        if(finished)return {done:true,stats};
+        const start=performance.now();let item;
+        const previousRates={...WIS.tmp.rates};
+        try{WIS.Core.Runtime.withState(work,()=>WIS.Core.Effects.withIsolatedState(work,()=>{
+          do{const op=performance.now();item=iterator.next();const ms=performance.now()-op;
+            if(ms>stats.maxOperationMs){stats.maxOperationMs=ms;stats.slowestPhase=item.value?.phase||stats.phase;stats.slowestKey=item.value?.key||null;}
+          }while(!item.done&&performance.now()<deadline);
+        }));}finally{for(const key of Object.keys(WIS.tmp.rates))delete WIS.tmp.rates[key];Object.assign(WIS.tmp.rates,previousRates);}
+        stats.slices++;stats.maxSliceMs=Math.max(stats.maxSliceMs,performance.now()-start);
+        if(item.done){
+          if(state.meta!==originalMeta)throw new L.LedgerError('宝物整理期间状态已变化；原始输入保留，请重试');
+          state.meta=work.meta;WIS.Core.Effects.invalidate();finished=true;stats.active=false;stats.remainingBlocks=0;
+        }
+        return {done:finished,stats};
+      }};
+  }
+  const Recovery=Object.freeze({needed:needsRecovery,create:createRecovery});
   WIS.Meta.TreasureProgress = Object.freeze({ rules, explorationKeys, requirement, cumulative, affordable, unitGain,
-    ensure, advance, advanceFixed, hasUnsettled, settle, qualification, rememberQualifications, importLegacyTransient, view, boundarySnapshot,
+    Recovery, Pending, receipt, ledgerSummary, ensure, advance, advanceFixed, hasUnsettled, settle, qualification, rememberQualifications, importLegacyTransient, view, boundarySnapshot,
     diagnostics:state=>({evaluations:{...evaluatedEvents},committed:state.meta.treasureDiagnostics||null}) });
 }(window.WIS));

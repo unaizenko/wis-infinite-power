@@ -529,7 +529,136 @@
         };
       }
 
+      // A deliberately narrow certificate, not an endpoint-equality heuristic.
+      // Base J before any formula-bearing progression has a constant source.
+      // Coupled resources retain their local compatibility kernel until a
+      // dependency-specific integrator can prove the same discrete feedback.
+      function constantSourceInterval(state) {
+        const zero=v=>v===false||v===0||v==='0'||WIS.Core.BigNum.isDecimal(v)&&eq(v,ZERO);
+        const immortal=state.cultivation.systems.immortal;
+        return state.powerSystem.active==='scale'&&!state.cultivation.active&&eq(state.power,ZERO)&&eq(state.highestPower,ZERO)&&lt(state.joules,1000)&&
+          Object.values(state.powerSystem.systems.scale.upgrades).every(zero)&&
+          Object.values(state.powerSystem.systems.scale.actions).every(zero)&&
+          Object.values(immortal.abilities).every(zero)&&Object.values(immortal.persistent).every(zero)&&
+          !immortal.xiuzhen?.entered&&!state.activeChallenge&&
+          Object.values(state.challengeCompletions).every(zero)&&
+          Object.keys(state.unlockedAchievements).every(k=>k==='trainingUp')&&
+          Object.values(state.meta.treasures).every(v=>eq(v,ZERO))&&
+          !Object.values(state.meta.treasureProgressPending).some(v=>v.length)&&
+          !Object.keys(state.meta.infinity.upgrades).length&&!state.meta.bigNumbers.unlocked;
+      }
+      function findNextSimulationBoundary(state,maxDt,options={}) {
+        const continuous=options.source==='offline'||constantSourceInterval(state);
+        let seconds=continuous?maxDt:Math.min(maxDt,options.cadence||simulationStepSeconds);
+        let reason=continuous?'none':'discrete-cadence';
+        const limit=CHALLENGE_DEFINITIONS[state.activeChallenge]?.timeToLimitSeconds;
+        if(limit>state.activeChallengeElapsedSeconds&&limit-state.activeChallengeElapsedSeconds<seconds){seconds=limit-state.activeChallengeElapsedSeconds;reason='challenge';}
+        const clockRatio=options.clockRatio||0;
+        if(continuous&&!state.unlockedAchievements.trainingUp&&clockRatio>0&&state.totalElapsedSeconds<600&&
+          (600-state.totalElapsedSeconds)/clockRatio<seconds){seconds=(600-state.totalElapsedSeconds)/clockRatio;reason='achievement';}
+        return {seconds,reason,event:reason==='none'?null:reason,continuous};
+      }
+      const onlinePrepared=new WeakMap();
+      const onlineMetrics={segments:0,gameSeconds:0,compatibilitySubsteps:0,continuousSegments:0,domainClones:0,workMs:0,maxWorkMs:0};
+      function createOnlineWork(seconds, timeSegment={}) {
+        const R=WIS.Core.Runtime,S=WIS.Core.State,E=WIS.Core.Effects,F=WIS.Simulation.FixedSegment,C=WIS.Simulation.Compensation;
+        const original=getState(), roots=['core','powerSystem','cultivation','meta'].map(k=>original[k]);
+        let candidate=S.cloneForSimulation(original), closed=false, workMs=0, remaining=seconds;
+        onlineMetrics.domainClones++;
+        let cadence=timeSegment.logicalTickRemaining>epsilon?timeSegment.logicalTickRemaining:
+          candidate.core.runtime.onlineCadenceRemaining>epsilon?candidate.core.runtime.onlineCadenceRemaining:simulationStepSeconds;
+        if(!Number.isFinite(cadence)||cadence>simulationStepSeconds+epsilon)throw Error('在线自动化时钟无效，输入保留');
+        const result={processedSeconds:0,resourceGains:Object.fromEntries(FIXED_KEYS.map(k=>[k,ZERO])),operations:0,gainedPearls:ZERO,clockCommitted:true,compatibilitySubsteps:0};
+        let rates={...WIS.tmp.rates},candidateTick=WIS.tmp.tick;
+        const transients=()=>[WIS.Core.Registries.getActivePower(candidate)?.snapshotTreasureTransient?.(),WIS.Core.Registries.getActiveCultivation(candidate)?.snapshotTreasureTransient?.()];
+        let transient=transients();
+        function restoreTransient(values){WIS.Core.Registries.getActivePower(candidate)?.restoreTreasureTransient?.(values[0]);WIS.Core.Registries.getActiveCultivation(candidate)?.restoreTreasureTransient?.(values[1]);}
+        function* run(){
+          while(remaining>epsilon){
+            const boundary=findNextSimulationBoundary(candidate,remaining,{cadence,clockRatio:timeSegment.clockRatio});
+            let dt=boundary.seconds;
+            const covered=timeSegment.compensationEligible&&timeSegment.clockRatio>0&&C.get(candidate).balance>0;
+            if(covered)dt=Math.min(dt,C.get(candidate).balance/timeSegment.clockRatio);
+            const defer=!boundary.continuous&&dt+epsilon<cadence;
+            const amounts=Object.fromEntries(FIXED_KEYS.map(k=>[k,candidate[k]]));
+            const unit=C.withFactor(covered?2:1,()=>F.prepare(candidate,dt,{borrowSources:true,
+              runAchievementAutomations:defer?undefined:runAchievementAutomations,automationOpportunities:boundary.continuous?Math.max(1,Math.ceil(dt/simulationStepSeconds-1e-9)):1,offline:false}));
+            yield;
+            // Only automation needs to retain the pre-income domain. With no
+            // eligible candidates, all remaining inputs are already captured
+            // values, so mutate the private outer branch without proxy overhead.
+            const draft=unit.groups.some(group=>group.candidates.length)?S.createDraft(candidate):null;
+            if(draft)candidate=draft.state;R.setState(candidate);
+            // The start snapshot stays immutable while commits copy only changed containers.
+            const iterator=F.commitParts(candidate,unit,{projection:true});let part;
+            do {part=C.withFactor(covered?2:1,()=>iterator.next());if(!part.done)yield;}while(!part.done);
+            const value=part.value;
+            projectStepTimes(candidate,dt);
+            WIS.Core.Registries.getActivePower(candidate)?.afterStep?.(candidate,dt);
+            updateLifetimeStatistics();recordCurrentAchievements();WIS.Meta.BigNumbers?.syncUnlock(candidate);checkActiveChallengeCompletion();
+            if(covered)C.consume(candidate,dt*timeSegment.clockRatio);
+            // Match the old ordering: the play-time achievement is checked after
+            // the end-unit effects, before preparing the next source snapshot.
+            candidate.core.runtime.lastSettlement={seconds:dt,gains:value.resourceGains,
+              mainChanged:Object.fromEntries(FIXED_KEYS.map(k=>[k,!eq(amounts[k],candidate[k])])),at:candidate.totalElapsedSeconds};
+            candidate.totalElapsedSeconds+=dt*(timeSegment.clockRatio||0);
+            if(!candidate.unlockedAchievements?.trainingUp&&candidate.totalElapsedSeconds>=600)recordCurrentAchievements();
+            if(draft)candidate=draft.finish();R.setState(candidate);E.invalidate();
+            remaining=Math.max(0,Number((remaining-dt).toPrecision(14)));
+            if(dt+epsilon>=cadence){const tail=(dt-cadence)%simulationStepSeconds;
+              cadence=Math.abs(tail)<epsilon||Math.abs(tail-simulationStepSeconds)<epsilon?simulationStepSeconds:simulationStepSeconds-tail;
+            }else cadence-=dt;
+            candidate.core.runtime.onlineCadenceRemaining=cadence;
+            result.processedSeconds+=dt;result.operations+=value.operations;
+            result.gainedPearls=add(result.gainedPearls,value.gainedPearls);
+            for(const k of FIXED_KEYS)result.resourceGains[k]=add(result.resourceGains[k],value.resourceGains[k]);
+            if(boundary.continuous)result.continuousSegments=(result.continuousSegments||0)+1;else result.compatibilitySubsteps++;
+            yield;
+          }
+          result.processedSeconds=seconds;result.remainingSeconds=0;
+          result.logicalTickRemaining=cadence===simulationStepSeconds?0:cadence;
+          return result;
+        }
+        const iterator=run();
+        return {advance(deadline){
+          if(closed)throw Error('在线结算段已失效');
+          let next;
+          do {
+            const before=getState(),liveRates={...WIS.tmp.rates},tick=WIS.tmp.tick,liveTransient=transients(),began=monotonicNow();
+            try{R.setState(candidate);restoreTransient(transient);WIS.tmp.tick=candidateTick;
+              next=R.withProjection(()=>R.withOfflineExecution(()=>R.withRandomSource(()=>{
+                let v=(candidate.core.runtime.randomState>>>0)||0x6d2b79f5;v^=v<<13;v^=v>>>17;v^=v<<5;candidate.core.runtime.randomState=v>>>0;return (v>>>0)/4294967296;
+              },()=>E.withIsolatedState(candidate,()=>iterator.next()))));
+              transient=transients();candidateTick=WIS.tmp.tick;rates={...WIS.tmp.rates};
+            }finally{restoreTransient(liveTransient);R.setState(before);WIS.tmp.tick=tick;E.invalidate();Object.assign(WIS.tmp.rates,liveRates);}
+            const cost=monotonicNow()-began;workMs+=cost;onlineMetrics.workMs+=cost;onlineMetrics.maxWorkMs=Math.max(onlineMetrics.maxWorkMs,cost);
+            if(next.done){closed=true;const token=Object.freeze({kind:'online-segment-v1',seconds});
+              onlinePrepared.set(token,{candidate,roots,result,rates,candidateTick,transient,workMs});return {done:true,token};}
+          }while(monotonicNow()<deadline);
+          return {done:false};
+        },close(){closed=true;}};
+      }
+      const FIXED_KEYS=['joules','power','mana','immortalPower','xianForce','yuanForce'];
+      function installOnlineSegment(token) {
+        const value=onlinePrepared.get(token),state=getState();
+        if(!value||value.roots.some((root,i)=>root!==[state.core,state.powerSystem,state.cultivation,state.meta][i]))throw Error('在线段起始状态已改变');
+        onlinePrepared.delete(token);
+        // New time registration belongs to the live queue, never to the candidate.
+        value.candidate.core.runtime.timeLedger=state.core.runtime.timeLedger;
+        Object.assign(state,{core:value.candidate.core,powerSystem:value.candidate.powerSystem,cultivation:value.candidate.cultivation,meta:value.candidate.meta});
+        WIS.tmp.tick=value.candidateTick;Object.assign(WIS.tmp.rates,value.rates);
+        WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(value.transient[0]);
+        WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(value.transient[1]);
+        WIS.Simulation.FixedSegment.confirmOnlineSegment(value.result.processedSeconds,value.result,value.workMs);
+        onlineMetrics.segments++;onlineMetrics.gameSeconds+=value.result.processedSeconds;
+        onlineMetrics.continuousSegments+=value.result.continuousSegments||0;
+        onlineMetrics.compatibilitySubsteps+=value.result.compatibilitySubsteps;
+        if(value.result.operations)markCostGroupsDirty();markAchievementsDirty();
+        return value.result;
+      }
+
       function advanceGameStep(elapsedSeconds, silentTreasureRolls, options = {}) {
+        if (options.preparedOnlineSegment) return installOnlineSegment(options.preparedOnlineSegment);
         if (options.preparedFixedSegment) options={...options,
           fixedCandidate:WIS.Simulation.FixedSegment.takePrepared(options.preparedFixedSegment,getState())};
         const C = WIS.Simulation.Compensation, segment = options.timeSegment;
@@ -551,6 +680,8 @@
 
       function advanceAtomicStep(elapsedSeconds, silentTreasureRolls, options) {
         const original = getState();
+        if(WIS.Meta.TreasureProgress.Recovery.needed(original))
+          return {processedSeconds:0,eventCommitted:false,treasureRecoveryRequired:true};
         const roots = ["core", "powerSystem", "cultivation", "meta"];
         const previous = Object.fromEntries(roots.map(key => [key, original[key]]));
         const rates = { ...WIS.tmp.rates }, previousTick = WIS.tmp.tick;
@@ -824,9 +955,11 @@
       }
 
       return Object.freeze({
+        prepareOnlineWork:createOnlineWork, findNextSimulationBoundary, onlineMetrics:()=>({...onlineMetrics}),
+        restoreOnlineMetrics(point){if(point)for(const k of ['segments','gameSeconds','compatibilitySubsteps','continuousSegments'])onlineMetrics[k]=point[k];},
         prepareFixedWork(seconds) {
           return WIS.Simulation.FixedSegment.createWork(getState(),
-            nextChallengeTimeBoundarySeconds(Math.min(seconds,CONFIG.fixedSettlement.offlineSeconds)),
+            findNextSimulationBoundary(getState(),Math.min(seconds,CONFIG.fixedSettlement.offlineSeconds),{source:'offline'}).seconds,
             {offline:true,runAchievementAutomations});
         },
         requestSave, beginTransaction, endTransaction,

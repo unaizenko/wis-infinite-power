@@ -185,8 +185,11 @@
         out[key]=row?.[key]===null?null:String(row?.[key]??'').slice(0,512);
       for(const key of ['sequence','pendingBefore','pendingAfter'])out[key]=integer(row?.[key]);
       out.logicalTime=Number.isFinite(row?.logicalTime)?row.logicalTime:0;
-      for(const key of ['progressBefore','progressAfter'])out[key]=(Array.isArray(row?.[key])?row[key]:[])
-        .slice(0,128).map(word=>String(word).slice(0,512));
+      for(const key of ['progressBefore','progressAfter']){
+        const detail=row?.[key];
+        out[key]=Array.isArray(detail)?WIS.Meta.TreasureProgress.ledgerSummary(detail):{
+          termCount:integer(detail?.termCount),characters:integer(detail?.characters),hash:String(detail?.hash||'').slice(0,16)};
+      }
       return out;
     });
     return {version:1,sequence:integer(value.sequence),counts,recent};
@@ -1159,5 +1162,38 @@
     return freezeTree(view);
   }
 
-  WIS.Core.State = Object.freeze({ defaults, fieldGroups, fresh, normalize, normalizeDomain, migrate, fromFlat, toFlat, toSerializable, cloneForSimulation, domainView });
+  // The caller must copy each writable domain before mutation. This preserves
+  // receiver-bound aliases without serializing untouched domains.
+  // A branch copies containers only when written. Decimal leaves are immutable.
+  // finish() removes every proxy; committed domains and save formats stay plain.
+  function createDraft(source) {
+    const nodes=new WeakMap();
+    const mutable=v=>v && typeof v==='object' && !WIS.Core.BigNum.isDecimal(v);
+    function wrap(base,parent,key) {
+      let copy=null;const children=new Map();
+      const current=()=>copy||base;
+      function changed(){if(!copy){copy=Array.isArray(base)?base.slice():{...base};if(parent)parent();}}
+      const proxy=new Proxy(Array.isArray(base)?[]:{},{
+        get(_,k){const value=current()[k];if(!mutable(value))return value;
+          if(nodes.has(value))return value;
+          const cached=children.get(k);if(cached?.base===value)return cached.proxy;
+          const child=wrap(value,changed,k);children.set(k,child);return child.proxy;},
+        set(_,k,v){if(current()[k]===v)return true;changed();copy[k]=v;children.delete(k);return true;},
+        deleteProperty(_,k){if(k in current()){changed();delete copy[k];children.delete(k);}return true;},
+        has:(_,k)=>k in current(),ownKeys:()=>Reflect.ownKeys(current()),
+        getOwnPropertyDescriptor(_,k){const d=Object.getOwnPropertyDescriptor(current(),k);return d&&{...d,configurable:k==='length'&&Array.isArray(base)?false:true};}
+      });
+      const node={base,proxy,finish(){if(!copy)return base;
+        for(const k of Object.keys(copy)){const child=children.get(k);if(child&&copy[k]===child.base)copy[k]=child.finish();
+          else if(nodes.has(copy[k]))copy[k]=nodes.get(copy[k]).finish();}
+        return copy;}};
+      nodes.set(proxy,node);return node;
+    }
+    const roots=Object.fromEntries(['core','powerSystem','cultivation','meta'].map(k=>[k,wrap(source[k])]));
+    const state=attachLegacyAliases(Object.fromEntries(Object.entries(roots).map(([k,n])=>[k,n.proxy])));
+    return {state,finish:()=>attachLegacyAliases(Object.fromEntries(Object.entries(roots).map(([k,n])=>[k,state[k]===n.proxy?n.finish():nodes.has(state[k])?nodes.get(state[k]).finish():state[k]])))};
+  }
+
+  const shallowBranch = state => attachLegacyAliases({...state});
+  WIS.Core.State = Object.freeze({ createDraft, shallowBranch, defaults, fieldGroups, fresh, normalize, normalizeDomain, migrate, fromFlat, toFlat, toSerializable, cloneForSimulation, domainView });
 }(window.WIS));

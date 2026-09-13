@@ -13,6 +13,10 @@
   const RAPID_TRAINING_CLICK_WINDOW_MS = 2000;
   const rapidTrainingClickTimes = [];
 
+  function beyondFractalReward() {
+    return `当前超分形速度倍率：×${format(WIS.Meta.BigNumbers.fractalMultiplier(WIS.Meta.BigNumbers.amount(state, 4), state.meta.bigNumbers?.beyondFractal === true), 4)}`;
+  }
+
   function threeDeficienciesCompleted() {
     return ["innateDeficiency", "powerless", "longevity"].every((key) => challengeCompletionCount(key) >= 1);
   }
@@ -170,7 +174,7 @@
     });
 
     definitions.push(
-      { key: "beyondFractal", name: "超越分形", description: "完成分形-5，进入 G1。", reward: "当前四箭头系数 Q 提高超分形速度：×[1 + log10(1 + Q)/10]", completed: completedAchievement("beyondFractal", state.meta.bigNumbers?.fractalLevel === 5) },
+      { key: "beyondFractal", name: "超越分形", description: "完成分形-5，进入 G1。", reward: beyondFractalReward(), completed: completedAchievement("beyondFractal", state.meta.bigNumbers?.fractalLevel === 5) },
       { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
       { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
       { key: "tree3", name: "树", description: "战力达到 TREE(3)。", reward: "纪念性成就", completed: completedAchievement("tree3", reachedPowerMilestone("tree3")) }
@@ -246,7 +250,7 @@
     },
     hasCurrent: hasAchievement, definitions: achievementDefinitions, states: achievementStates,
     recordCurrent: recordCurrentAchievements, notifyNew: notifyNewAchievements,
-    createPresentation,
+    createPresentation, beyondFractalReward,
     registerTrainingClick,
     achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
     challengesUnlocked, statisticsUnlocked
