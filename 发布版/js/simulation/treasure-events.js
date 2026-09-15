@@ -1,5 +1,7 @@
 (function defineSimulationTreasureEvents(WIS) {
   "use strict";
+  // ACTIVE: Offline uses createOfflineTaskRandom for legacy random-mode tasks. Prediction
+  // helpers remain DIAGNOSTIC/reference APIs; this mixed module stays assembled.
 
   WIS.Simulation = WIS.Simulation || {};
   WIS.Simulation.TreasureEvents = Object.freeze({

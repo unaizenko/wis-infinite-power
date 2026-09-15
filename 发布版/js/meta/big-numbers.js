@@ -2,6 +2,7 @@
   "use strict";
   // Only coefficients enter BigNum. Symbols and Graham numbers are never expanded.
   const B = WIS.Core.BigNum;
+  const BASE_SUPER_SPEED = "0.008"; // percent per game second
   const SYMBOLS = Object.freeze(["Y", "Y↑Y", "Y↑↑Y", "Y↑↑↑Y", "Y↑↑↑↑Y"]);
   const COSTS = Object.freeze([1, 300, 600, 1200, 2400]);
   const MILESTONES = Object.freeze([2, 4, 8, 16, 32, 64]);
@@ -37,25 +38,40 @@
       n.ySample={remaining,rate:nonnegative(raw.ySample.rate),baseRate:raw.ySample.baseRate==null?null:nonnegative(raw.ySample.baseRate)};
     }
     const tails = v => Array.isArray(v) ? v.map(String) : [];
+    const merge=(main,rest)=>{nonnegative(main);return nonnegative(ledger().value(ledger().normalize([main??0,...tails(rest)])));};
     n.resources = SYMBOLS.map((_, i) => {
       const e = raw.resources?.[i] || {};
-      return { amount: nonnegative(e.amount), residual: tails(e.residual), total: nonnegative(e.total),
-        totalResidual: tails(e.totalResidual), spent: nonnegative(e.spent), spentResidual: tails(e.spentResidual),
+      // Economic coefficients and statistics merge legacy words once, then
+      // retain only their represented Decimal value. Discrete G stays exact.
+      return { amount: merge(e.amount,e.residual), residual: [],
+        total: merge(e.total,e.totalResidual), totalResidual: [],
+        spent: merge(e.spent,e.spentResidual), spentResidual: [],
         peak: nonnegative(e.peak) };
     });
-    n.superProgress = nonnegative(raw.superProgress);
-    n.superResidual = tails(raw.superResidual);
+    n.superProgress = merge(raw.superProgress,raw.superResidual);
+    n.superResidual = [];
     return n;
   }
   function get(state) {
-    if (!state.meta.bigNumbers?.resources) state.meta.bigNumbers = normalize(state.meta.bigNumbers);
-    return state.meta.bigNumbers;
+    // Load/normalize owns persistent initialization; queries only return a view.
+    return state.meta.bigNumbers?.resources ? state.meta.bigNumbers : normalize(state.meta.bigNumbers);
   }
   function requirements(state) {
     return { cosmic: COSMIC >= 0 && Math.max(state.highestScaleIndex || 0, state.lifetimeHighestScaleIndex || 0) >= COSMIC,
       achievement: state.unlockedAchievements?.[`trueScale${COSMIC}`] === true };
   }
+  function isUnlocked(state) {
+    const r = requirements(state);
+    return get(state).unlocked || (r.cosmic && r.achievement);
+  }
+  function syncMilestones(state) {
+    if (get(state).gIndex < 64) return;
+    state.symbolicPowerMilestones.graham64 = true;
+    WIS.Meta.Achievements.record(state, "graham64");
+  }
   function syncUnlock(state) {
+    if (!state.meta.bigNumbers?.resources) state.meta.bigNumbers = normalize(state.meta.bigNumbers);
+    syncMilestones(state);
     const n = get(state), r = requirements(state);
     if (r.cosmic && r.achievement) n.unlocked = true;
     if (n.beyondFractal && !state.unlockedAchievements.beyondFractal) {
@@ -64,15 +80,14 @@
     return n.unlocked;
   }
   function terms(e, field = "amount") {
-    const tail = field === "amount" ? "residual" : `${field}Residual`;
-    return ledger().normalize([e[field], ...(e[tail] || [])]);
+    return [String(B.BN(e[field]))];
   }
   function write(e, words, field = "amount") {
     const L = ledger(), normalized = L.normalize(words);
     if (L.sign(normalized) < 0) throw Error("大数系数余额不足，未提交");
     const main = L.value(normalized);
     e[field] = main;
-    e[field === "amount" ? "residual" : `${field}Residual`] = L.subtract(normalized, [main]);
+    e[field === "amount" ? "residual" : `${field}Residual`] = [];
   }
   const amount = (state, order) => ledger().value(terms(get(state).resources[order]));
   function credit(e, gain) {
@@ -129,11 +144,13 @@
       : B.BN(n.fractalLevel >= i + 1 ? 1 : 0));
   }
   function canPurchase(state, level) {
-    if (!Number.isInteger(level) || level < 1 || level > 5 || !syncUnlock(state)) return false;
+    if (!Number.isInteger(level) || level < 1 || level > 5 || !isUnlocked(state)) return false;
     if (get(state).fractalLevel !== level - 1) return false;
     return ledger().compare(terms(get(state).resources[Math.max(0, level - 2)]), [COSTS[level - 1]]) >= 0;
   }
   function purchase(state, level) {
+    if (!Number.isInteger(level) || level < 1 || level > 5) return false;
+    syncUnlock(state);
     if (!canPurchase(state, level)) return false;
     transaction(state, n => {
       const e = n.resources[Math.max(0, level - 2)], cost = COSTS[level - 1];
@@ -156,7 +173,7 @@
   // Avoid subtracting two huge primitives when t is tiny relative to Q.
   function exposure(q, seconds, enabled = true) {
     if (!(seconds > 0)) return B.ZERO;
-    if (!enabled) return B.mul(seconds, "0.008");
+    if (!enabled) return B.mul(seconds, BASE_SUPER_SPEED);
     const a = B.add(1, q), ratio = B.div(seconds, a), x = B.toNumber(ratio, Infinity);
     let meanLog;
     if (x < 1e-4) {
@@ -167,81 +184,75 @@
     } else {
       meanLog = B.sub(B.log10(B.add(a, seconds)), 1 / Math.LN10);
     }
-    return B.mul(B.mul(seconds, "0.008"), B.add(1, B.div(meanLog, 10)));
+    return B.mul(B.mul(seconds, BASE_SUPER_SPEED), B.add(1, B.div(meanLog, 10)));
   }
   function advanceGraham(n, seconds, q) {
     if (!n.gIndex) return 0;
-    const L = ledger();
-    let carried = L.normalize([n.superProgress, ...n.superResidual]);
-    // Already-earned overflow is percent, not elapsed exposure: preserve it
-    // unchanged when loading a ready boundary (150% => next rank + 50%).
-    if (n.gIndex < 64 && L.compare(carried, [100]) >= 0) {
-      let levels = Math.min(64 - n.gIndex, Math.max(1, Math.floor(B.toNumber(L.value(carried), 6400) / 100)));
-      if (L.compare(carried, [levels * 100]) < 0) levels--;
-      carried = L.subtract(carried, [levels * 100]); n.gIndex += levels;
+    let carried=B.BN(n.superProgress);
+    if(n.gIndex<64&&carried.gte(100)) {
+      const levels=Math.min(64-n.gIndex,Math.floor(B.toNumber(carried,6400)/100));
+      carried=B.sub(carried,levels*100);n.gIndex+=levels;
     }
-    // Exposure is independent of Graham rank: spend it at rank-dependent prices.
-    // At most six milestones, not seconds, frames, individual rewards or G values.
-    let k = milestoneMultiplier(n.gIndex), crossings = 0;
-    let available = L.add(L.scale(carried, 1/k),
-      [exposure(q, seconds, n.beyondFractal)]);
-    for (const target of MILESTONES) {
-      if (target <= n.gIndex) continue;
-      const cost = (target - n.gIndex) * 100 / k;
-      if (L.compare(available, [cost]) < 0) break;
-      available = L.subtract(available, [cost]);
-      n.gIndex = target; k = milestoneMultiplier(target); crossings++;
+    // Same analytic Q exposure and milestone prices; represented progress,
+    // never a growing exact decimal history. The discrete rank stays integral.
+    let k=milestoneMultiplier(n.gIndex),crossings=0;
+    let available=B.add(B.div(carried,k),exposure(q,seconds,n.beyondFractal));
+    for(const target of MILESTONES) {
+      if(target<=n.gIndex)continue;
+      const cost=(target-n.gIndex)*100/k;
+      if(available.lt(cost))break;
+      available=B.sub(available,cost);n.gIndex=target;k=milestoneMultiplier(target);crossings++;
     }
-    let progress = L.scale(available, k);
-    if (n.gIndex < 64) {
-      let levels = Math.min(64 - n.gIndex, Math.max(0, Math.floor(B.toNumber(L.value(progress), 0) / 100)));
-      if (levels > 0 && L.compare(progress, [levels * 100]) < 0) levels--;
-      n.gIndex += levels;
-      progress = L.subtract(progress, [levels * 100]);
+    let progress=B.mul(available,k);
+    if(n.gIndex<64) {
+      const levels=Math.min(64-n.gIndex,Math.max(0,Math.floor(B.toNumber(progress,0)/100)));
+      n.gIndex+=levels;progress=B.sub(progress,levels*100);
     }
-    if (L.sign(progress) < 0) throw Error("超分形进度不能为负，未提交");
-    n.superProgress = L.value(progress);
-    n.superResidual = L.subtract(progress, [n.superProgress]);
-    return crossings;
+    if(!progress.isFinite()||progress.lt(0))throw Error('超分形进度无法表示，未提交');
+    n.superProgress=progress;n.superResidual=[];return crossings;
   }
   function advance(state, seconds, options = {}) {
     if (!Number.isFinite(seconds) || seconds < 0) throw Error("大数结算时间无效");
     if (!syncUnlock(state)) return { milestoneCrossings: 0 };
-    return transaction(state, n => {
+    const result = transaction(state, n => {
       const q = amount(state, 4);
       const startingRates = options.fixedSources ? rates(state) : null;
       const milestoneCrossings = options.fixedSources
         ? advanceGrahamFixed(n, seconds, q) : advanceGraham(n, seconds, q);
       const currentRates = startingRates || rates(state);
       if (options.endPower !== undefined) currentRates[0] = B.add(baseYRate(options.endPower), n.fractalLevel >= 1 ? 1 : 0);
-      const yGain=sampledYGain(n,state,seconds,options);
+      const yGain=options.offlineSnapshot ? B.mul(currentRates[0],seconds) : sampledYGain(n,state,seconds,options);
+      if(options.offlineSnapshot)n.ySample=null;
       for (let i = 0; i < 5; i++) credit(n.resources[i], i === 0 ? yGain : B.mul(currentRates[i], seconds));
       n.elapsedSeconds += seconds;
       return { milestoneCrossings };
     });
+    syncMilestones(state);
+    return result;
   }
   function advanceGrahamFixed(n, seconds, q) {
     if (!n.gIndex) return 0;
     const oldIndex=n.gIndex, L=ledger();
-    const rate=B.mul("0.008",B.mul(milestoneMultiplier(oldIndex),fractalMultiplier(q,n.beyondFractal)));
-    let progress=L.add([n.superProgress,...n.superResidual],[B.mul(rate,seconds)]);
+    const rate=B.mul(BASE_SUPER_SPEED,B.mul(milestoneMultiplier(oldIndex),fractalMultiplier(q,n.beyondFractal)));
+    let progress=[B.add(n.superProgress,B.mul(rate,seconds))];
     if(oldIndex<64) {
       let levels=Math.min(64-oldIndex,Math.max(0,Math.floor(B.toNumber(L.value(progress),6400)/100)));
       if(levels>0&&L.compare(progress,[levels*100])<0) levels--;
       progress=L.subtract(progress,[levels*100]);n.gIndex+=levels;
     }
-    n.superProgress=L.value(progress);n.superResidual=L.subtract(progress,[n.superProgress]);
+    n.superProgress=L.value(progress);n.superResidual=[];
     return MILESTONES.filter(value=>value>oldIndex&&value<=n.gIndex).length;
   }
   // Validate the new ledger before any old-resource commit. The caller installs
   // this plan only after the original step succeeds; errors cannot replay J gains.
   function prepare(state, seconds, options) {
-    const before = get(state), achievements = state.meta.achievements;
+    const before = get(state), achievements = state.meta.achievements, milestones = state.meta.milestones;
     state.meta.bigNumbers = { ...before, purchases: before.purchases.slice(),
       resources: before.resources.map(e => ({ ...e })), superResidual: before.superResidual.slice() };
     state.meta.achievements = { ...achievements };
+    state.meta.milestones = { ...milestones };
     try { advance(state, seconds, options); return get(state); }
-    finally { state.meta.bigNumbers = before; state.meta.achievements = achievements; }
+    finally { state.meta.bigNumbers = before; state.meta.achievements = achievements; state.meta.milestones = milestones; }
   }
   function view(state) {
     const n = get(state), currentRates = rates(state), q = amount(state, 4);
@@ -250,8 +261,8 @@
       dominantOrder: Math.max(0, n.fractalLevel - 1),
       progress: ledger().value(ledger().normalize([n.superProgress, ...n.superResidual])),
       milestoneMultiplier: milestoneMultiplier(n.gIndex), fractalMultiplier: fractalMultiplier(q, n.beyondFractal),
-      baseSpeed: n.gIndex ? B.BN("0.008") : B.ZERO,
-      speed: n.gIndex ? B.mul("0.008", B.mul(milestoneMultiplier(n.gIndex), fractalMultiplier(q, n.beyondFractal))) : B.ZERO };
+      baseSpeed: n.gIndex ? B.BN(BASE_SUPER_SPEED) : B.ZERO,
+      speed: n.gIndex ? B.mul(BASE_SUPER_SPEED, B.mul(milestoneMultiplier(n.gIndex), fractalMultiplier(q, n.beyondFractal))) : B.ZERO };
   }
   function compareSymbolic(a, b) {
     if (!Number.isInteger(a.order) || !Number.isInteger(b.order) || a.order < 0 || a.order > 5 || b.order < 0 || b.order > 5)
@@ -265,7 +276,7 @@
     if (B.eq(ca, 0) || B.eq(cb, 0)) return ca.cmp(cb);
     return a.order !== b.order ? Math.sign(a.order - b.order) : a.order === 5 ? Math.sign(a.gIndex - b.gIndex) : ca.cmp(cb);
   }
-  WIS.Meta.BigNumbers = Object.freeze({ SYMBOLS, COSTS, MILESTONES, fresh, normalize, get, requirements,
-    syncUnlock, baseYRate, currentBaseYRate, sampledYGain, rates, amount, canPurchase, purchase, milestoneMultiplier, fractalMultiplier,
+  WIS.Meta.BigNumbers = Object.freeze({ BASE_SUPER_SPEED, SYMBOLS, COSTS, MILESTONES, fresh, normalize, get, requirements, isUnlocked,
+    syncUnlock, syncMilestones, baseYRate, currentBaseYRate, sampledYGain, rates, amount, canPurchase, purchase, milestoneMultiplier, fractalMultiplier,
     exposure, advance, prepare, view, compareSymbolic, maximumGIndex: 64 });
 }(window.WIS));

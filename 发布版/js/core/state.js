@@ -38,16 +38,21 @@
   }
 
   function normalizeTimeLedger(raw) {
-    if(raw==null)return {version:1,nextId:1,boundaryAt:0,awaySince:null,registeredUntil:0};
+    if(raw==null)return {version:1,nextId:1,boundaryAt:0,awaySince:null,registeredUntil:0,pendingContinuousTime:[]};
     if(!isRecord(raw)||raw.version!==1)throw Error("时间账本版本无效");
     const stamp=(value,nullable=false)=>{if(nullable&&value==null)return null;
       if(!Number.isFinite(value)||value<0)throw Error("时间账本水位无效");return value;};
     if(!Number.isSafeInteger(raw.nextId)||raw.nextId<1)throw Error("时间片段序号无效");
-    return {version:1,nextId:raw.nextId,boundaryAt:stamp(raw.boundaryAt),awaySince:stamp(raw.awaySince,true),registeredUntil:stamp(raw.registeredUntil)};
+    if(raw.pendingContinuousTime!=null&&!Array.isArray(raw.pendingContinuousTime))throw Error("未结算连续时间格式无效");
+    const pendingContinuousTime=(raw.pendingContinuousTime||[]).map(part=>{
+      if(!part || !['online','offline'].includes(part.source||'online') || !Number.isFinite(part.clock)||part.clock<0 || !Number.isFinite(part.speed)||part.speed<=0)throw Error("未结算连续时间无效");
+      return {source:part.source||'online',clock:part.clock,speed:part.speed,compensationEligible:part.source!=='offline'&&part.compensationEligible===true};
+    });
+    return {version:1,nextId:raw.nextId,boundaryAt:stamp(raw.boundaryAt),awaySince:stamp(raw.awaySince,true),registeredUntil:stamp(raw.registeredUntil),pendingContinuousTime};
   }
   const defaults = Object.freeze({
     compensation: WIS.Simulation.Compensation.fresh(),
-    timeLedger: {version:1,nextId:1,boundaryAt:0,awaySince:null,registeredUntil:0},
+    timeLedger: {version:1,nextId:1,boundaryAt:0,awaySince:null,registeredUntil:0,pendingContinuousTime:[]},
     joules: ZERO, joulesGainResidual: ZERO, joulesGainResidualTail: [], power: ZERO, powerGainResidual: ZERO, powerGainResidualTail: [],
     highestPower: ZERO, lifetimeHighestJ: ZERO, lifetimeHighestPower: ZERO,
     lifetimeHighestScaleIndex: 0, lifetimeTotalJ: ZERO, lifetimeTotalPower: ZERO,
@@ -148,7 +153,7 @@
       challengeCompletions: Object.fromEntries(Object.keys(WIS.Core.Config.challenges).map((key) => [key, 0])),
       unlockedAchievements: {},
       treasureProgress: {}, treasureProgressResidual: {}, treasureQualifications: {}, treasureProgressVersion: 1,
-      treasureCredits: {}, treasureStockResidual: {}, treasureProgressResidualTail: {}, treasureProgressPending: {}, treasureProgressStatus: {},
+      treasureProgressFinite: {}, treasureCredits: {}, treasureStockResidual: {}, treasureProgressResidualTail: {}, treasureProgressPending: {}, treasureProgressStatus: {},
       treasureDiagnostics: { version: 1, sequence: 0, counts: {}, recent: [] },
       treasureImprints: {
         tianNiPearl: ZERO, mysteriousGreenBottle: ZERO, fuBao: ZERO, fitnessMembershipCard: ZERO,
@@ -631,6 +636,7 @@
       treasureImprints,
       ...savedTreasureProgress(source, Object.keys(treasureImprints)),
       treasureStockResidual: clone(source.treasureStockResidual || {}),
+      treasureProgressFinite: clone(source.treasureProgressFinite || {}),
       treasureCredits: clone(source.treasureCredits || {}),
       treasureProgressPending: clone(source.treasureProgressPending || {}),
       treasureProgressStatus: clone(source.treasureProgressStatus || {}),
@@ -737,7 +743,7 @@
       "currentRebirthTotalImmortalPower", "currentRebirthHighestCultivationRealmLevel"
     ],
     "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "challengeCompletions", "threeCorpseChallengesUnlocked", "bestQiLayer"],
-    "meta": ["unlockedAchievements", "treasureImprints", "symbolicPowerMilestones", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureCredits", "treasureProgressPending", "treasureProgressStatus", "treasureDiagnostics", "treasureQualifications", "treasureProgressVersion"]
+    "meta": ["unlockedAchievements", "treasureImprints", "symbolicPowerMilestones", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureCredits", "treasureProgressFinite", "treasureProgressPending", "treasureProgressStatus", "treasureDiagnostics", "treasureQualifications", "treasureProgressVersion"]
   });
 
   const fieldPaths = new Map();
@@ -976,7 +982,8 @@
   }
   function normalizeExplorationRewards(source) {
     const raw=source.explorationRewards;
-    if(raw!=null&&(!isRecord(raw)||![0,1].includes(raw.version)))throw Error("探寻进度版本无效");
+    if(raw!=null&&(!isRecord(raw)||![0,1,2].includes(raw.version)))throw Error("探寻进度版本无效");
+    if(raw?.version===2)return clone(raw);
     const value=source.naturalTreasureLevel??ZERO, main=maxBN(ZERO,BN(value)).floor();
     if(!WIS.Core.BigNum.isFiniteBN(value)||WIS.Core.BigNum.lt(value,0)||!BN(value).floor().eq(BN(value)))throw Error("天材地宝等级无效");
     const L=WIS.Meta.TreasureLedger;
@@ -1143,8 +1150,18 @@
     // source-remainder conversion is lazy, after runtime/effects are bound.
     const result = migration(data);
     WIS.Core.Resources.validateState(result);
+    // This field is a display-only lifetime statistic. Merge legacy words once;
+    // fractional attempts and all treasure ledgers are deliberately untouched.
+    const statistics = result.meta.statistics, L = WIS.Core.SignedLedger;
+    if (statistics.explorationTotalResidual?.length) {
+      const words = L.normalize([statistics.explorationTotal, ...statistics.explorationTotalResidual]);
+      statistics.explorationTotal = L.value(words);
+      statistics.explorationTotalApproximate ||= L.subtract(words, [statistics.explorationTotal]).length > 0;
+    }
+    statistics.explorationTotalResidual = [];
     WIS.Cultivation.Xiuzhen?.validate?.(result);
     WIS.Cultivation.ExplorationProgress?.validate?.(result);
+    WIS.Meta.BigNumbers?.syncMilestones?.(result);
     return result;
   }
 
@@ -1169,7 +1186,26 @@
   function createDraft(source) {
     const nodes=new WeakMap();
     const mutable=v=>v && typeof v==='object' && !WIS.Core.BigNum.isDecimal(v);
-    function wrap(base,parent,key) {
+    // Spread-built replacement objects can contain proxies several levels
+    // below the assigned value. Resolve those on commit; otherwise each tick
+    // retains another old draft and resource reads grow progressively slower.
+    function finishAssigned(value, seen = new WeakMap()) {
+      if (!mutable(value)) return value;
+      if (nodes.has(value)) return nodes.get(value).finish();
+      if (seen.has(value)) return seen.get(value);
+      let result = value;
+      seen.set(value, value);
+      for (const key of Object.keys(value)) {
+        const next = finishAssigned(value[key], seen);
+        if (next !== value[key]) {
+          if (result === value) result = Array.isArray(value) ? value.slice() : { ...value };
+          result[key] = next;
+        }
+      }
+      seen.set(value, result);
+      return result;
+    }
+    function wrap(base,parent,key,assigned=false) {
       let copy=null;const children=new Map();
       const current=()=>copy||base;
       function changed(){if(!copy){copy=Array.isArray(base)?base.slice():{...base};if(parent)parent();}}
@@ -1177,23 +1213,42 @@
         get(_,k){const value=current()[k];if(!mutable(value))return value;
           if(nodes.has(value))return value;
           const cached=children.get(k);if(cached?.base===value)return cached.proxy;
-          const child=wrap(value,changed,k);children.set(k,child);return child.proxy;},
+          const child=wrap(value,changed,k,current()[k]!==base[k]);children.set(k,child);return child.proxy;},
         set(_,k,v){if(current()[k]===v)return true;changed();copy[k]=v;children.delete(k);return true;},
         deleteProperty(_,k){if(k in current()){changed();delete copy[k];children.delete(k);}return true;},
         has:(_,k)=>k in current(),ownKeys:()=>Reflect.ownKeys(current()),
         getOwnPropertyDescriptor(_,k){const d=Object.getOwnPropertyDescriptor(current(),k);return d&&{...d,configurable:k==='length'&&Array.isArray(base)?false:true};}
       });
-      const node={base,proxy,finish(){if(!copy)return base;
+      const node={base,proxy,finish(){if(!copy)return assigned?finishAssigned(base):base;
         for(const k of Object.keys(copy)){const child=children.get(k);if(child&&copy[k]===child.base)copy[k]=child.finish();
-          else if(nodes.has(copy[k]))copy[k]=nodes.get(copy[k]).finish();}
+          else if(copy[k]!==base[k])copy[k]=finishAssigned(copy[k]);}
         return copy;}};
       nodes.set(proxy,node);return node;
     }
     const roots=Object.fromEntries(['core','powerSystem','cultivation','meta'].map(k=>[k,wrap(source[k])]));
     const state=attachLegacyAliases(Object.fromEntries(Object.entries(roots).map(([k,n])=>[k,n.proxy])));
-    return {state,finish:()=>attachLegacyAliases(Object.fromEntries(Object.entries(roots).map(([k,n])=>[k,state[k]===n.proxy?n.finish():nodes.has(state[k])?nodes.get(state[k]).finish():state[k]])))};
+    return {state,finishValue:finishAssigned,finish:()=>attachLegacyAliases(Object.fromEntries(Object.entries(roots).map(([k,n])=>[k,state[k]===n.proxy?n.finish():finishAssigned(state[k])])))};
+  }
+
+  // Explicit state keeps end-segment candidate statistics private until commit.
+  function updateLifetimeStatistics(state, realmLevel) {
+    state.lifetimeHighestJ = WIS.Core.BigNum.max(state.lifetimeHighestJ, state.joules);
+    state.lifetimeHighestPower = WIS.Core.BigNum.max(WIS.Core.BigNum.max(state.lifetimeHighestPower, state.power), state.highestPower);
+    state.lifetimeHighestScaleIndex = Math.max(state.lifetimeHighestScaleIndex, state.highestScaleIndex);
+    state.lifetimeHighestMana = WIS.Core.BigNum.max(state.lifetimeHighestMana, state.mana);
+    state.lifetimeHighestImmortalPower = WIS.Core.BigNum.max(state.lifetimeHighestImmortalPower, state.immortalPower);
+    state.lifetimeHighestCultivationRealmLevel = Math.max(state.lifetimeHighestCultivationRealmLevel, realmLevel);
+    state.currentRebirthHighestJ = WIS.Core.BigNum.max(state.currentRebirthHighestJ, state.joules);
+    state.currentRebirthHighestPower = WIS.Core.BigNum.max(state.currentRebirthHighestPower, state.power);
+    state.currentRebirthHighestScaleIndex = Math.max(state.currentRebirthHighestScaleIndex, state.highestScaleIndex);
+    state.currentRebirthHighestMana = WIS.Core.BigNum.max(state.currentRebirthHighestMana, state.mana);
+    state.currentRebirthHighestImmortalPower = WIS.Core.BigNum.max(state.currentRebirthHighestImmortalPower, state.immortalPower);
+    state.currentRebirthHighestCultivationRealmLevel = Math.max(
+      state.currentRebirthHighestCultivationRealmLevel,
+      realmLevel
+    );
   }
 
   const shallowBranch = state => attachLegacyAliases({...state});
-  WIS.Core.State = Object.freeze({ createDraft, shallowBranch, defaults, fieldGroups, fresh, normalize, normalizeDomain, migrate, fromFlat, toFlat, toSerializable, cloneForSimulation, domainView });
+  WIS.Core.State = Object.freeze({ updateLifetimeStatistics, createDraft, shallowBranch, defaults, fieldGroups, fresh, normalize, normalizeDomain, migrate, fromFlat, toFlat, toSerializable, cloneForSimulation, domainView });
 }(window.WIS));

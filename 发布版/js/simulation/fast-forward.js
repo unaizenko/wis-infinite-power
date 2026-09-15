@@ -346,9 +346,7 @@ function create(){
   // Coalesce only adjacent sources with identical saved gain/award. Exact
   // normalization stays bounded at MAX_TERMS; distinct contexts keep their order.
   // This avoids thousands of inverse/settlement calls for a blocked old queue.
-  function compactPending(entries,currentAward){
-    return P.Pending.compact(entries,currentAward);
-  }
+  
   function* sourcePotential(s,key,units,gain,fixedAward){const a=BN(fixedAward??T.getTreasureAwardMultiplier(s,key)),n=BN(T.count(s,key));
     const p=L.value(L.progress(s,key));
     const entries=[...(s.meta.treasureProgressPending[key]||[])];
@@ -1702,6 +1700,7 @@ module.exports={runSteps,supported,column,relative,formulaRegime,sourceChange,ma
   // required audit callbacks; measured profiling belongs in the E:\...\测试 tools.
   global.__jointRevision={count(){},timed(_key,fn,receiver,args){return Reflect.apply(fn,receiver,args);}};
   const ledgerCache=load('percent/ledger-cache').create();let bulk=null;
+  WIS.Core.SignedLedger.setCache(ledgerCache);
   function applyTreasure(state,key,units,gain,ordinary,fixedAward){
     bulk??=load('percent/bulk-progress').create();
     const run=()=>bulk.apply(state,key,units,gain,ordinary,fixedAward);

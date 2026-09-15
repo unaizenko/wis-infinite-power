@@ -208,16 +208,7 @@
   }
 
   function persistStateNow(options = {}) {
-    if (WIS.Core.Save.getLoadError()) return;
-    try {
-    simulationLoop?.prepareSave(options);
-    // Manual actions save outside the simulation transaction. Their confirmed
-    // state must replace any model checkpoint made before the action.
-    if (!options.preserveSourceModels && !offlineSimulation?.isInternalWork()) offlineSimulation?.invalidateSourceModels();
-    const saved = WIS.Core.State.cloneForSimulation(state);
-    saved.lastUpdateAt = Date.now();
-    WIS.Core.Save.write(saved, options);
-    } catch(error) { WIS.Core.Save.noteFailure(error); throw error; }
+    return WIS.Core.Save.persistLive(state,simulationLoop,offlineSimulation,options);
   }
 
   function saveState(options = {}) {
@@ -247,64 +238,27 @@
     return WIS.Core.Formulas.region(sourceGains, { multipliers, exponents, softcaps });
   }
 
-  function formatMultiplierGroups(groups) {
-    return Object.entries(groups).map(([groupName, effects]) => `${groupName}：${effects.map((effect, index) => {
-      const effectName = typeof effect === "object" && effect !== null ? effect.name : `乘区${index + 1}`;
-      return `${effectName} ×${format(multiplierEffectValue(effect), 2)}`;
-    }).join("、")}`).join("；");
+  const formatMultiplierGroups = groups => WIS.UI.Format.multiplierGroups(groups, multiplierEffectValue);
+
+  // Explicit load/player-action boundary. Simulation retains its existing
+  // event checks; rendering must never be required to activate rewards.
+  function playerAction(work) {
+    return (...args) => { const result = work(...args); completePlayerAction(); return result; };
+  }
+
+  function completePlayerAction() {
+    recordCurrentAchievements();
+    updateLifetimeStatistics();
+    WIS.Meta.BigNumbers.syncUnlock(state);
   }
 
   function updateLifetimeStatistics() {
-    state.lifetimeHighestJ = maxBN(state.lifetimeHighestJ, state.joules);
-    state.lifetimeHighestPower = maxBN(maxBN(state.lifetimeHighestPower, state.power), state.highestPower);
-    state.lifetimeHighestScaleIndex = Math.max(state.lifetimeHighestScaleIndex, state.highestScaleIndex);
-    state.lifetimeHighestMana = maxBN(state.lifetimeHighestMana, state.mana);
-    state.lifetimeHighestImmortalPower = maxBN(state.lifetimeHighestImmortalPower, state.immortalPower);
-    state.lifetimeHighestCultivationRealmLevel = Math.max(state.lifetimeHighestCultivationRealmLevel, cultivationRealmLevel());
-    state.currentRebirthHighestJ = maxBN(state.currentRebirthHighestJ, state.joules);
-    state.currentRebirthHighestPower = maxBN(state.currentRebirthHighestPower, state.power);
-    state.currentRebirthHighestScaleIndex = Math.max(state.currentRebirthHighestScaleIndex, state.highestScaleIndex);
-    state.currentRebirthHighestMana = maxBN(state.currentRebirthHighestMana, state.mana);
-    state.currentRebirthHighestImmortalPower = maxBN(state.currentRebirthHighestImmortalPower, state.immortalPower);
-    state.currentRebirthHighestCultivationRealmLevel = Math.max(
-      state.currentRebirthHighestCultivationRealmLevel,
-      cultivationRealmLevel()
-    );
+    WIS.Core.State.updateLifetimeStatistics(WIS.Core.Runtime.getState(), cultivationRealmLevel());
   }
 
-  function formatElapsedTime(totalSeconds) {
-    const seconds = Math.max(0, Math.floor(totalSeconds));
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor(seconds % 86400 / 3600);
-    const minutes = Math.floor(seconds % 3600 / 60);
-    const remainingSeconds = seconds % 60;
-    if (days > 0) return `${days}天${hours}小时`;
-    if (hours > 0) return `${hours}小时${minutes}分钟`;
-    if (minutes > 0) return `${minutes}分钟${remainingSeconds}秒`;
-    return `${remainingSeconds}秒`;
-  }
+  const formatElapsedTime = WIS.UI.Format.elapsedTime;
 
-  function formatGameCalendar(totalRealSeconds) {
-    // Statistics display only: one elapsed real second represents one game minute.
-    const totalMinutes = Math.max(0, Math.floor(totalRealSeconds));
-    let totalHours = Math.floor(totalMinutes / 60);
-    const hoursPerDay = 24;
-    const hoursPerMonth = hoursPerDay * 30;
-    const hoursPerYear = hoursPerMonth * 12;
-    const years = Math.floor(totalHours / hoursPerYear);
-    totalHours %= hoursPerYear;
-    const months = Math.floor(totalHours / hoursPerMonth);
-    totalHours %= hoursPerMonth;
-    const days = Math.floor(totalHours / hoursPerDay);
-    const hours = totalHours % hoursPerDay;
-    const parts = [];
-    if (years > 0) parts.push(`${format(years, 0)}年`);
-    if (months > 0 || years > 0) parts.push(`${months}月`);
-    if (days > 0 || months > 0 || years > 0) parts.push(`${days}日`);
-    if (hours > 0 || parts.length > 0) parts.push(`${hours}小时`);
-    parts.push(`${totalMinutes % 60}分钟`);
-    return parts.join("");
-  }
+  const formatGameCalendar = WIS.UI.Format.gameCalendar;
 
   const simulateOfflineProgress = (...args) => offlineSimulation.simulateOfflineProgress(...args);
   const cancelCatchUp = (...args) => offlineSimulation.cancelCatchUp(...args);
@@ -344,12 +298,12 @@
       WIS.Core.Save.restoreStorage(snapshot.storage);
     },
     getCatchUpStatus, subscribeCatchUpStatus, claimPauseNotice, restoreOfflineRecovery, achievementStates, recordCurrentAchievements,
-    updateLifetimeStatistics, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost,
+    completePlayerAction, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost,
     multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain,
     formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent,
     planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages,
     achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
-    challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt
+    challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt
   });
   ({
     render, renderResourceDebugPanel, ensureAdvancedRealmAbilityGroups, applyTheme, switchPage, showNotice,
@@ -433,6 +387,7 @@
     errorTolerance: OFFLINE_ERROR_TOLERANCE
   });
   offlineSimulation = WIS.Simulation.Offline.create({
+    planOfflineMacro: stepSimulation.planOfflineMacro,
     prepareFixedWork: stepSimulation.prepareFixedWork,
     prepareOnlineWork: stepSimulation.prepareOnlineWork,
     onlineMetrics: stepSimulation.onlineMetrics,
@@ -555,6 +510,7 @@
     grantThreeDeficienciesResetReward
   });
 
+  completePlayerAction();
   UI.bindEvents();
   const initialAchievementStates = achievementStates();
   const restoredOfflineRecovery = restoreOfflineRecovery(savedOfflineRecovery);
@@ -571,12 +527,12 @@
     getPowerSystem: () => WIS.Core.Registries.getActivePower(state),
     getCultivationSystem: () => WIS.Core.Registries.getActiveCultivation(state),
     actions: Object.freeze({
-      train,
-      breathe,
-      explore,
-      chooseCultivation,
-      startChallenge,
-      exitChallenge,
+      train: playerAction(train),
+      breathe: playerAction(breathe),
+      explore: playerAction(explore),
+      chooseCultivation: playerAction(chooseCultivation),
+      startChallenge: playerAction(startChallenge),
+      exitChallenge: playerAction(exitChallenge),
       save: saveState
     }),
     simulation: Object.freeze({
@@ -612,7 +568,11 @@
   async function finishInitialLoad() {
     let initialOfflineReport = "";
     try {
-      if (!WIS.Core.Save.getLoadError()) initialOfflineReport = await simulateOfflineProgress(initialOfflineElapsedSeconds);
+      if (!WIS.Core.Save.getLoadError()) {
+        // Saved foreground intervals resume on the normal live loop. A difficult
+        // numerical tick must not prevent the page from finishing initialization.
+        initialOfflineReport = await simulateOfflineProgress(initialOfflineElapsedSeconds);
+      }
     } catch (error) {
       console.error("WIS initial offline settlement failed; continuing online play.", error);
     }
@@ -629,8 +589,8 @@
     window.setInterval(() => {
       // A periodic save does not change production rules. Keeping its confirmed
       // model avoids resampling at wall-clock-dependent save times. Real player
-      // actions still invalidate through saveState; newly queued online time
-      // invalidates through prepareSave/appendCatchUpTask when necessary.
+      // actions still invalidate through saveState; normal foreground time
+      // advances the live state directly through prepareSave/the main loop.
       if (!document.hidden) try { persistStateNow({ preserveSourceModels: true }); }
       catch(error) { /* Save status retains the failure; keep the existing 5s cadence. */ }
     }, 5000);

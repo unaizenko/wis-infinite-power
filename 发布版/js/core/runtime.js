@@ -4,6 +4,8 @@
   let getState = null;
   let replaceState = null;
   let projectedState = null;
+  let evaluationScope = null;
+  const evaluationStatistics = { evaluationStateCalls: 0, evaluationStateEntries: 0, evaluationStateReuses: 0, highestPowerEvaluationEntries: 0 };
   let projectionDepth = 0;
   let treasurePredictionDepth = 0;
   let offlineExecutionDepth = 0;
@@ -33,6 +35,8 @@
   const state = new Proxy({}, {
     get(_target, key) {
       const current = currentState();
+      if (key === "highestPower" && evaluationScope?.state === current && evaluationScope.highestPowerOverride !== undefined)
+        return evaluationScope.highestPowerOverride;
       if (current?.meta?.challenges?.activeChallenge === "mortalTransformation" && key !== "naturalTreasureLevel" &&
           Object.prototype.hasOwnProperty.call(current.cultivation?.systems?.immortal?.abilities || {}, key)) {
         const value = current[key];
@@ -41,6 +45,7 @@
       return current?.[key];
     },
     set(_target, key, value) {
+      assertMutable();
       const current = currentState();
       if (!current) throw new Error("游戏状态尚未绑定");
       current[key] = value;
@@ -67,6 +72,7 @@
   }
 
   function setState(nextState) {
+    assertMutable();
     if (!replaceState) throw new Error("游戏状态替换器尚未绑定");
     replaceState(nextState);
     return currentState();
@@ -81,6 +87,72 @@
     } finally {
       projectedState = previous;
     }
+  }
+
+  function assertMutable() {
+    if (evaluationScope) throw Error("同步公式求值期间禁止修改状态或消费 RNG");
+  }
+  function synchronous(callback) {
+    if (callback.constructor?.name === "AsyncFunction") throw Error("公式求值作用域不能跨 await");
+    const result = callback();
+    if (result && typeof result.then === "function") throw Error("公式求值作用域不能返回 Promise");
+    return result;
+  }
+  // One lexical scope per collection/group/preview, shared by every formula.
+  // Domain closures use the Runtime view to preserve challenge masking.
+  function withEvaluationState(nextState, callback, { memo = null, effects = null } = {}) {
+    if (nextState === state || nextState == null) nextState = currentState();
+    if (!nextState || typeof callback !== "function") throw Error("公式求值需要状态和同步函数");
+    evaluationStatistics.evaluationStateCalls++;
+    const previous = evaluationScope, E = WIS.Core.Effects;
+    const scale = WIS.Power.ScaleLogic, immortal = WIS.Cultivation.ImmortalLogic;
+    // Identity alone is insufficient: a nested domain/projection/effect scope
+    // can still be bound elsewhere while the outer evaluation frame survives.
+    if (previous && previous.state === nextState && previous.effectContext?.state === nextState && currentState() === nextState &&
+        previous.projectionDepth === projectionDepth && previous.offlineExecutionDepth === offlineExecutionDepth &&
+        previous.treasurePredictionDepth === treasurePredictionDepth && previous.randomSource === randomSource &&
+        (!memo || memo === previous.effectContext.memo) && (!effects || effects === previous.effects) &&
+        (!scale || scale.isScaleState(state)) && (!immortal || immortal.isImmortalState(state)) &&
+        E.matchesEvaluationContext(previous.effectContext)) {
+      evaluationStatistics.evaluationStateReuses++;
+      return synchronous(callback);
+    }
+    evaluationStatistics.evaluationStateEntries++;
+    const frame = { state: nextState, projectionDepth, offlineExecutionDepth, treasurePredictionDepth, randomSource, effects, effectContext: null };
+    if (previous?.state === nextState) frame.highestPowerOverride = previous.highestPowerOverride;
+    evaluationScope = frame;
+    const run = () => {
+      frame.effectContext = E.captureEvaluationContext();
+      return synchronous(callback);
+    };
+    const effectScope = () => effects ? effects(run) : WIS.Core.Effects.withFrozenState(nextState, run, memo);
+    const immortalScope = () => WIS.Cultivation.ImmortalLogic
+      ? WIS.Cultivation.ImmortalLogic.withImmortalState(state, effectScope) : effectScope();
+    try {
+      return withState(nextState, () => WIS.Power.ScaleLogic
+        ? WIS.Power.ScaleLogic.withScaleState(state, immortalScope) : immortalScope());
+    } finally { evaluationScope = previous; }
+  }
+
+  function evaluationResource(key, source = state) {
+    const current = source === state ? currentState() : source;
+    return key === "highestPower" && evaluationScope?.state === current && evaluationScope.highestPowerOverride !== undefined
+      ? evaluationScope.highestPowerOverride : current?.[key];
+  }
+  // A field-only formula probe: the formal state and every write guard remain
+  // installed. Effects owns a private cache overlay for the audited dependency.
+  function withHighestPowerEvaluation(value, callback) {
+    if (!evaluationScope || evaluationScope.state !== currentState()) throw Error("最高战力探测需要只读求值作用域");
+    evaluationStatistics.highestPowerEvaluationEntries++;
+    const previous = evaluationScope;
+    const frame = { ...previous, highestPowerOverride: value };
+    evaluationScope = frame;
+    try {
+      return WIS.Core.Effects.withHighestPowerEvaluation(currentState(), () => {
+        frame.effectContext = WIS.Core.Effects.captureEvaluationContext();
+        return synchronous(callback);
+      });
+    } finally { evaluationScope = previous; }
   }
 
   function withProjection(callback) {
@@ -140,6 +212,7 @@
   }
 
   function random() {
+    assertMutable();
     if (randomSource) return randomSource();
     if (isProjection()) return 1 - Number.EPSILON;
     const current = currentState();
@@ -169,7 +242,10 @@
   }
 
   WIS.Core.Runtime = Object.freeze({
-    atomic, state, bind, setState, withState, withProjection, withRandomSource, withTreasurePrediction,
+    evaluationResource, withHighestPowerEvaluation,
+    getEvaluationStatistics: () => ({ ...evaluationStatistics }),
+    resetEvaluationStatistics: () => { for (const key of Object.keys(evaluationStatistics)) evaluationStatistics[key] = 0; },
+    withEvaluationState, isEvaluating: () => evaluationScope !== null, assertMutable, atomic, state, bind, setState, withState, withProjection, withRandomSource, withTreasurePrediction,
     withOfflineExecution, isOfflineExecution,
     // UI publication is allowed only from the installed state at a render boundary.
     canPresentState: () => !atomicScope && !projectedState && !isProjection() &&

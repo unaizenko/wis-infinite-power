@@ -6,6 +6,16 @@
     max, gt, lt, lte, isFiniteBN, isNaNBN, sum, product
   } = WIS.Core.BigNum;
 
+  const operationTypes=Object.freeze(['additive','multiplicative','exponent','softcap','threshold','branch','denominator']);
+  function descriptor(row,{kind='effect',refresh=null}={}) {
+    const dynamicResources=[...(row.dynamicResources||[])];
+    const operationType=row.operationType||(kind==='source'||/additive/i.test(row.layer)?'additive':/exponent/i.test(row.layer)?'exponent':/softcap/i.test(row.layer)?'softcap':/cap|limit|threshold/i.test(row.layer)?'threshold':'multiplicative');
+    if(!row.id||!row.target||!operationTypes.includes(operationType))throw Error('公式 metadata 无效');
+    const requiresProviderRefresh=dynamicResources.length>0&&typeof row.valueAt!=='function'&&typeof row.value!=='function';
+    const valueAt=row.valueAt||(typeof row.value==='function'?row.value:requiresProviderRefresh&&refresh?refresh:()=>row.value);
+    return {...row,dynamicResources,operationType,valueAt,requiresProviderRefresh};
+  }
+
   function effectValue(effect) {
     const rawValue = !isDecimal(effect) && typeof effect === "object" && effect !== null
       ? effect.value
@@ -82,7 +92,7 @@
   }
 
   WIS.Core.Formulas = Object.freeze({
-    effectValue, multiply, applyExponent, applySoftcaps,
+    descriptor, operationTypes, effectValue, multiply, applyExponent, applySoftcaps,
     smoothPowerSoftcap, diminishingMultiplierExponent, applyDiminishingMultiplier,
     source, region
   });

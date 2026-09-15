@@ -174,7 +174,7 @@
       ,{ id: "blackHolePowerLimit", name: "黑洞", group: "挑战", target: "power", layer: "regionExponent", dynamic: true, value: (current) => blackHoleLimitExponent(current, "power") }
     ];
   }
-  WIS.Core.Effects.register("challenges", effects);
+  WIS.Core.Effects.register("challenges", effects, { highestPowerEffects: [] });
 
   const runtime = WIS.Core.Runtime;
   const state = runtime.state;

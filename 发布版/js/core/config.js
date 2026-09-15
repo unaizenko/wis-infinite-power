@@ -1,5 +1,6 @@
 (function defineConfig(WIS) {
   "use strict";
+  const TREASURE_RULES = WIS.Meta.TreasureRules;
 
   const { BN } = WIS.Core.BigNum;
   const decimalTree = (value, key = "") => {
@@ -162,10 +163,25 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.5.4", saveVersion: 60,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.5.5", saveVersion: 61,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
+    offlineSegmentation: Object.freeze({ minSegments: 64, maxSegments: 512 }), // v7 save compatibility
+    offlineHierarchy: Object.freeze({ baseSegments:64, macroMaxSeconds:300, splitFactor:4, maxDepth:3,
+      maxDirectWork:8192, microSeconds:0.1, splitThreshold:0.001, mapEnabled:true,
+      learnSteps:8, initialMapSteps:16, minimumMapSteps:16, maxMapSteps:4096,
+      progressBins:8, trendTolerance:0.025, relaxationMaxRatio:0.98, validationTolerance:0.03, coordinateFloor:1e-11, maxValidationFailures:3,
+      allowFallbackBeyondBudget:false }),
+    offlinePredictor:Object.freeze({rebaseObservations:3,learnSteps:8,observationLimit:12,initialMapSteps:16,maxMapSteps:1048576,
+      conditionLimit:1e8,fitTolerance:.025,validationTolerance:.03,coordinateFloor:1e-11,
+      hardFailureTolerance:.3,maxFailures:3,maxCoordinateTravelSinceFit:1,sentinelTravel:.25,sentinelMinimumSteps:32,
+      mapStepTiers:Object.freeze([16,64,256,1024]),profitWindow:8,maxRejectRatio:.5,minProfitableSteps:2,fallbackSeconds:20,cooldownSeconds:300,consecutiveRejects:2,fallbackMaxMicroCoordinateTravel:.05,
+      fallbackCoordinateTravel:.001,coordinateTolerance:.0001,shockRatio:4,validationMaxInterval:8,
+      checkpointMinSeconds:.1,checkpointMaxSeconds:300,checkpointCoordinateTravel:.03,progressSamples:9,rateSumBins:8}),
+    coupledFastProfile:Object.freeze({policy:"NORMAL",policies:Object.freeze({STRICT:{additive:false,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:0},NORMAL:{additive:true,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:1e-8},AGGRESSIVE:{additive:true,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:1e-6}})}),
+    coupledKernel:Object.freeze({enabled:true,groups:Object.freeze(["scale","immortal"])}),
+    scaleKernel:Object.freeze({enabled:true,trajectorySamples:8,diagnosticCoupledIntervals:false}),
     fixedSettlement: Object.freeze({ version: 1, offlineSeconds: 60, workBudgetMs: 9, discreteCadenceSeconds: 0.1, onlineSeconds: 1, onlineBacklogSeconds: 2, onlineCollectionSeconds: 0.2 }),
     googolPenalty: Object.freeze({
       threshold: BN("1e100"),
@@ -178,7 +194,7 @@
       greatLuoTimeScaleSeconds: 10 * 60,
       stellarChallengePowerMultiplier: 15,
       galaxyChallengeJMultiplier: 75,
-      immortalCrystal: Object.freeze({ baseChance: 0.05, perItemAdditive: 0.001, decayScale: 100, decayExponent: -0.5 }),
+      immortalCrystal: Object.freeze({ baseChance: TREASURE_RULES.immortalCrystal.baseChance, perItemAdditive: 0.001, decayScale: TREASURE_RULES.immortalCrystal.scale, decayExponent: -TREASURE_RULES.immortalCrystal.exponent }),
       goldenNatureExponentPerDoubling: 0.025,
       utmostPuritySoftcapLossCoefficient: 0.08,
       greatLuoManaExponentPerDoubling: 0.035
@@ -268,8 +284,8 @@
         flawlessJadeBodyReduction: 0.5
       }),
       fiveElementsTreasure: Object.freeze({
-        baseChance: 0.02,
-        chanceDecay: 0.99,
+        baseChance: TREASURE_RULES.fiveElementsTreasure.baseChance,
+        chanceDecay: TREASURE_RULES.fiveElementsTreasure.q,
         perItemAdditive: 0.001,
         minimumInternalExponent: 0.75,
         internalExponentRange: 0.25,
@@ -332,6 +348,7 @@
     starEnhancements: Object.freeze({
       planetWill: Object.freeze({ joulesScale: BN(1e29), exponent: 0.75, maximumMultiplier: BN(1e8) }),
       starSpirit: Object.freeze({ perChallengeMultiplier: 1.06 }),
+      stellarTreasureSeeking: Object.freeze({ progressMultiplier: 1.5 }),
       starShatter: Object.freeze({ maximumOrders: 5, levelScale: 5000 }),
       spaceQuake: Object.freeze({ remainingPressureMultiplier: 0.97 }),
       selfless: Object.freeze({ ultimateIntentMultiplier: 1e5 }),
@@ -343,14 +360,16 @@
       challengeRewardLossConversion: 0.1
     }),
     scaleTreasures: Object.freeze({
-      superLollipop: Object.freeze({ baseChance: 0.0005, chanceDecay: 0.98, perItemMultiplier: 0.02 }),
-      fiveSpiritStone: Object.freeze({ baseChance: 0.0005, chanceDecay: 0.99, joulesBase: 10, joulesExponent: 1.2, powerBase: 5, powerExponent: 1.25 }),
+      superLollipop: Object.freeze({ baseChance: TREASURE_RULES.superLollipop.baseChance, chanceDecay: TREASURE_RULES.superLollipop.q, perItemMultiplier: 0.02 }),
+      fiveSpiritStone: Object.freeze({ baseChance: TREASURE_RULES.fiveSpiritStone.baseChance, chanceDecay: TREASURE_RULES.fiveSpiritStone.q, joulesBase: 10, joulesExponent: 1.2, powerBase: 5, powerExponent: 1.25 }),
       cosmicFiber: Object.freeze({
-        baseChance: 0.003, chanceDecayScale: 20, chanceDecayExponent: 0.65,
+        baseChance: TREASURE_RULES.cosmicFiber.baseChance, chanceDecayScale: TREASURE_RULES.cosmicFiber.scale, chanceDecayExponent: TREASURE_RULES.cosmicFiber.exponent,
         galaxyBaseExponent: 1.10, galaxyPerItemExponent: 0.005,
         galaxyDecayScale: 20, galaxyDecayExponent: 0.55
       }),
-      cosmicWill: Object.freeze({ baseChance: 0.001, chanceDecayScale: 10, chanceDecayExponent: 0.85 })
+      cosmicWill: Object.freeze({ baseChance: TREASURE_RULES.cosmicWill.baseChance, chanceDecayScale: TREASURE_RULES.cosmicWill.scale, chanceDecayExponent: TREASURE_RULES.cosmicWill.exponent })
     })
   });
 }(window.WIS));
+
+

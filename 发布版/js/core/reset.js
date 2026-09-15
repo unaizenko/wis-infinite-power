@@ -61,7 +61,7 @@
     preservePaths.forEach((path) => setPath(result, path, getPath(currentDomain, path)));
     const clearPaths = typeof profile.clearPaths === "function" ? profile.clearPaths(currentDomain, context) : profile.clearPaths;
     clearPaths.forEach((path) => setPath(result, path, getPath(freshDomain, path)));
-    const progressKeys = ["treasureCredits", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureProgressPending", "treasureProgressStatus", "treasureQualifications", "treasureProgressVersion"];
+    const progressKeys = ["treasureProgressFinite", "treasureCredits", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureProgressPending", "treasureProgressStatus", "treasureQualifications", "treasureProgressVersion"];
     if (preserve.includes("treasureImprints")) progressKeys.forEach(key => { result.meta[key] = clone(currentDomain.meta[key]); });
     if (clear.includes("treasureImprints") || clearPaths.includes("meta.treasures"))
       progressKeys.forEach(key => { result.meta[key] = clone(freshDomain.meta[key]); });

@@ -34,6 +34,7 @@
       // achievements and the resource commit still execute on the live state.
       const preparedPlans = new WeakMap();
 
+
       function stepStateKey(state) {
         return JSON.stringify(WIS.Core.State.toSerializable(state),
           (key, value) => key === "lastUpdateAt" ? undefined : value);
@@ -238,18 +239,7 @@
         return frozenInventoryPlan(source, integrated, seconds) ? integrated : null;
       }
 
-      function reusableAutomaticStepPlan(token, seconds, activePowerSystem, activeCultivationSystem, options = {}) {
-        const prepared = token && preparedPlans.get(token);
-        return prepared && prepared.elapsedSeconds === seconds &&
-          prepared.incomeFactor === WIS.Simulation.Compensation.factor() &&
-          prepared.method === integrationMethod(options) &&
-          prepared.offlineExecution === WIS.Core.Runtime.isOfflineExecution() &&
-          prepared.stableInventoryIntegration === (options.stableInventoryIntegration !== false) &&
-          prepared.activePowerSystem === activePowerSystem &&
-          prepared.activeCultivationSystem === activeCultivationSystem &&
-          prepared.sourceKey === stepStateKey(getState())
-          ? prepared.plan : null;
-      }
+      
 
       function requirementForState(scaleIndex, source) {
         return WIS.Core.Runtime.withState(source, () =>
@@ -485,49 +475,11 @@
             ? work.stepPlan.preparedStepPlan : null);
       }
 
-      function isCultivationRealmBoundaryEvent(event) {
-        return ["manaRealmRequirement", "immortalRealmRequirement"].includes(event?.type);
-      }
+      
 
-      function handleCultivationRealmBoundary(event, eventUpdate) {
-        const eventCommitted = eventUpdate?.eventCommitted === true;
-        const realmBoundaryHandled = eventCommitted && isCultivationRealmBoundaryEvent(event);
-        if (!realmBoundaryHandled) {
-          return { eventCommitted, realmBoundaryHandled: false, breakthroughs: 0, challengeCompleted: false };
-        }
-        const breakthroughs = autoBreakthroughImmortalRealms();
-        if (!(breakthroughs > 0)) {
-          return { eventCommitted, realmBoundaryHandled: true, breakthroughs: 0, challengeCompleted: false };
-        }
-        WIS.Core.Effects.invalidate();
-        const challengeCompleted = checkActiveChallengeCompletion();
-        if (!WIS.Core.Runtime.isProjection()) {
-          markCostGroupsDirty();
-          markAchievementsDirty();
-        }
-        return { eventCommitted, realmBoundaryHandled: true, breakthroughs, challengeCompleted };
-      }
+      
 
-      function commitInstantCultivationEvent(activeCultivationSystem, instantEvent, cultivationPlan, requestedSeconds) {
-        const eventUpdate = activeCultivationSystem?.commitAutomaticGain?.(getState(), cultivationPlan, {
-          writeRates: false
-        });
-        const postProcess = handleCultivationRealmBoundary(instantEvent, eventUpdate);
-        return {
-          gainedPearls: 0,
-          resourceGains: {
-            joules: ZERO, power: ZERO,
-            mana: eventUpdate?.mana ?? ZERO,
-            immortalPower: eventUpdate?.immortalPower ?? ZERO
-          },
-          processedSeconds: 0,
-          remainingSeconds: requestedSeconds,
-          eventCommitted: postProcess.eventCommitted,
-          requiresReplan: postProcess.eventCommitted,
-          formulaChanged: postProcess.eventCommitted,
-          discreteEvent: instantEvent
-        };
-      }
+      
 
       // A deliberately narrow certificate, not an endpoint-equality heuristic.
       // Base J before any formula-bearing progression has a constant source.
@@ -554,7 +506,7 @@
         const limit=CHALLENGE_DEFINITIONS[state.activeChallenge]?.timeToLimitSeconds;
         if(limit>state.activeChallengeElapsedSeconds&&limit-state.activeChallengeElapsedSeconds<seconds){seconds=limit-state.activeChallengeElapsedSeconds;reason='challenge';}
         const clockRatio=options.clockRatio||0;
-        if(continuous&&!state.unlockedAchievements.trainingUp&&clockRatio>0&&state.totalElapsedSeconds<600&&
+        if(options.source!=="offline"&&continuous&&!state.unlockedAchievements.trainingUp&&clockRatio>0&&state.totalElapsedSeconds<600&&
           (600-state.totalElapsedSeconds)/clockRatio<seconds){seconds=(600-state.totalElapsedSeconds)/clockRatio;reason='achievement';}
         return {seconds,reason,event:reason==='none'?null:reason,continuous};
       }
@@ -568,7 +520,7 @@
         let cadence=timeSegment.logicalTickRemaining>epsilon?timeSegment.logicalTickRemaining:
           candidate.core.runtime.onlineCadenceRemaining>epsilon?candidate.core.runtime.onlineCadenceRemaining:simulationStepSeconds;
         if(!Number.isFinite(cadence)||cadence>simulationStepSeconds+epsilon)throw Error('在线自动化时钟无效，输入保留');
-        const result={processedSeconds:0,resourceGains:Object.fromEntries(FIXED_KEYS.map(k=>[k,ZERO])),operations:0,gainedPearls:ZERO,clockCommitted:true,compatibilitySubsteps:0};
+        const result={processedSeconds:0,resourceGains:Object.fromEntries(fixedKeys().map(k=>[k,ZERO])),operations:0,gainedPearls:ZERO,clockCommitted:true,compatibilitySubsteps:0};
         let rates={...WIS.tmp.rates},candidateTick=WIS.tmp.tick;
         const transients=()=>[WIS.Core.Registries.getActivePower(candidate)?.snapshotTreasureTransient?.(),WIS.Core.Registries.getActiveCultivation(candidate)?.snapshotTreasureTransient?.()];
         let transient=transients();
@@ -580,7 +532,7 @@
             const covered=timeSegment.compensationEligible&&timeSegment.clockRatio>0&&C.get(candidate).balance>0;
             if(covered)dt=Math.min(dt,C.get(candidate).balance/timeSegment.clockRatio);
             const defer=!boundary.continuous&&dt+epsilon<cadence;
-            const amounts=Object.fromEntries(FIXED_KEYS.map(k=>[k,candidate[k]]));
+            const amounts=Object.fromEntries(fixedKeys().map(k=>[k,WIS.Simulation.ResourceGroups.read(candidate,k)]));
             const unit=C.withFactor(covered?2:1,()=>F.prepare(candidate,dt,{borrowSources:true,
               runAchievementAutomations:defer?undefined:runAchievementAutomations,automationOpportunities:boundary.continuous?Math.max(1,Math.ceil(dt/simulationStepSeconds-1e-9)):1,offline:false}));
             yield;
@@ -600,7 +552,7 @@
             // Match the old ordering: the play-time achievement is checked after
             // the end-unit effects, before preparing the next source snapshot.
             candidate.core.runtime.lastSettlement={seconds:dt,gains:value.resourceGains,
-              mainChanged:Object.fromEntries(FIXED_KEYS.map(k=>[k,!eq(amounts[k],candidate[k])])),at:candidate.totalElapsedSeconds};
+              mainChanged:Object.fromEntries(fixedKeys().map(k=>[k,!eq(amounts[k],WIS.Simulation.ResourceGroups.read(candidate,k))])),at:candidate.totalElapsedSeconds};
             candidate.totalElapsedSeconds+=dt*(timeSegment.clockRatio||0);
             if(!candidate.unlockedAchievements?.trainingUp&&candidate.totalElapsedSeconds>=600)recordCurrentAchievements();
             if(draft)candidate=draft.finish();R.setState(candidate);E.invalidate();
@@ -611,7 +563,7 @@
             candidate.core.runtime.onlineCadenceRemaining=cadence;
             result.processedSeconds+=dt;result.operations+=value.operations;
             result.gainedPearls=add(result.gainedPearls,value.gainedPearls);
-            for(const k of FIXED_KEYS)result.resourceGains[k]=add(result.resourceGains[k],value.resourceGains[k]);
+            for(const k of fixedKeys())result.resourceGains[k]=add(result.resourceGains[k],value.resourceGains[k]);
             if(boundary.continuous)result.continuousSegments=(result.continuousSegments||0)+1;else result.compatibilitySubsteps++;
             yield;
           }
@@ -638,7 +590,7 @@
           return {done:false};
         },close(){closed=true;}};
       }
-      const FIXED_KEYS=['joules','power','mana','immortalPower','xianForce','yuanForce'];
+      const fixedKeys=()=>WIS.Simulation.ResourceGroups.keys;
       function installOnlineSegment(token) {
         const value=onlinePrepared.get(token),state=getState();
         if(!value||value.roots.some((root,i)=>root!==[state.core,state.powerSystem,state.cultivation,state.meta][i]))throw Error('在线段起始状态已改变');
@@ -658,6 +610,10 @@
       }
 
       function advanceGameStep(elapsedSeconds, silentTreasureRolls, options = {}) {
+        const profiler=WIS.Simulation.Profiler,scope=options.foreground||options.timeSegment?.source==='online'?'online':'offline';
+        return profiler.withScope(scope,()=>profiler.measure('totalStep',()=>advanceProfiledStep(elapsedSeconds,silentTreasureRolls,options)));
+      }
+      function advanceProfiledStep(elapsedSeconds, silentTreasureRolls, options = {}) {
         if (options.preparedOnlineSegment) return installOnlineSegment(options.preparedOnlineSegment);
         if (options.preparedFixedSegment) options={...options,
           fixedCandidate:WIS.Simulation.FixedSegment.takePrepared(options.preparedFixedSegment,getState())};
@@ -671,7 +627,7 @@
           ...options, compensationClockRatio: covered ? clockRatio : 0,
           // An exhausted credit can split income within one online tick, but
           // must not create an additional automatic purchase opportunity.
-          deferAutomation: covered && seconds + epsilon < Math.min(elapsedSeconds,simulationStepSeconds)
+          deferAutomation: options.deferAutomation || covered && seconds + epsilon < Math.min(elapsedSeconds,simulationStepSeconds)
         });
         return C.withFactor(covered ? 2 : 1, () =>
           options.offline && !WIS.Core.Runtime.isOfflineExecution()
@@ -685,7 +641,7 @@
         const roots = ["core", "powerSystem", "cultivation", "meta"];
         const previous = Object.fromEntries(roots.map(key => [key, original[key]]));
         const rates = { ...WIS.tmp.rates }, previousTick = WIS.tmp.tick;
-        const amounts = Object.fromEntries(["joules", "power", "mana", "immortalPower", "xianForce", "yuanForce"].map(key => [key, original[key]]));
+        const amounts = Object.fromEntries(fixedKeys().map(key => [key, WIS.Simulation.ResourceGroups.read(original,key)]));
         const power = WIS.Core.Registries.getActivePower(original);
         const cultivation = WIS.Core.Registries.getActiveCultivation(original);
         const transient = [power?.snapshotTreasureTransient?.(), cultivation?.snapshotTreasureTransient?.()];
@@ -693,7 +649,20 @@
         const fixedConfirmed = WIS.Simulation.FixedSegment.confirmed();
         // All calculations, ledger checks, treasure rolls and event/automation
         // effects execute on disposable branches. No persistence before success.
-        Object.assign(original, WIS.Core.State.toSerializable(original));
+        const S = WIS.Core.State;
+        let draft = options.foreground ? S.createDraft(original) : null;
+        if(draft)Object.assign(original,draft.state);
+        else if(!options.fixedCandidate)Object.assign(original,S.toSerializable(original));
+        if (draft) options = { ...options, foregroundSource: () => draft.finish(), beginForegroundCommit(unit) {
+          // Finish the planning draft before any income is committed. Automation
+          // keeps this immutable start domain, while writes use a fresh COW draft.
+          const snapshot = draft.finish();
+          for (const key of ["sources", "plan", "cultivation", "bigNumbers"])
+            unit[key] = draft.finishValue(unit[key]);
+          unit.snapshot = snapshot;
+          draft = S.createDraft(snapshot);
+          Object.assign(original, draft.state);
+        } };
         transactionDepth++;
         try {
           const result = WIS.Core.Runtime.atomic(() => {
@@ -707,12 +676,23 @@
             } else if (!options.projection && !WIS.Core.Runtime.isProjection()) {
               getState().core.runtime.lastSettlement = {
                 seconds: result.processedSeconds, gains: result.resourceGains || {},
-                mainChanged: Object.fromEntries(Object.entries(amounts).map(([key, value]) => [key, !eq(value, getState()[key])])),
+                mainChanged: Object.fromEntries(Object.entries(amounts).map(([key, value]) => [key, !eq(value, WIS.Simulation.ResourceGroups.read(getState(),key))])),
                 at: getState().totalElapsedSeconds
               };
             }
+            if (draft && (result.processedSeconds > 0 || result.eventCommitted)) {
+              // A hook can replace a root (for example a challenge reset).
+              Object.assign(draft.state, Object.fromEntries(roots.map(key => [key, original[key]])));
+              Object.assign(original, draft.finish());
+            }
             return result;
           });
+          // Publish AFTER end-unit hooks and atomic notifications can invalidate
+          // effects. These are the gains actually committed, including compensation.
+          if (result.processedSeconds > 0 && !options.projection && !WIS.Core.Runtime.isProjection()) {
+            for (const key of fixedKeys())
+              WIS.tmp.rates[key + "PerSecond"] = div(result.resourceGains?.[key] ?? ZERO, result.processedSeconds);
+          }
           return result;
         } catch (error) {
           WIS.Simulation.FixedSegment.restoreConfirmed(fixedConfirmed);
@@ -737,21 +717,25 @@
         const state = getState(), requested = Math.max(0, Number(elapsedSeconds) || 0);
         const isOffline = options.timeSegment?.source === "offline";
         const seconds = nextChallengeTimeBoundarySeconds(Math.min(requested,
-          isOffline ? CONFIG.fixedSettlement.offlineSeconds : simulationStepSeconds));
+          isOffline ? (options.fixedCandidate?.unit.seconds ?? options.macroSeconds ?? CONFIG.fixedSettlement.offlineSeconds) : simulationStepSeconds));
         if (!(seconds > 0)) return { processedSeconds: 0, remainingSeconds: requested };
         const unit = options.fixedCandidate ? null : WIS.Simulation.FixedSegment.prepare(state, seconds, {
           runAchievementAutomations: options.deferAutomation ? undefined : runAchievementAutomations,
           skipTreasureRolls: options.skipTreasureRolls,
+          borrowSources: options.foreground === true,
+          dynamicResources: false,
+          foregroundSource: options.foregroundSource,
           offline: isOffline
         });
         if(options.fixedCandidate && options.fixedCandidate.unit.seconds!==seconds) throw Error("固定段时间边界已改变");
+        if (unit) options.beginForegroundCommit?.(unit);
         const result = options.fixedCandidate
           ? WIS.Simulation.FixedSegment.installPrepared(state,options.fixedCandidate)
           : WIS.Simulation.FixedSegment.commit(state, unit, options);
-        projectStepTimes(state, seconds);
+        if(!options.fixedCandidate?.unit.options.beforeEndEvents)projectStepTimes(state, seconds);
         // All new effects start in the next unit. No ordinary scale bisection,
         // no re-query after income, loot or any of the end-unit purchases.
-        WIS.Core.Registries.getActivePower(state)?.afterStep?.(state, seconds);
+        if(!options.fixedCandidate?.unit.options.beforeEndEvents)WIS.Core.Registries.getActivePower(state)?.afterStep?.(state, seconds);
         updateLifetimeStatistics();
         if (recordCurrentAchievements() && !options.projection) markAchievementsDirty();
         WIS.Meta.BigNumbers?.syncUnlock(state);
@@ -761,163 +745,7 @@
           requiresReplan: seconds + epsilon < requested, formulaChanged: result.operations > 0 };
       }
 
-      function advanceGameStepWithContext(elapsedSeconds, silentTreasureRolls, {
-        skipTreasureRolls = false, projection = false, offline = false,
-        integrationMethod: requestedIntegrationMethod = "end", preparedStepPlan = null,
-        stableInventoryIntegration = true
-      } = {}) {
-        const state = getState();
-        WIS.Meta.TreasureProgress?.ensure(state);
-        const requestedSeconds = Math.max(0, Number(elapsedSeconds) || 0);
-        if (!(requestedSeconds > 0)) return { gainedPearls: 0, processedSeconds: 0, remainingSeconds: 0 };
-        const publishRates = !projection && !WIS.Core.Runtime.isProjection();
-        const previousRates = publishRates ? null : { ...WIS.tmp.rates };
-        const activePowerSystem = WIS.Core.Registries.getActivePower(state);
-        const activeCultivationSystem = WIS.Core.Registries.getActiveCultivation(state);
-        const planOptions = { integrationMethod: requestedIntegrationMethod, projection, offline, stableInventoryIntegration };
-        const previousScaleIndex = state.highestScaleIndex;
-        const bigNumbersActive = WIS.Meta.BigNumbers?.syncUnlock(state) === true;
-        const bigNumbersStartPower = state.power;
-        const previousProgressFlags = [state.brickUnlocked, state.wallUnlocked, state.activeChallenge];
-        const previousProgressRewards = JSON.stringify([state.challengeCompletions, state.symbolicPowerMilestones]);
-        // Treasure progress is submitted at the same original logic-frame
-        // boundary online and offline. A caller requesting a long interval must
-        // continue its remainder, never delay all inventory feedback to its end.
-        const treasureFrameLimit = WIS.Simulation.FastForward?.intervalFrames > 1 ? requestedSeconds : (!skipTreasureRolls && WIS.Meta.TreasureProgress ? simulationStepSeconds : requestedSeconds);
-        let committedSeconds = nextChallengeTimeBoundarySeconds(Math.min(requestedSeconds, treasureFrameLimit));
-        let stepPlan = reusableAutomaticStepPlan(
-          preparedStepPlan, committedSeconds, activePowerSystem, activeCultivationSystem, planOptions
-        ) || calculateAutomaticStepPlan(committedSeconds, activePowerSystem, activeCultivationSystem, planOptions);
-        if (stepPlan.cultivation.instantEvent) {
-          const result = commitInstantCultivationEvent(
-            activeCultivationSystem, stepPlan.cultivation.instantEvent, stepPlan.cultivation, requestedSeconds
-          );
-          if (!publishRates) Object.assign(WIS.tmp.rates, previousRates);
-          return result;
-        }
-        let discreteEvent = stepPlan.cultivation.event ?? null;
-        for (let eventPass = 0; eventPass < 3; eventPass += 1) {
-          const plannedCultivationSeconds = stepPlan.cultivation.processedSeconds === undefined
-            ? committedSeconds
-            : Number(stepPlan.cultivation.processedSeconds);
-          const cultivationSeconds = Math.max(0, Math.min(
-            committedSeconds,
-            Number.isFinite(plannedCultivationSeconds) ? plannedCultivationSeconds : 0
-          ));
-          const scaleSeconds = nextScaleBoundarySeconds(
-            committedSeconds, activePowerSystem, stepPlan.projection, offline, planOptions
-          );
-          const scaleBoundaryLimited = scaleSeconds + epsilon < committedSeconds &&
-            scaleSeconds <= cultivationSeconds + epsilon;
-          const nextCommittedSeconds = Math.min(committedSeconds, cultivationSeconds, scaleSeconds);
-          if (!(nextCommittedSeconds > 0)) {
-            return { gainedPearls: 0, processedSeconds: 0, remainingSeconds: requestedSeconds, eventCommitted: false };
-          }
-          if (nextCommittedSeconds === committedSeconds && stepPlan.cultivation.completed !== false) break;
-          committedSeconds = nextCommittedSeconds;
-          stepPlan = calculateAutomaticStepPlan(committedSeconds, activePowerSystem, activeCultivationSystem, planOptions);
-          if (stepPlan.cultivation.instantEvent) {
-            const result = commitInstantCultivationEvent(
-              activeCultivationSystem, stepPlan.cultivation.instantEvent, stepPlan.cultivation, requestedSeconds
-            );
-            if (!publishRates) Object.assign(WIS.tmp.rates, previousRates);
-            return result;
-          }
-          discreteEvent = stepPlan.cultivation.event ?? null;
-          if (offline && scaleBoundaryLimited) break;
-        }
-        if (stepPlan.cultivation.completed === false) {
-          return { gainedPearls: 0, processedSeconds: 0, remainingSeconds: requestedSeconds };
-        }
-
-        const bigNumberPlan = bigNumbersActive ? WIS.Meta.BigNumbers.prepare(state, committedSeconds, {
-          startPower: bigNumbersStartPower,
-          endPower: add(state.power, add(state.powerGainResidual ?? ZERO, stepPlan.power?.power ?? ZERO)),
-          stepSeconds: simulationStepSeconds,
-          interval: committedSeconds > simulationStepSeconds + epsilon
-        }) : null;
-        WIS.Core.Effects.invalidate();
-        WIS.Core.Effects.beginTick(state);
-        state.reincarnationElapsedSeconds = stepPlan.projection.reincarnationElapsedSeconds;
-        state.currentScaleElapsedSeconds = stepPlan.projection.currentScaleElapsedSeconds;
-        state.activeChallengeElapsedSeconds = stepPlan.projection.activeChallengeElapsedSeconds;
-        activePowerSystem?.commitAutomaticGains?.(state, stepPlan.power, { writeRates: publishRates });
-        const cultivationUpdate = activeCultivationSystem?.commitAutomaticGain?.(
-          state,
-          stepPlan.cultivation,
-          { writeRates: publishRates, skipTreasureRolls }
-        );
-        const committedRates = {
-          joulesPerSecond: stepPlan.power?.rates?.joulesPerSecond ?? ZERO,
-          powerPerSecond: stepPlan.power?.rates?.powerPerSecond ?? ZERO,
-          manaPerSecond: cultivationUpdate?.rates?.manaPerSecond ?? ZERO,
-          immortalPowerPerSecond: cultivationUpdate?.rates?.immortalPowerPerSecond ?? ZERO,
-          ...(stepPlan.power?.rates || {}),
-          ...(cultivationUpdate?.rates || {})
-        };
-        if (discreteEvent?.requiresGlobalReplan) WIS.Core.Effects.invalidate();
-        const passiveManaRate = Math.max(0, toNumber(
-          cultivationUpdate?.rates?.passiveTreasureManaPerSecond
-          ?? cultivationUpdate?.rates?.manaPerSecond,
-          0
-        ));
-        let gainedPearls = 0;
-        if (!skipTreasureRolls) {
-          gainedPearls = compatibleRewardCount(activeCultivationSystem
-            ?.rollPassiveManaTreasure?.(committedSeconds, passiveManaRate, silentTreasureRolls));
-          activePowerSystem?.rollPassiveTreasure?.(state, committedSeconds, silentTreasureRolls);
-          activeCultivationSystem?.rollCirculationTreasure?.(state, committedSeconds, silentTreasureRolls);
-          activeCultivationSystem?.rollImmortalPowerTreasure?.(
-            state, cultivationUpdate?.immortalPowerActiveSeconds, silentTreasureRolls
-          );
-        }
-        activePowerSystem?.afterStep?.(state, committedSeconds);
-        // The new domain never feeds back into the old resources. Commit only
-        // elapsed, confirmed time; projection/interval rollback includes meta.
-        if (bigNumberPlan) state.meta.bigNumbers = bigNumberPlan;
-        const realmUpdate = handleCultivationRealmBoundary(discreteEvent, cultivationUpdate);
-        updateLifetimeStatistics();
-        const achievementsChanged = recordCurrentAchievements();
-        WIS.Meta.BigNumbers?.syncUnlock(state);
-        if (achievementsChanged && !projection) markAchievementsDirty();
-        let automationChanges = 0;
-        if (!isCultivationRealmBoundaryEvent(discreteEvent)) {
-          automationChanges = runAchievementAutomations();
-          if (automationChanges > 0) {
-            if (recordCurrentAchievements() && !projection) markAchievementsDirty();
-            if (!projection) markCostGroupsDirty();
-          }
-        }
-        Object.assign(WIS.tmp.rates, publishRates ? committedRates : previousRates);
-        if (["mortalTransformation", "yinVoidYangReal"].includes(state.activeChallenge)) checkActiveChallengeCompletion();
-        return {
-          gainedPearls,
-          // Report the committed increments directly. Subtracting two enormous
-          // inventories can erase a valid small gain and conceal trial error.
-          resourceGains: {
-            joules: stepPlan.power?.joules ?? ZERO,
-            power: stepPlan.power?.power ?? ZERO,
-            mana: cultivationUpdate?.mana ?? ZERO,
-            immortalPower: cultivationUpdate?.immortalPower ?? ZERO,
-            xianForce: cultivationUpdate?.xiuzhen?.xianForce ?? ZERO,
-            yuanForce: cultivationUpdate?.xiuzhen?.yuanForce ?? ZERO
-          },
-          processedSeconds: committedSeconds,
-          preparedStepPlan: stepPlan.preparedStepPlan,
-          stableInventoryIntegrated: stepPlan.stableInventoryIntegrated === true,
-          remainingSeconds: Math.max(0, requestedSeconds - committedSeconds),
-          eventCommitted: cultivationUpdate?.eventCommitted === true,
-          requiresReplan: Boolean(discreteEvent?.requiresGlobalReplan) ||
-            committedSeconds + epsilon < requestedSeconds,
-          formulaChanged: automationChanges > 0 || achievementsChanged ||
-            state.highestScaleIndex !== previousScaleIndex || realmUpdate.breakthroughs > 0 ||
-            previousProgressFlags.some((value, index) =>
-              value !== [state.brickUnlocked, state.wallUnlocked, state.activeChallenge][index]) ||
-            previousProgressRewards !== JSON.stringify([state.challengeCompletions, state.symbolicPowerMilestones]) ||
-            Boolean(discreteEvent?.requiresGlobalReplan),
-          discreteEvent
-        };
-      }
+      
 
       function advanceGame(elapsedSeconds, { offline = false, clockSeconds = elapsedSeconds } = {}) {
         const state = getState();
@@ -957,10 +785,25 @@
       return Object.freeze({
         prepareOnlineWork:createOnlineWork, findNextSimulationBoundary, onlineMetrics:()=>({...onlineMetrics}),
         restoreOnlineMetrics(point){if(point)for(const k of ['segments','gameSeconds','compatibilitySubsteps','continuousSegments'])onlineMetrics[k]=point[k];},
-        prepareFixedWork(seconds) {
+        planOfflineMacro(seconds,options={}) {
+          const bound=nextChallengeTimeBoundarySeconds(seconds);
+          return WIS.Simulation.FixedSegment.planOffline(getState(),seconds,{...options,hardBoundary:bound});
+        },
+        prepareFixedWork(seconds, options={}) {
           return WIS.Simulation.FixedSegment.createWork(getState(),
-            findNextSimulationBoundary(getState(),Math.min(seconds,CONFIG.fixedSettlement.offlineSeconds),{source:'offline'}).seconds,
-            {offline:true,runAchievementAutomations});
+            findNextSimulationBoundary(getState(),seconds,{source:'offline',clockRatio:options.clockRatio}).seconds,
+            {offline:true,runAchievementAutomations,clockRatio:options.clockRatio,sourceProfile:options.sourceProfile,mapPlan:options.mapPlan,evolutionPlan:options.evolutionPlan,
+                beforeEndEvents(candidate,dt) {
+                  projectStepTimes(candidate,dt);
+                  WIS.Core.Registries.getActivePower(candidate)?.afterStep?.(candidate,dt);
+                  updateLifetimeStatistics();
+                  // Include achievements enabled by segment-end resources/loot.
+                  recordCurrentAchievements();
+                },afterAutomation(candidate) {
+                  updateLifetimeStatistics();
+                  const changed=recordCurrentAchievements();
+                  return checkActiveChallengeCompletion()||changed;
+                }});
         },
         requestSave, beginTransaction, endTransaction,
         projectStepTimes, calculateAutomaticStepPlan,

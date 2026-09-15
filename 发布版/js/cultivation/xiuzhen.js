@@ -52,47 +52,56 @@
         const tail=field==="amount"?"residual":field+"Residual";
         to[tail]=L().subtract([from[field],...to[tail]],[to[field]]);
       }
+      // All economic quantities use finite Decimal precision after legacy merging.
+      for (const field of ["amount", "total", "spent"]) {
+        const tail = field === "amount" ? "residual" : field + "Residual";
+        to[field] = L().value(L().normalize([to[field], ...to[tail]]));
+        to[tail] = [];
+      }
     }
     n.manaDebitResidual = tails(raw.manaDebitResidual);
     n.manaSpent = nonnegative(raw.manaSpent); n.manaSpentResidual = tails(raw.manaSpentResidual);
     if(typeof raw.manaSpent==="string")n.manaSpentResidual=L().subtract([raw.manaSpent,...n.manaSpentResidual],[n.manaSpent]);
+    n.manaSpent = L().value(L().normalize([n.manaSpent,...n.manaSpentResidual]));
+    n.manaSpentResidual = [];
     return n;
   }
-  const get = state => state.cultivation.systems.immortal.xiuzhen ||
-    (state.cultivation.systems.immortal.xiuzhen = fresh());
+  // A missing legacy branch is a detached default view, never a query write.
+  const get = state => state.cultivation.systems.immortal.xiuzhen || fresh();
   const unlocked = state => (state.challengeCompletions?.mortalTransformation || 0) > 0;
   // Existing Xiuzhen progress remains accessible when loading a pre-achievement save.
   const available = state => state.unlockedAchievements?.qiPathComplete === true || unlocked(state) || get(state).highestRealm > 0;
   const active = state => state.cultivation.active === "immortal";
-  const sealed = state => state.activeChallenge === "mortalTransformation";
+  const qiPathSealed = state => state.activeChallenge === "mortalTransformation";
+  const sealed = state => ["mortalTransformation", "qiRefiningHundredThousandYears"].includes(state.activeChallenge);
   const yinYang = state => state.activeChallenge === "yinVoidYangReal";
   const has = (state, key) => active(state) && !sealed(state) && get(state).abilities[key] === true;
   const tailKey = field => field === "amount" ? "residual" : field + "Residual";
-  const words = (e, field = "amount") => L().normalize([e[field], ...(e[tailKey(field)] || [])]);
+  const words = (e, field = "amount") => [String(B.BN(e[field]))];
   function write(e, terms, field = "amount", accounting = L()) {
     const normalized = accounting.normalize(terms);
     if (accounting.sign(normalized) < 0) throw Error("修真道账本余额不足，未提交");
     const value = accounting.value(normalized);
     if (!B.isFiniteBN(value)) throw Error("修真道账本无法投影，未提交");
-    const rest = accounting.subtract(normalized, [value]);
+    const rest = [];
     e[field] = value; e[tailKey(field)] = rest;
   }
   function validate(state) {
-    const n = get(state);
+    const n = state.cultivation.systems.immortal.xiuzhen ||= fresh();
     for (const key of resourceKeys) for (const field of ["amount", "total", "spent"])
-      write(n.resources[key], words(n.resources[key], field), field);
+      write(n.resources[key], L().normalize([n.resources[key][field],...(n.resources[key][tailKey(field)]||[])]), field);
     const mana = WIS.Core.Resources.prepare(state.cultivation.systems.immortal.resources, "mana", B.ZERO);
     const resources = state.cultivation.systems.immortal.resources;
     const combined = WIS.Core.Resources.ledger().normalize([...WIS.Core.Resources.balance(mana, "mana"), ...n.manaDebitResidual]);
     if (WIS.Core.Resources.ledger().sign(combined) < 0) throw Error("法力借记余额无效");
     const e = { amount: B.ZERO }; write(e, combined, "amount", WIS.Core.Resources.ledger());
-    Object.assign(resources, { mana: e.amount, manaGainResidual: B.ZERO, manaGainResidualTail: e.residual });
+    Object.assign(resources, WIS.Core.Resources.prepareTerms({}, "mana", [e.amount, ...e.residual]));
     n.manaDebitResidual = [];
     return state;
   }
-  function amount(state, key) { return L().value(words(get(state).resources[key])); }
+  function amount(state, key) { return B.BN(get(state).resources[key].amount); }
   function availableWords(state, key) {
-    return key === "mana" ? WIS.Core.Resources.ledger().normalize([...WIS.Core.Resources.balance(state.cultivation.systems.immortal.resources, "mana"), ...get(state).manaDebitResidual])
+    return key === "mana" ? WIS.Core.Resources.balance(state.cultivation.systems.immortal.resources, "mana")
       : words(get(state).resources[key]);
   }
   function canSpend(state, key, cost) {
@@ -111,8 +120,8 @@
     if (key === "mana") {
       const e = { amount: state.mana }, spent = { amount: n.manaSpent, residual: n.manaSpentResidual };
       write(e, remaining, "amount", WIS.Core.Resources.ledger()); write(spent, L().add(words(spent), [cost]));
-      state.mana = e.amount; state.manaGainResidual = B.ZERO;
-      state.cultivation.systems.immortal.resources.manaGainResidualTail = e.residual;
+      Object.assign(state.cultivation.systems.immortal.resources,
+        WIS.Core.Resources.prepareTerms({}, "mana", [e.amount, ...e.residual]));
       n.manaDebitResidual = [];
       n.manaSpent = spent.amount; n.manaSpentResidual = spent.residual;
     } else {
@@ -121,6 +130,7 @@
     return true;
   }
   function transaction(state, work) {
+    WIS.Core.Runtime.assertMutable();
     const old = get(state), mana = state.mana, residual = state.manaGainResidual,
       tail = state.cultivation.systems.immortal.resources.manaGainResidualTail;
     state.cultivation.systems.immortal.xiuzhen = normalize(old);
@@ -157,7 +167,6 @@
       xianForce = B.mul("2e4", B.add(1, B.log10(B.add(1, B.div(state.immortalPower, "1e40")))));
       if (has(state, "materialSpirit")) xianForce = B.mul(xianForce, B.pow(B.add(1, x), .08));
       if (has(state, "rules")) xianForce = B.mul(xianForce, B.pow(B.add(1, y), .18));
-      if (yinYang(state)) xianForce = B.pow(xianForce, .85);
     }
     if (has(state, "yuanForce")) {
       yuanForce = yuanFromXian(x);
@@ -249,15 +258,15 @@
     if (n !== get(state)) { state.cultivation.systems.immortal.xiuzhen = n; WIS.Core.Effects?.invalidate(); }
   }
   function effects(state) {
-    if (!active(state) || (!get(state).entered && !yinYang(state))) return [];
+    if (!active(state) || sealed(state) || (!get(state).entered && !yinYang(state))) return [];
     const effect = (id, target, layer, value) => ({ id: "xiuzhen-" + id, name: abilities.find(a => a.key === id)?.name || "阴虚阳实",
-      group: "修真道", target, layer, value });
+      group: "修真道", target, layer, value:typeof value==="function"?value(state):value, valueAt:typeof value==="function"?value:null, dynamicResources:({body:["xianForce"],rules:["yuanForce"],divineArt:["yuanForce"]})[id]||[] });
     const result = [effect("intent", "power", "regionExponent", has(state, "intent") ? 1.05 : 1),
       effect("spirit", "mana", "regionExponent", has(state, "spirit") ? 1.05 : 1),
-      effect("body", "joules", "regionMultiplier", has(state, "body") ? B.pow(B.add(1, amount(state, "xianForce")), .25) : 1),
-      effect("rules", "immortalPower", "regionMultiplier", has(state, "rules") ? B.pow(B.add(1, amount(state, "yuanForce")), .18) : 1),
-      effect("divineArt", "power", "regionMultiplier", has(state, "divineArt") ? B.pow(B.add(1, amount(state, "yuanForce")), .25) : 1)];
-    if (yinYang(state)) for (const key of ["joules", "power", "mana", "immortalPower"])
+      effect("body", "joules", "regionMultiplier", current=>has(current, "body") ? B.pow(B.add(1, amount(current, "xianForce")), .25) : 1),
+      effect("rules", "immortalPower", "regionMultiplier", current=>has(current, "rules") ? B.pow(B.add(1, amount(current, "yuanForce")), .18) : 1),
+      effect("divineArt", "power", "regionMultiplier", current=>has(current, "divineArt") ? B.pow(B.add(1, amount(current, "yuanForce")), .25) : 1)];
+    if (yinYang(state)) for (const key of ["joules", "power"])
       result.push(effect("yinYang-" + key, key, "regionExponent", .85));
     return result;
   }
@@ -267,7 +276,8 @@
     if (views.has(state)) return views.get(state);
     const view = new Proxy(state, { get(target, key) {
       const value = Reflect.get(target, key);
-      if (sealed(target) && key !== "naturalTreasureLevel" &&
+      // Only 化凡 seals lower-path abilities; infinite Qi keeps its own progression.
+      if (qiPathSealed(target) && key !== "naturalTreasureLevel" &&
           Object.prototype.hasOwnProperty.call(target.cultivation?.systems?.immortal?.abilities || {}, key))
         return typeof value === "boolean" ? false : 0;
       return value;
@@ -275,6 +285,7 @@
     views.set(state, view); return view;
   }
   function softcapRemoved(state, stage) {
+    if (sealed(state)) return false;
     const level = { "星系": 4, "超星系团": 5, "宇宙结构": 6 }[stage.name];
     if (WIS.Core.Config.challenges[state.activeChallenge]?.reapplySoftcaps?.includes(stage.name)) return false;
     return !!level && get(state).highestRealm >= level;
@@ -312,7 +323,8 @@
     return changes;
   }
   WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
-    sealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
+    sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
     canBuy, buy, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
-    spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); } });
+    spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
+    spendResource(state, key, cost) { return transaction(state, () => debit(state, key, cost)); } });
 }(window.WIS));

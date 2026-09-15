@@ -27,9 +27,12 @@
     const state = needsUnlock ? WIS.Core.State.cloneForSimulation(currentState) : currentState;
     if (needsUnlock) for (const id of ids) {
       if (unlocks[id]) state[unlocks[id]] = true;
-      if (["xianForce", "yuanForce"].includes(id)) WIS.Cultivation.Xiuzhen.get(state).abilities[id] = true;
+      if (["xianForce", "yuanForce"].includes(id)) {
+        const domain = state.cultivation.systems.immortal;
+        (domain.xiuzhen ||= WIS.Cultivation.Xiuzhen.fresh()).abilities[id] = true;
+      }
     }
-    return R.withProjection(() => R.withState(state, () => E.withIsolatedState(state, () => {
+    return R.withProjection(() => R.withEvaluationState(state, () => {
       let external, exploration;
       const externalSources = () => external ||= [
         ...WIS.Core.Sources.collect("joules", state),
@@ -122,8 +125,7 @@
           time(); googol();
         } else {
           // Xiuzhen raw already includes all its own ability multipliers.
-          if (resource === "xianForce" && WIS.Cultivation.Xiuzhen.yinYang(state)) add("阴虚阳实", "power", .85);
-          else add("来源层之后无额外乘区", "multiply", 1);
+          add("来源层之后无额外乘区", "multiply", 1);
         }
         return steps;
       }
@@ -162,7 +164,7 @@
               final = id === "exploration" ? I.explorationManaGainProgressive(d.cost, d.amount, d.exponent)
                 : I.previewManaGainProgressive(1, (fraction, mana) => B.mul(
                     I.explorationManaGainFromSources(sources, mana, d.exponent, true), fraction
-                  ), { linearBudget: true }).mana;
+                  ), { linearBudget: true, googolPenalty: true }).mana;
               if (id === "exploration") extra = [{ raw: d.rawAmount, final: d.amount, rawLabel: "原始探寻量", label: "有效探寻量", unit }];
             }
             break;
@@ -173,10 +175,6 @@
             resource = id;
             const X = WIS.Cultivation.Xiuzhen;
             final = X.rates(state)[id]; raw = final;
-            if (id === "xianForce" && state.activeChallenge === "yinVoidYangReal") {
-              const unpenalized = WIS.Core.State.cloneForSimulation(state); unpenalized.activeChallenge = null;
-              raw = X.rates(unpenalized)[id];
-            }
             break;
           }
           default: {
@@ -192,7 +190,7 @@
             extraProcess: extra.length ? [{ label: "探寻量：神识", op: "multiply", value: B.BN(I.divineSenseMultiplier()) }] : [] } : {}) };
       }
       return (ids || [...primary, ...externalSources().map(s => s.id)]).map(one);
-    })));
+    }));
   }
   function processText(steps, format) {
     const amount = value => B.gt(value, 0) && B.lt(value, "0.001")

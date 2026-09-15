@@ -30,14 +30,12 @@
     return `约${Math.floor(minutes / 60)}小时${minutes % 60 ? minutes % 60 + "分" : ""}`;
   }
   function percentage(info) {
-    if (info.remainderCertainty !== 'exact' || info.pendingInputs > 0 || !B.isFiniteBN(info.progress) || !B.isFiniteBN(info.demand) ||
-        B.lt(info.progress, 0) || !B.gt(info.demand, 0) || B.gt(info.progress, info.demand)) return null;
-    const fraction = B.div(info.progress, info.demand), n = B.toNumber(fraction, NaN);
+    const progress = B.parseFinite(info.progress), demand = B.parseFinite(info.demand);
+    if (info.remainderCertainty !== 'exact' || info.pendingInputs > 0 || !progress || !demand ||
+        progress.lt(0) || !demand.gt(0) || progress.gt(demand)) return null;
+    const fraction = B.div(progress, demand), n = B.toNumber(fraction, NaN);
     if (!Number.isFinite(n) || (n === 0 && B.gt(info.progress, 0)) || (n >= 1 && info.remainingPositive)) return null;
-    const percent = n * 100;
-    if (percent > 0 && percent < .1) return "小于0.1%";
-    if (percent < 100 && Number(percent.toFixed(1)) === 100) return "大于99.9%";
-    return percent.toFixed(1) + "%";
+    return WIS.UI.Format.progressPercentage(n);
   }
   function pauseReason(key, info) {
     const reason = info.pausedReason;
@@ -72,15 +70,22 @@
       reported.delete(key);
       const known = info.remainderCertainty === 'known-lower-bound';
       const seconds = info.displayRemainingSeconds;
-      const eta = !B.gt(info.rate, 0) ? "暂无来源"
+      const eta = !B.gt(info.rate, 0) ? ((info.sources || []).length || sourcesByKey[key] ? "当前无产出" : "暂无来源")
         : info.displayEtaMode === 'unavailable' || seconds == null ? "暂无法估计"
         : info.displayEtaMode === 'conservative' ? `≤${B.lt(seconds, .1) ? '约0.1秒' : time(seconds, format, true)}`
         : time(seconds, format);
       const percent = percentage(info);
-      const demand = B.isFiniteBN(info.demand) && B.gt(info.demand, 0) ? format(info.demand, 4) : "暂无法计算";
+      const validDemand = B.parseFinite(info.demand);
+      const demand = validDemand && validDemand.gt(0) ? format(validDemand, 4) : "暂无法计算";
       lines.push(`${known ? '已知进度' : '进度'}：${format(info.progress, 4)} / ${demand}`);
       lines.push(`预计：${eta}`);
-      if (percent !== null) lines.push(`下一件：${percent}`);
+      if (percent !== null) {
+        // Historical pending input may carry an older award multiplier.
+        const award = info.pendingInputs === 0 ? B.parseFinite(info.award) : null;
+        const quantity = award && award.gt(1) && award.eq(award.floor())
+          ? `（每次 ${format(award, 0)} 件）` : "";
+        lines.push(`下次获得：${percent}${quantity}`);
+      }
     }
     const pause = pauseReason(key, info);
     if (pause) lines.push("暂停：" + pause);

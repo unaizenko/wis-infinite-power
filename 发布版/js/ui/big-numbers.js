@@ -19,7 +19,7 @@
     };
     const rows = [], milestones = [];
     function render() {
-      const unlocked = M.syncUnlock(state);
+      const unlocked = M.isUnlocked(state);
       const tab = $("big-number-tab"); tab.disabled = !unlocked;
       $("big-number-tabs").hidden = !unlocked;
       tab.hidden = !unlocked;
@@ -56,7 +56,7 @@
         text("super-fractal-next", complete ? "G64 · 本阶段完成；后续层级暂未开放" : `下一阶位：G${v.gIndex + 1}`);
         text("super-fractal-progress", complete ? `保留进度：${f(v.progress)}%（不兑换未开放阶位）` : `${B.toNumber(v.progress, 0).toFixed(2)}% / 100%`);
         $("super-fractal-bar").value = complete ? 100 : Math.min(100, B.toNumber(v.progress, 0));
-        text("super-fractal-sources", `基础：0.008%/秒 · Graham里程碑：×${v.milestoneMultiplier} · 超越分形：×${f(v.fractalMultiplier)}`);
+        text("super-fractal-sources", `基础：${M.BASE_SUPER_SPEED}%/秒 · Graham里程碑：×${v.milestoneMultiplier} · 超越分形：×${f(v.fractalMultiplier)}`);
         const nextTarget = M.MILESTONES.find(g => g > v.gIndex);
         milestones.forEach(({ el, rank }) => {
           el.classList.toggle("complete", v.gIndex >= rank); el.classList.toggle("next", nextTarget === rank);
@@ -73,7 +73,7 @@ ${sourceText(v.rates[i], v.rates[i], M.SYMBOLS[i])}
     }
     function bind() {
       $("ordinary-actions-tab").addEventListener("click", () => { selected = false; render(); });
-      $("big-number-tab").addEventListener("click", () => { selected = M.syncUnlock(state); render(); });
+      $("big-number-tab").addEventListener("click", () => { selected = M.isUnlocked(state); render(); });
       for (let i = 0; i < 5; i++) {
         const el = document.createElement("article"); el.className = "fractal-row";
         const label = document.createElement("div"), title = document.createElement("strong"), effect = document.createElement("p"), status = document.createElement("small");

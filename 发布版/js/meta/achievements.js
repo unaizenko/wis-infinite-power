@@ -98,7 +98,7 @@
       { key: "qiPathComplete", system: "仙道", name: "炼气已全", description: "解锁炼气道所有境界。", reward: "开启修真道，解锁仙道挑战·化凡", completed: completedAchievement("qiPathComplete", state.advancedRealmLevel >= 10 || state.lifetimeHighestCultivationRealmLevel >= 13 || hasAchievement("selfSeveringSlash")) },
       { key: "threeDeficiencies", name: "三缺", description: "福、禄、寿三种挑战各完成1次。", reward: "非挑战转生类重置后获得1000 战力", completed: completedAchievement("threeDeficiencies", threeDeficienciesCompleted()) },
       { key: "fiveMisfortunesThreeDeficiencies", name: "五弊三缺", description: "福、禄、寿、五弊挑战全部完成3次。", reward: "纪念性成就", completed: completedAchievement("fiveMisfortunesThreeDeficiencies", allFortuneChallengesCompleted()) },
-      { key: "seizeFoundation", system: "仙道", name: "夺基", description: `累计 100 有效探寻量触发一次，保留小数；当前 ${format(WIS.Cultivation.ExplorationProgress.math.project(WIS.Cultivation.ExplorationProgress.ensure(state).seize), 4)}/100。`, reward: "下品灵根失效，获得中品灵根", completed: completedAchievement("seizeFoundation", false) }
+      { key: "seizeFoundation", system: "仙道", name: "夺基", description: `累计 100 有效探寻量触发一次，保留小数；当前 ${format(WIS.Cultivation.ExplorationProgress.math.project(state.explorationRewards?.seize || []), 4)}/100。`, reward: "下品灵根失效，获得中品灵根", completed: completedAchievement("seizeFoundation", false) }
     ];
 
     SCALE_THRESHOLDS.slice(2).forEach((scale, offset) => {

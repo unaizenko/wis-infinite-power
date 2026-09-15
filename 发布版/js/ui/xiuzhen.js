@@ -40,7 +40,7 @@
       const note = el("p", "", "big-number-note"); note.id = "xiuzhen-unlock-note"; realms.append(note);
       X.realms.forEach(r => rows.push({ type: "realm", definition: r, ...row(realms, r.name,
         r.level < 4 ? r.level === 2 ? "开放仙力体系；获得成就·婴变为仙，解锁仙道挑战·阴虚阳实。" : r.level === 3 ? "开放元力体系。" : "完成挑战·化凡后解锁；开放意境、元神。"
-          : `永久取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。`, r.cost, r.resource,
+          : `永久取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限（挑战重新施加时除外）。`, r.cost, r.resource,
         state => X.get(state).realm === r.level - 1 && X.breakthrough(state), "realm-" + r.level) }));
       const abilitiesPanel = $("immortal-abilities-panel"), oldContent = abilitiesPanel.querySelector(".upgrade-groups");
       const oldAbilities = fold("仙道·炼气道能力", "qi-path-abilities");
@@ -53,7 +53,7 @@
       });
       for (const [key, description, reward] of [
         ["mortalTransformation", "禁用探寻及已获得的仙道能力、倍率、指数和特殊效果，保留吐纳、其他法力来源及炼气道基础突破，重新抵达炼气道·化神。", "可突破修真道·化神"],
-        ["yinVoidYangReal", "使J、战力、法力、仙灵力、仙力获取变为^0.85；同时受到福、禄、寿最高档挑战限制，重新抵达第一步·问鼎。", "可突破第二步·窥涅。"]
+        ["yinVoidYangReal", "使J、战力获取变为^0.85；同时受到福、禄、寿最高档挑战限制，重新抵达第一步·问鼎。", "可突破第二步·窥涅。"]
       ]) {
         const card = el("article", "", "item-row"); card.id = "xiuzhen-challenge-" + key;
         card.dataset.challengeKey = key; card.dataset.catalogSystem = "仙道";
@@ -61,7 +61,7 @@
         const control = el("div", "", "purchase-control"), status = el("span"); status.id = "xiuzhen-challenge-status-" + key;
         const button = el("button", "开启挑战", "primary-button"); button.type = "button"; button.id = "xiuzhen-challenge-button-" + key;
         button.addEventListener("click", () => { if (context.getCatchUpStatus().locked) return;
-          if (R.state.activeChallenge === key) WIS.Meta.Challenges.exitChallenge(); else WIS.Meta.Challenges.startChallenge(key); renderChallenges(); });
+          if (R.state.activeChallenge === key) WIS.Meta.Challenges.exitChallenge(); else WIS.Meta.Challenges.startChallenge(key); context.completePlayerAction(); renderChallenges(); });
         control.append(status, button); card.append(content, control);
         $("challenge-list").querySelector('[data-catalog-system-group="仙道"] > .item-list').append(card);
       }
@@ -87,7 +87,8 @@
       $("xiuzhen-abilities").hidden = !X.available(s) || n.realm < 1;
       $("xiuzhen-unlock-note").hidden = !unlocked;
       $("xiuzhen-unlock-note").textContent = X.sealed(s)
-        ? "化凡挑战期间仙道能力封印；结束后按当前已获得状态恢复。"
+        ? (X.qiPathSealed(s) ? "化凡挑战期间仙道能力封印；结束后按当前已获得状态恢复。"
+          : "炼气十万年期间修真道封印，历史境界不解除软上限；无限炼气可继续推进。退出后恢复原有修真道资格。")
         : `当前：${n.realm ? X.realms[n.realm - 1].name : "等待突破第一步·化神"}。炼气道继续生效；两道不是二选一。`;
       rows.forEach(r => {
         const d = r.definition, done = r.type === "realm" ? n.realm >= d.level : !!n.abilities[d.key];
@@ -107,7 +108,7 @@
         group.hidden = n.realm < level;
         group.classList.toggle("xiuzhen-locked", !unlocked || n.realm < level);
       });
-      if (X.sealed(s)) $("qi-path-abilities").querySelectorAll("button").forEach(b => { b.disabled = true; });
+      if (X.qiPathSealed(s)) $("qi-path-abilities").querySelectorAll("button").forEach(b => { b.disabled = true; });
     }
     return { bind, render, renderChallenges };
   } });

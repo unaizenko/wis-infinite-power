@@ -32,6 +32,7 @@
     if (!isRecord(recovery) || ![1,2].includes(recovery.version) || !Array.isArray(recovery.tasks) || !recovery.tasks.length)
       throw Error("离线任务格式无效");
     WIS.Simulation.Offline.validateConfirmedSources(recovery.confirmedSources);
+    WIS.Simulation.FixedSegment.validateBudget(recovery.segmentBudget);
     const ids = new Set();
     for (const task of recovery.tasks) {
       if (recovery.version === 2) {
@@ -61,7 +62,17 @@
     if (!isRecord(parsed) || (parsed.game !== undefined && parsed.game !== "WIS-无限战力系统"))
       throw Error("不是WIS存档");
     const schemaVersion = Number(parsed.schemaVersion ?? parsed.version ?? 36);
-    const data = unwrap(parsed);
+    let data = unwrap(parsed);
+    if(parsed.encoding!=null) {
+      if(parsed.encoding!=='sparse-v1'||schemaVersion<61||!data?.core?.resources||!data.powerSystem||!data.cultivation||!data.meta)throw Error('稀疏存档格式无效');
+      const defaults=WIS.Core.State.toSerializable(WIS.Core.State.fresh());
+      const expand=(value,base)=>{
+        if(value===undefined)return base;
+        if(!isRecord(value)||WIS.Core.BigNum.isDecimal(value))return value;
+        const out={};for(const key of new Set([...Object.keys(base||{}),...Object.keys(value)]))out[key]=expand(value[key],base?.[key]);return out;
+      };
+      data=expand(data,defaults);
+    }
     const domain = data?.core?.resources;
     const resources = domain ? [domain, data.cultivation?.systems?.immortal?.resources] : [data];
     for (const container of resources.filter(Boolean)) for (const key of ["joules", "power", "mana", "immortalPower"])
@@ -84,6 +95,7 @@
       WIS.Meta.TreasureProgress.ensure(candidate);
       WIS.Cultivation.ExplorationProgress?.validate?.(candidate);
       for (const key of WIS.Meta.Treasures.keys) {
+        WIS.Meta.TreasureLedger.progress(candidate,key);
         if (WIS.Meta.TreasureLedger.sign(WIS.Meta.TreasureLedger.stock(candidate, key)) < 0)
           throw Error("宝物库存账本无效");
       }
@@ -136,6 +148,51 @@
     resetStatus();
   }
 
+  let persistenceDefaults;
+  function persistLive(state,simulationLoop,offlineSimulation,options = {}) {
+    if (WIS.Core.Save.getLoadError()) return;
+    try {
+    simulationLoop?.prepareSave(options);
+    // Manual actions save outside the simulation transaction. Their confirmed
+    // state must replace any model checkpoint made before the action.
+    if (!options.preserveSourceModels && !offlineSimulation?.isInternalWork()) offlineSimulation?.invalidateSourceModels();
+    const saved = WIS.Core.State.cloneForSimulation(state);
+    // Uncommitted intervals are saved explicitly by prepareSave. Rewinding
+    // this watermark as well would settle the same foreground time twice.
+    saved.lastUpdateAt = Date.now();
+    WIS.Core.Save.write(saved, options);
+    } catch(error) { WIS.Core.Save.noteFailure(error); throw error; }
+  }
+
+  function sparseData(state) {
+    const S=WIS.Core.State;
+    persistenceDefaults ||= S.toSerializable(S.fresh());
+    const data=S.toSerializable(state);
+    const meta=data.meta;
+    for(const key of ['treasureProgress','treasureProgressResidual','treasureProgressResidualTail','treasureStockResidual','treasureCredits']) {
+      if(key==='treasureProgress') {for(const k of Object.keys(meta.treasureProgressFinite||{}))delete meta[key][k];}
+      else if(meta[key])for(const [k,v] of Object.entries(meta[key]))if(v==null||Array.isArray(v)&&!v.length||WIS.Core.BigNum.isDecimal(v)&&v.eq(0)||v===0||v==='0')delete meta[key][k];
+    }
+    if(meta.treasureDiagnostics)meta.treasureDiagnostics={...meta.treasureDiagnostics,recent:[]};
+    const strip=value=>{
+      if(!value||typeof value!=='object'||WIS.Core.BigNum.isDecimal(value))return value;
+      if(Array.isArray(value))return value.map(strip);
+      return Object.fromEntries(Object.entries(value).filter(([key])=>!['closedLedger','closedProgress','stockRoundingSensitivity','batchesSensitivity','sensitivity','boundScope','policy','progressBefore','progressAfter','tailBoundary'].includes(key)).map(([k,v])=>[k,strip(v)]));
+    };
+    meta.treasureProgressStatus=strip(meta.treasureProgressStatus);
+    function prune(value,defaults,key='') {
+      if(['lastUpdateAt','randomState','joules','power'].includes(key))return value;
+      if(value&&typeof value==='object'&&!Array.isArray(value)&&!WIS.Core.BigNum.isDecimal(value)) {
+        const out={};for(const k of Object.keys(value).sort()){const v=value[k],next=prune(v,defaults?.[k],k);if(next!==undefined)out[k]=next;}
+        return Object.keys(out).length?out:undefined;
+      }
+      if(JSON.stringify(value)===JSON.stringify(defaults))return undefined;
+      return value;
+    }
+    // Empty root domains are still explicit WIS save identity markers.
+    return Object.fromEntries(['core','powerSystem','cultivation','meta'].map(k=>[k,prune(data[k],persistenceDefaults[k])||{}]));
+  }
+
   function envelope(state, includeExportMetadata = true, options = {}) {
     state = WIS.Core.State.cloneForSimulation(state);
     WIS.Meta.TreasureProgress?.ensure(state);
@@ -143,11 +200,12 @@
     const offlineRecovery = offlineRecoveryProvider?.(options) ?? null;
     return {
       game: "WIS-无限战力系统",
+      encoding: "sparse-v1",
       schemaVersion: WIS.Core.Config.saveVersion,
       version: WIS.Core.Config.saveVersion,
       ...(includeExportMetadata ? { exportedAt: new Date().toISOString() } : {}),
       ...(offlineRecovery ? { offlineRecovery } : {}),
-      data: WIS.Core.State.toSerializable(state)
+      data: sparseData(state)
     };
   }
 
@@ -155,5 +213,5 @@
     return parsed?.data ?? parsed;
   }
 
-  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, backup, backupKey, storageSnapshot, restoreStorage, getLoadError: () => loadError, acceptLoaded: () => { loadError = null; resetStatus(); }, read, readRaw, write, remove, envelope, unwrap, bindOfflineRecovery });
+  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, backup, backupKey, storageSnapshot, restoreStorage, persistLive, getLoadError: () => loadError, acceptLoaded: () => { loadError = null; resetStatus(); }, read, readRaw, write, remove, envelope, unwrap, bindOfflineRecovery });
 }(window.WIS));

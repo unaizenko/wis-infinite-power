@@ -1,7 +1,7 @@
 (function defineCardUI(WIS) {
   "use strict";
 
-  const { BN, abs: absBN, div: divBN, gt, gte, isFiniteBN, isNaNBN, toNumber } = WIS.Core.BigNum;
+  const { BN } = WIS.Core.BigNum;
   const powerCosts = WIS.Core.Config.costs.power;
   const immortalCosts = WIS.Core.Config.costs.immortal;
   const catalogSystems = Object.freeze([
@@ -20,89 +20,7 @@
     button.textContent = purchased ? purchasedLabel : availableLabel;
   };
 
-  function formatCompact(value, divisor, suffix) {
-    const scaled = toNumber(divBN(value, divisor));
-    const rounded = Math.abs(scaled) >= 999.995
-      ? Math.sign(scaled) * 999.99
-      : Number(scaled.toFixed(2));
-    return `${rounded}${suffix}`;
-  }
-
-  function trimFixed(value, fractionDigits = 2) {
-    return value.toFixed(fractionDigits).replace(/\.?0+$/, "");
-  }
-
-  function formatScientificParts(mantissa, exponent, sign = 1) {
-    let roundedMantissa = Math.round((mantissa + 1e-12) * 100) / 100;
-    let adjustedExponent = Math.trunc(exponent);
-    if (roundedMantissa >= 10) {
-      roundedMantissa = 1;
-      adjustedExponent += 1;
-    }
-    return `${sign < 0 ? "-" : ""}${trimFixed(roundedMantissa)}e${adjustedExponent}`;
-  }
-
-  function formatLayerMagnitude(magnitude) {
-    if (!Number.isFinite(magnitude)) return "0";
-    const sign = Math.sign(magnitude) || 1;
-    const absolute = Math.abs(magnitude);
-    if (absolute < 1e9) return `${sign < 0 ? "-" : ""}${trimFixed(absolute)}`;
-    const exponent = Math.floor(Math.log10(absolute));
-    return formatScientificParts(absolute / Math.pow(10, exponent), exponent, sign);
-  }
-
-  function formatLargeDecimal(decimal) {
-    const sign = decimal.sign;
-    const layer = Math.trunc(decimal.layer);
-    const magnitude = decimal.mag;
-    if (!Number.isFinite(sign) || !Number.isFinite(layer) || !Number.isFinite(magnitude)) return "0";
-    if (layer <= 1) {
-      const exponent = layer === 0
-        ? Math.floor(Math.log10(magnitude))
-        : Math.floor(magnitude);
-      const mantissa = layer === 0
-        ? magnitude / Math.pow(10, exponent)
-        : Math.pow(10, magnitude - exponent);
-      return formatScientificParts(mantissa, exponent, sign);
-    }
-    const layerPrefix = layer <= 5 ? "e".repeat(layer) : `(e^${layer})`;
-    return `${sign < 0 ? "-" : ""}${layerPrefix}${formatLayerMagnitude(magnitude)}`;
-  }
-
-  function formatNumber(value, maximumFractionDigits = 2) {
-    const decimal = BN(value);
-    if (!isFiniteBN(decimal) || isNaNBN(decimal)) return "0";
-    if (gte(absBN(decimal), 1e9)) return formatLargeDecimal(decimal);
-    const number = decimal.toNumber();
-    const absolute = Math.abs(number);
-    if (absolute >= 1e6) return formatCompact(number, 1e6, "M");
-    if (absolute >= 1e3) return formatCompact(number, 1e3, "k");
-    if (maximumFractionDigits === 0 || Number.isInteger(number)) {
-      return Math.round(number).toLocaleString("zh-CN");
-    }
-    return number.toLocaleString("zh-CN", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits
-    });
-  }
-
-  function formatSmallMultiplier(value, maximumFractionDigits = 5) {
-    const decimal = BN(value);
-    if (!isFiniteBN(decimal) || isNaNBN(decimal)) return "0";
-    const absolute = absBN(decimal);
-    if (!gt(absolute, 0)) return "0";
-    return gte(absolute, "1e-4")
-      ? formatNumber(decimal, maximumFractionDigits)
-      : formatLargeDecimal(decimal);
-  }
-
-  const formatCost = (value) => formatNumber(value, 0);
-  WIS.UI.Format = Object.freeze({
-    compact: formatCompact,
-    number: formatNumber,
-    cost: formatCost,
-    smallMultiplier: formatSmallMultiplier
-  });
+  const formatCost = WIS.UI.Format.cost;
 
   function sortByCost(root = document) {
     root.querySelectorAll("[data-sort-by-cost]").forEach((list) => {

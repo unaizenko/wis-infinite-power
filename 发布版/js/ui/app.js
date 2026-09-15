@@ -7,6 +7,23 @@
     return Array.from({ length: Math.max(0, end - 2) }, (_, offset) => offset + 2);
   }
 
+  function globalRateText(value,status,format) {
+    return status?.clockSuspended ? "（离线结算中）" : `（+${format(value)}/秒）`;
+  }
+
+  function scaleUpgradePreviewText(id, state, format) {
+    const preview = WIS.Power.ScaleLogic.upgradePreview(id, state);
+    const prefix = preview.purchased ? "当前：" : "解锁后：";
+    const details = {
+      planetWill: () => `元素化来源 ×${WIS.UI.Format.scientificMultiplier(preview.value)}`,
+      starShatter: () => `打岩来源 ×${format(preview.value, 3)}`,
+      stellarTreasureSeeking: () => `宝物进度获取 ×${format(preview.value, 3)}`,
+      starSpirit: () => `宝物进度获取 ×${WIS.Core.Config.starEnhancements.starSpirit.perChallengeMultiplier} ^ ${preview.layers}`,
+      supernaturalFire: () => `战力区域 ×${format(preview.value, 3)}（按排除自身后的集中最终实际收益）`
+    };
+    return prefix + details[id]();
+  }
+
   function create(context) {
     const runtime = WIS.Core.Runtime;
     const state = runtime.state;
@@ -18,9 +35,8 @@
     const canAffordPower = (cost) => WIS.Core.Resources.canAfford("power", cost);
     const canAffordMana = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "mana", cost);
     const canAffordImmortalPower = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "immortalPower", cost);
-    const applyResourceSoftcapEffectiveRate = (...args) =>
-      runtime.call("applyResourceSoftcapEffectiveRate", ...args);
-    const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, achievementStates, recordCurrentAchievements, updateLifetimeStatistics, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt } = context;
+    
+    const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, achievementStates, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt } = context;
   const CONFIG = WIS.Core.Config;
   const BUILD = WIS.Core.Build;
   const formatSmallMultiplier = WIS.UI.Format.smallMultiplier;
@@ -440,7 +456,18 @@
     }
   }
 
+  function renderOnlineCompensation() {
+    const credit = rawById("online-compensation-balance");
+    const balance = Number(WIS.Simulation.Compensation.get(state).balance) || 0;
+    if (credit) {
+      credit.hidden = !(balance > 0);
+      credit.textContent = `两倍在线收益 · 剩余 ${formatElapsedTime(balance)}`;
+      credit.title = "仅确认推进合格在线时间时扣额；离线及暂停等待保留额度。";
+    }
+  }
+
   function renderOfflineCatchUpStatus(status) {
+    renderOnlineCompensation();
     const source=status?.sessionSource||'unknown';
     const online=source==='online',offline=source==='offline',mixed=source==='mixed';
     const activity=online?'在线进度追赶':offline?'离线收益结算':'游戏进度恢复';
@@ -456,13 +483,6 @@
       '部分历史时间来源无法完整确认，按存档原任务恢复。阻塞恢复期间暂不产生新增在线收益。');
     const pendingTime = seconds => seconds > 0 && seconds < 1
       ? `${Number(seconds).toPrecision(3)}秒` : formatElapsedTime(seconds);
-    const credit = rawById("online-compensation-balance");
-    const balance = Number(status?.compensation?.balance) || 0;
-    if (credit) {
-      credit.hidden = !(balance > 0);
-      credit.textContent = `两倍在线收益 · 剩余 ${formatElapsedTime(balance)}`;
-      credit.title = "仅确认推进合格在线时间时扣额；离线及暂停等待保留额度。";
-    }
     for (const id of ["convert-offline-progress", "convert-quiet-catch-up"]) {
       const button = rawById(id);
       if (button) {
@@ -707,7 +727,7 @@
     if (!committed) return false;
     storage.markPending();
     let updateError=null;
-    try {afterCommit?.();} catch(error) {updateError=error;storage.diagnose("post-commit",error);}
+    try {afterCommit?.();context.completePlayerAction();} catch(error) {updateError=error;storage.diagnose("post-commit",error);}
     const revision=storage.status().revision;
     try {saveState();} catch(error) {
       storage.noteFailure(error,"购买已生效，但保存失败。请勿刷新或关闭页面。");
@@ -752,6 +772,7 @@
       offlineCompletedSummary = null;
       cancelCatchUp();
       runtime.setState(prepared.state);
+      WIS.Meta.TreasureProgress.ensure(runtime.getState());
       achievementPresentation.reset();
       WIS.Core.Save.acceptLoaded();
       configureBuildControlledUI();
@@ -766,6 +787,7 @@
         restoredRecovery ? 0 : Math.max(0, Date.now() - state.lastUpdateAt) / 1000
       );
       setLastTickAt(Date.now());
+      context.completePlayerAction();
       saveState();
       applyTheme();
       if ((activePage === "upgrades" && !upgradesUnlocked()) ||
@@ -796,6 +818,8 @@
     offlineCompletedSummary = null;
     cancelCatchUp();
     runtime.setState(freshDefaultState());
+    WIS.Meta.TreasureProgress.ensure(runtime.getState());
+    context.completePlayerAction();
     achievementPresentation.reset();
     runtime.call("resetTransientAccumulators");
     markCostGroupsDirty();
@@ -1298,9 +1322,7 @@
     return WIS.Meta.Challenges.challengeUnlocked(challengeKey);
   }
 
-  function challengeStartable(challengeKey) {
-    return WIS.Meta.Challenges.challengeStartable(challengeKey);
-  }
+  
 
   function challengeRequiredScaleIndex(challengeKey) {
     return WIS.Meta.Challenges.challengeRequiredScaleIndex(challengeKey);
@@ -1442,7 +1464,6 @@
   }
 
 
-
   function renderResourceDebugPanel() { return false; }
 
   function renderAdditionalResources() {
@@ -1487,6 +1508,8 @@
   }
 
   function renderGlobal() {
+    renderOnlineCompensation();
+    const rateStatus=getCatchUpStatus();
     const gain = WIS.tmp.rates.joulesPerSecond;
     const passivePowerGain = WIS.tmp.rates.powerPerSecond;
     const passiveManaGain = WIS.tmp.rates.manaPerSecond;
@@ -1500,17 +1523,17 @@
     byId("next-scale-progress").textContent = nextScaleDetails
       ? `下一量级：${nextScale.name}（基础 ${format(nextScaleDetails.baseRequirement, 0)}${!eqBN(nextScaleDetails.rewardMultiplier, ONE) ? `；黑洞挑战奖励 ×${format(nextScaleDetails.rewardMultiplier, 5)}` : ""}${!eqBN(nextScaleDetails.blackHoleMultiplier, ONE) ? `；黑洞倍率 ×${format(nextScaleDetails.blackHoleMultiplier, 3)}` : ""}；实际需求 ${format(nextScaleDetails.actualRequirement, 0)} 战力）`
       : "已达到当前量级系统上限";
-    byId("joules-rate").textContent = `（+${format(gain)}/秒）`;
-    byId("power-rate").textContent = `（+${format(passivePowerGain)}/秒）`;
-    byId("power-rate").hidden = !gtBN(passivePowerGain, ZERO);
+    byId("joules-rate").textContent = globalRateText(gain,rateStatus,format);
+    byId("power-rate").textContent = globalRateText(passivePowerGain,rateStatus,format);
+    byId("power-rate").hidden = !rateStatus.clockSuspended && !gtBN(passivePowerGain, ZERO);
     byId("mana-resource").hidden = !immortalCultivationActive() || !state.qiRefiningUnlocked;
     byId("mana").textContent = format(state.mana);
-    byId("mana-rate").textContent = `（+${format(passiveManaGain)}/秒）`;
-    byId("mana-rate").hidden = !gtBN(passiveManaGain, ZERO);
+    byId("mana-rate").textContent = globalRateText(passiveManaGain,rateStatus,format);
+    byId("mana-rate").hidden = !rateStatus.clockSuspended && !gtBN(passiveManaGain, ZERO);
     byId("immortal-power-resource").hidden = !immortalPowerUnlocked();
     byId("immortal-power").textContent = format(state.immortalPower);
-    byId("immortal-power-rate").textContent = `（+${format(passiveImmortalPowerGain)}/秒）`;
-    byId("immortal-power-rate").hidden = !gtBN(passiveImmortalPowerGain, ZERO);
+    byId("immortal-power-rate").textContent = globalRateText(passiveImmortalPowerGain,rateStatus,format);
+    byId("immortal-power-rate").hidden = !rateStatus.clockSuspended && !gtBN(passiveImmortalPowerGain, ZERO);
     renderAdditionalResources();
     updateNavigation();
   }
@@ -1684,18 +1707,23 @@
     byId("selfhood-preview").textContent = `${state.selfhoodPurchased ? "当前：" : "解锁后："}极意来源 ^1.04`;
     byId("freedom-preview").textContent = `${state.freedomPurchased ? "当前：" : "解锁后："}极意来源 ^1.03`;
     byId("chicxulub-meteorite-preview").textContent = `${state.chicxulubMeteoritePurchased ? "当前：" : "解锁后："}战力区域 ×10`;
-    byId("planet-will-preview").textContent = `${state.planetWillPurchased ? "当前：" : "解锁后："}元素化来源 ×${planetWillElementalizationMultiplier().toFixed(3)}`;
-    byId("star-spirit-preview").textContent = `${state.starSpiritPurchased ? "当前：" : "解锁后："}${completedChallengeLayers()}层挑战，宝物进度获取 ×${treasureChanceMultiplier().toFixed(3)}`;
-    byId("star-shatter-preview").textContent = `${state.starShatterPurchased ? "当前：" : "解锁后："}打岩来源 ×${starShatterRockMultiplier().toFixed(3)}`;
+    byId("planet-will-preview").textContent = scaleUpgradePreviewText("planetWill", state, format);
+    byId("planet-will-preview").title = "按当前资源估算，未预扣购买费用。";
+    byId("star-spirit-preview").textContent = scaleUpgradePreviewText("starSpirit", state, format);
+    byId("star-spirit-preview").title = "按当前资源估算，未预扣购买费用。";
+    byId("star-shatter-preview").textContent = scaleUpgradePreviewText("starShatter", state, format);
+    byId("star-shatter-preview").title = "按当前资源估算，未预扣购买费用。";
     byId("space-quake-preview").textContent = `${state.spaceQuakePurchased ? "当前：" : "解锁后："}爆星软上限损失 ×0.97`;
     byId("selfless-preview").textContent = `${state.selflessPurchased ? "当前：" : "解锁后："}极意来源 ×${format(CONFIG.starEnhancements.selfless.ultimateIntentMultiplier)}`;
-    byId("supernatural-fire-preview").textContent = `${state.supernaturalFirePurchased ? "当前：" : "解锁后："}战力区域 ×${format(supernaturalFirePowerMultiplier(), 3)}（按排除自身后的集中最终实际收益）`;
+    byId("supernatural-fire-preview").textContent = scaleUpgradePreviewText("supernaturalFire", state, format);
+    byId("supernatural-fire-preview").title = "按当前资源估算，未预扣购买费用。";
     byId("five-spirit-stone-preview").textContent = state.fiveSpiritStonePurchased ? "当前：已解锁五灵石获取资格" : "解锁后：极意有效时每秒判定五灵石";
     const currentJBaseSoftcapExponent = resourceSoftcapBaseExponent(state.joules);
     const potentialSelfSuppressionExponent = selfSuppressionJExponentFromBase(currentJBaseSoftcapExponent);
     byId("self-suppression-preview").textContent = `${state.selfSuppressionPurchased ? "当前：" : "解锁后："}J区域 ^${(state.selfSuppressionPurchased ? selfSuppressionJExponent() : potentialSelfSuppressionExponent).toFixed(5)}（空间震前基础软上限 ^${formatSoftcapExponent(currentJBaseSoftcapExponent)}）`;
     byId("stellar-furnace-preview").textContent = `${state.stellarFurnacePurchased ? "当前：" : "解锁后："}J 区域 ×1e12`;
-    byId("stellar-treasure-seeking-preview").textContent = `${state.stellarTreasureSeekingPurchased ? "当前：" : "解锁后："}所有宝物进度获取 ×${treasureChanceMultiplier().toFixed(3)}`;
+    byId("stellar-treasure-seeking-preview").textContent = scaleUpgradePreviewText("stellarTreasureSeeking", state, format);
+    byId("stellar-treasure-seeking-preview").title = "按当前资源估算，未预扣购买费用。";
     byId("gravitational-collapse-preview").textContent = `${state.gravitationalCollapsePurchased ? "当前：" : "解锁后："}战力区域 ×1e12`;
     byId("galactic-return-preview").textContent = `${state.galacticReturnPurchased ? "当前：" : "解锁后："}J 区域 ×1e12`;
     byId("stellar-sea-gift-preview").textContent = `${state.stellarSeaGiftPurchased ? "当前：" : "解锁后："}可堆叠宝物获得数量 ×2`;
@@ -2437,9 +2465,7 @@
   }
   function renderNow({ forceGlobal = false, forcePage = false } = {}) {
     if (!WIS.Core.Runtime.canPresentState()) return;
-    recordCurrentAchievements();
     achievementPresentation.sync();
-    updateLifetimeStatistics();
     renderCurrentPageOnly = true;
     try {
       if (forceGlobal || globalDirty) {
@@ -2462,6 +2488,9 @@
   }
 
   function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true } = {}) {
+    const commit = work => () => { const result = work(); context.completePlayerAction(); return result; };
+    action = commit(action);
+    repeatAction = commit(repeatAction);
     const button = byId(id);
     let delayTimer = null;
     let repeatTimer = null;
@@ -2841,7 +2870,7 @@
       else startChallenge("blackHole");
     });
     document.querySelectorAll("[data-cultivation]").forEach((button) => {
-      button.addEventListener("click", () => chooseCultivation(button.dataset.cultivation));
+      button.addEventListener("click", () => { chooseCultivation(button.dataset.cultivation); context.completePlayerAction(); });
     });
     document.querySelectorAll("[data-cultivation-page]").forEach((button) => {
       button.addEventListener("click", () => switchCultivationPage(button.dataset.cultivationPage));
@@ -2980,7 +3009,6 @@
     });
     byId("reset-game").addEventListener("click", resetGame);
 
-  
 
     }
 
@@ -2995,6 +3023,8 @@
     }
 
     return Object.freeze({
+      __test: Object.freeze({renderOnlineCompensation,handleOfflineCatchUpStatus,dismissOfflineSummary,
+        closeOfflineProgressDialog,status:()=>offlineCatchUpStatus}),
       render, renderResourceDebugPanel, renderAchievements, renderChallenges, renderCultivationPage,
       ensureAchievementCards, applyTheme, switchPage, switchCultivationPage,
       showNotice, showAchievementNotice, showScaleNotice, bindEvents,
@@ -3005,5 +3035,5 @@
     });
   }
 
-  WIS.UI.App = Object.freeze({ create, advancedRealmAbilityIndexesForLevel });
+  WIS.UI.App = Object.freeze({ scaleUpgradePreviewText, create, advancedRealmAbilityIndexesForLevel, globalRateText });
 }(window.WIS));

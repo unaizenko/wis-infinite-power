@@ -63,7 +63,7 @@
   }
   function buildEffects(state) {
     if (state.cultivation?.active !== "immortal") return [];
-    if (WIS.Cultivation.Xiuzhen?.sealed(state)) state = WIS.Cultivation.Xiuzhen.abilityView(state);
+    if (WIS.Cultivation.Xiuzhen?.qiPathSealed(state)) state = WIS.Cultivation.Xiuzhen.abilityView(state);
     const list = [
       { id: "immortalLife", name: "仙道贵生", group: "仙道", target: "power", layer: "regionMultiplier", value: state.immortalLifeUnlocked ? 0.95 : 1 },
       { id: "techniqueJoules", name: "功法", group: "仙道", target: "joules", layer: "regionMultiplier", value: state.techniqueUnlocked ? 1.5 : 1 },
@@ -119,24 +119,24 @@
       { id: "immortalAperturePower", name: "仙窍", group: "真仙", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.immortalApertureLevelMultiplier() },
       { id: "immortalApertureMilestonePower", name: "仙窍里程碑", group: "真仙", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.immortalApertureMilestoneMultiplier() },
       { id: "xuanImmortalBody", name: "玄仙之躯", group: "真仙", target: "brahmaDemonArt", layer: "sourceExponent", value: state.xuanImmortalBodyUnlocked ? 1.4 : 1 },
-      { id: "lawImmortalPower", name: "法则", group: "真仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.lawImmortalPowerMultiplier(current.mana) },
-      { id: "spiritCaptureReturn", name: "摄灵返源", group: "金仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.spiritCaptureReturnMultiplier(current.immortalPower) },
+      { id: "lawImmortalPower", name: "法则", group: "真仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, dynamicResources: ['mana'], value: (current) => WIS.Cultivation.ImmortalLogic.lawImmortalPowerMultiplier(current.mana) },
+      { id: "spiritCaptureReturn", name: "摄灵返源", group: "金仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, dynamicResources: ['immortalPower'], value: (current) => WIS.Cultivation.ImmortalLogic.spiritCaptureReturnMultiplier(current.immortalPower) },
       { id: "fiveElementsTreasurePower", name: "仙道·五行至宝", group: "宝物", target: "immortalPower", layer: "regionMultiplier", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.fiveElementsTreasureMultiplierBeforeDecline() },
       { id: "immortalCrystalPower", name: "仙晶", group: "宝物", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.immortalCrystalMultiplier() },
       { id: "indestructibleDharmaBody", name: "法体不灭", group: "金仙", target: "brahmaDemonArt", layer: "sourceExponent", value: state.indestructibleDharmaBodyUnlocked ? 1.55 : 1 },
       { id: "spiritDomainWorldTransformation", name: "灵域化界", group: "太乙", target: "spiritDomain", layer: "sourceMultiplier", value: state.spiritDomainWorldTransformationUnlocked ? WIS.Core.Config.immortalPower.spiritDomain.worldMultiplier : 1 },
-      { id: "soulQualitativeChange", name: "神魂质变", group: "太乙", target: "breathing", layer: "sourceMultiplier", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.soulQualitativeChangeMultiplier(current.immortalPower) }
+      { id: "soulQualitativeChange", name: "神魂质变", group: "太乙", target: "breathing", layer: "sourceMultiplier", dynamic: true, dynamicResources: ['immortalPower'], value: (current) => WIS.Cultivation.ImmortalLogic.soulQualitativeChangeMultiplier(current.immortalPower) }
       ,{ id: "trinity", name: "三位一体", group: "大罗", target: "immortalPower", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => WIS.Cultivation.ImmortalLogic.trinityImmortalPowerMultiplier(current.joules) }
-      ,{ id: "unityWithDao", name: "与道合真", group: "大罗", target: "immortalPower", layer: "regionExponent", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.unityWithDaoExponent(current.immortalPower) }
-      ,{ id: "lawCrystalFilament", name: "法则晶丝", group: "大罗", target: "power", layer: "regionExponent", dynamic: true, value: (current) => WIS.Cultivation.ImmortalLogic.lawCrystalFilamentPowerExponent(current.mana) }
+      ,{ id: "unityWithDao", name: "与道合真", group: "大罗", target: "immortalPower", layer: "regionExponent", dynamic: true, dynamicResources: ['immortalPower'], value: (current) => WIS.Cultivation.ImmortalLogic.unityWithDaoExponent(current.immortalPower) }
+      ,{ id: "lawCrystalFilament", name: "法则晶丝", group: "大罗", target: "power", layer: "regionExponent", dynamic: true, dynamicResources: ['mana'], value: (current) => WIS.Cultivation.ImmortalLogic.lawCrystalFilamentPowerExponent(current.mana) }
     ];
-    return WIS.Cultivation.Xiuzhen?.sealed(state)
+    return WIS.Cultivation.Xiuzhen?.qiPathSealed(state)
       ? list.filter(e => ["宝物", "灵根", "境界", "炼气十万年", "仙道挑战"].includes(e.group) || e.id === "minorTribulationPower")
       : list;
   }
 
-  WIS.Core.Effects.register("immortal", effects);
-  WIS.Core.Effects.register("xiuzhen", state => WIS.Cultivation.Xiuzhen?.effects(state) ?? []);
+  WIS.Core.Effects.register("immortal", effects, { highestPowerEffects: [] });
+  WIS.Core.Effects.register("xiuzhen", state => WIS.Cultivation.Xiuzhen?.effects(state) ?? [], { highestPowerEffects: [] });
 
   let passiveManaRollAccumulator = 0;
   let baLingChiRollAccumulator = 0;

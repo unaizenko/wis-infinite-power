@@ -94,6 +94,7 @@
       let discreteMetrics = { logicalTicks: 0, exactTicks: 0, batches: 0, largestBatch: 0,
         probes: 0, rejectedBatches: 0, verification: "not-evaluated" };
       let sessionProcessedGameSeconds = 0;
+      let offlineSegmentBudget = null;
       let fastForwardUsed = false;
       let fastForwardMetrics = null;
       let throughputSample = null, recentThroughput = null, estimateStable = false;
@@ -300,13 +301,16 @@
           estimatedResourceErrors: usesExactTicks ? null : Object.freeze([...sessionErrorEstimates]),
           estimatedResourceErrorTerms: Object.freeze(sessionErrorTerms.map(terms =>
             Object.freeze(terms.map(term => Object.freeze({ ...term }))))),
-          resourceErrorTarget: recoveryRelativeTarget,
+          // Bounded snapshots do not promise a raw-relative error tolerance.
+          resourceErrorTarget: null,
+          resourceErrorMetric: 'layer-aware-coordinate',
           executionReference: "fixed-start-sources-v1",
           fixedSettlementMetrics: WIS.Simulation.FixedSegment.metrics(),
-          fastForwardEnabled: getState().offlineFastForwardEnabled !== false,
+          fastForwardEnabled: true,
           fastForwardMetrics,
-          fastForwardApplicable: false,
-          sourceSupport: { supported: true, kind: "fixed-start-sources-v1", offlineSeconds: CONFIG.fixedSettlement.offlineSeconds },
+          fastForwardApplicable: true,
+          sourceSupport: { supported: true, kind: "hierarchical-discrete-map", ...CONFIG.offlineHierarchy },
+          segmentBudget: WIS.Simulation.CheckpointStrategy.snapshot(offlineSegmentBudget),
           actualThroughput: recentThroughput,
           recentFastForward: recentFastForward ? {...recentFastForward,spanHistogram:{...recentFastForward.spanHistogram},reasonCounts:{...recentFastForward.reasonCounts}} : null,
           estimatedWaitSeconds: estimateStable&&recentThroughput>0 ? pendingCatchUpSeconds/recentThroughput : null,
@@ -345,6 +349,7 @@
         sessionGains = resourceKeys.map(() => ZERO);
         sessionErrorEstimates = resourceKeys.map(() => ZERO);
         sessionProcessedGameSeconds = 0;
+        offlineSegmentBudget = null;
         sessionErrorTerms = resourceKeys.map(() => []);
         discreteMetrics = { logicalTicks: 0, exactTicks: 0, batches: 0, largestBatch: 0,
           probes: 0, rejectedBatches: 0, verification: "not-evaluated" };
@@ -364,6 +369,7 @@
         sessionGains = resourceKeys.map(() => ZERO);
         sessionErrorEstimates = resourceKeys.map(() => ZERO);
         sessionProcessedGameSeconds = 0;
+        offlineSegmentBudget = null;
         catchUpSessionBefore = offlineProgressSnapshot();
         catchUpSessionStartedAt = Date.now();
         catchUpSessionProcessedClockSeconds = 0;
@@ -537,7 +543,7 @@
       }
 
       function invalidateSourceModels() {
-        for(const task of catchUpTasks){task.onlineWork?.close?.();task.onlineWork=null;task.onlineToken=null;task.fixedWork?.close?.();task.fixedWork=null;task.fixedToken=null;
+        for(const task of catchUpTasks){task.onlineWork?.close?.();task.onlineWork=null;task.onlineToken=null;task.fixedWork?.close?.();task.fixedWork=null;task.fixedToken=null;task.macroPlan=null;
           task.fastDriver?.close?.();task.fastDriver=null;
           task.fastForward=null;task.fastFinished=false;clearAssignedCatchUpStep(task);}
       }
@@ -567,12 +573,23 @@
         if(!options.alreadyPending){pendingCatchUpSeconds+=safeElapsed;pendingCatchUpClockSeconds+=safeClock;catchUpOriginalClockSeconds+=safeClock;}
         if(options.presentation==='quiet'&&presentation===null)presentation='quiet';
         else if(presentation===null||options.presentation==='blocking')presentation='blocking';
-        if(pendingCatchUpClockSeconds>5+epsilon)presentation='blocking';
+        if(source==='offline'||pendingCatchUpClockSeconds>5+epsilon)presentation='blocking';
         publishCatchUpStatus();return task;
       }
 
       function prepareQueueHead() {
         const task=catchUpTasks[0];if(!task)return false;
+        // Offline queue records are debt, not event opportunities. Adjacent
+        // records at the same clock ratio can share a resource segment. No RNG
+        // is drawn by fixed progress settlement; persisted live RNG is untouched.
+        if(task.source==='offline'&&!task.fixedWork&&!task.fixedToken&&!task.macroPlan) {
+          let next;
+          while((next=catchUpTasks[1])&&next.source==='offline'&&next.speed===task.speed&&next.randomMode===task.randomMode) {
+            task.gameSeconds+=next.remainingGameSeconds;task.clockSeconds+=next.remainingClockSeconds;
+            task.remainingGameSeconds+=next.remainingGameSeconds;task.remainingClockSeconds+=next.remainingClockSeconds;
+            catchUpTasks.splice(1,1);
+          }
+        }
         if(task.source==='online'&&!task.sealed&&!task.started){
           const minimum=CONFIG.fixedSettlement.onlineCollectionSeconds;
           if(task.remainingGameSeconds+epsilon<minimum)return false;
@@ -691,14 +708,7 @@
         };
       }
 
-      function retryCatchUpTaskWithLegacy(task, diagnostic) {
-        if (!task || task.legacyRetryUsed) return false;
-        task.legacyRetryUsed = true;
-        task.optimizationDisabled = true;
-        clearAssignedCatchUpStep(task);
-        console.warn("WIS catch-up made no progress; retrying once with legacy stepping.", diagnostic);
-        return true;
-      }
+      
 
       function pauseCatchUp(diagnostic) {
         if (catchUpPaused) return;
@@ -731,229 +741,19 @@
         return stepGameSeconds > 0;
       }
 
-      function legacyFallbackStepSeconds(task, minimumRequiredStep) {
-        return Math.min(task.remainingGameSeconds, Math.max(
-          minimumRequiredStep,
-          Math.min(task.legacyReferenceStep, task.remainingGameSeconds)
-        ));
-      }
+      
 
-      function planningResult(value, fallbackSeconds) {
-        if (value && typeof value === "object") {
-          return {
-            ...value,
-            seconds: Math.max(0, Number(value.seconds) || fallbackSeconds),
-            budgetExhausted: value.budgetExhausted === true,
-            reason: value.reason || null,
-            accuracyLimited: value.accuracyLimited === true,
-            continuation: value.continuation || null
-          };
-        }
-        return {
-          seconds: Math.max(0, Number(value) || fallbackSeconds),
-          budgetExhausted: false,
-          reason: null,
-          accuracyLimited: false,
-          continuation: null
-        };
-      }
+      
 
-      function assignBudgetYieldStep(task, minimumRequiredStep, reason) {
-        catchUpPlanningBudgetExhaustions += 1;
-        task.planningYieldReason = reason || "offline-planning-budget";
-        task.planningWork = null;
-        assignCatchUpStep(task, Math.min(task.remainingGameSeconds, simulationStepSeconds));
-        task.currentStepUsesBudgetFallback = true;
-        return "yield";
-      }
+      
 
-      function requestResumablePlanningYield(task, reason) {
-        catchUpPlanningBudgetExhaustions += 1;
-        task.consecutivePlanningYields += 1;
-        task.planningYieldReason = reason || "offline-planning-budget";
-        // Slow formulas are indivisible, but a completed formula/event trial is
-        // reusable. After repeated overruns, schedule one such unit per frame;
-        // never discard its cursor and restart the same expensive prediction.
-        if (task.consecutivePlanningYields >= 2) task.cooperativePlanning = true;
-        return "yield";
-      }
+      
 
-      function denseTreasureStepLimit(task) {
-        return Math.max(
-          denseTreasureBatchSeconds,
-          task.gameSeconds > 60 + epsilon ? task.legacyReferenceStep : simulationStepSeconds
-        );
-      }
+      
 
-      function prepareDiscreteCatchUpStep(task) {
-        task.discreteMode = true;
-        task.planningYieldReason = null;
-        // This describes replay of the online algorithm, not a claim about
-        // the numerical precision of its underlying resource representation.
-        discreteMetrics.verification = "exact-online-ticks";
-        // An event may consume only part of a logic frame. Finish its original
-        // remainder before starting the next endpoint frame.
-        const tail = task.logicalTickRemaining > epsilon
-          ? task.logicalTickRemaining : simulationStepSeconds;
-        return assignCatchUpStep(task, tail <= task.remainingGameSeconds + epsilon
-          ? tail : task.remainingGameSeconds);
-      }
+      
 
-      function prepareCatchUpStep(task, planningDeadlineMs = Infinity) {
-        if (!WIS.Core.Runtime.isOfflineExecution()) {
-          return WIS.Core.Runtime.withOfflineExecution(() => prepareCatchUpStep(task, planningDeadlineMs));
-        }
-        if (!(task.remainingGameSeconds > epsilon)) return false;
-        if (usesExactTicks) return prepareDiscreteCatchUpStep(task);
-        const slots = Math.max(1, task.remainingSteps);
-        const minimumRequiredStep = task.remainingGameSeconds / slots;
-        task.planningYieldReason = null;
-        if (task.optimizationDisabled || task.treasureFallbackMode) {
-          return assignCatchUpStep(task, legacyFallbackStepSeconds(task, minimumRequiredStep));
-        }
-        try {
-          const state = getState();
-          const sourceKey = JSON.stringify([
-            typeof WIS.Core.State?.toSerializable === "function"
-              ? WIS.Core.State.toSerializable(state) : state,
-            WIS.Core.Registries?.getActivePower(state)?.snapshotTreasureTransient?.(),
-            WIS.Core.Registries?.getActiveCultivation(state)?.snapshotTreasureTransient?.(),
-            task.random.snapshot?.()
-          ], (key, value) => key === "lastUpdateAt" ? undefined : value);
-          let work = task.planningWork;
-          if (!work || work.sourceKey !== sourceKey ||
-              work.remainingGameSeconds !== task.remainingGameSeconds ||
-              work.minimumRequiredStep !== minimumRequiredStep) {
-            const clockRatio = task.remainingGameSeconds > 0
-              ? task.remainingClockSeconds / task.remainingGameSeconds : 0;
-            // The statistics achievement is the current clock-only unlock.
-            // Slice in wall-clock units, including development speed scaling.
-            const untilClockUnlock = !state.unlockedAchievements?.trainingUp &&
-              state.totalElapsedSeconds < 600 && clockRatio > 0
-              ? (600 - state.totalElapsedSeconds) / clockRatio : Infinity;
-            work = task.planningWork = {
-              sourceKey,
-              remainingGameSeconds: task.remainingGameSeconds,
-              minimumRequiredStep,
-              proposedStep: Math.min(task.remainingGameSeconds, untilClockUnlock, Math.max(
-                simulationStepSeconds, task.suggestedStepSeconds
-              )),
-              phase: "boundary",
-              continuation: null,
-              pendingTreasureEvent: null
-            };
-            task.pendingTreasureEvent = null;
-            task.consecutivePlanningYields = 0;
-          }
-          const options = {
-            deadlineMs: planningDeadlineMs,
-            sourceKey,
-            offline: true,
-            integrationMethod: "midpoint",
-            withMeta: true,
-            workBudget: {
-              operations: 0,
-              maximumOperations: task.cooperativePlanning ? 1 : Infinity,
-              ensureProgress: true
-            }
-          };
-          const pause = (result, reason) => {
-            work.continuation = result.continuation || null;
-            if (task.cooperativePlanning && catchUpClockNow() < planningDeadlineMs) {
-              task.cooperativePlanning = false;
-              task.consecutivePlanningYields = 0;
-            }
-            return work.continuation
-              ? requestResumablePlanningYield(task, result.reason || reason)
-              : assignBudgetYieldStep(task, minimumRequiredStep, result.reason || reason);
-          };
-          if (work.phase === "boundary") {
-            const boundaryResult = planningResult(nextKnownSimulationBoundarySeconds(work.proposedStep, {
-              ...options, continuation: work.continuation
-            }), Math.min(work.proposedStep, simulationStepSeconds));
-            if (boundaryResult.budgetExhausted) return pause(boundaryResult, "known-boundary-budget");
-            work.proposedStep = Math.max(
-              Math.min(simulationStepSeconds, work.proposedStep), boundaryResult.seconds
-            );
-            work.preparedStepPlan = boundaryResult.preparedStepPlan || null;
-            work.continuation = null;
-            work.phase = "treasure";
-          }
-          if (work.phase === "treasure" && task.treasureBatchMode) {
-            work.phase = "adaptive";
-          }
-          if (work.phase === "treasure") {
-            const treasureEvent = nextEffectiveTreasureEventSeconds(
-              task,
-              work.proposedStep,
-              task.legacyReferenceStep,
-              { ...options, continuation: work.continuation }
-            );
-            if (treasureEvent?.budgetExhausted) {
-              return pause(treasureEvent, "treasure-event-budget");
-            }
-            if (treasureEvent) {
-              if (!treasureEvent.dense && treasureEvent.seconds + epsilon >= simulationStepSeconds) {
-                work.proposedStep = Math.min(work.proposedStep, treasureEvent.seconds);
-                work.pendingTreasureEvent = { ...treasureEvent, bucketed: false };
-              } else if (treasureEvent.dense) {
-                task.treasureBatchMode = true;
-                work.pendingTreasureEvent = { ...treasureEvent, bucketed: true };
-                // Establish the first inventory feedback over a short interval;
-                // later intervals are controlled by measured gain error, not a
-                // permanent 1s ceiling on an arbitrarily long recovery.
-                work.proposedStep = Math.min(work.proposedStep, denseTreasureBatchSeconds);
-              } else {
-                task.treasureFallbackMode = true;
-                task.planningWork = null;
-                return assignCatchUpStep(task, legacyFallbackStepSeconds(task, minimumRequiredStep));
-              }
-            }
-            work.continuation = null;
-            work.phase = "adaptive";
-          }
-          const proposedStep = work.proposedStep;
-          const treasureDriverMinimumStep = task.treasureBatchMode
-            ? Math.max(minimumRequiredStep, Math.min(denseTreasureStepLimit(task), proposedStep))
-            : Math.max(minimumRequiredStep, Math.min(task.legacyReferenceStep, proposedStep));
-          const adaptiveResult = planningResult(adaptiveOfflineStepSeconds(
-            proposedStep,
-            Math.min(simulationStepSeconds, task.remainingGameSeconds),
-            treasureDriverMinimumStep,
-            {
-              ...options,
-              preparedStepPlan: work.preparedStepPlan,
-              errorBudget: {
-                gains: sessionGains,
-                errors: sessionErrorEstimates,
-                processedSeconds: sessionProcessedGameSeconds,
-                totalSeconds: sessionProcessedGameSeconds + pendingCatchUpSeconds,
-                relativeTolerance: estimatedRelativeBudget,
-                absoluteTolerance: resourceKeys.map(() => recoveryAbsoluteBudget)
-              },
-              continuation: work.continuation
-            }
-          ), minimumRequiredStep);
-          if (adaptiveResult.budgetExhausted) {
-            return pause(adaptiveResult, "adaptive-projection-budget");
-          }
-          task.planningWork = null;
-          task.consecutivePlanningYields = 0;
-          task.cooperativePlanning = false;
-          task.pendingTreasureEvent = work.pendingTreasureEvent;
-          const stepGameSeconds = adaptiveResult.seconds;
-          if (task.pendingTreasureEvent && !task.pendingTreasureEvent.bucketed &&
-              stepGameSeconds + epsilon < task.pendingTreasureEvent.seconds) {
-            task.pendingTreasureEvent = null;
-          }
-          return assignCatchUpStep(task, stepGameSeconds, adaptiveResult);
-        } catch (error) {
-          console.error("WIS offline optimization failed; switching this task to legacy simulation.", error);
-          task.optimizationDisabled = true;
-          task.pendingTreasureEvent = null;
-          return assignCatchUpStep(task, legacyFallbackStepSeconds(task, minimumRequiredStep));
-        }
-      }
+      
 
       function completeCatchUpStep(task, processedSeconds = 0, countSegment = false) {
         if (countSegment && !task.currentStepUsesBudgetFallback) task.remainingSteps -= 1;
@@ -985,6 +785,15 @@
         task.consecutivePlanningYields = 0;
       }
 
+      function planOfflineMacro(task) {
+        offlineSegmentBudget ||= WIS.Simulation.CheckpointStrategy.createBudget(catchUpTasks.filter(t=>t.source==='offline').reduce((sum,t)=>sum+t.remainingGameSeconds,0));
+        // The shared session budget also covers restored/multiple offline tasks.
+        // A mapped gain must never cover time in the next queue entry while
+        // only the current entry's shorter clock is committed.
+        const plan=context.planOfflineMacro(task.remainingGameSeconds,{budget:offlineSegmentBudget,clockRatio:task.remainingClockSeconds/task.remainingGameSeconds});
+        return plan;
+      }
+
       function subtractFixedTime(remaining, processed) {
         // Whole .1s frame debt is integer arithmetic. Repeated Number
         // subtraction otherwise turns the last frame into a shorter frame.
@@ -995,91 +804,7 @@
         return Math.max(0,remaining-processed);
       }
 
-      function advanceFastForwardTask(task) {
-        // Historical models advance explicit time effects in game seconds.
-        // A non-unit developer clock ratio needs a separately validated model;
-        // retain the correct original-frame path for those source segments.
-        if(task.speed!==1)return null;
-        // Credit uses original-frame production with exact quota boundaries.
-        // The existing historical models have no verified quota recurrence.
-        if(task.source==='online'&&task.compensationEligible)return null;
-        if(task.source==='online'&&task.remainingGameSeconds<1.2)return null;
-        const fast = WIS.Simulation.FastForward;
-        if (!task.fastForward && getState().offlineFastForwardEnabled === false) return null;
-        if (!task.fastDriver && !task.fastForward && ((getState().activeChallenge && !["mortalTransformation", "yinVoidYangReal"].includes(getState().activeChallenge)) ||
-            !WIS.Core.BigNum.eq(getState().minorTribulationExplorationLoad ?? 0, 0))) return null;
-        // Only an unfinished original tick or a sub-tick tail may use the
-        // exact commit below. Never resume the old whole-task scheduler.
-        if (task.remainingGameSeconds < simulationStepSeconds - epsilon ||
-            task.logicalTickRemaining > epsilon) return null;
-        let unavailable = null;
-        if (fast && !task.fastDriver && !task.fastForward && !fast.applicable()) return null;
-        if (!fast) unavailable = "离线快进模块未加载，请刷新后重试。";
-        else if (simulationStepSeconds !== 0.1 ||
-            Math.abs(task.remainingGameSeconds - task.remainingClockSeconds) > 1e-7) return null;
-        else if (task.fastFinished) unavailable = "快进已结束但仍有整帧欠账，已停止以保护存档。";
-        if (unavailable) {
-          pauseCatchUp(catchUpDiagnostic("fast-forward-unavailable", task, 0, null, new Error(unavailable)));
-          return { paused: true };
-        }
-        const previousPoint = task.fastForward || null;
-        const before = captureCatchUpStep(task, false, task.fastDriver?.point().game.state);
-        let result = null, error = null;
-        beginTransaction();
-        try {
-          if (!task.fastDriver) task.fastDriver = fast.createDriver(context, {
-            seconds: task.remainingGameSeconds, random: task.random, gains: sessionGains, resume: task.fastForward
-          });
-          result = task.fastDriver.advance();
-          task.fastForward = { memory: true, point: task.fastDriver.point() };
-          const seconds = Math.min(task.remainingGameSeconds, result.seconds);
-          sessionGains = result.gains.map(BN);
-          // The original runtime adapter has already advanced game/statistics
-          // clocks. Only fixed debt is posted here, once, after the safe yield.
-          task.remainingGameSeconds = subtractFixedTime(task.remainingGameSeconds, seconds);
-          task.remainingClockSeconds = subtractFixedTime(task.remainingClockSeconds, seconds);
-          pendingCatchUpSeconds = subtractFixedTime(pendingCatchUpSeconds, seconds);
-          pendingCatchUpClockSeconds = subtractFixedTime(pendingCatchUpClockSeconds, seconds);
-          task.clockCursor+=seconds;
-          catchUpSessionProcessedClockSeconds += seconds;
-          catchUpOriginalProcessedClockSeconds += seconds;
-          sessionProcessedGameSeconds += seconds;
-          const previousMetrics = fastForwardMetrics;
-          const previousEngine = previousMetrics?.algorithm || "late-50";
-          const nextEngine = result.stats?.algorithm || "late-50";
-          const priorEngines = previousMetrics?.priorEngines || [];
-          fastForwardMetrics = { ...result.stats, priorEngines: previousMetrics && previousEngine !== nextEngine
-            ? [...priorEngines.slice(-7), { ...previousMetrics, priorEngines: undefined }] : priorEngines };
-          fastForwardUsed = true;
-          if (result.replan && !result.completed && task.remainingGameSeconds >= simulationStepSeconds) {
-            task.fastDriver.close();
-            task.fastDriver = fast.createDriver(context, {
-              seconds: task.remainingGameSeconds, random: task.random, gains: sessionGains
-            });
-            task.fastForward = { memory: true, point: task.fastDriver.point() };
-          }
-          if (result.completed) {
-            task.fastDriver.close(); task.fastDriver = null;
-            task.fastForward = null; task.fastFinished = true;
-          }
-        } catch (caught) { error = caught; }
-        // A failed trial must not flush its deferred save before rollback.
-        if (error) {
-          restoreCatchUpStep(task, before);
-          task.fastForward = previousPoint;
-          task.fastDriver = null;
-        }
-        try { endTransaction(); } catch (caught) { error ||= caught; }
-        if (error) {
-          restoreCatchUpStep(task, before);
-          task.fastForward = previousPoint;
-          task.fastDriver = null; task.fastFinished = false;
-          pauseCatchUp(catchUpDiagnostic("fast-forward-exception", task, 0, null, error));
-          return { paused: true };
-        }
-        if (task.remainingGameSeconds <= epsilon) completeCatchUpStep(task);
-        return result;
-      }
+      
 
       function pauseAfterOnlineError(error) {
         pauseCatchUp(catchUpDiagnostic("online-frame-exception", catchUpTasks[0], 0, null, error));
@@ -1134,7 +859,8 @@
           sessionErrorEstimates: [...sessionErrorEstimates],
           sessionErrorTerms: sessionErrorTerms.map(terms => terms.map(term => ({ ...term }))),
           discreteMetrics: { ...discreteMetrics },
-          fastForwardUsed, fastForwardMetrics,
+          fastForwardUsed, fastForwardMetrics:fastForwardMetrics&&{...fastForwardMetrics,spanHistogram:{...fastForwardMetrics.spanHistogram}},
+          segmentBudget:WIS.Simulation.CheckpointStrategy.snapshot(offlineSegmentBudget,{runtime:true}),
           sessionProcessedGameSeconds
         };
       }
@@ -1158,6 +884,7 @@
         fastForwardUsed = snapshot.fastForwardUsed ?? fastForwardUsed;
         fastForwardMetrics = snapshot.fastForwardMetrics ?? fastForwardMetrics;
         sessionProcessedGameSeconds = snapshot.sessionProcessedGameSeconds;
+        offlineSegmentBudget = snapshot.segmentBudget;
         pendingCatchUpSeconds = snapshot?.pendingGameSeconds ?? pendingCatchUpSeconds;
         pendingCatchUpClockSeconds = snapshot?.pendingClockSeconds ?? pendingCatchUpClockSeconds;
         catchUpSessionProcessedClockSeconds = snapshot?.processedClockSeconds ?? catchUpSessionProcessedClockSeconds;
@@ -1197,6 +924,7 @@
           executionReference: "fixed-start-sources-v1",
           discreteMetrics,
           processedGameSeconds: sessionProcessedGameSeconds,
+          segmentBudget:WIS.Simulation.CheckpointStrategy.snapshot(offlineSegmentBudget),
           transient: context.snapshotTransient?.() ?? null,
           treasureProgressVersion: 1,
           fastForwardUsed, fastForwardMetrics,
@@ -1233,14 +961,17 @@
         if(processedEvidence&&!confirmedSources.online&&!confirmedSources.offline)confirmedSources.unknown=true;
         for (const savedTask of snapshot.tasks) {
           // Restoring an existing task must not consume the online RNG again.
+          // Legacy online tails must finish on their own: the live loop no
+          // longer appends foreground time to fill an old fractional task.
           const task = appendCatchUpTask(savedTask.gameSeconds, savedTask.clockSeconds,
-            { ...savedTask, randomSeed: (savedTask.random ?? getState().core.runtime.randomState) / 0x100000000 });
+            { ...savedTask, sealed: true, randomSeed: (savedTask.random ?? getState().core.runtime.randomState) / 0x100000000 });
           if (savedTask.random !== null) task.random?.restore?.(savedTask.random);
           task.logicalTickRemaining = Math.max(0, Math.min(simulationStepSeconds,
             Number(savedTask.logicalTickRemaining) || 0));
           task.unverifiableBatchPrecision = savedTask.unverifiableBatchPrecision === true;
           task.fastForward = null; // obsolete prediction cursor; confirmed assets/debt already restored
         }
+        offlineSegmentBudget = WIS.Simulation.FixedSegment.validateBudget(snapshot.segmentBudget);
         fastForwardUsed = false;
         fastForwardMetrics = null;
         const processed = Math.max(0, Number(snapshot.processedClockSeconds) || 0);
@@ -1277,7 +1008,7 @@
         // has no close timestamp, so interrupted recovery waiting cannot be awarded.
         appendCatchUpTask(newlyOfflineSeconds, newlyOfflineSeconds);
         presentation=snapshot.presentation==='quiet'?'quiet':snapshot.presentation==='notice'?'notice':'blocking';
-        if(pendingCatchUpClockSeconds>5+epsilon)presentation='blocking';
+        if(catchUpTasks.some(task=>task.source==='offline')||pendingCatchUpClockSeconds>5+epsilon)presentation='blocking';
         awaySuspended=snapshot.awaySuspended===true;
         catchUpOriginalClockLocked = true;
         catchUpPaused = snapshot.paused === true || fastRestoreError !== null;
@@ -1313,6 +1044,12 @@
         // Completion (not dismissal of the summary) starts the next online interval.
         if(presentation==='blocking')context.setLastTickAt?.(Date.now());
         checkpointCatchUp(presentation==='blocking');
+        // Prepared recovery installation does not carry tmp caches. Query once
+        // at completion, from the installed state, without advancing production.
+        const state = getState(), C = WIS.Simulation.Compensation;
+        const rates = C.withFactor(C.eligibleAtEnqueue(state) ? 2 : 1,
+          () => WIS.Simulation.FixedSources.query(state).rates);
+        for (const [key, value] of Object.entries(rates)) WIS.tmp.rates[key + "PerSecond"] = value;
       }
 
       function retryCatchUp() {
@@ -1399,7 +1136,7 @@
               // Exact local bridge only: discard obsolete scheduler plans,
               // but preserve its already committed partial-tick position.
               const bridgeSeconds = Math.min(task.remainingGameSeconds, task.source === "offline"
-                ? CONFIG.fixedSettlement.offlineSeconds
+                ? (task.macroPlan ||= planOfflineMacro(task)).seconds
                 : context.prepareOnlineWork&&task.randomMode==="state" ? (pendingCatchUpSeconds>2?CONFIG.fixedSettlement.onlineBacklogSeconds:CONFIG.fixedSettlement.onlineSeconds)
                 : task.logicalTickRemaining > epsilon ? task.logicalTickRemaining : simulationStepSeconds);
               if (!(bridgeSeconds > epsilon)) { catchUpTasks.shift(); continue; }
@@ -1412,15 +1149,20 @@
                   task.onlineToken=work.token;task.onlineWork=null;
                 }catch(error){task.onlineWork?.close?.();task.onlineWork=null;task.onlineToken=null;pauseCatchUp(catchUpDiagnostic('online-plan-failed',task,bridgeSeconds,null,error));break;}
               }
-              if (task.source === "offline" && context.prepareFixedWork) {
+              if (task.source === "offline" && context.prepareFixedWork ) {
                 try {
-                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds);
-                  const work=task.fixedWork.advance(frameStartedAt+frameBudgetMs);
+                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds,{clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,sourceProfile:task.macroPlan.sourceProfile,mapPlan:task.macroPlan.mapPlan,evolutionPlan:task.macroPlan.evolutionPlan});
+                  const work=WIS.Simulation.Profiler.withScope('offline',()=>WIS.Simulation.Profiler.measure('checkpointWork',()=>task.fixedWork.advance(frameStartedAt+frameBudgetMs)));
                   if(!work.done) {planningYieldRequested=true;break;}
                   task.fixedToken=work.token;task.fixedWork=null;
                 } catch(error) {
                   task.fixedWork?.close?.();task.fixedWork=null;task.fixedToken=null;
-                  pauseCatchUp(catchUpDiagnostic("fixed-plan-failed",task,bridgeSeconds,null,error));break;
+                  if(error.code==='discrete-map-rejected'&&typeof WIS.Simulation.CheckpointStrategy.reject==='function') {
+                    offlineSegmentBudget=WIS.Simulation.CheckpointStrategy.reject(offlineSegmentBudget,task.macroPlan);
+                    task.macroPlan=null;planningYieldRequested=true;break;
+                  }
+                  offlineSegmentBudget=WIS.Simulation.CheckpointStrategy.fail(offlineSegmentBudget,error);
+                  task.macroPlan=null;pauseCatchUp(catchUpDiagnostic("fixed-plan-failed",task,bridgeSeconds,null,error));break;
                 }
               }
               clearAssignedCatchUpStep(task);
@@ -1447,6 +1189,8 @@
                   () => WIS.Core.Runtime.withOfflineExecution(() =>
                     advanceGameStep(requestedSeconds, true, {
                       offline: false,
+                      foreground: false,
+                      macroSeconds: requestedSeconds,
                       preparedFixedSegment, preparedOnlineSegment,
                       timeSegment: {source:task.source, compensationEligible:task.compensationEligible,
                         clockRatio:task.remainingGameSeconds>0?task.remainingClockSeconds/task.remainingGameSeconds:0},
@@ -1475,6 +1219,17 @@
                       else { discreteMetrics.batches++; discreteMetrics.largestBatch = Math.max(discreteMetrics.largestBatch, acceptedSeconds); }
                       discreteMetrics.verification = "fixed-start-sources-v1";
                     }
+                  }
+                  if(task.source==='offline') {
+                    const plan=task.macroPlan;
+                    fastForwardUsed=true;
+                    fastForwardMetrics ||= {algorithm:'hierarchical-discrete-map',macros:0,spanHistogram:{},maximumFeedbackStrength:0,hardTimeBoundaries:0};
+                    fastForwardMetrics.macros++;
+                    const span=String(acceptedSeconds);fastForwardMetrics.spanHistogram[span]=(fastForwardMetrics.spanHistogram[span]||0)+1;
+                    fastForwardMetrics.maximumFeedbackStrength=Math.max(fastForwardMetrics.maximumFeedbackStrength,plan.strength);
+                    if(plan.hardBoundary)fastForwardMetrics.hardTimeBoundaries++;
+                    offlineSegmentBudget=WIS.Simulation.CheckpointStrategy.accept(offlineSegmentBudget,plan,acceptedSeconds,getState(),result);
+                    task.macroPlan=null;
                   }
                   sessionProcessedGameSeconds += acceptedSeconds;
                   const errorFraction = acceptedSeconds / task.currentOuterStepGameSeconds;
@@ -1610,7 +1365,7 @@
           if (!catchUpPaused) notifyNewAchievements(previousAchievements);
           const completed = !catchUpPaused && catchUpTasks.length === 0 && !(pendingCatchUpSeconds > epsilon);
           const report = completed
-            ? formatOfflineProgressReport(catchUpSessionProcessedClockSeconds, catchUpSessionBefore)
+            ? formatOfflineProgressReport(catchUpOriginalClockSeconds, catchUpSessionBefore)
             : "";
           catchUpInProgress = false;
           if (completed) {

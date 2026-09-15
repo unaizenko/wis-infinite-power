@@ -68,14 +68,14 @@
       { id: "waveEye", name: "波动眼", group: "量级论", target: "killingIntent", layer: "sourceExponent", value: state.waveEyePurchased ? 1.75 : 1 },
       { id: "elementalAwakening", name: "元素觉醒", group: "量级论", target: "elementalization", layer: "sourceExponent", value: state.elementalAwakeningPurchased ? 1.52 : 1 },
       { id: "moonfall", name: "月落", group: "量级论", target: "rock", layer: "sourceMultiplier", value: state.moonfallPurchased ? 50 : 1 },
-      { id: "flowState", name: "心流", group: "量级论", target: "ultimateIntent", layer: "sourceMultiplier", dynamic: true, value: (current) => current.flowStatePurchased ? WIS.Power.ScaleLogic.flowUltimateIntentMultiplier() : 1 },
+      { id: "flowState", dynamicResources:["joules","power","immortalPower"], name: "心流", group: "量级论", target: "ultimateIntent", layer: "sourceMultiplier", dynamic: true, value: (current) => current.flowStatePurchased ? WIS.Power.ScaleLogic.flowUltimateIntentMultiplier() : 1 },
       { id: "selfhood", name: "自我", group: "量级论", target: "ultimateIntent", layer: "sourceExponent", value: state.selfhoodPurchased ? 1.04 : 1 },
       { id: "freedom", name: "自在", group: "量级论", target: "ultimateIntent", layer: "sourceExponent", value: state.freedomPurchased ? 1.03 : 1 },
       { id: "chicxulubMeteorite", name: "希克苏鲁伯陨石", group: "量级论", target: "power", layer: "regionMultiplier", value: state.chicxulubMeteoritePurchased ? 10 : 1 }
       ,{ id: "planetWill", name: "星球意志", group: "爆星", target: "elementalization", layer: "sourceMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => WIS.Power.ScaleLogic.planetWillElementalizationMultiplier(current.joules) }
       ,{ id: "starShatter", name: "碎星", group: "爆星", target: "rock", layer: "sourceMultiplier", value: WIS.Power.ScaleLogic.starShatterRockMultiplier() }
       ,{ id: "selfless", name: "无我", group: "爆星", target: "ultimateIntent", layer: "sourceMultiplier", value: state.selflessPurchased ? WIS.Core.Config.starEnhancements.selfless.ultimateIntentMultiplier : 1 }
-      ,{ id: "supernaturalFire", name: "超自然发火", group: "爆星", target: "power", layer: "regionMultiplier", dynamic: true, value: (current) => current.supernaturalFirePurchased ? WIS.Power.ScaleLogic.supernaturalFirePowerMultiplier() : 1 }
+      ,{ id: "supernaturalFire", dynamicResources:["joules","power","mana","immortalPower","yuanForce"], name: "超自然发火", group: "爆星", target: "power", layer: "regionMultiplier", dynamic: true, value: (current) => current.supernaturalFirePurchased ? WIS.Power.ScaleLogic.supernaturalFirePowerMultiplier() : 1 }
       ,{ id: "selfSuppression", name: "自我抑制", group: "爆星", target: "joules", layer: "regionExponent", dynamic: true, dynamicResources: ["joules"], value: (current) => WIS.Power.ScaleLogic.selfSuppressionJExponent(current.joules) }
       ,{ id: "stellarFurnace", name: "恒星熔炉", group: "恒星", target: "joules", layer: "regionMultiplier", value: state.stellarFurnacePurchased ? 1e12 : 1 }
       ,{ id: "gravitationalCollapse", name: "引力坍缩", group: "恒星", target: "power", layer: "regionMultiplier", value: state.gravitationalCollapsePurchased ? 1e12 : 1 }
@@ -90,14 +90,14 @@
     ];
   }
 
-  WIS.Core.Effects.register("scale", effects);
+  WIS.Core.Effects.register("scale", effects, { highestPowerEffects: ["water"] });
 
   let fitnessCardRollAccumulator = 0;
   let skyCrystalRollAccumulator = 0;
   let cosmicFiberRollAccumulator = 0;
   let cosmicWillRollAccumulator = 0;
 
-  function calculateAutomaticGains(state, elapsedSeconds) {
+  function calculateAutomaticGains(state, elapsedSeconds, integrationOptions = {}) {
     const safeElapsed = Math.max(0, Number(elapsedSeconds) || 0);
     const incomeFactor = WIS.Simulation.Compensation.factor();
     const jRateProfile = WIS.Power.ScaleLogic.createAutomaticJRateProfile();
@@ -106,7 +106,7 @@
         WIS.Power.ScaleLogic.automaticJSettledPerSecondAt(evaluationJoules, jRateProfile),
       state.joules,
       safeElapsed,
-      (settledRate) => mul(settledRate, incomeFactor)
+      (settledRate) => mul(settledRate, incomeFactor), integrationOptions
     );
     const powerRateProfile = WIS.Power.ScaleLogic.createAutomaticPowerRateProfile();
     const passivePower = applyResourceSoftcapDynamicRateOverTime(
@@ -114,7 +114,7 @@
         WIS.Power.ScaleLogic.automaticPowerSettledPerSecondAt(evaluationPower, powerRateProfile),
       state.power,
       safeElapsed,
-      (settledRate) => mul(settledRate, incomeFactor)
+      (settledRate) => mul(settledRate, incomeFactor), integrationOptions
     );
     const rates = {
       joulesPerSecond: safeElapsed > 0 ? div(passiveJ, safeElapsed) : ZERO,
@@ -202,5 +202,5 @@
   WIS.Core.Sources.register("scaleTreasures", () => [
     { id: "fiveSpiritStoneJ", name: "五灵石", group: "宝物", target: "joules", value: WIS.Power.ScaleLogic.fiveSpiritStoneJSource() },
     { id: "fiveSpiritStonePower", name: "五灵石", group: "宝物", target: "power", value: WIS.Power.ScaleLogic.fiveSpiritStonePowerSource() }
-  ]);
+  ], { highestPowerIndependent: true });
 }(window.WIS));

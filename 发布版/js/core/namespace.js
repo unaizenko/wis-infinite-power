@@ -11,6 +11,7 @@
     ? global.WIS_BUILD
     : {};
   WIS.Core.Build = Object.freeze({
+    buildId: typeof rawBuild.id === "string" ? rawBuild.id : "",
     mode: rawBuild.mode === "development" ? "development" : "release",
     enableSpeedControls: rawBuild.enableSpeedControls === true,
     enableFormulaDetails: rawBuild.enableFormulaDetails === true

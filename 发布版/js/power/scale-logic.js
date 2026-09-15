@@ -2,13 +2,20 @@
   "use strict";
 
   const runtime = WIS.Core.Runtime;
-  const state = runtime.state;
+  let state = runtime.state;
+  function withScaleState(current,work){const previous=state;state=current;try{return work();}finally{state=previous;}}
+  const measure=(name,fn)=>WIS.Simulation?.Profiler?WIS.Simulation.Profiler.measure('scale.'+name,fn):fn();
+  const snapshotMemo=(name,fn)=>WIS.Core.Effects.memoFrozen('scale.'+name,()=>measure(name,fn),state);
+
   const CONFIG = WIS.Core.Config;
+  const TREASURE_RULES = WIS.Meta.TreasureRules;
   const {
-    BN, ZERO, ONE, add, sub, mul, div, pow, pow10, sqrt, log10, abs,
+    BN, ZERO, ONE, add, sub, mul, div, pow: rawPow, pow10, sqrt, log10: rawLog10, abs,
     max: maxBN, min: minBN, gt, gte, lt, lte, eq,
     isFiniteBN, isNaNBN, sum: sumBN, product: productBN, toNumber
   } = WIS.Core.BigNum;
+  const pow=(a,b)=>WIS.Simulation?.Profiler?.enabled()?measure('BigNum.pow',()=>rawPow(a,b)):rawPow(a,b);
+  const log10=a=>WIS.Simulation?.Profiler?.enabled()?measure('BigNum.log10',()=>rawLog10(a)):rawLog10(a);
   const {
     decayingChance, multipliedChance,
     rollDynamicAttempts: rollProbabilityAttempts
@@ -81,7 +88,7 @@
   const render = (...args) => runtime.call("render", ...args);
   const achievementStates = (...args) => runtime.call("achievementStates", ...args);
   const notifyNewAchievements = (...args) => runtime.call("notifyNewAchievements", ...args);
-  const minorTribulationPowerExponent = (...args) => runtime.call("minorTribulationPowerExponent", ...args);
+  
   const celestialDeclineExponent = (...args) => runtime.call("celestialDeclineExponent", ...args);
   const hasAchievement = (key) => WIS.Meta.Achievements.has(state, key);
   const upgradesUnlocked = () => hasAchievement("powerOne");
@@ -115,13 +122,26 @@
       : decimal;
   }
 
+  // Immutable configuration only; dynamic pressure is still recomputed per snapshot.
+  const softcapStageConstants = new Map(RESOURCE_SOFTCAP_STAGES.map(stage =>
+    [stage, { strength: BN(stage.strength), growth: BN(stage.growth) }]));
+
   function baseSoftcapStageExponent(amount, stage) {
     const decimalAmount = maxBN(ZERO, amount);
+    const memo = WIS.Core.Effects.scopeMemo(state);
+    if (!memo) return computeBaseSoftcapStageExponent(decimalAmount, stage);
+    const key = `scale.softcapBase:${stage.name}:${decimalAmount.sign}:${decimalAmount.layer}:${decimalAmount.mag}`;
+    if (!memo.has(key)) memo.set(key, computeBaseSoftcapStageExponent(decimalAmount, stage));
+    return memo.get(key);
+  }
+
+  function computeBaseSoftcapStageExponent(decimalAmount, stage) {
     if (lte(decimalAmount, stage.threshold)) return 1;
     const overflowOrders = log10(div(decimalAmount, stage.threshold));
+    const constants = softcapStageConstants.get(stage) || stage;
     const pressure = add(
-      mul(stage.strength, overflowOrders),
-      mul(stage.growth, pow(overflowOrders, 1.5))
+      mul(constants.strength, overflowOrders),
+      mul(constants.growth, pow(overflowOrders, 1.5))
     );
     return compatibleSoftcapExponent(div(ONE, add(ONE, pressure)));
   }
@@ -324,7 +344,10 @@
     };
   }
 
-  function resourceSoftcapSettlementForComponents(normalRawGain, manaRawGain, currentAmount) {
+  function resourceSoftcapSettlementForComponents(normalRawGain,manaRawGain,currentAmount){
+    return measure('softcap',()=>uncachedResourceSoftcapSettlementForComponents(normalRawGain,manaRawGain,currentAmount));
+  }
+  function uncachedResourceSoftcapSettlementForComponents(normalRawGain, manaRawGain, currentAmount) {
     return getResourceSoftcapBreakdown(normalRawGain, manaRawGain, currentAmount).finalTotal;
   }
 
@@ -451,17 +474,40 @@
     return mul(start, pow(div(end, start), Math.max(0, Math.min(1, position))));
   }
 
-  function refinedProgressiveSettlement(rawGain, currentAmount) {
-    let estimate = applyResourceSoftcapSettlement(rawGain, currentAmount);
+  function refinedProgressiveSettlement(rawGain, currentAmount, settle = applyResourceSoftcapSettlement) {
+    let estimate = settle(rawGain, currentAmount);
     for (let iteration = 0; iteration < 2; iteration += 1) {
       const projectedEnd = add(currentAmount, maxBN(ZERO, estimate));
       const evaluationAmount = logarithmicAmountInterpolation(currentAmount, projectedEnd, 0.5);
-      estimate = applyResourceSoftcapSettlement(rawGain, evaluationAmount);
+      estimate = settle(rawGain, evaluationAmount);
     }
     return maxBN(ZERO, estimate);
   }
 
-  function applyResourceSoftcapProgressive(rawGain, currentAmount) {
+  function applyResourceSoftcapProgressive(rawGain, currentAmount, { googolResource = null } = {}) {
+    // Manual training opts in. Other progressive callers keep their original law.
+    const penaltyAt = amount => googolResource
+      ? WIS.Core.Penalties.googolPenaltyMultiplier(googolResource, amount, state) : ONE;
+    const settle = (gain, amount) => mul(applyResourceSoftcapSettlement(gain, amount), penaltyAt(amount));
+    const googol = WIS.Core.Config.googolPenalty.threshold;
+    const nextStage = amount => {
+      const normal = nextResourceSoftcapThreshold(amount);
+      return googolResource && lt(amount, googol) ? (normal ? minBN(normal, googol) : googol) : normal;
+    };
+    const varying = amount => hasStartedUnremovedResourceSoftcap(amount) || (googolResource && gte(amount, googol));
+    const integrationBoundary = amount => {
+      const normal = nextResourceSoftcapIntegrationBoundary(amount), stage = nextStage(amount);
+      let boundary = normal && stage ? minBN(normal, stage) : normal || stage;
+      // Keep sampling the penalty even when all resource softcaps were removed.
+      if (googolResource && gte(amount, googol)) {
+        const index = resourceSoftcapIntegrationLogIndex(amount);
+        if (index !== null) {
+          const logarithmic = resourceSoftcapLogBoundary(index + 1);
+          if (gt(logarithmic, amount)) boundary = boundary ? minBN(boundary, logarithmic) : logarithmic;
+        }
+      }
+      return boundary;
+    };
     let remainingRawGain = maxBN(ZERO, rawGain);
     const initialAmount = maxBN(ZERO, currentAmount);
     if (!gt(remainingRawGain, ZERO) || !isFiniteBN(initialAmount) || !isFiniteBN(remainingRawGain)) return ZERO;
@@ -470,17 +516,18 @@
     let settledGain = ZERO;
     let continuousSegments = 0;
     let exactStageSegments = 0;
-    const maximumSegments = RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS + RESOURCE_SOFTCAP_STAGES.length;
+    const stageCount = RESOURCE_SOFTCAP_STAGES.length + (googolResource ? 1 : 0);
+    const maximumSegments = RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS + stageCount;
     for (let segment = 0; segment < maximumSegments && gt(remainingRawGain, ZERO); segment += 1) {
-      const projectedGain = applyResourceSoftcapSettlement(remainingRawGain, settledAmount);
+      const projectedGain = settle(remainingRawGain, settledAmount);
       const projectedEnd = add(settledAmount, maxBN(ZERO, projectedGain));
-      const nextStageBoundary = nextResourceSoftcapThreshold(settledAmount);
+      const nextStageBoundary = nextStage(settledAmount);
       const canCrossStage = nextStageBoundary && gt(projectedEnd, nextStageBoundary);
       if (continuousSegments >= RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS &&
-          !(canCrossStage && exactStageSegments < RESOURCE_SOFTCAP_STAGES.length)) {
+          !(canCrossStage && exactStageSegments < stageCount)) {
         // The fixed-point logarithmic midpoint settles every last unit of raw gain.
         // It is deliberately not a final left-end exponent extrapolation.
-        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
+        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount, settle));
         remainingRawGain = ZERO;
         break;
       }
@@ -494,8 +541,8 @@
       if (canCrossStage && (!highPrecision || remainingBudget <= 1)) {
         nextBoundary = nextStageBoundary;
         evaluationAmount = logarithmicAmountInterpolation(settledAmount, nextBoundary, 0.5);
-      } else if (highPrecision || !gt(settledAmount, ZERO) || !hasStartedUnremovedResourceSoftcap(settledAmount)) {
-        nextBoundary = nextResourceSoftcapIntegrationBoundary(settledAmount);
+      } else if (highPrecision || !gt(settledAmount, ZERO) || !varying(settledAmount)) {
+        nextBoundary = integrationBoundary(settledAmount);
       } else {
         // Large spans divide their remaining logarithmic distance over the remaining
         // fixed budget. There is intentionally no maximum log-step clamp.
@@ -508,7 +555,7 @@
         evaluationAmount = logarithmicAmountInterpolation(settledAmount, nextBoundary, 0.5);
       }
       if (!nextBoundary || !gt(nextBoundary, settledAmount) || !gt(projectedEnd, nextBoundary)) {
-        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
+        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount, settle));
         remainingRawGain = ZERO;
         break;
       }
@@ -520,14 +567,14 @@
       }
       const neededActualGain = maxBN(ZERO, sub(nextBoundary, settledAmount));
       if (!gt(neededActualGain, ZERO)) {
-        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
+        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount, settle));
         remainingRawGain = ZERO;
         break;
       }
-      const neededRawGain = rawGainForSoftcappedActualGain(neededActualGain, exponent);
+      const neededRawGain = rawGainForSoftcappedActualGain(div(neededActualGain, penaltyAt(evaluationAmount)), exponent);
       const tolerance = neededRawGain ? mul(maxBN(ONE, neededRawGain), Number.EPSILON * 16) : ZERO;
       if (!neededRawGain || !isFiniteBN(neededRawGain) || lt(add(remainingRawGain, tolerance), neededRawGain)) {
-        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
+        settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount, settle));
         remainingRawGain = ZERO;
         break;
       }
@@ -540,7 +587,7 @@
       if (nextStageBoundary && eq(nextBoundary, nextStageBoundary)) exactStageSegments += 1;
     }
     if (gt(remainingRawGain, ZERO)) {
-      settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount));
+      settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount, settle));
     }
     return maxBN(ZERO, settledGain);
   }
@@ -550,104 +597,25 @@
   // sample, including after normal caps are removed, uses this same contract.
   function applyResourceSoftcapDynamicRateOverTime(
     rawRateAtAmount, currentAmount, elapsedSeconds,
-    settleRateAtAmount = applyResourceSoftcapSettlement
+    settleRateAtAmount = applyResourceSoftcapSettlement,
+    { foreground = false } = {}
   ) {
-    const seconds = Number(elapsedSeconds), initial = maxBN(ZERO, currentAmount);
-    if (typeof rawRateAtAmount !== "function" || !Number.isFinite(seconds) || seconds < 0 || !isFiniteBN(initial))
+    const seconds=Number(elapsedSeconds), initial=maxBN(ZERO,currentAmount);
+    if(typeof rawRateAtAmount!=="function" || !Number.isFinite(seconds) || seconds<0 || !isFiniteBN(initial))
       throw Error("动态积分输入无效，结算未提交");
-    if (seconds === 0) return ZERO;
-    let remaining = BN(seconds), amount = initial, gain = ZERO, evaluations = 0, suggestedLogSpan = null;
-    const rateAt = x => {
-      WIS.Simulation.FastForward?.recordCost("integrationEvaluations",1);
-      if (++evaluations > 768) throw Error(`动态积分精度预算不足，剩余时间保留（库存 ${amount}；剩余 ${remaining} 秒）`);
-      const raw = rawRateAtAmount(x), rate = settleRateAtAmount(raw, x);
-      if (!isFiniteBN(raw) || !isFiniteBN(rate) || lt(rate, ZERO)) throw Error("动态收益无法安全表示，结算未提交");
-      return rate;
-    };
-    const nextBoundary = x => {
-      const normal = nextResourceSoftcapThreshold(x);
-      const googol = WIS.Core.Config.googolPenalty.threshold;
-      return lt(x, googol) ? normal ? minBN(normal, googol) : googol : normal;
-    };
-    // x+1 permits zero inventory. A power-law rate on this coordinate has a
-    // closed-form time and inverse; x'=K/x at large x is solved directly.
-    const differencePower = (logRatio, q) => {
-      const z = mul(logRatio, q), n = toNumber(z, NaN);
-      return Number.isFinite(n) && Math.abs(n) < 0.01
-        ? BN(Math.expm1(n * Math.LN10)) : sub(pow10(z), ONE);
-    };
-    while (gt(remaining, ZERO)) {
-      const startRate = rateAt(amount);
-      if (!gt(startRate, ZERO)) return gain;
-      const linearGain = mul(startRate, remaining), projected = add(amount, linearGain);
-      if (lte(projected, amount)) return add(gain, linearGain);
-      let boundary = nextBoundary(amount);
-      let end = boundary ? minBN(boundary, projected) : projected;
-      const u = add(amount, ONE);
-      if (suggestedLogSpan) end = minBN(end, sub(mul(u, pow10(suggestedLogSpan)), ONE));
-      if (!gt(end, amount)) throw Error(`动态积分边界无法推进: amount=${amount}, end=${end}, projected=${projected}, boundary=${boundary}, gain=${linearGain}, time=${remaining}`);
-      let logSpan, slope, q, duration;
-      for (;;) {
-        const v = add(end, ONE);
-        // log((x+dx+1)/(x+1)) loses a positive dx when the ratio rounds to 1.
-        // Form dx first, then use log1p; keep a sub-Number ratio in Decimal.
-        const relativeSpan = div(sub(end, amount), u), smallSpan = toNumber(relativeSpan, NaN);
-        logSpan = gt(relativeSpan, ZERO) && Number.isFinite(smallSpan) && smallSpan < .01
-          ? smallSpan > 0 ? BN(Math.log1p(smallSpan) / Math.LN10) : div(relativeSpan, Math.LN10)
-          : log10(div(v, u));
-        if (!gt(logSpan, ZERO)) {
-          // A sub-ULP increment in x+1; verify that the rate is constant here.
-          if (!eq(rateAt(end), startRate)) throw Error("动态积分微区间无法辨认，输入保留");
-          return add(gain, linearGain);
-        }
-        const endRate = rateAt(end);
-        if (!gt(endRate, ZERO)) { end = maxBN(amount, sub(mul(u, pow10(mul(logSpan, 0.5))), ONE)); continue; }
-        slope = div(log10(div(endRate, startRate)), logSpan);
-        q = sub(ONE, slope);
-        if (!isFiniteBN(slope)) throw Error("动态积分速率斜率无效");
-        let error = ZERO;
-        for (const fraction of [0.25, 0.5, 0.75]) {
-          const x = maxBN(ZERO, sub(mul(u, pow10(mul(logSpan, fraction))), ONE));
-          const actual = rateAt(x), expected = mul(startRate, pow10(mul(mul(logSpan, fraction), slope)));
-          if (!gt(actual, ZERO)) { error = ONE; break; }
-          error = maxBN(error, abs(log10(div(actual, expected))));
-        }
-        if (lte(error, "1e-6")) {
-          duration = eq(q, ZERO)
-            ? mul(div(u, startRate), mul(logSpan, Math.LN10))
-            : mul(div(u, startRate), div(differencePower(logSpan, q), q));
-          break;
-        }
-        end = sub(mul(u, pow10(mul(logSpan, 0.5))), ONE);
-        if (!gt(end, amount)) throw Error("动态积分误差无法收敛，输入保留");
+    const work=WIS.Core.Integration.createAdaptiveWork({amount:initial},seconds,values=>{
+      const raw=rawRateAtAmount(values.amount), rate=settleRateAtAmount(raw,values.amount);
+      if(!isFiniteBN(raw)||!isFiniteBN(rate)||lt(rate,0))throw Error("动态积分速率无效");
+      return {amount:rate};
+    },{logTolerance:foreground?1e-4:1e-6});
+    for(;;){
+      const result=work.advance({maximumEvaluations:256});
+      if(result.done)return result.gains.amount;
+        if(result.status==="finite-time-singularity"){
+          const error=Error("动态积分具有有限时间发散证明；未处理时间和数值检查点保留");
+        error.code=result.status;error.continuation=work;error.diagnostics=result.diagnostics;throw error;
       }
-      if (eq(slope, ZERO) && eq(end, projected)) return add(gain, linearGain);
-      if (!isFiniteBN(duration) || !gt(duration, ZERO)) throw Error("动态积分边界时长无法表示，输入保留");
-      // Never convert boundary time to Number: a positive e-1000 is a real
-      // crossed segment even when subtracting it cannot change remaining time.
-      if (lte(duration, remaining)) {
-        gain = add(gain, sub(end, amount));
-        amount = end;
-        suggestedLogSpan = mul(logSpan, 2);
-        remaining = maxBN(ZERO, sub(remaining, duration));
-        continue;
-      }
-      const scaledTime = mul(div(startRate, u), remaining);
-      let logGrowth;
-      if (eq(q, ZERO)) logGrowth = div(scaledTime, Math.LN10);
-      else {
-        const term = mul(q, scaledTime), small = toNumber(term, NaN);
-        if (lte(add(ONE, term), ZERO)) throw Error("动态积分出现有限时间奇点，输入保留");
-        logGrowth = Number.isFinite(small) && Math.abs(small) < 0.01
-          ? div(BN(Math.log1p(small) / Math.LN10), q)
-          : div(log10(add(ONE, term)), q);
-      }
-      const increment = mul(u, differencePower(logGrowth, ONE));
-      if (!isFiniteBN(increment) || lt(increment, ZERO) || gt(add(amount, increment), mul(end, 1.00001)))
-        throw Error("动态积分终点超出已验证区间，输入保留");
-      return add(gain, increment);
     }
-    return maxBN(ZERO, gain);
   }
 
   function applyResourceSoftcapOverTime(rawRate, currentAmount, elapsedSeconds) {
@@ -723,7 +691,9 @@
 
   function godspeedPotentialExponent(source = state) {
     const currentPower = dynamicResource(source, "power");
-    return add(ONE, mul("0.05", resourceMagnitude(currentPower, "3.033e15")));
+    const d = resourceMagnitude(currentPower, "3.033e15");
+    const dEff = WIS.Core.Formulas.smoothPowerSoftcap(d, 300, 1, 0.35, 6);
+    return add(ONE, mul("0.05", dEff));
   }
 
   function breathingMethodGymMultiplier(source = state) {
@@ -792,7 +762,7 @@
       () => { WIS.Meta.Treasures.add(state, "fitnessMembershipCard"); },
       {
         probabilityAtOffset: (offset) => fitnessMembershipCardChance(add(fitnessMembershipCardCount(), offset)),
-        decayRatio: 0.97,
+        decayRatio: TREASURE_RULES.fitnessMembershipCard.q,
         treasureKey: "fitnessMembershipCard",
         awardMany: (count) => WIS.Meta.Treasures.add(state, "fitnessMembershipCard", count)
       }
@@ -848,8 +818,8 @@
 
   function skyCrystalChance(count = skyCrystalCount()) {
     const rockFactor = add(ONE, log10(add(ONE, div(Math.max(0, effectiveRockLevel()), 1000))));
-    const inventoryPenalty = sqrt(add(ONE, div(maxBN(ZERO, count), 10)));
-    return multipliedChance([0.005, rockFactor, div(ONE, inventoryPenalty), treasureChanceMultiplier()]);
+    const inventoryPenalty = sqrt(add(ONE, div(maxBN(ZERO, count), TREASURE_RULES.skyCrystal.scale)));
+    return multipliedChance([TREASURE_RULES.skyCrystal.baseChance, rockFactor, div(ONE, inventoryPenalty), treasureChanceMultiplier()]);
   }
 
   function skyCrystalRockMultiplier() {
@@ -984,7 +954,8 @@
     return WIS.Core.Effects.groups("power", "regionMultiplier", state);
   }
 
-  function powerMultiplier() {
+  function powerMultiplier(){return snapshotMemo("powerMultiplier",powerMultiplierUncached);}
+  function powerMultiplierUncached() {
     return multiplyEffectGroups(powerMultiplierGroups());
   }
 
@@ -1028,7 +999,8 @@
     return 1 - (1 - limitExponent) * progress;
   }
 
-  function jGainExponent() {
+  function jGainExponent(){return snapshotMemo("jGainExponent",jGainExponentUncached);}
+  function jGainExponentUncached() {
     return WIS.Core.Effects.product("joules", "regionExponent", state);
   }
 
@@ -1046,14 +1018,15 @@
     return selfSuppressionJExponentFromBase(resourceSoftcapBaseExponent(currentJoules));
   }
 
-  function powerGainExponent() {
+  function powerGainExponent(){return snapshotMemo("powerGainExponent",powerGainExponentUncached);}
+  function powerGainExponentUncached() {
     return WIS.Core.Effects.product("power", "regionExponent", state);
   }
 
   function currentPowerMilestone() {
     if (state.symbolicPowerMilestones?.tree3) return "tree3";
     if (state.symbolicPowerMilestones?.graham64) return "graham64";
-    if (gte(state.lifetimeHighestPower, "1e100")) return "googol";
+    if (gte(snapshotMemo("lifetimeHighestPower",()=>state.lifetimeHighestPower), "1e100")) return "googol";
     return "number";
   }
 
@@ -1087,7 +1060,8 @@
     return WIS.Core.Effects.groups("joules", "regionMultiplier", state);
   }
 
-  function jMultiplier() {
+  function jMultiplier(){return snapshotMemo("jMultiplier",jMultiplierUncached);}
+  function jMultiplierUncached() {
     return multiplyEffectGroups(jMultiplierGroups());
   }
 
@@ -1100,29 +1074,27 @@
     return createAutomaticJRateProfile().rawRate();
   }
 
-  function createAutomaticJRateProfile() {
+  function createAutomaticJRateProfile({interval=false}={}) {
     const fixedSources = {
       achievement: achievementJBonus(),
-      killingIntent: killingIntentJBonus(),
       registered: WIS.Core.Sources.collect("joules", state)
     };
+    const normalDescriptors=fixedSources.registered.filter(source=>source.id!=="manaJ");
+    const manaDescriptors=fixedSources.registered.filter(source=>source.id==="manaJ");
+    const sourceValue=source=>interval&&source.dynamicResources.length?source.valueAt(state):source.value;
     const componentRates = () => {
-        const normalRegistered = fixedSources.registered
-          .filter((source) => source.id !== "manaJ")
-          .map((source) => source.value);
-        const manaSources = fixedSources.registered
-          .filter((source) => source.id === "manaJ")
-          .map((source) => source.value);
+        const normalRegistered=normalDescriptors.map(sourceValue);
+        const manaSources=manaDescriptors.map(sourceValue);
         const normalSources = [
           1,
           fitnessJBonus(),
           fixedSources.achievement,
-          fixedSources.killingIntent,
+          killingIntentJBonus(),
           elementalizationJSource(),
           ...normalRegistered
         ];
         const totalRaw = preSoftcapJGainFromSources([...normalSources, ...manaSources]);
-        const normalRaw = preSoftcapJGainFromSources(normalSources);
+        const normalRaw = manaSources.some(value=>!eq(value,ZERO)) ? preSoftcapJGainFromSources(normalSources) : totalRaw;
         return { normalRaw, manaRaw: maxBN(ZERO, sub(totalRaw, normalRaw)) };
     };
     return {
@@ -1145,6 +1117,13 @@
     const evaluationJoules = maxBN(ZERO, joulesAmount);
     if (!isFiniteBN(evaluationJoules)) return automaticJRawPerSecond();
     const rateProfile = profile || createAutomaticJRateProfile();
+    // Same-coordinate read: preserve the read-only evaluation contract.
+    if (eq(evaluationJoules, state.joules)) return WIS.Core.Effects.withState(state, () => rateProfile.rawRate());
+    if (runtime.isEvaluating()) {
+      const candidate = WIS.Core.State.createDraft(runtime.getState()).state;
+      candidate.joules = evaluationJoules;
+      return runtime.withEvaluationState(candidate, () => automaticJRawPerSecondAt(evaluationJoules, rateProfile));
+    }
     const previousJoules = state.joules;
     state.joules = evaluationJoules;
     try {
@@ -1158,12 +1137,23 @@
     const evaluationJoules = maxBN(ZERO, joulesAmount);
     if (!isFiniteBN(evaluationJoules)) return automaticJPerSecond();
     const rateProfile = profile || createAutomaticJRateProfile();
+    // Same-coordinate read: preserve the read-only evaluation contract.
+    if (eq(evaluationJoules, state.joules)) return WIS.Core.Effects.withState(state, () => {
+      const settled=measure("sourceAndSoftcap.joules",()=>rateProfile.settledRate());
+      return measure("googol.joules",()=>WIS.Core.Penalties.applyGoogolPenalty("joules",evaluationJoules,settled,state));
+    });
+    if (runtime.isEvaluating()) {
+      const candidate = WIS.Core.State.createDraft(runtime.getState()).state;
+      candidate.joules = evaluationJoules;
+      return runtime.withEvaluationState(candidate, () => automaticJSettledPerSecondAt(evaluationJoules, rateProfile));
+    }
     const previousJoules = state.joules;
     state.joules = evaluationJoules;
     try {
-      return WIS.Core.Effects.withState(state, () => WIS.Core.Penalties.applyGoogolPenalty(
-        "joules", evaluationJoules, rateProfile.settledRate(), state
-      ));
+      return WIS.Core.Effects.withState(state, () => {
+        const settled=measure("sourceAndSoftcap.joules",()=>rateProfile.settledRate());
+        return measure("googol.joules",()=>WIS.Core.Penalties.applyGoogolPenalty("joules",evaluationJoules,settled,state));
+      });
     } finally {
       state.joules = previousJoules;
     }
@@ -1184,7 +1174,8 @@
     return resourceMagnitude(dynamicResource(source, "power"), CONTINENT_REFERENCE_POWER);
   }
 
-  function elementalizationJSource() {
+  function elementalizationJSource(){return snapshotMemo("elementalizationJSource",elementalizationJSourceUncached);}
+  function elementalizationJSourceUncached() {
     if (!state.elementalizationPurchased) return ZERO;
     const base = mul("1e12", pow(div(maxBN(ZERO, fitnessJBonus()), "1e12"), 1.4));
     return calculateSourceGain({
@@ -1271,10 +1262,11 @@
   }
 
   function fitnessMembershipCardChance(count = fitnessMembershipCardCount()) {
-    return decayingChance(0.005, 0.97, count, treasureChanceMultiplier());
+    return decayingChance(TREASURE_RULES.fitnessMembershipCard.baseChance, TREASURE_RULES.fitnessMembershipCard.q, count, treasureChanceMultiplier());
   }
 
-  function fitnessJBonus() {
+  function fitnessJBonus(){return snapshotMemo("fitnessJBonus",fitnessJBonusUncached);}
+  function fitnessJBonusUncached() {
     return calculateSourceGain({
       base: effectiveFitnessLevel() * 2,
       multipliers: [
@@ -1293,7 +1285,7 @@
   }
 
   function waterPotentialJMultiplier(source = state) {
-    return add(ONE, mul("0.14", resourceMagnitude(source.highestPower)));
+    return add(ONE, mul("0.14", resourceMagnitude(runtime.evaluationResource("highestPower", source))));
   }
 
   function runningCost(level = state.runningLevel) {
@@ -1323,7 +1315,8 @@
         .reduce((total, value) => total + value, 0);
   }
 
-  function baseConversionGain() {
+  function baseConversionGain(){return snapshotMemo("baseConversionGain",baseConversionGainUncached);}
+  function baseConversionGainUncached() {
     if (lt(state.joules, 10)) return ZERO;
     return pow(div(state.joules, 10), 0.75).floor();
   }
@@ -1378,7 +1371,8 @@
       preSoftcapPowerGainFromSources([
         challengeAdjustedPowerSource(trainingPowerSource(), "training")
       ]),
-      state.power
+      state.power,
+      { googolResource: "power" }
     );
     conversionGainCache = { ...cacheKey, value };
     return value;
@@ -1417,7 +1411,8 @@
     return WIS.Core.Effects.value("skySplit", state);
   }
 
-  function ghostBrainPowerSource() {
+  function ghostBrainPowerSource(){return snapshotMemo("ghostBrainPowerSource",ghostBrainPowerSourceUncached);}
+  function ghostBrainPowerSourceUncached() {
     return calculateSourceGain({
       base: ghostBrainPowerBonus(),
       exponents: [brainDomainDevelopmentExponent()]
@@ -1428,7 +1423,8 @@
     return minBN("1.2", add(ONE, mul("0.1", continentPowerMagnitude(source))));
   }
 
-  function brainDomainDevelopmentExponent() {
+  function brainDomainDevelopmentExponent(){return snapshotMemo("brainDomainDevelopmentExponent",brainDomainDevelopmentExponentUncached);}
+  function brainDomainDevelopmentExponentUncached() {
     return state.brainDomainDevelopmentPurchased
       ? brainDomainDevelopmentPotentialExponent()
       : ONE;
@@ -1447,7 +1443,8 @@
     return mul(10, pow(nextBasePower, 1 / 0.75)).ceil();
   }
 
-  function focusPowerPerSecond() {
+  function focusPowerPerSecond(){return snapshotMemo("focusPowerPerSecond",focusPowerPerSecondUncached);}
+  function focusPowerPerSecondUncached() {
     return calculateSourceGain({
       base: rawFocusPowerPerSecond(),
       exponents: WIS.Core.Effects.values("focus", "sourceExponent", state),
@@ -1489,7 +1486,8 @@
     return focusPowerGainStages().afterGoogolPenalty;
   }
 
-  function killingIntentJBonus() {
+  function killingIntentJBonus(){return snapshotMemo("killingIntentJBonus",killingIntentJBonusUncached);}
+  function killingIntentJBonusUncached() {
     return state.killingIntentPurchased ? killingIntentPotentialJBonus() : 0;
   }
 
@@ -1580,7 +1578,8 @@
     return lower - startLevel;
   }
 
-  function rockPowerPerSecond() {
+  function rockPowerPerSecond(){return snapshotMemo("rockPowerPerSecond",rockPowerPerSecondUncached);}
+  function rockPowerPerSecondUncached() {
     if (state.rockLevel <= 0) return ZERO;
     return calculateSourceGain({
       base: mul(16, pow(effectiveRockLevel(), 1.2)),
@@ -1632,10 +1631,24 @@
     return [...dynamicSources, ...registeredSources];
   }
 
-  function createAutomaticPowerRateProfile() {
+  function createAutomaticPowerRateProfile({interval=false,fast=false,policy="STRICT",prunedSources=[]}={}) {
     const fitnessSource = fitnessJBonus();
-    const registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessSource })
-      .map((source) => ({ id: source.id, value: source.value }));
+    let registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessSource });
+    if(fast&&!state.activeChallenge&&WIS.Core.Config.coupledFastProfile.policies[policy].additive){
+      // daoPower is monotone in IP. A resource-only interval has no spending;
+      // fixed addends invisible at this lower bound stay invisible as IP grows.
+      const anchor=registeredSources.find(s=>s.id==='daoPower');
+      const candidates=registeredSources.filter(s=>s.operationType==='additive'&&!s.dynamicResources.length&&!s.requiresProviderRefresh&&gte(s.value,ZERO));
+      const tiny=sumBN(candidates.map(s=>s.value),ZERO);
+      if(anchor&&gt(anchor.value,ZERO)&&eq(add(anchor.value,tiny),anchor.value)){
+        const removed=new Set(candidates.map(s=>s.id));
+        for(const source of candidates)prunedSources.push({id:source.id,target:'power',operationType:'additive',value:String(source.value),reason:'fixed sum invisible beside monotone daoPower lower bound',bound:String(anchor.value)});
+        registeredSources=registeredSources.filter(s=>!removed.has(s.id));
+      }
+    }
+    registeredSources=registeredSources.map(source=>({...source,valueAt:interval&&source.dynamicResources.length?source.valueAt:null}));
+    const normalDescriptors=registeredSources.filter(source=>source.id!=="qiManaPower");
+    const manaDescriptors=registeredSources.filter(source=>source.id==="qiManaPower");
     const componentRates = () => {
         const dynamicSources = [
           [focusPowerPerSecond(), "focus"],
@@ -1643,15 +1656,13 @@
           [ghostBrainPowerSource(), "ghostBrain"],
           [ultimateIntentPowerSource(), "ultimateIntent"]
         ].map(([value, id]) => challengeAdjustedPowerSource(value, id));
-        const normalRegistered = registeredSources
-          .filter((source) => source.id !== "qiManaPower")
-          .map((source) => challengeAdjustedPowerSource(source.value, source.id));
-        const manaSources = registeredSources
-          .filter((source) => source.id === "qiManaPower")
-          .map((source) => challengeAdjustedPowerSource(source.value, source.id));
+        const sourceContext=interval?{fitnessJBonus:fitnessJBonus()}:null;
+        const sourceValue=source=>challengeAdjustedPowerSource(source.valueAt?source.valueAt(state,sourceContext):source.value,source.id);
+        const normalRegistered=normalDescriptors.map(sourceValue);
+        const manaSources=manaDescriptors.map(sourceValue);
         const normalSources = [...dynamicSources, ...normalRegistered];
         const totalRaw = preSoftcapPowerGainFromSources([...normalSources, ...manaSources]);
-        const normalRaw = preSoftcapPowerGainFromSources(normalSources);
+        const normalRaw = manaSources.some(value=>!eq(value,ZERO)) ? preSoftcapPowerGainFromSources(normalSources) : totalRaw;
         return { normalRaw, manaRaw: maxBN(ZERO, sub(totalRaw, normalRaw)) };
     };
     return {
@@ -1674,6 +1685,18 @@
     const evaluationPower = maxBN(ZERO, powerAmount);
     if (!isFiniteBN(evaluationPower)) return automaticPowerRawPerSecond();
     const rateProfile = profile || createAutomaticPowerRateProfile();
+    // Same-coordinate read: preserve the read-only evaluation contract.
+    if (eq(evaluationPower, state.power) && gte(state.highestPower, evaluationPower)) return WIS.Core.Effects.withState(state, () => rateProfile.rawRate());
+    if (runtime.isEvaluating() && eq(evaluationPower, state.power) &&
+        WIS.Core.Effects.supportsHighestPowerEvaluation() && WIS.Core.Sources.supportsHighestPowerEvaluation()) {
+      return runtime.withHighestPowerEvaluation(evaluationPower, () => rateProfile.rawRate());
+    }
+    if (runtime.isEvaluating()) {
+      const candidate = WIS.Core.State.createDraft(runtime.getState()).state;
+      candidate.power = evaluationPower;
+      candidate.highestPower = maxBN(gt(state.highestPower, state.power) ? maxBN(ZERO, state.highestPower) : ZERO, evaluationPower);
+      return runtime.withEvaluationState(candidate, () => automaticPowerRawPerSecondAt(evaluationPower, rateProfile));
+    }
     const previousPower = state.power;
     const previousHighestPower = state.highestPower;
     const historicalHighestPower = gt(previousHighestPower, previousPower)
@@ -1693,6 +1716,24 @@
     const evaluationPower = maxBN(ZERO, powerAmount);
     if (!isFiniteBN(evaluationPower)) return automaticPowerPerSecond();
     const rateProfile = profile || createAutomaticPowerRateProfile();
+    // Same-coordinate read: preserve the read-only evaluation contract.
+    if (eq(evaluationPower, state.power) && gte(state.highestPower, evaluationPower)) return WIS.Core.Effects.withState(state, () => {
+      const settled=measure("sourceAndSoftcap.power",()=>rateProfile.settledRate());
+      return measure("googol.power",()=>WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state));
+    });
+    if (runtime.isEvaluating() && eq(evaluationPower, state.power) &&
+        WIS.Core.Effects.supportsHighestPowerEvaluation() && WIS.Core.Sources.supportsHighestPowerEvaluation()) {
+      return runtime.withHighestPowerEvaluation(evaluationPower, () => {
+        const settled=measure("sourceAndSoftcap.power",()=>rateProfile.settledRate());
+        return measure("googol.power",()=>WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state));
+      });
+    }
+    if (runtime.isEvaluating()) {
+      const candidate = WIS.Core.State.createDraft(runtime.getState()).state;
+      candidate.power = evaluationPower;
+      candidate.highestPower = maxBN(gt(state.highestPower, state.power) ? maxBN(ZERO, state.highestPower) : ZERO, evaluationPower);
+      return runtime.withEvaluationState(candidate, () => automaticPowerSettledPerSecondAt(evaluationPower, rateProfile));
+    }
     const previousPower = state.power;
     const previousHighestPower = state.highestPower;
     const historicalHighestPower = gt(previousHighestPower, previousPower)
@@ -1701,26 +1742,17 @@
     state.power = evaluationPower;
     state.highestPower = maxBN(historicalHighestPower, evaluationPower);
     try {
-      return WIS.Core.Effects.withState(state, () => WIS.Core.Penalties.applyGoogolPenalty(
-        "power", evaluationPower, rateProfile.settledRate(), state
-      ));
+      return WIS.Core.Effects.withState(state, () => {
+        const settled=measure("sourceAndSoftcap.power",()=>rateProfile.settledRate());
+        return measure("googol.power",()=>WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state));
+      });
     } finally {
       state.power = previousPower;
       state.highestPower = previousHighestPower;
     }
   }
 
-  function automaticPowerSourceGains() {
-    const registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessJBonus() })
-      .map((source) => challengeAdjustedPowerSource(source.value, source.id));
-    return [
-      challengeAdjustedPowerSource(focusPowerPerSecond(), "focus"),
-      challengeAdjustedPowerSource(rockPowerPerSecond(), "rock"),
-      challengeAdjustedPowerSource(ghostBrainPowerSource(), "ghostBrain"),
-      challengeAdjustedPowerSource(ultimateIntentPowerSource(), "ultimateIntent"),
-      ...registeredSources
-    ];
-  }
+  
 
   function flowUltimateIntentMultiplierFromFocusSource(focusSource) {
     const magnitude = resourceMagnitude(focusSource, "1e12");
@@ -1736,7 +1768,8 @@
     return pow(add(ONE, actualSource), STAR_ENHANCEMENT_CONFIG.supernaturalFire.exponent);
   }
 
-  function powerMultiplierWithoutSupernaturalFire() {
+  function powerMultiplierWithoutSupernaturalFire(){return snapshotMemo("powerMultiplierWithoutSupernaturalFire",powerMultiplierWithoutSupernaturalFireUncached);}
+  function powerMultiplierWithoutSupernaturalFireUncached() {
     return WIS.Core.Formulas.multiply(
       WIS.Core.Effects.collect("power", "regionMultiplier", state, {
         excludeIds: ["supernaturalFire"]
@@ -1778,11 +1811,40 @@
     return WIS.Meta.Challenges?.totalCompletionCount?.(state) || 0;
   }
 
+  function upgradePreview(id, current = runtime.getState()) {
+    if (current === runtime.state) current = runtime.getState();
+    const flags = { planetWill: "planetWillPurchased", starShatter: "starShatterPurchased",
+      starSpirit: "starSpiritPurchased", stellarTreasureSeeking: "stellarTreasureSeekingPurchased",
+      supernaturalFire: "supernaturalFirePurchased" };
+    const flag = flags[id];
+    if (!flag) throw Error(`未知强化预览：${id}`);
+    const purchased = current[flag] === true;
+    let candidate = current;
+    if (!purchased) {
+      candidate = WIS.Core.State.shallowBranch(current);
+      const system = current.powerSystem;
+      candidate.powerSystem = { ...system, systems: { ...system.systems, scale: {
+        ...system.systems.scale, upgrades: { ...system.systems.scale.upgrades, [flag]: true }
+      } } };
+    }
+    return runtime.withEvaluationState(candidate, () => {
+      const layers = completedChallengeLayers();
+      const values = {
+        planetWill: planetWillElementalizationMultiplier,
+        starShatter: starShatterRockMultiplier,
+        starSpirit: () => pow(STAR_ENHANCEMENT_CONFIG.starSpirit.perChallengeMultiplier, layers),
+        stellarTreasureSeeking: () => BN(STAR_ENHANCEMENT_CONFIG.stellarTreasureSeeking.progressMultiplier),
+        supernaturalFire: supernaturalFirePowerMultiplier
+      };
+      return { purchased, layers, value: candidate.powerSystem.active === "scale" ? BN(values[id]()) : ONE };
+    });
+  }
+
   function treasureChanceMultiplier(source = state) {
     const starSpiritMultiplier = source.starSpiritPurchased
       ? pow(STAR_ENHANCEMENT_CONFIG.starSpirit.perChallengeMultiplier, completedChallengeLayers())
       : ONE;
-    return mul(starSpiritMultiplier, source.stellarTreasureSeekingPurchased ? 1.5 : 1);
+    return mul(starSpiritMultiplier, source.stellarTreasureSeekingPurchased ? STAR_ENHANCEMENT_CONFIG.stellarTreasureSeeking.progressMultiplier : 1);
   }
 
   function treasureAwardMultiplier(source = state) {
@@ -1825,7 +1887,8 @@
     return gained;
   }
 
-  function ultimateIntentPowerSource() {
+  function ultimateIntentPowerSource(){return snapshotMemo("ultimateIntentPowerSource",ultimateIntentPowerSourceUncached);}
+  function ultimateIntentPowerSourceUncached() {
     if (!state.ultimateIntentPurchased) return ZERO;
     const base = mul("1e12", pow(div(maxBN(ZERO, focusPowerPerSecond()), "1e12"), 1.4));
     return calculateSourceGain({
@@ -2475,11 +2538,16 @@
     superclusterCollapse: "buySuperclusterCollapse", cosmicWeb: "buyCosmicWeb",
     scaleUnification: "buyScaleUnification", spacetimeFramework: "buySpacetimeFramework"
   });
-  function performAction(id, ...args) { const name = actions[id]; return name ? api[name](...args) : false; }
-  function buyUpgrade(id, ...args) { const name = upgrades[id]; return name ? api[name](...args) : false; }
+  function performAction(id, ...args) { runtime.assertMutable(); const name = actions[id]; return name ? api[name](...args) : false; }
+  function buyUpgrade(id, ...args) { runtime.assertMutable(); const name = upgrades[id]; return name ? api[name](...args) : false; }
   function getActionIds() { return Object.keys(actions); }
   function getUpgradeIds() { return Object.keys(upgrades); }
+  function evaluateScaleRates(factor=ONE,profiles=null){
+    return {joules:mul(automaticJSettledPerSecondAt(state.joules,profiles?.joules),factor),
+      power:mul(automaticPowerSettledPerSecondAt(state.power,profiles?.power),factor)};
+  }
   const api = Object.freeze({
+    upgradePreview, withScaleState, isScaleState: current => state === current, evaluateScaleRates,
     brainDomainDevelopmentPotentialExponent, killingIntentWavePotentialExponent,
     resourceSoftcapExponent, resourceSoftcapBaseExponent, specialResourceSoftcapExponent,
     resourceSoftcapStageExponents,
@@ -2507,6 +2575,16 @@
     automaticJRawPerSecond, automaticJRawPerSecondAt, automaticJSettledPerSecondAt,
     createAutomaticJRateProfile, preSoftcapJGainFromSources,
     automaticPowerRawPerSecond, automaticPowerRawPerSecondAt, automaticPowerSettledPerSecondAt,
+    continuousSourceDescriptors:()=>[
+      ['baseJ','joules',[],()=>ONE],['achievementJ','joules',[],achievementJBonus],
+      ['fitness','joules',['joules','power','immortalPower'],fitnessJBonus],
+      ['killingIntent','joules',['joules','power','mana','immortalPower'],killingIntentJBonus],
+      ['elementalization','joules',['joules','power','immortalPower'],elementalizationJSource],
+      ['focus','power',['joules','power','mana','immortalPower'],focusPowerPerSecond],
+      ['rock','power',['joules','power','immortalPower'],rockPowerPerSecond],
+      ['ghostBrain','power',['joules','power','immortalPower'],ghostBrainPowerSource],
+      ['ultimateIntent','power',['joules','power','mana','immortalPower'],ultimateIntentPowerSource]
+    ].map(([id,target,dynamicResources,valueAt])=>({id,target,dynamicResources,operationType:'additive',valueAt})),
     createAutomaticPowerRateProfile,
     preSoftcapPowerGainFromSources,
     flowUltimateIntentMultiplierFromFocusSource, flowUltimateIntentMultiplier,

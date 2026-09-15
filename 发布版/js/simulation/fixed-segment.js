@@ -8,6 +8,7 @@
   // as cost, while confirmed game-time counters retain transaction semantics.
   let profiling=false, costRows=Object.create(null), onlineDebt=null;
   function recordCost(name,elapsed) {
+    WIS.Simulation.Profiler?.record(name,elapsed);
     if(!profiling)return;
     if(!costRows[name]&&Object.keys(costRows).length>=64)return;
     const row=costRows[name] ||= {calls:0,totalMs:0,maxMs:0};
@@ -16,7 +17,7 @@
   const diagnostics=Object.freeze({
     enable(value=true){profiling=value===true;}, enabled:()=>profiling,
     record:recordCost,
-    measure(name,fn){if(!profiling)return fn();const began=clock();try{return fn();}finally{recordCost(name,clock()-began);}},
+    measure(name,fn){if(!profiling&&!WIS.Simulation.Profiler.enabled())return fn();const began=clock();try{return fn();}finally{recordCost(name,clock()-began);}},
     debt(seconds){if(!profiling)return;const now=clock();
       if(!onlineDebt)onlineDebt={first:seconds,last:seconds,max:seconds,samples:0,firstAt:now,lastAt:now};
       onlineDebt.last=seconds;onlineDebt.max=Math.max(onlineDebt.max,seconds);onlineDebt.samples++;onlineDebt.lastAt=now;},
@@ -33,18 +34,27 @@
     return true;
   }
   function prepare(state, seconds, options = {}) {
+    return R.withState(state,()=>E.withFrozenState(state,()=>prepareProfile(state,seconds,options)));
+  }
+  function prepareProfile(state, seconds, options = {}) {
     const started = clock();
+    options.onPhase?.("retained-progress");
     WIS.Meta.TreasureProgress.ensure(state);
-    WIS.Cultivation.ExplorationProgress.ensure(state);
+    WIS.Cultivation.ExplorationProgress.settleRetained(state);
+    options.onPhase?.("snapshot");
     const snapshot = options.borrowSources ? state : S.cloneForSimulation(state);
-    const sources = WIS.Simulation.FixedSources.query(snapshot), groups = [];
+    options.onPhase?.("rates");
+    const sources = options.sourceProfile || WIS.Simulation.FixedSources.query(snapshot), groups = [];
+    options.onPhase?.("gains");
     const plan = WIS.Simulation.FixedSources.calculate(snapshot, sources.rates, seconds, sources.processes, sources.caps);
-    R.withState(snapshot, () => E.withIsolatedState(snapshot, () => {
+    if(options.mapPlan)plan.gains=options.mapPlan.gains;
+    R.withState(snapshot, () => E.withFrozenState(snapshot, () => {
       const previous=collecting; collecting=groups;
-      try {options.runAchievementAutomations?.();} finally {collecting=previous;}
+      try {if(!options.offline)options.runAchievementAutomations?.();} finally {collecting=previous;}
     }));
     const cultivation = {...sources.cultivation};
     for (const key of ["passiveMana","explorationMana","explorationAmount"]) cultivation[key]=B.mul(cultivation[key],seconds);
+    if(options.mapPlan?.progressTotals) cultivation.explorationAmount=options.mapPlan.progressTotals.$exploration;
     Object.assign(cultivation, { mana:plan.gains.mana, immortalPower:plan.gains.immortalPower,
       completed:true, processedSeconds:seconds, elapsedSeconds:seconds, remainingSeconds:0,
       immortalPowerActiveSeconds:B.gt(plan.gains.immortalPower,0)?seconds:0,
@@ -52,13 +62,13 @@
       finalExplorationLoad:B.add(snapshot.minorTribulationExplorationLoad,cultivation.explorationAmount) });
     // Use the public tribulation preview for its actual load law (including
     // realm restrictions); its changed exponent is only used next segment.
-    if (B.gt(cultivation.explorationAmount,0)) R.withState(snapshot,()=>E.withIsolatedState(snapshot,()=> {
+    if (B.gt(cultivation.explorationAmount,0)) R.withState(snapshot,()=>E.withFrozenState(snapshot,()=> {
       const preview=WIS.Cultivation.ImmortalLogic.minorTribulationPreviewForExploration(cultivation.explorationAmount);
       cultivation.finalExplorationLoad=preview.nextLoad;
     }));
-    const bigNumbers = R.withState(snapshot,()=>E.withIsolatedState(snapshot,()=>
-      WIS.Meta.BigNumbers?.syncUnlock(snapshot) ? WIS.Meta.BigNumbers.prepare(snapshot,seconds,{fixedSources:true,
-        powerAt:offset=>B.add(snapshot.power,B.mul(sources.rates.power,offset))}) : null));
+    const bigNumbers = R.withState(snapshot,()=>E.withFrozenState(snapshot,()=>
+      WIS.Meta.BigNumbers?.syncUnlock(snapshot) ? WIS.Meta.BigNumbers.prepare(snapshot,seconds,options.offline ? {fixedSources:true,offlineSnapshot:true} : {fixedSources:false,
+        powerAt:((offset)=>B.add(snapshot.power,B.mul(sources.rates.power,offset)))}) : null));
     const sourceMs=clock()-started;statistics.sourceMs+=sourceMs;recordCost("sourcePreparation",sourceMs);
     return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, options, started };
   }
@@ -88,6 +98,21 @@
     }
   }
   function* runAutomations(state, unit) {
+    if(unit.options.offline) {
+      let count=0;
+      // End-state purchases may enable each other, but never recompute this
+      // segment's income. Yield between passes while the candidate stays private.
+      while(true) {
+        const began=clock();
+        E.invalidate();
+        const changes=R.withState(state,()=>Number(unit.options.runAchievementAutomations?.())||0);
+        const unlocked=unit.options.afterAutomation?.(state)===true;
+        statistics.automationMs+=clock()-began;
+        if(!(changes>0)&&!unlocked)break;
+        count+=changes;yield;
+      }
+      return count;
+    }
     const frames=unit.options.automationOpportunities ?? Math.max(1,Math.ceil(unit.seconds/WIS.Core.Config.fixedSettlement.discreteCadenceSeconds-1e-9));
     let count=0;
     for (const group of unit.groups) {
@@ -125,27 +150,35 @@
   function* commitParts(state, unit, options = {}) {
     const {seconds,sources,plan,cultivation}=unit;
     const power=WIS.Core.Registries.getActivePower(state), immortal=WIS.Core.Registries.getActiveCultivation(state);
+    unit.options.onPhase?.("continuous-commit");
     power?.commitAutomaticGains?.(state,{joules:plan.gains.joules,power:plan.gains.power,
       rates:{joulesPerSecond:sources.rates.joules,powerPerSecond:sources.rates.power}},{writeRates:!options.projection});
     immortal?.commitAutomaticGain?.(state,cultivation,{writeRates:!options.projection,skipTreasureRolls:true});
+    WIS.Simulation.ResourceGroups.commitAdditional(state,plan.gains);
     for(const [key,debit] of Object.entries(plan.debits)) if(B.gt(debit,0)) {
       const paid=["joules","power"].includes(key)?WIS.Core.Resources.spend(key,debit):WIS.Core.Resources.spendSystem("immortal",key,debit);
       if(!paid) throw Error("固定持续消耗无法提交；本段未提交");
     }
     yield;
+    unit.options.onPhase?.("progress-settlement");
     let gainedPearls=B.ZERO;
     if(!unit.options.skipTreasureRolls) {
       for(const reward of sources.rewards) if(reward.eligible&&(B.gt(reward.units,0)||WIS.Meta.TreasureProgress.hasUnsettled(state,reward.key))) {
         const began=clock();
-        const gained=WIS.Meta.TreasureProgress.advanceFixed(state,reward.key,B.mul(reward.units,seconds),reward);
+        const progress=unit.options.mapPlan?.progressTotals?.[reward.key];
+        const gained=WIS.Simulation.Profiler.measure('treasure.'+reward.key,()=>WIS.Meta.TreasureProgress.advanceFixed(state,reward.key,progress??B.mul(reward.units,seconds),progress===undefined?reward:{...reward,gain:B.ONE}));
         if(reward.key==="tianNiPearl") gainedPearls=gained;
         const rewardMs=clock()-began;statistics.rewardMs+=rewardMs;recordCost("treasure:"+reward.key,rewardMs);
         yield;
       }
       const progress=state.explorationRewards, incoming=B.gt(cultivation.explorationAmount,0);
-      if(sources.natural.eligible && (incoming||progress?.natural?.length)) {
+      const mappedNaturalCap=unit.options.mapPlan?.naturalCap;
+      const naturalEligible=sources.natural.eligible||(mappedNaturalCap!=null&&unit.snapshot.goldenCoreUnlocked&&
+        B.gt(mappedNaturalCap,unit.snapshot.naturalTreasureLevel));
+      if(naturalEligible && (incoming||progress?.natural?.length||
+          progress?.version===2&&B.gte(progress.natural.carry,progress.natural.remaining))) {
         const began=clock();
-        diagnostics.measure("naturalTreasure",()=>WIS.Cultivation.ExplorationProgress.natural(state,cultivation.explorationAmount,sources.natural));
+        diagnostics.measure("naturalTreasure",()=>WIS.Cultivation.ExplorationProgress.natural(state,cultivation.explorationAmount,mappedNaturalCap==null?sources.natural:{...sources.natural,eligible:naturalEligible,cap:[mappedNaturalCap]}));
         statistics.rewardMs+=clock()-began;
         yield;
       }
@@ -156,10 +189,17 @@
         yield;
       }
     }
+    unit.options.onPhase?.("end-events");
+    if(unit.options.offline) {
+      if(unit.bigNumbers)state.meta.bigNumbers=unit.bigNumbers;
+      WIS.Meta.BigNumbers?.syncMilestones(state);
+      unit.options.beforeEndEvents?.(state,seconds);
+    }
     const operations=yield* runAutomations(state,unit);
-    if(unit.bigNumbers) state.meta.bigNumbers=unit.bigNumbers;
+    if(!unit.options.offline&&unit.bigNumbers) state.meta.bigNumbers=unit.bigNumbers;
     E.invalidate();
     for(const key of WIS.Simulation.FixedSources.keys) WIS.tmp.rates[key+"PerSecond"]=sources.rates[key];
+    unit.options.onPhase?.("next-state");
     return {gainedPearls,resourceGains:plan.gains,operations};
   }
   function confirm(unit,result,workMs) {
@@ -169,15 +209,18 @@
     statistics.maxUnitMs=Math.max(statistics.maxUnitMs,workMs);
   }
   function commit(state,unit,options={}) {
+    const started=clock();
     const iterator=commitParts(state,unit,options);
     let next;
     do {next=iterator.next();} while(!next.done);
-    confirm(unit,next.value,clock()-unit.started);
+    confirm(unit,next.value,clock()-unit.started);WIS.Simulation.Profiler.record('settlementBody',clock()-started);
     return next.value;
   }
   function createWork(state,seconds,options) {
     const candidate=S.cloneForSimulation(state), roots=[state.core,state.powerSystem,state.cultivation,state.meta];
+    R.withState(candidate,()=>R.withOfflineExecution(()=>E.withIsolatedState(candidate,()=>WIS.Cultivation.ExplorationProgress.settleRetained(candidate))));
     let unit, parts, closed=false, workMs=0;
+    const evolution=options.evolutionPlan?WIS.Simulation.ContinuousExecutor.create(seconds,options.evolutionPlan).prepare(candidate):null;let evolved=null;
     return {
       advance(deadline) {
         if(closed) throw Error("固定段候选已失效");
@@ -186,8 +229,15 @@
           const began=clock(),rates={...WIS.tmp.rates};
           try {next=R.withState(candidate,()=>R.withProjection(()=>R.withOfflineExecution(()=>
             E.withIsolatedState(candidate,()=> {
-              if(!unit) {unit=prepare(candidate,seconds,options);parts=commitParts(candidate,unit,{projection:true});return {done:false};}
+              if(evolution&&!evolved){const outcome=evolution.runInterval(seconds,deadline);if(!outcome.done)return {done:false};evolved=outcome.result;
+                options={...options,mapPlan:{gains:evolved.gains,progressTotals:evolved.progressTotals,resourceOnly:true}};}
+              const settlementStarted=clock();
+              try {if(!unit) {
+                unit=prepare(candidate,seconds,{...options,borrowSources:true});
+                parts=commitParts(candidate,unit,{projection:true});return {done:false};
+              }
               return parts.next();
+              } finally {WIS.Simulation.Profiler.withScope('offline',()=>WIS.Simulation.Profiler.record("settlementWallMs",clock()-settlementStarted));}
             }))));}
           finally {
             for(const key of Object.keys(WIS.tmp.rates))if(!Object.hasOwn(rates,key))delete WIS.tmp.rates[key];
@@ -195,15 +245,17 @@
           }
           const cost=clock()-began;workMs+=cost;statistics.maxWorkMs=Math.max(statistics.maxWorkMs,cost);
           if(next.done) {
+            if(options.mapPlan&&!options.mapPlan.resourceOnly)next.value.mapValidation=WIS.Simulation.DiscreteMap.validate(candidate,options.mapPlan);
+            if(evolved){const c=WIS.Simulation.ContinuousPredictor;if(evolved.predictor)evolved.rebasedPoint={...c.observation(candidate,c.query(candidate),evolved.endpoint.position),origin:"settlement"};next.value.evolution=evolved;WIS.Simulation.Profiler.record('settlementCheckpoints');}
             closed=true;
             const token=Object.freeze({kind:"fixed-segment-v1",seconds});
-            prepared.set(token,{candidate,roots,unit,result:next.value,workMs});
+            prepared.set(token,{candidate,roots,unit,result:next.value,workMs,evolution});
             return {done:true,token};
           }
         } while(clock()<deadline);
         return {done:false};
       },
-      close(){closed=true;}
+      close(){if(!closed)evolution?.discard();closed=true;}
     };
   }
   function takePrepared(token,state) {
@@ -214,15 +266,40 @@
     return value;
   }
   function installPrepared(state,value) {
+    value.evolution?.commit();
     // Time registration may happen while candidate work yields. It is neither
     // candidate income nor a formula effect: preserve the live watermark/quota.
-    const runtime=state.core.runtime;
-    Object.assign(state,S.toSerializable(value.candidate));
-    state.core.runtime=runtime;
+    const runtime=state.core.runtime, candidateRuntime=value.candidate.core.runtime;
+    for(const key of ["core","powerSystem","cultivation","meta"])state[key]=value.candidate[key];
+    state.core={...state.core};
+    state.core.runtime=value.unit.options.beforeEndEvents ? {...runtime,
+      reincarnationElapsedSeconds:candidateRuntime.reincarnationElapsedSeconds,
+      currentScaleElapsedSeconds:candidateRuntime.currentScaleElapsedSeconds} : runtime;
     confirm(value.unit,value.result,value.workMs);
     return value.result;
   }
-  WIS.Simulation.FixedSegment=Object.freeze({diagnostics,collectCandidates,prepare,commit,commitParts,confirm,createWork,
+
+  // Decimal's normalized mag is log10 iterated `layer` times for large
+  // positive values. Compare in that finite coordinate, never one fixed log.
+  function resourceCoordinate(value) {
+    if(!B.isFiniteBN(value)||B.lt(value,0))throw Error('资源坐标必须有限且非负');
+    const n=B.BN(value);
+    return {layer:n.layer,coordinate:n.sign===0?0:n.mag};
+  }
+  function compareResourceCoordinates(reference,value) {
+    const a=resourceCoordinate(reference),b=resourceCoordinate(value);
+    const layerChanged=a.layer!==b.layer;
+    return {reference:a,value:b,layerChanged,majorDeviation:layerChanged?true:null,classification:layerChanged?"major-layer-change":"review-coordinate-difference",
+      coordinateDelta:layerChanged?null:b.coordinate-a.coordinate,
+      normalizedCoordinateDelta:layerChanged?null:(b.coordinate-a.coordinate)/Math.max(1,Math.abs(a.coordinate)),
+      // Raw ratios are supplemental only for layer 0/1; never a pass criterion.
+      relativeDiagnostic:Math.max(a.layer,b.layer)<=1?String(B.div(B.sub(value,reference),B.max(1,reference))):null};
+  }
+
+  function planOffline(state,remaining,options) {return WIS.Simulation.CheckpointStrategy.plan(state,remaining,options);}
+  function validateBudget(value) {return WIS.Simulation.CheckpointStrategy.validateBudget(value);}
+
+  WIS.Simulation.FixedSegment=Object.freeze({settlementOrder:Object.freeze(["retained-progress","snapshot","rates","gains","continuous-commit","progress-settlement","end-events","next-state"]),resourceCoordinate,compareResourceCoordinates,planOffline,validateBudget,diagnostics,collectCandidates,prepare,commit,commitParts,confirm,createWork,
     confirmOnlineSegment(seconds,result,workMs){statistics.onlineTicks+=result.compatibilitySubsteps||Math.ceil(seconds/WIS.Core.Config.fixedSettlement.discreteCadenceSeconds-1e-9);
       statistics.onlineGameSeconds+=seconds;statistics.operations+=result.operations;statistics.maxUnitMs=Math.max(statistics.maxUnitMs,workMs);},takePrepared,installPrepared,
     confirmed:()=>({segments:statistics.segments,onlineTicks:statistics.onlineTicks,offlineGameSeconds:statistics.offlineGameSeconds,onlineGameSeconds:statistics.onlineGameSeconds,operations:statistics.operations}),
