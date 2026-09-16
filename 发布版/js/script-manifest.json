@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "release-0.1.5.5-20260916",
+  "buildId": "release-0.1.5.6-20260916",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -58,6 +58,7 @@
     "js/simulation/resource-evolution.js",
     "js/simulation/checkpoint-strategy.js",
     "js/simulation/fixed-segment.js",
+    "js/simulation/compiled-continuous-plan.js",
     "js/simulation/step.js",
     "js/simulation/treasure-events.js",
     "js/simulation/projection.js",

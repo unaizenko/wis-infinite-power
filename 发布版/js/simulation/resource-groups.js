@@ -19,17 +19,23 @@
   }
   function read(state,key) {const group=owners.get(key);if(!group)throw Error('未注册资源 '+key);return B.BN(group.read?group.read(state,key):state[key]??state.core.resources[key]??0);}
   function write(state,key,value) {const group=owners.get(key);if(!group)throw Error('未注册资源 '+key);if(group.write)group.write(state,key,value);else if(group.legacyCommit)state[key]=value;else state.core.resources[key]=value;}
-  function evaluate(snapshot,{factor=WIS.Simulation.Compensation.factor(),groupIds=null,fastProfile=null}={}) {
+  function evaluate(snapshot,{factor=WIS.Simulation.Compensation.factor(),groupIds=null,fastProfile=null}={},compiledGroups=groups) {
     const cache=E.scopeMemo(snapshot)||B.microStepMemo.create(),memoKey=key=>'group:'+factor+':'+key,context=Object.freeze({factor,fastProfile,memo(key,fn){key=memoKey(key);if(!cache.has(key))cache.set(key,WIS.Simulation.Profiler.measure('commonMemo',fn));else WIS.Simulation.Profiler.record('commonMemoHit');return cache.get(key);}});
     const rates={};
     const evaluateRates=()=>{
-      for(const group of groups){if(groupIds&&!groupIds.includes(group.id))continue;const output=WIS.Simulation.Profiler.measure('group.'+group.id,()=>group.rate(snapshot,context));
+      for(const group of compiledGroups){if(groupIds&&!groupIds.includes(group.id))continue;const output=WIS.Simulation.Profiler.measure('group.'+group.id,()=>group.rate(snapshot,context));
         if(Object.keys(output).some(key=>!group.keys.includes(key)))throw Error('ResourceGroup 越权输出 '+group.id);
         for(const key of group.keys){const value=output[key];if(value==null||!B.isFiniteBN(value)||B.lt(value,0)){const error=Error('ResourceGroup 非有限产出 '+key);error.code='formula-representation';throw error;}rates[key]=B.BN(value);}
       }
     };
     B.microStepMemo.run(()=>R.withEvaluationState(snapshot,evaluateRates,{memo:cache,effects:fastProfile?run=>fastProfile.effects.run(run,cache):null}));
     return {rates,cultivation:cache.get(memoKey('immortal-sources')),groups:groups.map(g=>({id:g.id,keys:g.keys}))};
+  }
+  // Bind group membership once, but never cache state-dependent numeric values.
+  function compile() {
+    const bound=Object.freeze([...groups]),keys=resourceKeys;
+    return Object.freeze({groups:bound,keys,valid:()=>keys===resourceKeys,
+      evaluate:(state,options)=>evaluate(state,options,bound)});
   }
   function commitAdditional(state,gains) {
     for(const group of groups)if(!group.legacyCommit){if(group.commit)group.commit(state,gains);else for(const key of group.keys)write(state,key,B.add(read(state,key),gains[key]));}
@@ -54,5 +60,5 @@
     read:(s,k)=>WIS.Cultivation.Xiuzhen.amount(s,k),write:(s,k,v)=>{WIS.Cultivation.Xiuzhen.get(s).resources[k].amount=v;},
     rate(s,c){const v=s.cultivation.active==='immortal'?WIS.Cultivation.Xiuzhen.rates(s):{xianForce:B.ZERO,yuanForce:B.ZERO};return {xianForce:B.mul(v.xianForce,c.factor),yuanForce:B.mul(v.yuanForce,c.factor)};}
   });
-  WIS.Simulation.ResourceGroups=Object.freeze({register,evaluate,read,write,commitAdditional,get groups(){return Object.freeze([...groups]);},get keys(){return resourceKeys;}});
+  WIS.Simulation.ResourceGroups=Object.freeze({register,compile,evaluate,read,write,commitAdditional,get groups(){return Object.freeze([...groups]);},get keys(){return resourceKeys;}});
 }(window.WIS));

@@ -109,7 +109,11 @@
       const saved = prepare(JSON.parse(value));
       loadError = null;
       return saved;
-    } catch (error) { loadError = String(error.message || error); throw error; }
+    } catch (error) {
+      loadError = String(error.message || error);
+      noteFailure(error, "原存档读取失败；当前使用临时未保存会话，原存档仍保留且自动保存已停用。请导入有效存档、恢复备份，或确认不需要旧存档后重置游戏。");
+      throw error;
+    }
   }
   function storageSnapshot() { return { text: localStorage.getItem(storageKey()), loadError, saveStatus:{...saveStatus} }; }
   function restoreStorage(snapshot) {

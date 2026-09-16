@@ -504,6 +504,7 @@ module.exports={create};
 // a mutable state identity. No approximate merging, tail removal or stale N.
 function create(){
   const maps={project:new Map(),normalize:new Map(),decimalWord:new Map()},powers=new Map();
+  const orders={project:[],normalize:[],decimalWord:[]},cursors={project:0,normalize:0,decimalWord:0};
   const texts=new WeakMap();
   function word(value){
     if(!WIS.Core.BigNum.isDecimal(value))return String(value);
@@ -522,7 +523,11 @@ function create(){
     global.__jointRevision?.count('ledgerCache.'+kind+'Miss');const value=calculate(prepared);
     if(kind==='decimalWord'&&value){const coefficient=String(value.c);Object.assign(value,{_originalC:value.c,_originalE:value.e,
       _coefficientLength:coefficient.length,_canonical:coefficient+'e'+value.e});}
-    if(map.size>=8192)map.delete(map.keys().next().value);map.set(key,kind==='normalize'?value.slice():value);
+    // Same bounded FIFO policy; avoid scanning deleted Map entries per miss.
+    const order=orders[kind];
+    if(map.size>=8192){const cursor=cursors[kind];map.delete(order[cursor]);order[cursor]=key;cursors[kind]=(cursor+1)%8192;}
+    else order.push(key);
+    map.set(key,kind==='normalize'?value.slice():value);
     return value;
   }};
 }

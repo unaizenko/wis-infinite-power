@@ -285,11 +285,9 @@
         continue;
       }
       for (const effect of effects) {
-        // Keep descriptor/key order and fresh per-snapshot values. Separating
-        // the cache fields from the spread avoids its slow property-definition
-        // path when rebuilding these small objects after actual loot awards.
-        const normalized=WIS.Core.Formulas.descriptor(effect,{refresh:current=>provider(current)?.find(v=>v.id===effect.id)?.value});
-        const resolved = { provider: providerId, ...normalized, declaredDynamicResources:normalized.dynamicResources, dynamicResources:[...new Set([...(effect.dynamicResources||[]),...(effect.celestialFiveDecline?["immortalPower"]:[])])] };
+        const resolved=WIS.Core.Formulas.descriptor(effect,{provider:providerId,refresh:current=>provider(current)?.find(v=>v.id===effect.id)?.value});
+        resolved.declaredDynamicResources=resolved.dynamicResources;
+        resolved.dynamicResources=[...new Set([...(effect.dynamicResources||[]),...(effect.celestialFiveDecline?["immortalPower"]:[])])];
         resolved._valueProvider = typeof effect.value === "function" ? effect.value : null;
         resolved._dynamic = effect.dynamic === true || effect.celestialFiveDecline === true ||
           effectDynamicResources(effect).length > 0;

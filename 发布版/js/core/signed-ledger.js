@@ -203,7 +203,8 @@
     }
     return leading<0n?-1:leading>0n?1:0;
   }
-  const wordCache=new Map(),boundsCache=new Map();
+  const wordCache=new Map(),boundsCache=new Map(),wordOrder=[];
+  let wordCursor=0;
   function decimalBounds(raw){
     const key=String(raw);if(boundsCache.has(key))return boundsCache.get(key);
     const item=counted(key),children=page(item.term);
@@ -242,7 +243,10 @@
     // browser settlement cost. Arithmetic still uses the original exact integers.
     Object.assign(result,{_originalC:result.c,_originalE:result.e,
       _coefficientLength:String(result.c).length,_canonical:`${result.c}e${result.e}`});
-    if(wordCache.size>=8192)wordCache.delete(wordCache.keys().next().value);wordCache.set(text,result);return result;
+    // Preserve FIFO eviction without repeatedly scanning Map tombstones.
+    if(wordCache.size>=8192){wordCache.delete(wordOrder[wordCursor]);wordOrder[wordCursor]=text;wordCursor=(wordCursor+1)%8192;}
+    else wordOrder.push(text);
+    wordCache.set(text,result);return result;
   }
   // Directed fixed-point intervals for the rare true near-cancellation case.
   // All roundoff and the remaining positive Taylor/atanh tails are enclosed.

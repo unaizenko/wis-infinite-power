@@ -191,8 +191,13 @@
           : `${label} ${formatElapsedTime(safeElapsed)}，当前没有可自动获取的资源`;
       }
 
+      let lastInputYieldAt=-Infinity;
       function yieldForFirstPaint() {
         if (typeof context.yieldToHost === "function") return context.yieldToHost();
+        // Periodically use the timer task source as well as MessageChannel.
+        // Reposting one task source continuously can crowd out input/rendering.
+        const now=performance.now();
+        if(now-lastInputYieldAt>=100){lastInputYieldAt=now;return new Promise(resolve=>window.setTimeout(resolve,0));}
         // A real host task, not a Promise/microtask loop. Repeated zero-delay
         // timers are clamped (and can cost ~16ms on desktop), dominating short
         // 3ms planning slices. MessageChannel still lets input/painting run
@@ -790,7 +795,7 @@
         // The shared session budget also covers restored/multiple offline tasks.
         // A mapped gain must never cover time in the next queue entry while
         // only the current entry's shorter clock is committed.
-        const plan=context.planOfflineMacro(task.remainingGameSeconds,{budget:offlineSegmentBudget,clockRatio:task.remainingClockSeconds/task.remainingGameSeconds});
+        const plan=context.planOfflineMacro(task.remainingGameSeconds,{budget:offlineSegmentBudget,forceMicro:task.optimizationDisabled,productionReplay:task.productionReplay===true,clockRatio:task.remainingClockSeconds/task.remainingGameSeconds});
         return plan;
       }
 
@@ -1011,7 +1016,14 @@
         if(catchUpTasks.some(task=>task.source==='offline')||pendingCatchUpClockSeconds>5+epsilon)presentation='blocking';
         awaySuspended=snapshot.awaySuspended===true;
         catchUpOriginalClockLocked = true;
-        catchUpPaused = snapshot.paused === true || fastRestoreError !== null;
+        const capabilityRecovery=!processedEvidence&&!fastRestoreError&&snapshot.paused===true&&
+          snapshot.pauseReason?.eventCommitted!==true&&!(Number(snapshot.pauseReason?.reportedProcessedSeconds)>0)&&
+          WIS.Simulation.CompiledContinuousPlan.isCapabilityError(snapshot.pauseReason?.error);
+        if(capabilityRecovery){
+          for(const task of catchUpTasks)task.optimizationDisabled=true;
+          WIS.Simulation.CompiledContinuousPlan.recordFallback(snapshot.pauseReason.error.code);
+        }
+        catchUpPaused = snapshot.paused === true&&!capabilityRecovery || fastRestoreError !== null;
         catchUpPauseReason = fastRestoreError
           ? catchUpDiagnostic("fast-checkpoint-invalid", fastTask, 0, null, fastRestoreError)
           : catchUpPaused ? snapshot.pauseReason : null;
@@ -1118,6 +1130,7 @@
               if(generation!==catchUpGeneration||catchUpPaused||awaySuspended)break;
               checkpointCatchUp(true);
               await yieldForFirstPaint();
+              if(generation!==catchUpGeneration||catchUpPaused||awaySuspended)break;
             }
             const frameStartedAt = catchUpClockNow();
             const planningDeadlineMs = Math.min(
@@ -1151,7 +1164,7 @@
               }
               if (task.source === "offline" && context.prepareFixedWork ) {
                 try {
-                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds,{clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,sourceProfile:task.macroPlan.sourceProfile,mapPlan:task.macroPlan.mapPlan,evolutionPlan:task.macroPlan.evolutionPlan});
+                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds,{clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,compiledMicro:task.macroPlan.compiledMicro,sourceProfile:task.macroPlan.sourceProfile,mapPlan:task.macroPlan.mapPlan,evolutionPlan:task.macroPlan.evolutionPlan});
                   const work=WIS.Simulation.Profiler.withScope('offline',()=>WIS.Simulation.Profiler.measure('checkpointWork',()=>task.fixedWork.advance(frameStartedAt+frameBudgetMs)));
                   if(!work.done) {planningYieldRequested=true;break;}
                   task.fixedToken=work.token;task.fixedWork=null;
@@ -1162,6 +1175,13 @@
                     task.macroPlan=null;planningYieldRequested=true;break;
                   }
                   offlineSegmentBudget=WIS.Simulation.CheckpointStrategy.fail(offlineSegmentBudget,error);
+                  const capability=WIS.Simulation.CompiledContinuousPlan.isCapabilityError(error);
+                  if(capability){
+                    task.productionReplay=task.macroPlan?.compiledMicro===true;
+                    task.optimizationDisabled=true;task.macroPlan=null;
+                    WIS.Simulation.CompiledContinuousPlan.recordFallback(error.code);
+                    planningYieldRequested=true;break;
+                  }
                   task.macroPlan=null;pauseCatchUp(catchUpDiagnostic("fixed-plan-failed",task,bridgeSeconds,null,error));break;
                 }
               }

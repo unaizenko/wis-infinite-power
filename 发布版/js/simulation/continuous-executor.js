@@ -34,7 +34,7 @@
     else if(cache.advanceValidated)kind='coupled-advance';
     else if(cache.mapEligible&&!cache.mapCooldown)kind='opportunistic-map';
     else if(cache.kernelSupported)kind='coupled-kernel';
-    else kind='paused';
+    else kind='compiled-micro';
     if(cache.previousKind&&cache.previousKind!==kind)P().record('strategySwitches');
     return Object.freeze({kind,kernelBackend:cache.kernelBackend,executionSignature:cache.executionSignature});
   });}
@@ -60,7 +60,7 @@
       prepare(snapshot){
         if(status!=='new')throw Error('Executor 已准备');state=snapshot;
         selection=options.selection||select(options.selectionCache);
-        if(selection.kind==='paused'){stopReason='unsupported-execution-signature';status='discarded';const e=Error('当前连续资源结构没有已验证执行器；保留离线债务');e.code=stopReason;throw e;}
+        if(selection.kind==='paused'||selection.kind==='compiled-micro'){stopReason='compiled-micro-settlement-required';status='discarded';const e=Error('当前区间需要微步事件结算；交回调度器继续推进');e.code=stopReason;throw e;}
         if(selection.kind==='coupled-advance')CoupledAdvance.advance();
         // The verified middle path retains its existing bounded observations
         // and occasional Map blocks. Replacing those by pure 20s gains failed

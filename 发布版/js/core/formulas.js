@@ -7,13 +7,16 @@
   } = WIS.Core.BigNum;
 
   const operationTypes=Object.freeze(['additive','multiplicative','exponent','softcap','threshold','branch','denominator']);
-  function descriptor(row,{kind='effect',refresh=null}={}) {
+  function descriptor(row,{kind='effect',refresh=null,provider=null}={}) {
     const dynamicResources=[...(row.dynamicResources||[])];
     const operationType=row.operationType||(kind==='source'||/additive/i.test(row.layer)?'additive':/exponent/i.test(row.layer)?'exponent':/softcap/i.test(row.layer)?'softcap':/cap|limit|threshold/i.test(row.layer)?'threshold':'multiplicative');
     if(!row.id||!row.target||!operationTypes.includes(operationType))throw Error('公式 metadata 无效');
     const requiresProviderRefresh=dynamicResources.length>0&&typeof row.valueAt!=='function'&&typeof row.value!=='function';
     const valueAt=row.valueAt||(typeof row.value==='function'?row.value:requiresProviderRefresh&&refresh?refresh:()=>row.value);
-    return {...row,dynamicResources,operationType,valueAt,requiresProviderRefresh};
+    // Effects can prefix provider metadata in this one fresh descriptor. The
+    // row retains its original override/key-order semantics; values stay per-snapshot.
+    return provider===null ? {...row,dynamicResources,operationType,valueAt,requiresProviderRefresh}
+      : {provider,...row,dynamicResources,operationType,valueAt,requiresProviderRefresh};
   }
 
   function effectValue(effect) {

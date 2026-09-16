@@ -111,7 +111,7 @@
       savedOfflineRecovery = saved?.offlineRecovery ?? null;
       return saved ? saved.state : freshDefaultState();
     } catch (error) {
-      console.error("WIS save load failed; original storage is protected and simulation is paused.", error);
+      console.error("WIS save load failed; original storage is protected. Running a temporary in-memory fallback with autosave disabled.", error);
       return freshDefaultState();
     }
   }
@@ -461,8 +461,11 @@
     flushRender,
     saveState,
     effectiveDevSpeed: () => UI.effectiveDevSpeed(),
-    isInitialLoadComplete: () => initialLoadComplete && !WIS.Core.Save.getLoadError(),
-    isStateReady: () => !WIS.Core.Save.getLoadError(),
+    isInitialLoadComplete: () => initialLoadComplete,
+    // A load error means the persisted payload is unsafe to overwrite, not that
+    // the in-memory fallback state is unusable. Save.persistLive already blocks
+    // writes while loadError is present, so keep the live simulation running.
+    isStateReady: () => !!state,
     epsilon: SIMULATION_EPSILON,
     simulationStepSeconds: SIMULATION_STEP_SECONDS,
     maxOnlineStepsPerFrame: MAX_ONLINE_STEPS_PER_FRAME,
@@ -565,26 +568,46 @@
   flushRender(Date.now(), { force: true });
   simulationLoop.start();
 
+  let initialLoadStarted = false;
   async function finishInitialLoad() {
-    let initialOfflineReport = "";
+    if (initialLoadStarted) return;
+    initialLoadStarted = true;
+
+    let initialOfflinePromise = Promise.resolve("");
     try {
       if (!WIS.Core.Save.getLoadError()) {
-        // Saved foreground intervals resume on the normal live loop. A difficult
-        // numerical tick must not prevent the page from finishing initialization.
-        initialOfflineReport = await simulateOfflineProgress(initialOfflineElapsedSeconds);
+        // Register the initial catch-up before releasing bootstrap. Offline owns
+        // the foreground gate while debt is running/paused/pending/recovering.
+        initialOfflinePromise = simulateOfflineProgress(initialOfflineElapsedSeconds);
       }
+    } catch (error) {
+      console.error("WIS initial offline settlement failed to start; continuing bootstrap.", error);
+    }
+
+    // Loading the page/state and finishing historical catch-up are separate
+    // lifecycle states. Do not keep the whole live loop behind a long/yielding
+    // catch-up promise; processOnline still refuses to advance while debt exists.
+    simulationLoop.setLastTickAt(Date.now());
+    initialLoadComplete = true;
+    markCostGroupsDirty();
+    requestRender();
+    flushRender(Date.now(), { force: true });
+
+    let initialOfflineReport = "";
+    try {
+      initialOfflineReport = await initialOfflinePromise;
     } catch (error) {
       console.error("WIS initial offline settlement failed; continuing online play.", error);
     }
+
     simulationLoop.setLastTickAt(Date.now());
-    initialLoadComplete = true;
     markCostGroupsDirty();
     requestRender();
     flushRender(Date.now(), { force: true });
     saveState();
     if (!offlineSimulation.isCatchUpPaused() && !WIS.Core.Save.getLoadError())
       notifyNewAchievements(initialAchievementStates);
-    if (WIS.Core.Save.getLoadError()) showNotice("原存档读取失败，已暂停结算和自动保存。原文件仍保留，请导入有效存档或恢复备份。" + WIS.Core.Save.getLoadError(), 60000);
+    if (WIS.Core.Save.getLoadError()) showNotice("原存档读取失败，已进入临时未保存会话。原文件仍保留，自动保存已停用；请导入有效存档、恢复备份，或重置后重新开始。" + WIS.Core.Save.getLoadError(), 60000);
     else if (initialOfflineReport) showNotice(initialOfflineReport, 6000);
     window.setInterval(() => {
       // A periodic save does not change production rules. Keeping its confirmed
@@ -594,14 +617,14 @@
       if (!document.hidden) try { persistStateNow({ preserveSourceModels: true }); }
       catch(error) { /* Save status retains the failure; keep the existing 5s cadence. */ }
     }, 5000);
-    if (BUILD.enableFormulaDetails) {
-      window.setInterval(() => {
-        if (!document.hidden) renderResourceDebugPanel();
-      }, 1000);
-    }
   }
 
-  const queueInitialOfflineProgress = () => window.setTimeout(() => { void finishInitialLoad(); }, 0);
-  if (document.hidden) queueInitialOfflineProgress();
-  else window.requestAnimationFrame(queueInitialOfflineProgress);
+  const startInitialLoad = () => { void finishInitialLoad(); };
+  if (document.hidden) window.setTimeout(startInitialLoad, 0);
+  else {
+    // Preserve first-paint preference, but do not let a missing/delayed rAF keep
+    // initialLoadComplete false forever. The guarded timer is a fail-safe only.
+    window.requestAnimationFrame(startInitialLoad);
+    window.setTimeout(startInitialLoad, 250);
+  }
 })();

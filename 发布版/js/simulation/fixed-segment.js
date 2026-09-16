@@ -44,7 +44,7 @@
     options.onPhase?.("snapshot");
     const snapshot = options.borrowSources ? state : S.cloneForSimulation(state);
     options.onPhase?.("rates");
-    const sources = options.sourceProfile || WIS.Simulation.FixedSources.query(snapshot), groups = [];
+    const sources = options.sourceProfile || WIS.Simulation.FixedSources.query(snapshot,options.compiledResources ? {resourceProfile:options.compiledResources(snapshot)} : {}), groups = [];
     options.onPhase?.("gains");
     const plan = WIS.Simulation.FixedSources.calculate(snapshot, sources.rates, seconds, sources.processes, sources.caps);
     if(options.mapPlan)plan.gains=options.mapPlan.gains;

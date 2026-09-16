@@ -5,7 +5,7 @@
   function snapshot(budget){return budget?C().copy(budget):null;}
   function validateBudget(value){if(value==null)return null;
     if(![1,2,3].includes(value.version)||!Number.isFinite(value.totalSeconds)||value.totalSeconds<=0)throw Error('离线预算版本无效');
-    if(value.lastExecutorKind!=null&&!['large-fixed','fixed-20s','opportunistic-map','coupled-kernel','coupled-advance','paused'].includes(value.lastExecutorKind))throw Error('离线 Executor 类型无效');
+    if(value.lastExecutorKind!=null&&!['large-fixed','fixed-20s','opportunistic-map','coupled-kernel','coupled-advance','compiled-micro','production-replay','paused'].includes(value.lastExecutorKind))throw Error('离线 Executor 类型无效');
     const defaults=createBudget(value.totalSeconds),out=Object.fromEntries(Object.entries(defaults).map(([k,v])=>[k,value[k]??v]));out.version=3;
     if(value.version===1)out.directWork=value.committedSegments||0;
     for(const k of ['committedSegments','directWork','mapBlocks','virtualSteps','rejections','invalidations','maxDepth','coldModelBuilds','hardInvalidations','softRebases','settlementCheckpoints','endpointValidations','sentinelValidations','maximumBlockSteps','mapEligible','mapConsidered','shockRebases','dualDisagreements','fixedFallbacks','validationSkipped','cadenceMicroSteps','frozenDirectSteps','mapCooldowns','shockAnchors','progressQueries','scaleKernelSteps','scaleIntervals','coupledKernelSteps','coupledIntervals'])if(!Number.isSafeInteger(out[k])||out[k]<0)throw Error('离线预算计数无效');
@@ -22,7 +22,14 @@
     const layered=G.keys.some(k=>{const current=G.read(s,k),next=B.add(current,B.mul(profile.rates[k],seconds));return next.layer>=2&&B.gt(next,current);});
     return layered?Math.max(value,1):value;
   }
-  function plan(s,remaining,{budget,hardBoundary=remaining}={}){return P().withScope('offline',()=>{
+  function microPlan(remaining,{budget,hardBoundary=remaining,productionReplay=false}={}) {
+    const seconds=Math.min(remaining,hardBoundary,W.Core.Config.fixedSettlement.discreteCadenceSeconds);
+    return {kind:'checkpoint',seconds,frames:[{seconds,depth:0}],depth:0,strength:0,
+      hardBoundary:seconds===hardBoundary,compiledMicro:!productionReplay,productionReplay};
+  }
+  function plan(s,remaining,{budget,hardBoundary=remaining,forceMicro=false,productionReplay=false}={}){return P().withScope('offline',()=>{
+    if(forceMicro||budget?.lastExecutorKind==='compiled-micro'||budget?.lastExecutorKind==='production-replay'||budget?.directWork>=H().maxDirectWork)
+      return microPlan(remaining,{budget,hardBoundary,productionReplay:productionReplay||budget?.lastExecutorKind==='production-replay'});
     const draft=W.Core.State.createDraft(s).state;
     W.Core.Runtime.withState(draft,()=>W.Core.Runtime.withOfflineExecution(()=>W.Core.Effects.withIsolatedState(draft,()=>W.Cultivation.ExplorationProgress.settleRetained(draft))));s=draft;
     budget=budget||createBudget(remaining);const h=H(),q=Q(),profile=W.Simulation.FixedSources.query(s);let frames=budget.frames.map(f=>({...f}));
@@ -39,6 +46,7 @@
     const extreme=movement(s,profile,h.microSeconds,true)>q.fallbackMaxMicroCoordinateTravel||W.Simulation.ResourceGroups.keys.some(k=>{const current=W.Simulation.ResourceGroups.read(s,k),next=B.add(current,B.mul(profile.rates[k],q.fallbackSeconds));return B.gt(next,current)&&(current.layer>=2||next.layer>=2);});
     const selectionCache=W.Simulation.StrategySelector.cache(s,profile,{strong,extreme,predictor:budget.predictor,previousKind:budget.lastExecutorKind});
     const selection=W.Simulation.StrategySelector.select(selectionCache);
+    if(selection.kind==='compiled-micro')return microPlan(remaining,{budget,hardBoundary});
     const preferred=['coupled-kernel','coupled-advance'].includes(selection.kind)?q.fallbackSeconds:strong&&cooling?q.fallbackSeconds:strong&&layered?Math.max(q.checkpointMinSeconds,q.checkpointCoordinateTravel/Math.max(1e-15,speed)):q.checkpointMaxSeconds;
     const aligned=Math.max(h.microSeconds,Math.floor(Math.min(q.checkpointMaxSeconds,preferred)/h.microSeconds)*h.microSeconds);
     const seconds=Math.min(remaining,hardBoundary,strong?macroRemaining:head.seconds,aligned);
@@ -47,14 +55,14 @@
       evolutionPlan:{selection,selectionCache,strong,directWork:budget.directWork,predictor:budget.predictor,sourceProfile:profile}};
   });}
   function accept(budget,plan,seconds,state,result){const frames=plan.frames.map(f=>({...f}));let left=seconds;while(left>1e-8&&frames.length){const used=Math.min(left,frames[0].seconds);frames[0].seconds-=used;left-=used;if(frames[0].seconds<1e-8)frames.shift();}
-    const data=result.evolution,stats=data?.stats||{realMicroSteps:1},predictor=data?.predictor?C().copy(data.predictor):null,signature=C().signature(state);let hard=0,soft=0;
+    const data=result.evolution,stats=data?.stats||{realMicroSteps:1},predictor=data?.predictor?C().copy(data.predictor):null,signature=predictor?C().signature(state):null;let hard=0,soft=0;
     const reasons={...budget.hardReasons};
     if(predictor){if(predictor.mapSignature!==signature||!data.rebasedPoint?.delta){predictor.model=null;predictor.observations=[];delete predictor.policy;delete predictor.validation;predictor.blockSize=Q().initialMapSteps;hard=1;reasons.settlementBranch=(reasons.settlementBranch||0)+1;}
       else {predictor.model=C().rebase(predictor.model,data.endpoint,data.rebasedPoint,0);if(predictor.observations.at(-1)?.position===data.rebasedPoint.position)predictor.observations[predictor.observations.length-1]=data.rebasedPoint;else predictor.observations.push(data.rebasedPoint);predictor.observations=predictor.observations.slice(-Q().observationLimit);predictor.trustRegionOrigin=data.rebasedPoint.coordinates;soft=1;}
       predictor.mapSignature=signature;predictor.needsCalibration=false;}
     for(const [key,count] of Object.entries(stats.hardReasons||{}))reasons[key]=(reasons[key]||0)+count;
     const histogram={...budget.blockHistogram};for(const [key,count] of Object.entries(stats.blockHistogram||{}))histogram[key]=(histogram[key]||0)+count;
-    return {...budget,lastExecutorKind:data?.execution?.kind||budget.lastExecutorKind,...Object.fromEntries(['mapEligible','mapConsidered','shockRebases','dualDisagreements','fixedFallbacks','validationSkipped','cadenceMicroSteps','frozenDirectSteps','mapCooldowns','shockAnchors','progressQueries','scaleKernelSteps','scaleIntervals','coupledKernelSteps','coupledIntervals'].map(k=>[k,(budget[k]||0)+(stats[k]||0)])),frames,predictor,committedSegments:budget.committedSegments+1,directWork:budget.directWork+stats.realMicroSteps,mapBlocks:budget.mapBlocks+(stats.mapAccepted||0),virtualSteps:budget.virtualSteps+(stats.virtualSteps||0),maximumBlockSteps:Math.max(budget.maximumBlockSteps||0,stats.maximumBlockSteps||0),rejections:budget.rejections+(stats.mapRejected||0),invalidations:budget.invalidations+(stats.hardInvalidations||0)+hard,
+    return {...budget,fallbackWork:(budget.fallbackWork||0)+(plan.compiledMicro||plan.productionReplay?1:0),lastExecutorKind:plan.compiledMicro?'compiled-micro':plan.productionReplay?'production-replay':data?.execution?.kind||budget.lastExecutorKind,...Object.fromEntries(['mapEligible','mapConsidered','shockRebases','dualDisagreements','fixedFallbacks','validationSkipped','cadenceMicroSteps','frozenDirectSteps','mapCooldowns','shockAnchors','progressQueries','scaleKernelSteps','scaleIntervals','coupledKernelSteps','coupledIntervals'].map(k=>[k,(budget[k]||0)+(stats[k]||0)])),frames,predictor,committedSegments:budget.committedSegments+1,directWork:budget.directWork+stats.realMicroSteps,mapBlocks:budget.mapBlocks+(stats.mapAccepted||0),virtualSteps:budget.virtualSteps+(stats.virtualSteps||0),maximumBlockSteps:Math.max(budget.maximumBlockSteps||0,stats.maximumBlockSteps||0),rejections:budget.rejections+(stats.mapRejected||0),invalidations:budget.invalidations+(stats.hardInvalidations||0)+hard,
       maxDepth:Math.max(budget.maxDepth,plan.depth),coldModelBuilds:budget.coldModelBuilds+(stats.coldModelBuilds||0),hardInvalidations:budget.hardInvalidations+(stats.hardInvalidations||0)+hard,hardReasons:reasons,
       softRebases:budget.softRebases+(stats.softRebases||0)+soft,settlementCheckpoints:budget.settlementCheckpoints+1,endpointValidations:budget.endpointValidations+(stats.endpointValidations||0),sentinelValidations:budget.sentinelValidations+(stats.sentinelValidations||0),blockHistogram:histogram};
   }
@@ -68,5 +76,5 @@
     for(const key of ['hardReasons','blockHistogram']){out[key]={...budget[key]};for(const [id,count] of Object.entries(stats[key]||{}))out[key][id]=(out[key][id]||0)+count;}
     return out;
   }
-  W.Simulation.CheckpointStrategy=Object.freeze({createBudget,snapshot,validateBudget,movement,strengthAt,plan,accept,fail});
+  W.Simulation.CheckpointStrategy=Object.freeze({createBudget,snapshot,validateBudget,movement,strengthAt,microPlan,plan,accept,fail});
 })(window.WIS);

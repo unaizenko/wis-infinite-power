@@ -724,6 +724,7 @@
           skipTreasureRolls: options.skipTreasureRolls,
           borrowSources: options.foreground === true,
           dynamicResources: false,
+          compiledResources: options.compiledResources,
           foregroundSource: options.foregroundSource,
           offline: isOffline
         });
@@ -792,7 +793,7 @@
         prepareFixedWork(seconds, options={}) {
           return WIS.Simulation.FixedSegment.createWork(getState(),
             findNextSimulationBoundary(getState(),seconds,{source:'offline',clockRatio:options.clockRatio}).seconds,
-            {offline:true,runAchievementAutomations,clockRatio:options.clockRatio,sourceProfile:options.sourceProfile,mapPlan:options.mapPlan,evolutionPlan:options.evolutionPlan,
+            {offline:true,runAchievementAutomations,compiledResources:options.compiledMicro?WIS.Simulation.CompiledContinuousPlan.compile().prepareResources:null,clockRatio:options.clockRatio,sourceProfile:options.sourceProfile,mapPlan:options.mapPlan,evolutionPlan:options.evolutionPlan,
                 beforeEndEvents(candidate,dt) {
                   projectStepTimes(candidate,dt);
                   WIS.Core.Registries.getActivePower(candidate)?.afterStep?.(candidate,dt);

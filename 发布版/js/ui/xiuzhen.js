@@ -80,17 +80,20 @@
       }
       WIS.UI.Cards.updateCatalogGroupCounts($("challenge-list"), "挑战");
     }
-    function render() {
+    function render({ page = null, writePreview = null } = {}) {
       if (!mounted) return;
       const s = R.getState(), n = X.get(s), unlocked = X.unlocked(s), locked = context.getCatchUpStatus().locked;
+      if (page !== "realms") $("xiuzhen-abilities").hidden = !X.available(s) || n.realm < 1;
+      if (page !== "abilities") {
       $("xiuzhen-realms").hidden = !X.available(s);
-      $("xiuzhen-abilities").hidden = !X.available(s) || n.realm < 1;
       $("xiuzhen-unlock-note").hidden = !unlocked;
       $("xiuzhen-unlock-note").textContent = X.sealed(s)
         ? (X.qiPathSealed(s) ? "化凡挑战期间仙道能力封印；结束后按当前已获得状态恢复。"
           : "炼气十万年期间修真道封印，历史境界不解除软上限；无限炼气可继续推进。退出后恢复原有修真道资格。")
         : `当前：${n.realm ? X.realms[n.realm - 1].name : "等待突破第一步·化神"}。炼气道继续生效；两道不是二选一。`;
+      }
       rows.forEach(r => {
+        if (page === "realms" && r.type !== "realm" || page === "abilities" && r.type !== "ability") return;
         const d = r.definition, done = r.type === "realm" ? n.realm >= d.level : !!n.abilities[d.key];
         const available = r.type === "realm" ? n.realm === d.level - 1 && X.canBreakthrough(s) : X.canBuy(s, d.key);
         r.item.hidden = r.type === "realm" ? d.level > n.realm + 1 : d.realm > n.realm;
@@ -99,8 +102,12 @@
         r.button.textContent = done ? r.type === "ability" ? "已强化" : "已突破"
           : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : "突破") : "强化";
         r.button.disabled = locked || done || !available;
-        if (r.preview) WIS.UI.SourcePreview.write(r.preview, d.key, context.format, s, { assumeUnlocked: !done });
+        if (r.preview) {
+          if (writePreview) writePreview(r.preview.id, d.key, !done);
+          else WIS.UI.SourcePreview.write(r.preview, d.key, context.format, s, { assumeUnlocked: !done });
+        }
       });
+      if (page !== "realms") {
       if (n.realm !== lastRealm) {
         groups.forEach(({ group, level }) => { group.open = level === Math.max(1, n.realm); }); lastRealm = n.realm;
       }
@@ -109,6 +116,7 @@
         group.classList.toggle("xiuzhen-locked", !unlocked || n.realm < level);
       });
       if (X.qiPathSealed(s)) $("qi-path-abilities").querySelectorAll("button").forEach(b => { b.disabled = true; });
+      }
     }
     return { bind, render, renderChallenges };
   } });

@@ -19,7 +19,9 @@
   };
   const primary = Object.keys(names);
   const penalty = (resource, gain, state) => WIS.Core.Penalties.applyGoogolPenalty(resource, state[resource], gain, state);
-  function query(ids, currentState = R.getState(), { assumeUnlocked = false, includeProcess = false } = {}) {
+  // actionFinals may reuse only exact action results computed synchronously by
+  // this caller for currentState. It is ignored for an unlock candidate.
+  function query(ids, currentState = R.getState(), { assumeUnlocked = false, includeProcess = false, actionFinals = null } = {}) {
     if (currentState === R.state) currentState = R.getState();
     const needsUnlock = assumeUnlocked && (ids || []).some(id =>
       (unlocks[id] && !currentState[unlocks[id]]) ||
@@ -142,7 +144,7 @@
           case "rock": raw = S.rockPowerPerSecond(); break;
           case "ghostBrain": raw = S.ghostBrainPowerSource(); break;
           case "ultimateIntent": raw = S.ultimateIntentPowerSource(); break;
-          case "breathing": raw = I.breathingManaSource(); final = I.breathingManaGainProgressive(); resource = "mana"; unit = "次"; break;
+          case "breathing": raw = I.breathingManaSource(); final = !needsUnlock && actionFinals?.breathing != null ? actionFinals.breathing : I.breathingManaGainProgressive(); resource = "mana"; unit = "次"; break;
           case "circulation": raw = I.circulationManaSource(); resource = "mana"; break;
           case "refineTheVoid": raw = I.immortalCultivationActive() && state.qiRefiningUnlocked && state.unlockedAchievements.refineTheVoid ? B.ONE : B.ZERO; resource = "mana"; break;
           case "exploration":
@@ -161,7 +163,7 @@
               extra = [{ raw: active ? B.mul(d.rawAmount, efficiency) : B.ZERO,
                 final: active ? B.mul(d.amount, efficiency) : B.ZERO, rawLabel: "原始探寻量", label: "有效探寻量", unit }];
             } else {
-              final = id === "exploration" ? I.explorationManaGainProgressive(d.cost, d.amount, d.exponent)
+              final = id === "exploration" ? (!needsUnlock && actionFinals?.exploration != null ? actionFinals.exploration : I.explorationManaGainProgressive(d.cost, d.amount, d.exponent))
                 : I.previewManaGainProgressive(1, (fraction, mana) => B.mul(
                     I.explorationManaGainFromSources(sources, mana, d.exponent, true), fraction
                   ), { linearBudget: true, googolPenalty: true }).mana;
@@ -220,9 +222,13 @@
   }
   function write(element, ids, format, state, options) {
     if (!element) return;
-    element.classList.add("source-gain-preview");
-    element.textContent = text(query(Array.isArray(ids) ? ids : [ids], state, options), format);
-    element.title = options?.assumeUnlocked ? "未解锁的来源按解锁后预览；最终获取按该来源单独结算。" : "按当前状态单独结算该来源。";
+    if (!element.classList.contains("source-gain-preview")) element.classList.add("source-gain-preview");
+    const records = query(Array.isArray(ids) ? ids : [ids], state, options);
+    const value = text(records, format);
+    if (element.textContent !== value) element.textContent = value;
+    const title = options?.assumeUnlocked ? "未解锁的来源按解锁后预览；最终获取按该来源单独结算。" : "按当前状态单独结算该来源。";
+    if (element.title !== title) element.title = title;
+    return records;
   }
   WIS.UI.SourcePreview = Object.freeze({ query, text, write, names });
 }(window.WIS));

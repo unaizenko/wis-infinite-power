@@ -11,6 +11,21 @@
     return status?.clockSuspended ? "（离线结算中）" : `（+${format(value)}/秒）`;
   }
 
+  function setTextIfChanged(element, value) {
+    if (!element) return;
+    const text = value == null ? "" : String(value);
+    if (element.textContent !== text) element.textContent = text;
+  }
+  function setHiddenIfChanged(element, value) {
+    if (element && element.hidden !== Boolean(value)) element.hidden = Boolean(value);
+  }
+  function setDisabledIfChanged(element, value) {
+    if (element && element.disabled !== Boolean(value)) element.disabled = Boolean(value);
+  }
+  function toggleClassIfChanged(element, name, value) {
+    if (element && element.classList.contains(name) !== Boolean(value)) element.classList.toggle(name, Boolean(value));
+  }
+
   function scaleUpgradePreviewText(id, state, format) {
     const preview = WIS.Power.ScaleLogic.upgradePreview(id, state);
     const prefix = preview.purchased ? "当前：" : "解锁后：";
@@ -135,7 +150,7 @@
   const SCALE_THRESHOLDS = CONFIG.scales;
   const rawById = WIS.UI.byId;
   const skippedRenderElement = {
-    classList: Object.freeze({ add() {}, remove() {}, toggle() { return false; } }),
+    classList: Object.freeze({ add() {}, remove() {}, contains() { return false; }, toggle() { return false; } }),
     dataset: {}, style: {},
     addEventListener() {}, setAttribute() {}, removeAttribute() {},
     querySelector() { return skippedRenderElement; },
@@ -242,6 +257,10 @@
     let activeCultivationPage = "realms";
     let globalDirty = true;
     const dirtyPages = new Set(PAGE_NAMES);
+    const structuralPages = new Set(PAGE_NAMES);
+    let structureKey = "", structureRevision = 0, renderingStructure = false;
+    const heavyPreviewCache = new WeakMap();
+    const HEAVY_PREVIEW_REFRESH_MS = 1000;
     const dirtyCostGroupPages = new Set(["upgrades", "cultivation"]);
     let achievementsDirty = true;
     const achievementPresentation = WIS.Meta.Achievements.createPresentation(markAchievementsDirty);
@@ -251,7 +270,7 @@
     let achievementNoticeActive = false;
     let scaleNoticeTimer;
     const debugSpeedOptions = Object.freeze([1, 5, 20, 100]);
-    let formulaDetailsExpanded = BUILD.enableFormulaDetails;
+    let formulaDetailsExpanded = false;
     let automationRenderSignature = "";
     let offlineCatchUpStatus = Object.freeze({ phase: "idle", locked: false });
     let offlineDialogDelayTimer = null;
@@ -327,6 +346,7 @@
       }
     }
     const formulaToggle = rawById("formula-details-toggle");
+    const formulaRefresh = rawById("formula-details-refresh");
     const formulaTools = document.querySelector(".resource-debug-tools");
     const formulaPanel = document.querySelector(".resource-debug-breakdown");
     if (!BUILD.enableFormulaDetails) formulaDetailsExpanded = false;
@@ -340,6 +360,7 @@
     if (formulaPanel) {
       formulaPanel.hidden = !BUILD.enableFormulaDetails || !formulaDetailsExpanded;
     }
+    if (formulaRefresh) formulaRefresh.hidden = !BUILD.enableFormulaDetails || !formulaDetailsExpanded;
   }
 
   function renderAutomationManager(force = false) {
@@ -623,8 +644,15 @@
     });
   }
 
-  function handleOfflineCatchUpStatus(status) {
+  let offlineProgressRenderedAt=-Infinity, offlineProgressRenderKey=null;
+  function handleOfflineCatchUpStatus(status, force=true) {
     offlineCatchUpStatus = status || Object.freeze({ phase: "idle", locked: false });
+    // Only presentation is throttled. The latest status and player actions remain
+    // immediate, and every phase/lock/recovery/session transition renders at once.
+    const key=[status?.phase,status?.locked,status?.presentation,status?.sessionSource,status?.startedAt,status?.originalClockSeconds,status?.treasureRecovery?.active].join('|');
+    const now=typeof performance!=="undefined"?performance.now():Date.now();
+    if(!force&&status?.phase==='running'&&key===offlineProgressRenderKey&&now-offlineProgressRenderedAt<100)return;
+    offlineProgressRenderedAt=now;offlineProgressRenderKey=key;
     window.clearTimeout(offlineDialogDelayTimer);
     offlineDialogDelayTimer = null;
     const settlementLocked = offlineCatchUpStatus.locked === true;
@@ -885,16 +913,19 @@
     if (state.cultivation.active !== "immortal" || !["realms", "abilities"].includes(pageName)) return;
     activeCultivationPage = pageName;
     renderCultivationPage();
+    structuralPages.add("cultivation");
+    dirtyCostGroupPages.add("cultivation");
+    runtime.call("renderImmediately", "cultivation");
   }
 
   function renderCultivationPage() {
     document.querySelectorAll("[data-cultivation-page]").forEach((button) => {
       const active = button.dataset.cultivationPage === activeCultivationPage;
-      button.classList.toggle("active", active);
+      toggleClassIfChanged(button, "active", active);
       button.setAttribute("aria-selected", String(active));
     });
-    byId("immortal-realms-panel").classList.toggle("active", activeCultivationPage === "realms");
-    byId("immortal-abilities-panel").classList.toggle("active", activeCultivationPage === "abilities");
+    toggleClassIfChanged(byId("immortal-realms-panel"), "active", activeCultivationPage === "realms");
+    toggleClassIfChanged(byId("immortal-abilities-panel"), "active", activeCultivationPage === "abilities");
   }
 
   function switchPage(pageName) {
@@ -924,6 +955,7 @@
     }
 
     activePage = pageName;
+    structuralPages.add(pageName);
     if (pageName === "achievements") ensureAchievementCards();
     if (pageName === "cultivation") ensureAdvancedRealmAbilityGroups();
     document.querySelectorAll(".nav-item").forEach((button) => {
@@ -946,24 +978,24 @@
     ];
 
     entries.forEach(([button, unlocked]) => {
-      button.hidden = !unlocked;
+      setHiddenIfChanged(button, !unlocked);
     });
   }
 
   function updateOneTimeUpgrade(rowId, buttonId, purchased, affordable) {
     const row = byId(rowId);
     const button = byId(buttonId);
-    row.classList.toggle("purchased", purchased);
-    button.textContent = purchased ? "已升级" : "升级";
-    button.disabled = purchased || !affordable;
+    toggleClassIfChanged(row, "purchased", purchased);
+    setTextIfChanged(button, purchased ? "已升级" : "升级");
+    setDisabledIfChanged(button, purchased || !affordable);
   }
 
   function updateOneTimeUnlock(rowId, buttonId, unlocked, affordable) {
     const row = byId(rowId);
     const button = byId(buttonId);
-    row.classList.toggle("purchased", unlocked);
-    button.textContent = unlocked ? "已解锁" : "解锁";
-    button.disabled = unlocked || !affordable;
+    toggleClassIfChanged(row, "purchased", unlocked);
+    setTextIfChanged(button, unlocked ? "已解锁" : "解锁");
+    setDisabledIfChanged(button, unlocked || !affordable);
   }
 
   function updateSortCost(rowId, cost, completed = false) {
@@ -975,7 +1007,7 @@
   function markPagesDirty(pageNames = PAGE_NAMES) {
     if (WIS.Core.Runtime.isProjection()) return;
     const names = Array.isArray(pageNames) ? pageNames : [pageNames];
-    names.forEach((pageName) => dirtyPages.add(pageName));
+    names.forEach((pageName) => { dirtyPages.add(pageName); structuralPages.add(pageName); });
   }
 
   function markGlobalDirty() {
@@ -993,6 +1025,7 @@
     const names = Array.isArray(pageNames) ? pageNames : [pageNames];
     names.forEach((pageName) => {
       dirtyCostGroupPages.add(pageName);
+      structuralPages.add(pageName);
       dirtyPages.add(pageName);
     });
   }
@@ -1357,154 +1390,48 @@
     WIS.UI.Cards.updateCatalogGroupCounts(byId("challenge-list"), "挑战");
   }
 
-  function formatDebugEffectValue(value) {
-    const decimalValue = BN(value);
-    if (!isFiniteBN(decimalValue) || isNaNBN(decimalValue)) return "1";
-    if (gteBN(absBN(decimalValue), 1e4)) return format(decimalValue);
-    const numericValue = bnToNumber(decimalValue, 1);
-    return String(Number(numericValue.toPrecision(5)));
-  }
-
-  function formatDebugEffectGroups(target, layer) {
-    const neutralValue = layer.endsWith("Additive") ? 0 : 1;
-    const operator = layer.endsWith("Exponent") ? "^" : layer.endsWith("Additive") ? "+" : "×";
-    const activeGroups = Object.entries(WIS.Core.Effects.groups(target, layer, state))
-      .map(([group, effects]) => [
-        group,
-        effects.filter((effect) => {
-          const value = BN(effect.value);
-          return isFiniteBN(value) && !isNaNBN(value) &&
-            gtBN(absBN(subBN(value, neutralValue)), "1e-12");
-        })
-      ])
-      .filter(([, effects]) => effects.length > 0);
-    if (activeGroups.length === 0) return "无";
-    return activeGroups.map(([group, effects]) =>
-      `${group}：${effects.map((effect) => {
-        const rawValue = BN(effect.rawValue);
-        const value = BN(effect.value);
-        return isFiniteBN(rawValue) && !isNaNBN(rawValue) &&
-          gtBN(absBN(subBN(rawValue, value)), "1e-12")
-          ? `${effect.name} 原始${operator}${formatDebugEffectValue(rawValue)} → 五衰 ^${celestialFiveDeclineExponent().toFixed(3)} → ${operator}${formatDebugEffectValue(value)}`
-          : `${effect.name} ${operator}${formatDebugEffectValue(value)}`;
-      }).join("、")}`
-    ).join("；");
-  }
-
-  function formatExplorationAccounting() {
-    const B = WIS.Core.BigNum, L = WIS.Meta.TreasureLedger;
-    const words = L.normalize([state.explorationProgress, ...(state.explorationProgressResidual || [])]);
-    const remainder = L.value(words);
-    const compact = format(remainder);
-    const remainderText = L.compare(words, [1]) < 0 && (B.gte(remainder, 1) || Number(compact) >= 1)
-      ? "小于1（含尾账）"
-      : B.gt(remainder, 0) && Number(compact) === 0 ? remainder.toString() : compact;
-    return `累计有效探寻量${state.explorationTotalIncomplete ? "（本次升级起记录）" : ""} ${format(state.explorationTotal || 0)}${state.explorationTotalApproximate ? "（高层统计近似）" : ""}；本轮判定余数 ${remainderText} / 1${state.explorationAttemptResidual?.length ? "；整数判定尾账已保留" : ""}`;
-  }
-
-  function formatBreathingDecay() {
-    const value = WIS.Core.BigNum.BN(breathingManaDecayMultiplier());
-    return WIS.Core.BigNum.eq(value, 1) ? "1（当前无境界瓶颈衰减）" : value.toString();
-  }
-
-  function formatFitnessBaseBreakdown() {
-    const regenerationName = state.hyperRegenerationPurchased ? "超速再生" : "再生";
-    const baseTotal = addBN(
-      mulBN(longevityFitnessMultiplier(), immortalFitnessBaseMultiplier()),
-      addBN(carbonLimitFitnessBonus(), fitnessMembershipCardFitnessBonus())
-    );
-    return `合计 ×${format(baseTotal, 2)}（旧乘区：生命力量 ×${format(lifePowerFitnessMultiplier(), 2)}、我流 ×${format(myStyleFitnessMultiplier(), 2)}、耐力强化 ×${format(enduranceEnhancementFitnessMultiplier(), 2)}、${regenerationName} ×${format(regenerationFitnessMultiplier(), 2)}；注册基础倍率〔${formatDebugEffectGroups("fitness", "baseMultiplier")}〕；加法：碳基界限 +${format(carbonLimitFitnessBonus(), 3)}、健身房会员卡 +${format(fitnessMembershipCardFitnessBonus(), 3)}）`;
-  }
-
-  function collectRegisteredDebugSources(target, sourceContext = {}) {
-    return WIS.Core.Sources.collect(target, state, sourceContext).map((source) => {
-      const candidate = BN(source.value);
-      const rawValue = isFiniteBN(candidate) && !isNaNBN(candidate) ? maxBN(ZERO, candidate) : ZERO;
-      const actualValue = target === "power"
-        ? challengeAdjustedPowerSource(rawValue, source.id)
-        : rawValue;
-      return { ...source, rawValue, actualValue };
-    });
-  }
-
-  function formatRegisteredSourceValue(source) {
-    return source.target === "power" && !eqBN(source.rawValue, source.actualValue)
-      ? `原始 ${format(source.rawValue)} → 挑战限制后 ${format(source.actualValue)}`
-      : format(source.actualValue);
-  }
-
-  function formatRegisteredSourceDebug(source) {
-    const valueText = formatRegisteredSourceValue(source);
-    switch (source.id) {
-      case "manaJ":
-        return `法力 ${valueText}/秒（原始法力J基础 ${format(manaJRawBonus())}；法力液化 ×${format(manaLiquefactionManaJMultiplier(), 3)}；转世指数 ^${reincarnationManaJExponent().toFixed(3)}；注册来源指数〔${formatDebugEffectGroups("manaJ", "sourceExponent")}〕${qiRefiningChallengeActive() ? `；炼气层数倍率 ×${format(qiLayerManaSourceMultiplier())}` : ""}）`;
-      case "spiritDomain":
-        return `灵域 ${valueText}/秒（当前最终独立J来源 ${format(source.actualValue)}；来源倍率〔${formatDebugEffectGroups("spiritDomain", "sourceMultiplier")}〕${daoAncestorActive() && state.daoDomainUnlocked ? `；界域指数 ^${daoDomainExponent().toFixed(5)}` : ""}）`;
-      case "magicTreasure":
-        return `法宝独立来源 ${valueText}/秒（来源倍率〔${formatDebugEffectGroups("magicTreasure", "sourceMultiplier")}〕；来源指数〔${formatDebugEffectGroups("magicTreasure", "sourceExponent")}〕；法力曲线：前期边际趋近 ^${magicTreasureManaExponent().toFixed(2)}，后期边际趋近 ^${Math.min(magicTreasureManaExponent(), MAGIC_TREASURE_MANA_CURVE_CONFIG.lateExponent).toFixed(2)}，衰减尺度 ${format(MAGIC_TREASURE_MANA_CURVE_CONFIG.scale)}，当前曲线量 ${format(magicTreasureManaCurve())}）`;
-      case "brahmaDemonArt":
-        return `梵圣真魔功 ${valueText}/秒（健身最终来源300%；来源倍率〔${formatDebugEffectGroups("brahmaDemonArt", "sourceMultiplier")}〕；来源指数〔${formatDebugEffectGroups("brahmaDemonArt", "sourceExponent")}〕）`;
-      case "daoPower": {
-        const config = IMMORTAL_POWER_CONFIG.daoAncestor;
-        return `道祖威能 ${valueText}/秒（${format(config.powerBase)} × (1 + 当前仙灵力 ${format(state.immortalPower)} / 道祖需求 ${format(daoAncestorRequirement())}) ^${config.powerExponent.toFixed(2)}；当前仙灵力/需求 ${format(daoImmortalPowerRatio())}；当前最终独立战力来源 ${format(source.rawValue)}）`;
-      }
-      case "qiManaPower":
-        return `炼气十万年·法力战力 ${valueText}/秒（(1 + 当前法力 ${format(state.mana)}) × 炼气层数倍率 ${format(qiLayerManaSourceMultiplier())}；挑战限制后的实际来源 ${format(source.actualValue)}）`;
-      case "fiveSpiritStoneJ":
-      case "fiveSpiritStonePower":
-        return `五灵石独立来源 ${valueText}/秒`;
-      default:
-        return `${source.name || source.id} ${valueText}/秒（注册来源：${source.provider}/${source.id}）`;
-    }
-  }
-
-  function formatQiSoftcapBreakdown(breakdown, normalLabel, manaLabel) {
-    if (!breakdown) return "";
-    return `；炼气十万年软上限分流：${normalLabel}：软上限前 ${format(breakdown.normalPreSoftcap)} → 普通来源指数 ^${formatSoftcapExponent(breakdown.normalExponent)} → ${format(breakdown.normalPostSoftcap)}；${manaLabel}：软上限前 ${format(breakdown.manaPreSoftcap)} → 法力专属指数 ^${formatSoftcapExponent(breakdown.manaExponent)} → ${format(breakdown.manaPostSoftcap)}；软上限后合计：${format(breakdown.normalPostSoftcap)} + ${format(breakdown.manaPostSoftcap)} = ${format(breakdown.finalTotal)}`;
-  }
-
-
   function renderResourceDebugPanel() { return false; }
 
   function renderAdditionalResources() {
     const M = WIS.Meta.BigNumbers, X = WIS.Cultivation.Xiuzhen;
     const big = M.get(state), requirements = M.requirements(state);
     const bigVisible = big.unlocked || (requirements.cosmic && requirements.achievement);
-    byId("big-number-resource").hidden = !bigVisible;
+    setHiddenIfChanged(byId("big-number-resource"), !bigVisible);
     if (bigVisible) {
       const v = M.view(state), order = v.dominantOrder;
       const f = value => gtBN(value, ZERO) && !gteBN(value, 0.001)
         ? BN(value).toExponential(3) : format(value, 4);
-      byId("big-number-dominant").textContent = v.gIndex > 0
-        ? `G${v.gIndex}` : `${f(v.amounts[order])} ${v.symbols[order]}`;
-      byId("big-number-rate").textContent = v.gIndex > 0
+      setTextIfChanged(byId("big-number-dominant"), v.gIndex > 0
+        ? `G${v.gIndex}` : `${f(v.amounts[order])} ${v.symbols[order]}`);
+      setTextIfChanged(byId("big-number-rate"), v.gIndex > 0
         ? `超分形 ${f(v.progress)}% · +${f(v.speed)}%/秒`
-        : `（+${f(v.rates[order])}/秒）`;
+        : `（+${f(v.rates[order])}/秒）`);
     }
     const n = X.get(state), active = immortalCultivationActive() && X.available(state);
     const status=getCatchUpStatus();
     // Ordinary short online work is not a recovery session. Completed reports
     // may retain blocking presentation, so remaining debt is also required.
     const recovering=status.pendingGameSeconds>0 && (status.presentation==="blocking" || status.offlinePendingGameSeconds>0);
-    const execution=status.currentSource || {
-      source:"online",compensationEligible:WIS.Simulation.Compensation.eligibleAtEnqueue(state),clockRatio:1
-    };
-    const preview=active ? WIS.Simulation.FixedSources.previewXiuzhen(state, {
-      ...execution, source:document.hidden ? null : execution.source,
-      paused:status.phase==="paused" || !!WIS.Core.Save.getLoadError(), recovering
-    }) : null;
+    const paused = status.phase === "paused";
+    const settlement = state.core.runtime.lastSettlement;
     for (const key of X.resourceKeys) {
       const visible = active && (n.abilities[key] || n.realm >= (key === "xianForce" ? 2 : 3));
-      byId(key + "-resource").hidden = !visible;
+      setHiddenIfChanged(byId(key + "-resource"), !visible);
       if (visible) {
-        byId(key).textContent = format(X.amount(state, key));
-        byId(key + "-rate").textContent = preview.rates
-          ? `（+${format(preview.rates[key])}/秒）`
-          : preview.label;
+        setTextIfChanged(byId(key), format(X.amount(state, key)));
+        // All registered resource rates are published by the existing committed
+        // step. Presentation must not run another Xiuzhen/Effects evaluation.
+        const rate = WIS.tmp.rates[key + "PerSecond"] ??
+          (settlement?.seconds > 0 && settlement.gains?.[key] != null
+            ? divBN(settlement.gains[key], settlement.seconds) : null);
+        setTextIfChanged(byId(key + "-rate"), paused ? "结算暂停"
+          : status.clockSuspended || recovering ? "（离线结算中）"
+          : document.hidden ? "当前产出暂不展示"
+          : rate == null ? "尚无结算速率" : `（+${format(rate)}/秒）`);
       }
     }
-    byId("special-resources").hidden = ["mana", "immortal-power", ...X.resourceKeys]
-      .every(key => byId(key + "-resource").hidden);
+    setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys]
+      .every(key => byId(key + "-resource").hidden));
   }
 
   function renderGlobal() {
@@ -1514,52 +1441,118 @@
     const passivePowerGain = WIS.tmp.rates.powerPerSecond;
     const passiveManaGain = WIS.tmp.rates.manaPerSecond;
     const passiveImmortalPowerGain = WIS.tmp.rates.immortalPowerPerSecond;
-    byId("game-version").textContent = `v${GAME_VERSION}`;
-    byId("joules").textContent = format(state.joules);
-    byId("power").textContent = format(state.power);
-    byId("current-scale").textContent = SCALE_THRESHOLDS[state.highestScaleIndex].name;
+    setTextIfChanged(byId("game-version"), `v${GAME_VERSION}`);
+    setTextIfChanged(byId("joules"), format(state.joules));
+    setTextIfChanged(byId("power"), format(state.power));
+    setTextIfChanged(byId("current-scale"), SCALE_THRESHOLDS[state.highestScaleIndex].name);
     const nextScale = SCALE_THRESHOLDS[state.highestScaleIndex + 1];
     const nextScaleDetails = nextScale ? scaleRequirementDetails(state.highestScaleIndex + 1, state) : null;
-    byId("next-scale-progress").textContent = nextScaleDetails
+    setTextIfChanged(byId("next-scale-progress"), nextScaleDetails
       ? `下一量级：${nextScale.name}（基础 ${format(nextScaleDetails.baseRequirement, 0)}${!eqBN(nextScaleDetails.rewardMultiplier, ONE) ? `；黑洞挑战奖励 ×${format(nextScaleDetails.rewardMultiplier, 5)}` : ""}${!eqBN(nextScaleDetails.blackHoleMultiplier, ONE) ? `；黑洞倍率 ×${format(nextScaleDetails.blackHoleMultiplier, 3)}` : ""}；实际需求 ${format(nextScaleDetails.actualRequirement, 0)} 战力）`
-      : "已达到当前量级系统上限";
-    byId("joules-rate").textContent = globalRateText(gain,rateStatus,format);
-    byId("power-rate").textContent = globalRateText(passivePowerGain,rateStatus,format);
-    byId("power-rate").hidden = !rateStatus.clockSuspended && !gtBN(passivePowerGain, ZERO);
-    byId("mana-resource").hidden = !immortalCultivationActive() || !state.qiRefiningUnlocked;
-    byId("mana").textContent = format(state.mana);
-    byId("mana-rate").textContent = globalRateText(passiveManaGain,rateStatus,format);
-    byId("mana-rate").hidden = !rateStatus.clockSuspended && !gtBN(passiveManaGain, ZERO);
-    byId("immortal-power-resource").hidden = !immortalPowerUnlocked();
-    byId("immortal-power").textContent = format(state.immortalPower);
-    byId("immortal-power-rate").textContent = globalRateText(passiveImmortalPowerGain,rateStatus,format);
-    byId("immortal-power-rate").hidden = !rateStatus.clockSuspended && !gtBN(passiveImmortalPowerGain, ZERO);
+      : "已达到当前量级系统上限");
+    setTextIfChanged(byId("joules-rate"), globalRateText(gain,rateStatus,format));
+    setTextIfChanged(byId("power-rate"), globalRateText(passivePowerGain,rateStatus,format));
+    setHiddenIfChanged(byId("power-rate"), !rateStatus.clockSuspended && !gtBN(passivePowerGain, ZERO));
+    setHiddenIfChanged(byId("mana-resource"), !immortalCultivationActive() || !state.qiRefiningUnlocked);
+    setTextIfChanged(byId("mana"), format(state.mana));
+    setTextIfChanged(byId("mana-rate"), globalRateText(passiveManaGain,rateStatus,format));
+    setHiddenIfChanged(byId("mana-rate"), !rateStatus.clockSuspended && !gtBN(passiveManaGain, ZERO));
+    setHiddenIfChanged(byId("immortal-power-resource"), !immortalPowerUnlocked());
+    setTextIfChanged(byId("immortal-power"), format(state.immortalPower));
+    setTextIfChanged(byId("immortal-power-rate"), globalRateText(passiveImmortalPowerGain,rateStatus,format));
+    setHiddenIfChanged(byId("immortal-power-rate"), !rateStatus.clockSuspended && !gtBN(passiveImmortalPowerGain, ZERO));
     renderAdditionalResources();
     updateNavigation();
   }
 
-  function explorationPreviewValues() {
+  // Local presentation snapshots only. Never used by explore()/settlement.
+  const explorationPreviews = new Map();
+  let explorationPreviewRefreshPending = false;
+  const explorationStructureFields = [
+    "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
+    "activeChallenge", "permanentRootLevel", "scatterRetentionLevel", "reincarnationCount",
+    "scatterRebuildLevel", "reincarnationEffectLevel", "currentQiLayer",
+    "largeScaleAdaptationPurchased", "scaleUnificationPurchased",
+    "trueSpiritTransformationLevel", "immortalLifeUnlocked", "manaLiquefactionUnlocked",
+    "manaSolidificationUnlocked", "techniqueUnlocked", "divineAbilityMasteryUnlocked",
+    "goldenSealScriptUnlocked", "silverTadpoleScriptUnlocked", "spiritWorldAscensionUnlocked",
+    "flyingEscapeUnlocked", "divineSenseUnlocked", "demonRealmJourneyUnlocked",
+    "spiritTravelVoidUnlocked", "daoTimeLawUnlocked", "daoLawUnityUnlocked",
+    "daoAssimilationUnlocked", "daoDomainUnlocked", "immortalApertureLevel", "lawUnlocked"
+  ];
+  let explorationStructureState = null, explorationStructureKey = null;
+  function markExplorationPreviewDirty() {
+    for (const snapshot of explorationPreviews.values()) snapshot.dirty = true;
+  }
+  function syncExplorationPreviewStructure() {
+    const current = runtime.getState();
+    // Discrete UI event detection also covers automation and load replacement.
+    // No resource balances, elapsed time, treasure amounts or Effect revision.
+    const key = [current.cultivation.active, current.powerSystem.active,
+      current.cultivation.systems.immortal?.xiuzhen?.realm,
+      ...explorationStructureFields.map(field => current[field]),
+      current.unlockedAchievements.seizeFoundation, current.unlockedAchievements.greatLuo,
+      ...Object.values(current.challengeCompletions || {})].join("|");
+    if (current !== explorationStructureState || key !== explorationStructureKey) {
+      explorationStructureState = current; explorationStructureKey = key;
+      markExplorationPreviewDirty();
+    }
+  }
+  function explorationPreviewSnapshot(key, element) {
+    if (document.hidden || !previewVisible(element)) return null;
+    syncExplorationPreviewStructure();
+    let snapshot = explorationPreviews.get(key);
+    if (explorationPreviewRefreshPending) return snapshot || null;
+    if (!snapshot || snapshot.dirty) {
+      const value = explorationPreviewValues({ includeFinal: key === "action" });
+      // Source text and final action gain come from the same synchronous state.
+      const records = key === "action" ? WIS.UI.SourcePreview.query(["exploration"], runtime.getState(),
+        { actionFinals: { exploration: value.mana } }) : null;
+      snapshot = { value, records, calculatedAt: Date.now(), dirty: false };
+      explorationPreviews.set(key, snapshot);
+    }
+    return snapshot;
+  }
+  function requestExplorationPreviewRefresh(button) {
+    markExplorationPreviewDirty();
+    if (document.hidden || !previewVisible(button) || button.disabled || explorationPreviewRefreshPending) return;
+    explorationPreviewRefreshPending = true;
+    button.disabled = true;
+    setTextIfChanged(button, "正在刷新…");
+    // Allow the pending label to paint. The unchanged exact calculation itself
+    // is synchronous; no Evaluation frame is held across this host yield.
+    window.requestAnimationFrame(() => window.setTimeout(() => {
+      explorationPreviewRefreshPending = false;
+      try {
+        if (!document.hidden && previewVisible(button)) runtime.call("renderImmediately", activePage);
+      } finally {
+        button.disabled = false;
+        setTextIfChanged(button, "刷新预览");
+      }
+    }, 0));
+  }
+  function ensureExplorationPreviewRefresh(element) {
+    const id = "refresh-tribulation-exploration-preview";
+    if (!element || rawById(id)) return;
+    const button = document.createElement("button");
+    button.id = id; button.type = "button"; button.textContent = "刷新预览";
+    button.addEventListener("click", () => requestExplorationPreviewRefresh(button));
+    element.parentElement.append(button);
+  }
+
+  function explorationPreviewValues({ includeFinal = true } = {}) {
     const powerCost = explorationPowerCost();
     const available = Immortal.explorationEnabled() && gteBN(powerCost, EXPLORATION_MINIMUM_POWER_COST);
     const rawAmount = available ? rawExplorationAmountForCost(powerCost) : ZERO;
     const amount = mulBN(rawAmount, divineSenseMultiplier());
     const tribulationPreview = minorTribulationPreviewForExploration(amount);
-    const mana = available
+    const mana = includeFinal && available
       ? Immortal.explorationManaGainProgressive(powerCost, amount, tribulationPreview.manaExponent)
       : ZERO;
     return { powerCost, available, rawAmount, amount, tribulationPreview, mana, canExplore: available && gteBN(mana, ONE) };
   }
 
-  const CONVERSION_PREVIEW_REFRESH_MS = 750;
   const BREATHING_NEXT_BASE_MANA_MAX_LOG_GAP = 6;
-  let conversionPreviewCache = { updatedAt: -Infinity, value: ZERO };
-  function conversionPreviewGain() {
-    const now = Date.now();
-    if (now - conversionPreviewCache.updatedAt >= CONVERSION_PREVIEW_REFRESH_MS) {
-      conversionPreviewCache = { updatedAt: now, value: conversionGain() };
-    }
-    return conversionPreviewCache.value;
-  }
 
   function breathingNextBaseManaRequirementText(nextJ, currentJ) {
     const next = BN(nextJ);
@@ -1576,15 +1569,45 @@
     return `下一档基础法力所需：${format(next, 0)} J`;
   }
 
-  function writeSourcePreview(elementId, sourceIds, assumeUnlocked = false) {
-    WIS.UI.SourcePreview.write(byId(elementId), sourceIds, format,
-      WIS.Core.Runtime.getState(), { assumeUnlocked });
+  function previewVisible(element) {
+    if (!element || element === skippedRenderElement) return false;
+    for (let node = element; node; node = node.parentElement) {
+      if (node.hidden || node.tagName === "DETAILS" && !node.open) return false;
+      if ((node.classList?.contains("page") || node.classList?.contains("cultivation-subpage")) && !node.classList.contains("active")) return false;
+    }
+    return true;
+  }
+  function heavyPreviewDue(element) {
+    const previous = heavyPreviewCache.get(element), current = runtime.getState();
+    return renderingStructure || !previous || previous.state !== current ||
+      previous.revision !== structureRevision || Date.now() - previous.at >= HEAVY_PREVIEW_REFRESH_MS;
+  }
+  function rememberPreview(element, records) {
+    heavyPreviewCache.set(element, { state:runtime.getState(), revision:structureRevision, at:Date.now(), records });
+  }
+  function setPreviewText(element, compute) {
+    if (!previewVisible(element) || !heavyPreviewDue(element)) return;
+    setTextIfChanged(element, compute());
+    rememberPreview(element);
+  }
+  function writeSourcePreview(elementId, sourceIds, assumeUnlocked = false, actionFinals = null) {
+    const element = byId(elementId);
+    if (!previewVisible(element)) return [];
+    // Presentation only: never feeds settlement or candidate evaluation.
+    // Actions independently recompute their exact result when invoked.
+    if (!heavyPreviewDue(element)) return heavyPreviewCache.get(element).records;
+    const records = WIS.UI.SourcePreview.write(element, sourceIds, format,
+      runtime.getState(), { assumeUnlocked, actionFinals });
+    rememberPreview(element, records);
+    return records;
   }
 
   function renderPageContent(pageName) {
     const renderActions = pageName === "actions";
     const renderUpgrades = pageName === "upgrades";
     const renderCultivation = pageName === "cultivation";
+    const renderRealms = renderCultivation && activeCultivationPage === "realms";
+    const renderAbilities = renderCultivation && activeCultivationPage === "abilities";
     const renderTreasures = pageName === "treasures";
     const renderStatistics = pageName === "statistics";
     let nextFoundationCost;
@@ -1601,13 +1624,12 @@
     let immortalSelected;
 
     if (renderActions) {
-      // Display-only throttling. The train action still calls Scale.train(), which
-      // recomputes conversionGain() from the current live state at click time.
-      const conversion = conversionPreviewGain();
+      // The latest hypothetical action preview drives its display eligibility.
+      // Purchases/actions force a refresh; settlement never reads this cache.
+      const conversion = writeSourcePreview("conversion-preview", "training", false)[0].final;
       const nextPowerJ = joulesForNextBasePower();
-    writeSourcePreview("conversion-preview", "training", false);
-    byId("next-power-j").textContent = `下一战力所需：${format(nextPowerJ, 0)} J`;
-    byId("train-button").disabled = ltBN(conversion, ONE);
+    setTextIfChanged(byId("next-power-j"), `下一战力所需：${format(nextPowerJ, 0)} J`);
+    setDisabledIfChanged(byId("train-button"), ltBN(conversion, ONE));
     }
     if (renderUpgrades) {
       const gym = gymMultiplier();
@@ -1616,57 +1638,57 @@
       const gymPotential = mulBN(gymPotentialMultiplier(), sonicMovementMultiplier());
       const exercisePotential = mulBN(exercisePotentialMultiplier(), extremeExerciseEffectMultiplier());
       const transcendentPotential = transcendentPotentialMultiplier();
-    byId("gym-preview").textContent = `${state.gymPurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(state.gymPurchased ? gym : gymPotential, 2)}`;
-    byId("exercise-preview").textContent = `${state.exercisePurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(state.exercisePurchased ? exercise : exercisePotential, 2)}`;
-    byId("transcendent-preview").textContent = `${state.transcendentPurchased ? "当前：" : "解锁后："}战力获取倍率 ×${format(state.transcendentPurchased ? transcendent : transcendentPotential, 2)}`;
+    setPreviewText(byId("gym-preview"), () => `${state.gymPurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(state.gymPurchased ? gym : gymPotential, 2)}`);
+    setPreviewText(byId("exercise-preview"), () => `${state.exercisePurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(state.exercisePurchased ? exercise : exercisePotential, 2)}`);
+    setPreviewText(byId("transcendent-preview"), () => `${state.transcendentPurchased ? "当前：" : "解锁后："}战力获取倍率 ×${format(state.transcendentPurchased ? transcendent : transcendentPotential, 2)}`);
     writeSourcePreview("focus-preview", "focus", true);
-    byId("breathing-method-preview").textContent = `${state.breathingMethodPurchased ? "当前：" : "解锁后："}跑步倍率 ×1.5`;
-    byId("extreme-exercise-preview").textContent = `${state.extremeExercisePurchased ? "当前：" : "解锁后："}运动倍率 ×1.5`;
+    setPreviewText(byId("breathing-method-preview"), () => `${state.breathingMethodPurchased ? "当前：" : "解锁后："}跑步倍率 ×1.5`);
+    setPreviewText(byId("extreme-exercise-preview"), () => `${state.extremeExercisePurchased ? "当前：" : "解锁后："}运动倍率 ×1.5`);
     }
     if (renderActions) {
       const fitnessCap = fitnessLevelCap();
       const nextRunningCost = runningCost();
-    byId("running-level").textContent = effectiveFitnessLevel() !== state.runningLevel
+    setTextIfChanged(byId("running-level"), effectiveFitnessLevel() !== state.runningLevel
       ? `当前：实际 ${state.runningLevel}/${fitnessCap}级；生效 ${effectiveFitnessLevel()}级`
-      : `当前：${state.runningLevel}/${fitnessCap}级`;
+      : `当前：${state.runningLevel}/${fitnessCap}级`);
     writeSourcePreview("running-rate", "fitness", false);
-    byId("running-cost").textContent = `消耗 ${formatCost(nextRunningCost)} 战力`;
-    byId("buy-running").textContent = state.runningLevel >= fitnessCap ? "已达上限" : "升级";
-    byId("buy-running").disabled = state.runningLevel >= fitnessCap || !canAffordPower(nextRunningCost);
-    byId("running-action").hidden = ltBN(state.totalPower, 1);
+    setTextIfChanged(byId("running-cost"), `消耗 ${formatCost(nextRunningCost)} 战力`);
+    setTextIfChanged(byId("buy-running"), state.runningLevel >= fitnessCap ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-running"), state.runningLevel >= fitnessCap || !canAffordPower(nextRunningCost));
+    setHiddenIfChanged(byId("running-action"), ltBN(state.totalPower, 1));
     }
     if (renderUpgrades) {
-    byId("brick-upgrades").hidden = !state.brickUnlocked && state.scatterRetentionLevel < 2;
-    byId("wall-upgrades").hidden = !state.wallUnlocked && state.scatterRetentionLevel < 3;
-    byId("house-upgrades").hidden = state.highestScaleIndex < 3;
-    byId("building-upgrades").hidden = state.highestScaleIndex < 4;
-    byId("street-upgrades").hidden = state.highestScaleIndex < 5;
-    byId("city-upgrades").hidden = state.highestScaleIndex < 6;
-    byId("country-upgrades").hidden = state.highestScaleIndex < 7;
-    byId("continent-upgrades").hidden = state.highestScaleIndex < 8;
-    byId("surface-upgrades").hidden = state.highestScaleIndex < 9;
-    byId("star-upgrades").hidden = state.highestScaleIndex < 10;
-    byId("stellar-upgrades").hidden = state.highestScaleIndex < 11;
-    byId("galaxy-upgrades").hidden = state.highestScaleIndex < 12;
-    byId("supercluster-upgrades").hidden = state.highestScaleIndex < 13;
-    byId("cosmic-upgrades").hidden = state.highestScaleIndex < 14;
+    setHiddenIfChanged(byId("brick-upgrades"), !state.brickUnlocked && state.scatterRetentionLevel < 2);
+    setHiddenIfChanged(byId("wall-upgrades"), !state.wallUnlocked && state.scatterRetentionLevel < 3);
+    setHiddenIfChanged(byId("house-upgrades"), state.highestScaleIndex < 3);
+    setHiddenIfChanged(byId("building-upgrades"), state.highestScaleIndex < 4);
+    setHiddenIfChanged(byId("street-upgrades"), state.highestScaleIndex < 5);
+    setHiddenIfChanged(byId("city-upgrades"), state.highestScaleIndex < 6);
+    setHiddenIfChanged(byId("country-upgrades"), state.highestScaleIndex < 7);
+    setHiddenIfChanged(byId("continent-upgrades"), state.highestScaleIndex < 8);
+    setHiddenIfChanged(byId("surface-upgrades"), state.highestScaleIndex < 9);
+    setHiddenIfChanged(byId("star-upgrades"), state.highestScaleIndex < 10);
+    setHiddenIfChanged(byId("stellar-upgrades"), state.highestScaleIndex < 11);
+    setHiddenIfChanged(byId("galaxy-upgrades"), state.highestScaleIndex < 12);
+    setHiddenIfChanged(byId("supercluster-upgrades"), state.highestScaleIndex < 13);
+    setHiddenIfChanged(byId("cosmic-upgrades"), state.highestScaleIndex < 14);
     }
     if (renderActions) {
       const nextRockCost = rockCost();
       const rockCap = rockLevelCap();
-    byId("rock-action").hidden = !state.wallUnlocked;
-    byId("ghost-back-action").hidden = !state.ghostBackPurchased;
-    byId("ghost-back-action").classList.toggle("purchased", state.ghostBackActive);
-    byId("ghost-back-state").textContent = state.ghostBackActive ? "当前已激活" : "当前未激活";
-    byId("toggle-ghost-back").textContent = state.ghostBackActive ? "关闭" : "激活";
-    byId("toggle-ghost-back").disabled = !state.ghostBackPurchased;
-    byId("rock-level").textContent = effectiveRockLevel() !== state.rockLevel
+    setHiddenIfChanged(byId("rock-action"), !state.wallUnlocked);
+    setHiddenIfChanged(byId("ghost-back-action"), !state.ghostBackPurchased);
+    toggleClassIfChanged(byId("ghost-back-action"), "purchased", state.ghostBackActive);
+    setTextIfChanged(byId("ghost-back-state"), state.ghostBackActive ? "当前已激活" : "当前未激活");
+    setTextIfChanged(byId("toggle-ghost-back"), state.ghostBackActive ? "关闭" : "激活");
+    setDisabledIfChanged(byId("toggle-ghost-back"), !state.ghostBackPurchased);
+    setTextIfChanged(byId("rock-level"), effectiveRockLevel() !== state.rockLevel
       ? `当前：实际 ${state.rockLevel}/${rockCap}级；生效 ${effectiveRockLevel()}级`
-      : `当前：${state.rockLevel}/${rockCap}级`;
+      : `当前：${state.rockLevel}/${rockCap}级`);
     writeSourcePreview("rock-rate", "rock", false);
-    byId("rock-cost").textContent = `消耗 ${formatCost(nextRockCost)} 战力`;
-    byId("buy-rock").textContent = state.rockLevel >= rockCap ? "已达上限" : "升级";
-    byId("buy-rock").disabled = state.rockLevel >= rockCap || !canAffordPower(nextRockCost);
+    setTextIfChanged(byId("rock-cost"), `消耗 ${formatCost(nextRockCost)} 战力`);
+    setTextIfChanged(byId("buy-rock"), state.rockLevel >= rockCap ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-rock"), state.rockLevel >= rockCap || !canAffordPower(nextRockCost));
     }
     if (renderUpgrades) {
       const waterPotential = waterPotentialJMultiplier();
@@ -1675,117 +1697,175 @@
       const intuitionPotential = intuitionPotentialFocusMultiplier();
       const carbonLimitPotential = carbonLimitPotentialFitnessBonus();
       const nextMindDivisionCost = mindDivisionCost();
-    byId("water-preview").textContent = `${state.waterPurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(waterPotential, 2)}`;
+    setPreviewText(byId("water-preview"), () => `${state.waterPurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(waterPotential, 2)}`);
     writeSourcePreview("ghost-brain-preview", "ghostBrain", true);
-    byId("natural-strength-preview").textContent = `${state.naturalStrengthPurchased ? "当前：" : "解锁后："}战力获取倍率 ×${format(naturalStrengthPotential, 2)}`;
-    byId("mental-power-preview").textContent = `${state.mentalPowerPurchased ? "当前：集中比例" : "解锁后：集中比例"} ${state.mentalPowerPurchased ? `${(focusPercent() * 100).toFixed(1)}%` : "+1个百分点"}`;
-    byId("life-power-preview").textContent = `${state.lifePowerPurchased ? "当前：" : "解锁后："}健身倍率 ×1.50`;
-    byId("my-style-preview").textContent = `${state.myStylePurchased ? "当前：" : "解锁后："}健身倍率 ×${format(myStylePotential, 2)}`;
-    byId("intuition-preview").textContent = `${state.intuitionPurchased ? "当前：" : "解锁后："}集中倍率 ×${format(intuitionPotential, 2)}`;
-    byId("sonic-movement-preview").textContent = `${state.sonicMovementPurchased ? "当前：" : "解锁后："}跑步倍率 ×${format(state.sonicMovementPurchased ? sonicMovementMultiplier() : sonicMovementPotentialMultiplier(), 2)}`;
-    byId("carbon-limit-preview").textContent = `${state.carbonLimitPurchased ? "当前：" : "解锁后："}健身倍率加法 +${format(carbonLimitPotential, 2)}`;
+    setPreviewText(byId("natural-strength-preview"), () => `${state.naturalStrengthPurchased ? "当前：" : "解锁后："}战力获取倍率 ×${format(naturalStrengthPotential, 2)}`);
+    setPreviewText(byId("mental-power-preview"), () => `${state.mentalPowerPurchased ? "当前：集中比例" : "解锁后：集中比例"} ${state.mentalPowerPurchased ? `${(focusPercent() * 100).toFixed(1)}%` : "+1个百分点"}`);
+    setPreviewText(byId("life-power-preview"), () => `${state.lifePowerPurchased ? "当前：" : "解锁后："}健身倍率 ×1.50`);
+    setPreviewText(byId("my-style-preview"), () => `${state.myStylePurchased ? "当前：" : "解锁后："}健身倍率 ×${format(myStylePotential, 2)}`);
+    setPreviewText(byId("intuition-preview"), () => `${state.intuitionPurchased ? "当前：" : "解锁后："}集中倍率 ×${format(intuitionPotential, 2)}`);
+    setPreviewText(byId("sonic-movement-preview"), () => `${state.sonicMovementPurchased ? "当前：" : "解锁后："}跑步倍率 ×${format(state.sonicMovementPurchased ? sonicMovementMultiplier() : sonicMovementPotentialMultiplier(), 2)}`);
+    setPreviewText(byId("carbon-limit-preview"), () => `${state.carbonLimitPurchased ? "当前：" : "解锁后："}健身倍率加法 +${format(carbonLimitPotential, 2)}`);
     writeSourcePreview("killing-intent-preview", "killingIntent", true);
-    byId("biological-quantification-preview").textContent = `${state.biologicalQuantificationPurchased ? "当前：" : "解锁后："}健身 J ×12；健身上限 +30`;
-    byId("ghost-man-transformation-preview").textContent = `${state.ghostManTransformationPurchased ? "当前：" : "解锁后："}打岩生效等级 ${state.ghostManTransformationPurchased ? effectiveRockLevel() : `${effectiveRockLevel()} + 健身实际 ${state.runningLevel}`}`;
-    byId("destroy-country-preview").textContent = `${state.destroyCountryPurchased ? "当前：" : "解锁后："}打岩 ×1e4；打岩上限 +50`;
-    byId("human-ghost-transformation-preview").textContent = `${state.humanGhostTransformationPurchased ? "当前：" : "解锁后："}健身生效等级 ${state.humanGhostTransformationPurchased ? effectiveFitnessLevel() : `${state.runningLevel} + 打岩实际 ${state.rockLevel}`}`;
-    byId("killing-intent-substance-preview").textContent = `${state.killingIntentSubstancePurchased ? "当前：" : "解锁后："}杀气提取比例 ×5`;
-    byId("energy-cycle-preview").textContent = `${state.energyCyclePurchased ? "当前：" : "解锁后："}鬼脑来源 ×12`;
-    byId("mountain-shatter-preview").textContent = `${state.mountainShatterPurchased ? "当前：" : "解锁后："}战力区域 ^1.015`;
-    byId("bioenergy-preview").textContent = `${state.bioenergyPurchased ? "当前：" : "解锁后："}J 区域 ×3`;
+    setPreviewText(byId("biological-quantification-preview"), () => `${state.biologicalQuantificationPurchased ? "当前：" : "解锁后："}健身 J ×12；健身上限 +30`);
+    setPreviewText(byId("ghost-man-transformation-preview"), () => `${state.ghostManTransformationPurchased ? "当前：" : "解锁后："}打岩生效等级 ${state.ghostManTransformationPurchased ? effectiveRockLevel() : `${effectiveRockLevel()} + 健身实际 ${state.runningLevel}`}`);
+    setPreviewText(byId("destroy-country-preview"), () => `${state.destroyCountryPurchased ? "当前：" : "解锁后："}打岩 ×1e4；打岩上限 +50`);
+    setPreviewText(byId("human-ghost-transformation-preview"), () => `${state.humanGhostTransformationPurchased ? "当前：" : "解锁后："}健身生效等级 ${state.humanGhostTransformationPurchased ? effectiveFitnessLevel() : `${state.runningLevel} + 打岩实际 ${state.rockLevel}`}`);
+    setPreviewText(byId("killing-intent-substance-preview"), () => `${state.killingIntentSubstancePurchased ? "当前：" : "解锁后："}杀气提取比例 ×5`);
+    setPreviewText(byId("energy-cycle-preview"), () => `${state.energyCyclePurchased ? "当前：" : "解锁后："}鬼脑来源 ×12`);
+    setPreviewText(byId("mountain-shatter-preview"), () => `${state.mountainShatterPurchased ? "当前：" : "解锁后："}战力区域 ^1.015`);
+    setPreviewText(byId("bioenergy-preview"), () => `${state.bioenergyPurchased ? "当前：" : "解锁后："}J 区域 ×3`);
     writeSourcePreview("elementalization-preview", "elementalization", true);
-    byId("killing-intent-perception-preview").textContent = `${state.killingIntentPerceptionPurchased ? "当前：" : "解锁后："}杀气提取比例 ${(state.killingIntentPerceptionPurchased ? killingIntentExtractionRatio() : 5e-4) * 100}%`;
-    byId("killing-intent-wave-preview").textContent = `${state.killingIntentWavePurchased ? "当前：" : "解锁后："}杀气来源 ^${format(killingIntentWavePotentialExponent(), 3)}`;
+    setPreviewText(byId("killing-intent-perception-preview"), () => `${state.killingIntentPerceptionPurchased ? "当前：" : "解锁后："}杀气提取比例 ${(state.killingIntentPerceptionPurchased ? killingIntentExtractionRatio() : 5e-4) * 100}%`);
+    setPreviewText(byId("killing-intent-wave-preview"), () => `${state.killingIntentWavePurchased ? "当前：" : "解锁后："}杀气来源 ^${format(killingIntentWavePotentialExponent(), 3)}`);
     writeSourcePreview("ultimate-intent-preview", "ultimateIntent", true);
-    byId("brain-domain-development-preview").textContent = `${state.brainDomainDevelopmentPurchased ? "当前：" : "解锁后："}鬼脑来源 ^${format(brainDomainDevelopmentPotentialExponent(), 3)}`;
-    byId("continent-split-preview").textContent = `${state.continentSplitPurchased ? "当前：" : "解锁后："}打岩生效等级 +${format(Math.pow(state.rockLevel, 1.8))}`;
-    byId("continent-collapse-preview").textContent = `${state.continentCollapsePurchased ? "当前：" : "解锁后："}打岩来源 ^${format(continentCollapsePotentialExponent(), 3)}`;
-    byId("wave-eye-preview").textContent = `${state.waveEyePurchased ? "当前：" : "解锁后："}杀气来源 ^1.75`;
-    byId("elemental-awakening-preview").textContent = `${state.elementalAwakeningPurchased ? "当前：" : "解锁后："}元素化来源 ^1.52`;
-    byId("moonfall-preview").textContent = `${state.moonfallPurchased ? "当前：" : "解锁后："}打岩来源 ×50`;
-    byId("flow-state-preview").textContent = `${state.flowStatePurchased ? "当前：" : "解锁后："}极意来源 ×${format(flowUltimateIntentMultiplier(), 3)}`;
-    byId("selfhood-preview").textContent = `${state.selfhoodPurchased ? "当前：" : "解锁后："}极意来源 ^1.04`;
-    byId("freedom-preview").textContent = `${state.freedomPurchased ? "当前：" : "解锁后："}极意来源 ^1.03`;
-    byId("chicxulub-meteorite-preview").textContent = `${state.chicxulubMeteoritePurchased ? "当前：" : "解锁后："}战力区域 ×10`;
-    byId("planet-will-preview").textContent = scaleUpgradePreviewText("planetWill", state, format);
+    setPreviewText(byId("brain-domain-development-preview"), () => `${state.brainDomainDevelopmentPurchased ? "当前：" : "解锁后："}鬼脑来源 ^${format(brainDomainDevelopmentPotentialExponent(), 3)}`);
+    setPreviewText(byId("continent-split-preview"), () => `${state.continentSplitPurchased ? "当前：" : "解锁后："}打岩生效等级 +${format(Math.pow(state.rockLevel, 1.8))}`);
+    setPreviewText(byId("continent-collapse-preview"), () => `${state.continentCollapsePurchased ? "当前：" : "解锁后："}打岩来源 ^${format(continentCollapsePotentialExponent(), 3)}`);
+    setPreviewText(byId("wave-eye-preview"), () => `${state.waveEyePurchased ? "当前：" : "解锁后："}杀气来源 ^1.75`);
+    setPreviewText(byId("elemental-awakening-preview"), () => `${state.elementalAwakeningPurchased ? "当前：" : "解锁后："}元素化来源 ^1.52`);
+    setPreviewText(byId("moonfall-preview"), () => `${state.moonfallPurchased ? "当前：" : "解锁后："}打岩来源 ×50`);
+    setPreviewText(byId("flow-state-preview"), () => `${state.flowStatePurchased ? "当前：" : "解锁后："}极意来源 ×${format(flowUltimateIntentMultiplier(), 3)}`);
+    setPreviewText(byId("selfhood-preview"), () => `${state.selfhoodPurchased ? "当前：" : "解锁后："}极意来源 ^1.04`);
+    setPreviewText(byId("freedom-preview"), () => `${state.freedomPurchased ? "当前：" : "解锁后："}极意来源 ^1.03`);
+    setPreviewText(byId("chicxulub-meteorite-preview"), () => `${state.chicxulubMeteoritePurchased ? "当前：" : "解锁后："}战力区域 ×10`);
+    setPreviewText(byId("planet-will-preview"), () => scaleUpgradePreviewText("planetWill", state, format));
     byId("planet-will-preview").title = "按当前资源估算，未预扣购买费用。";
-    byId("star-spirit-preview").textContent = scaleUpgradePreviewText("starSpirit", state, format);
+    setPreviewText(byId("star-spirit-preview"), () => scaleUpgradePreviewText("starSpirit", state, format));
     byId("star-spirit-preview").title = "按当前资源估算，未预扣购买费用。";
-    byId("star-shatter-preview").textContent = scaleUpgradePreviewText("starShatter", state, format);
+    setPreviewText(byId("star-shatter-preview"), () => scaleUpgradePreviewText("starShatter", state, format));
     byId("star-shatter-preview").title = "按当前资源估算，未预扣购买费用。";
-    byId("space-quake-preview").textContent = `${state.spaceQuakePurchased ? "当前：" : "解锁后："}爆星软上限损失 ×0.97`;
-    byId("selfless-preview").textContent = `${state.selflessPurchased ? "当前：" : "解锁后："}极意来源 ×${format(CONFIG.starEnhancements.selfless.ultimateIntentMultiplier)}`;
-    byId("supernatural-fire-preview").textContent = scaleUpgradePreviewText("supernaturalFire", state, format);
+    setPreviewText(byId("space-quake-preview"), () => `${state.spaceQuakePurchased ? "当前：" : "解锁后："}爆星软上限损失 ×0.97`);
+    setPreviewText(byId("selfless-preview"), () => `${state.selflessPurchased ? "当前：" : "解锁后："}极意来源 ×${format(CONFIG.starEnhancements.selfless.ultimateIntentMultiplier)}`);
+    setPreviewText(byId("supernatural-fire-preview"), () => scaleUpgradePreviewText("supernaturalFire", state, format));
     byId("supernatural-fire-preview").title = "按当前资源估算，未预扣购买费用。";
-    byId("five-spirit-stone-preview").textContent = state.fiveSpiritStonePurchased ? "当前：已解锁五灵石获取资格" : "解锁后：极意有效时每秒判定五灵石";
+    setPreviewText(byId("five-spirit-stone-preview"), () => state.fiveSpiritStonePurchased ? "当前：已解锁五灵石获取资格" : "解锁后：极意有效时每秒判定五灵石");
     const currentJBaseSoftcapExponent = resourceSoftcapBaseExponent(state.joules);
     const potentialSelfSuppressionExponent = selfSuppressionJExponentFromBase(currentJBaseSoftcapExponent);
-    byId("self-suppression-preview").textContent = `${state.selfSuppressionPurchased ? "当前：" : "解锁后："}J区域 ^${(state.selfSuppressionPurchased ? selfSuppressionJExponent() : potentialSelfSuppressionExponent).toFixed(5)}（空间震前基础软上限 ^${formatSoftcapExponent(currentJBaseSoftcapExponent)}）`;
-    byId("stellar-furnace-preview").textContent = `${state.stellarFurnacePurchased ? "当前：" : "解锁后："}J 区域 ×1e12`;
-    byId("stellar-treasure-seeking-preview").textContent = scaleUpgradePreviewText("stellarTreasureSeeking", state, format);
+    setPreviewText(byId("self-suppression-preview"), () => `${state.selfSuppressionPurchased ? "当前：" : "解锁后："}J区域 ^${(state.selfSuppressionPurchased ? selfSuppressionJExponent() : potentialSelfSuppressionExponent).toFixed(5)}（空间震前基础软上限 ^${formatSoftcapExponent(currentJBaseSoftcapExponent)}）`);
+    setPreviewText(byId("stellar-furnace-preview"), () => `${state.stellarFurnacePurchased ? "当前：" : "解锁后："}J 区域 ×1e12`);
+    setPreviewText(byId("stellar-treasure-seeking-preview"), () => scaleUpgradePreviewText("stellarTreasureSeeking", state, format));
     byId("stellar-treasure-seeking-preview").title = "按当前资源估算，未预扣购买费用。";
-    byId("gravitational-collapse-preview").textContent = `${state.gravitationalCollapsePurchased ? "当前：" : "解锁后："}战力区域 ×1e12`;
-    byId("galactic-return-preview").textContent = `${state.galacticReturnPurchased ? "当前：" : "解锁后："}J 区域 ×1e12`;
-    byId("stellar-sea-gift-preview").textContent = `${state.stellarSeaGiftPurchased ? "当前：" : "解锁后："}可堆叠宝物获得数量 ×2`;
-    byId("stellar-resonance-preview").textContent = `${state.stellarResonancePurchased ? "当前：" : "解锁后："}战力区域 ×1e4`;
-    byId("great-attractor-preview").textContent = `${state.greatAttractorPurchased ? "当前：" : "解锁后："}J 区域 ^1.02`;
-    byId("large-scale-adaptation-preview").textContent = `${state.largeScaleAdaptationPurchased ? "当前：" : "解锁后："}古戈尔惩罚强度 ×0.95`;
-    byId("supercluster-collapse-preview").textContent = `${state.superclusterCollapsePurchased ? "当前：" : "解锁后："}战力区域 ^1.02`;
-    byId("cosmic-web-preview").textContent = `${state.cosmicWebPurchased ? "当前：" : "解锁后："}J 区域 ^1.03`;
-    byId("scale-unification-preview").textContent = `${state.scaleUnificationPurchased ? "当前：" : "解锁后："}古戈尔惩罚强度 ×0.85`;
-    byId("spacetime-framework-preview").textContent = `${state.spacetimeFrameworkPurchased ? "当前：" : "解锁后："}战力区域 ^1.03`;
-    byId("rock-strike-preview").textContent = `${state.rockStrikePurchased ? "当前：" : "解锁后："}打岩来源 ×2；等级上限 +20`;
-    byId("high-speed-metabolism-preview").textContent = `${state.highSpeedMetabolismPurchased ? "当前：" : "解锁后："}锻炼来源 ×1.75`;
-    byId("endurance-enhancement-preview").textContent = `${state.enduranceEnhancementPurchased ? "当前：" : "解锁后："}健身倍率 ×2；等级上限 +20`;
-    byId("bullet-time-preview").textContent = `${state.bulletTimePurchased ? "当前：" : "解锁后："}战力获取倍率 ×1.5`;
-    byId("dynamic-focus-preview").textContent = `${state.dynamicFocusPurchased ? "当前：" : "解锁后："}集中倍率 ×1.5`;
-    byId("super-perception-preview").textContent = `${state.superPerceptionPurchased ? "当前：" : "解锁后："}直感倍率 ×1.50`;
-    byId("invulnerable-preview").textContent = `${state.invulnerablePurchased ? "当前：" : "解锁后："}健身来源 ^1.15`;
-    byId("regeneration-preview").textContent = `${state.regenerationPurchased ? "当前：" : "解锁后："}健身倍率 ×${regenerationFitnessMultiplier().toFixed(2)}`;
-    byId("superpower-preview").textContent = `${state.superpowerPurchased ? "当前：" : "解锁后："}战力区域 ^${superpowerExponent().toFixed(2)}`;
-    byId("super-speed-thinking-preview").textContent = `${state.superSpeedThinkingPurchased ? "当前：" : "解锁后："}杀气倍率 ×5.00`;
-    byId("mountain-collapse-preview").textContent = `${state.mountainCollapsePurchased ? "当前：" : "解锁后："}打岩来源 ^${mountainCollapseExponent().toFixed(3)}；等级上限 +20`;
-    byId("mind-division-preview").textContent = `当前：${state.mindDivisionLevel}/3级；集中比例 ${(focusPercent() * 100).toFixed(1)}%`;
-    byId("mind-division-cost").textContent = state.mindDivisionLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextMindDivisionCost)} 战力`;
-    byId("buy-mind-division").textContent = state.mindDivisionLevel >= 3 ? "已达上限" : "升级";
-    byId("buy-mind-division").disabled = !state.focusPurchased || state.mindDivisionLevel >= 3 || !canAffordPower(nextMindDivisionCost);
-    byId("mind-division-upgrade").classList.toggle("purchased", state.mindDivisionLevel >= 3);
-    byId("hyper-regeneration-preview").textContent = `${state.hyperRegenerationPurchased ? "当前：" : "解锁后："}再生 ×15；健身上限 +20`;
-    byId("superpower-evolution-preview").textContent = `${state.superpowerEvolutionPurchased ? "当前：" : "解锁后："}异能指数 1.06`;
-    byId("earth-split-preview").textContent = `${state.earthSplitPurchased ? "当前：" : "解锁后："}崩山指数 ${(1.1 + 0.02 * Math.log10(1 + state.rockLevel / 10)).toFixed(3)}；打岩上限 +20`;
-    byId("mental-domain-preview").textContent = `${state.mentalDomainPurchased ? "当前：" : "解锁后："}鬼脑来源倍率 ×5`;
-    byId("godspeed-preview").textContent = `${state.godspeedPurchased ? "当前：" : "解锁后："}音速移动指数 ${format(godspeedPotentialExponent(), 3)}；音速移动倍率 ×${format(sonicMovementMultiplierForExponent(godspeedPotentialExponent()), 2)}`;
-    byId("subtle-preview").textContent = `${state.subtlePurchased ? "当前：" : "解锁后："}集中来源 ^1.05`;
-    byId("sky-split-preview").textContent = `${state.skySplitPurchased ? "当前：" : "解锁后："}鬼脑来源倍率 ×${format(skySplitPotentialMultiplier(), 2)}`;
+    setPreviewText(byId("gravitational-collapse-preview"), () => `${state.gravitationalCollapsePurchased ? "当前：" : "解锁后："}战力区域 ×1e12`);
+    setPreviewText(byId("galactic-return-preview"), () => `${state.galacticReturnPurchased ? "当前：" : "解锁后："}J 区域 ×1e12`);
+    setPreviewText(byId("stellar-sea-gift-preview"), () => `${state.stellarSeaGiftPurchased ? "当前：" : "解锁后："}可堆叠宝物获得数量 ×2`);
+    setPreviewText(byId("stellar-resonance-preview"), () => `${state.stellarResonancePurchased ? "当前：" : "解锁后："}战力区域 ×1e4`);
+    setPreviewText(byId("great-attractor-preview"), () => `${state.greatAttractorPurchased ? "当前：" : "解锁后："}J 区域 ^1.02`);
+    setPreviewText(byId("large-scale-adaptation-preview"), () => `${state.largeScaleAdaptationPurchased ? "当前：" : "解锁后："}古戈尔惩罚强度 ×0.95`);
+    setPreviewText(byId("supercluster-collapse-preview"), () => `${state.superclusterCollapsePurchased ? "当前：" : "解锁后："}战力区域 ^1.02`);
+    setPreviewText(byId("cosmic-web-preview"), () => `${state.cosmicWebPurchased ? "当前：" : "解锁后："}J 区域 ^1.03`);
+    setPreviewText(byId("scale-unification-preview"), () => `${state.scaleUnificationPurchased ? "当前：" : "解锁后："}古戈尔惩罚强度 ×0.85`);
+    setPreviewText(byId("spacetime-framework-preview"), () => `${state.spacetimeFrameworkPurchased ? "当前：" : "解锁后："}战力区域 ^1.03`);
+    setPreviewText(byId("rock-strike-preview"), () => `${state.rockStrikePurchased ? "当前：" : "解锁后："}打岩来源 ×2；等级上限 +20`);
+    setPreviewText(byId("high-speed-metabolism-preview"), () => `${state.highSpeedMetabolismPurchased ? "当前：" : "解锁后："}锻炼来源 ×1.75`);
+    setPreviewText(byId("endurance-enhancement-preview"), () => `${state.enduranceEnhancementPurchased ? "当前：" : "解锁后："}健身倍率 ×2；等级上限 +20`);
+    setPreviewText(byId("bullet-time-preview"), () => `${state.bulletTimePurchased ? "当前：" : "解锁后："}战力获取倍率 ×1.5`);
+    setPreviewText(byId("dynamic-focus-preview"), () => `${state.dynamicFocusPurchased ? "当前：" : "解锁后："}集中倍率 ×1.5`);
+    setPreviewText(byId("super-perception-preview"), () => `${state.superPerceptionPurchased ? "当前：" : "解锁后："}直感倍率 ×1.50`);
+    setPreviewText(byId("invulnerable-preview"), () => `${state.invulnerablePurchased ? "当前：" : "解锁后："}健身来源 ^1.15`);
+    setPreviewText(byId("regeneration-preview"), () => `${state.regenerationPurchased ? "当前：" : "解锁后："}健身倍率 ×${regenerationFitnessMultiplier().toFixed(2)}`);
+    setPreviewText(byId("superpower-preview"), () => `${state.superpowerPurchased ? "当前：" : "解锁后："}战力区域 ^${superpowerExponent().toFixed(2)}`);
+    setPreviewText(byId("super-speed-thinking-preview"), () => `${state.superSpeedThinkingPurchased ? "当前：" : "解锁后："}杀气倍率 ×5.00`);
+    setPreviewText(byId("mountain-collapse-preview"), () => `${state.mountainCollapsePurchased ? "当前：" : "解锁后："}打岩来源 ^${mountainCollapseExponent().toFixed(3)}；等级上限 +20`);
+    setPreviewText(byId("mind-division-preview"), () => `当前：${state.mindDivisionLevel}/3级；集中比例 ${(focusPercent() * 100).toFixed(1)}%`);
+    setTextIfChanged(byId("mind-division-cost"), state.mindDivisionLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextMindDivisionCost)} 战力`);
+    setTextIfChanged(byId("buy-mind-division"), state.mindDivisionLevel >= 3 ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-mind-division"), !state.focusPurchased || state.mindDivisionLevel >= 3 || !canAffordPower(nextMindDivisionCost));
+    toggleClassIfChanged(byId("mind-division-upgrade"), "purchased", state.mindDivisionLevel >= 3);
+    setPreviewText(byId("hyper-regeneration-preview"), () => `${state.hyperRegenerationPurchased ? "当前：" : "解锁后："}再生 ×15；健身上限 +20`);
+    setPreviewText(byId("superpower-evolution-preview"), () => `${state.superpowerEvolutionPurchased ? "当前：" : "解锁后："}异能指数 1.06`);
+    setPreviewText(byId("earth-split-preview"), () => `${state.earthSplitPurchased ? "当前：" : "解锁后："}崩山指数 ${(1.1 + 0.02 * Math.log10(1 + state.rockLevel / 10)).toFixed(3)}；打岩上限 +20`);
+    setPreviewText(byId("mental-domain-preview"), () => `${state.mentalDomainPurchased ? "当前：" : "解锁后："}鬼脑来源倍率 ×5`);
+    setPreviewText(byId("godspeed-preview"), () => `${state.godspeedPurchased ? "当前：" : "解锁后："}音速移动指数 ${format(godspeedPotentialExponent(), 3)}；音速移动倍率 ×${format(sonicMovementMultiplierForExponent(godspeedPotentialExponent()), 2)}`);
+    setPreviewText(byId("subtle-preview"), () => `${state.subtlePurchased ? "当前：" : "解锁后："}集中来源 ^1.05`);
+    setPreviewText(byId("sky-split-preview"), () => `${state.skySplitPurchased ? "当前：" : "解锁后："}鬼脑来源倍率 ×${format(skySplitPotentialMultiplier(), 2)}`);
     }
     if (renderActions) {
-      const manaGain = Immortal.breathingManaGainProgressive();
+    setHiddenIfChanged(byId("breathing-action"), !immortalCultivationActive() || !state.qiRefiningUnlocked);
+    setHiddenIfChanged(byId("exploration-action"), !immortalCultivationActive() || !state.goldenCoreUnlocked);
+    if (immortalCultivationActive() && state.qiRefiningUnlocked && previewVisible(byId("breathing-preview"))) {
+      const breathingElement = byId("breathing-preview");
+      if (heavyPreviewDue(breathingElement)) {
+        const manaGain = Immortal.breathingManaGainProgressive();
+        writeSourcePreview("breathing-preview", "breathing", false, { breathing: manaGain });
+      }
+      const manaGain = heavyPreviewCache.get(breathingElement).records[0].final;
       const nextManaJ = joulesForNextBaseMana();
-      const exploration = explorationPreviewValues();
       const breathingJAvailable = gteBN(state.joules, 3000);
       const breathingGainAvailable = gtBN(manaGain, ZERO);
-    byId("breathing-action").hidden = !immortalCultivationActive() || !state.qiRefiningUnlocked;
-    writeSourcePreview("breathing-preview", "breathing", false);
-    byId("next-mana-j").textContent = breathingNextBaseManaRequirementText(nextManaJ, state.joules);
-    byId("breathing-button").disabled = !breathingJAvailable || !breathingGainAvailable;
-    byId("exploration-action").hidden = !immortalCultivationActive() || !state.goldenCoreUnlocked;
-    writeSourcePreview("exploration-preview", "exploration", false);
-    byId("exploration-cost").textContent = "消耗当前 10% 战力，至少消耗 1M";
-    byId("exploration-button").disabled = !exploration.canExplore;
+    setTextIfChanged(byId("next-mana-j"), breathingNextBaseManaRequirementText(nextManaJ, state.joules));
+    setDisabledIfChanged(byId("breathing-button"), !breathingJAvailable || !breathingGainAvailable);
+    }
+    if (immortalCultivationActive() && state.goldenCoreUnlocked) {
+    const snapshot = explorationPreviewSnapshot("action", byId("exploration-preview"));
+    if (snapshot) {
+      setTextIfChanged(byId("exploration-preview"), WIS.UI.SourcePreview.text(snapshot.records, format));
+      toggleClassIfChanged(byId("exploration-preview"), "source-gain-preview", true);
+      setTextIfChanged(byId("exploration-preview-status"), "上次精确预览；实际收益以点击探寻时为准");
+    }
+    setTextIfChanged(byId("exploration-cost"), "消耗当前 10% 战力，至少消耗 1M");
+    // A stale low-yield preview must never prevent a newly valid live action.
+    // The formal action is the authority for gain and payment eligibility.
+    setDisabledIfChanged(byId("exploration-button"), !Immortal.explorationEnabled() ||
+      ltBN(explorationPowerCost(), EXPLORATION_MINIMUM_POWER_COST));
+    }
     }
 
     if (renderCultivation) {
-    ensureAdvancedRealmAbilityGroups();
-    const exploration = explorationPreviewValues();
-    const explorationAvailable = exploration.available;
-    const currentExplorationPowerCost = exploration.powerCost;
-    const currentExplorationAmount = exploration.amount;
-    const currentExplorationTribulationPreview = exploration.tribulationPreview;
+    if (renderingStructure) ensureAdvancedRealmAbilityGroups();
+    nextFoundationCost = foundationCost();
+    nextGoldenCoreCost = goldenCoreCost();
+    const cultivationSelected = Boolean(state.cultivation.active);
+    immortalSelected = immortalCultivationActive();
+    const cultivationBlocked = state.activeChallenge === "fiveMisfortunes";
+    if (activePage === "cultivation") {
+      const cultivationCard = document.querySelector('[data-cultivation-card="仙道"]');
+      const cultivationButton = document.querySelector('[data-cultivation="仙道"]');
+      toggleClassIfChanged(cultivationCard, "selected", immortalSelected);
+      setTextIfChanged(cultivationButton, immortalSelected ? "已选择" : cultivationSelected ? "已选择其他体系" : cultivationBlocked ? "五弊挑战中不可选择" : "选择仙道");
+      setDisabledIfChanged(cultivationButton, cultivationSelected || cultivationBlocked);
+    }
+    setHiddenIfChanged(byId("cultivation-choices"), cultivationSelected);
+    setTextIfChanged(byId("cultivation-status"), immortalSelected
+      ? "已选择：仙道（转世重修不会重置体系）"
+      : cultivationSelected ? `已选择：${state.cultivation.active}`
+        : cultivationBlocked ? "五弊挑战中无法选择体系" : "尚未选择体系");
+    setHiddenIfChanged(byId("immortal-progress"), !immortalSelected);
+    if (renderRealms) {
+    setHiddenIfChanged(byId("foundation-stage"), !state.qiRefiningUnlocked);
+    setTextIfChanged(byId("foundation-cost"), `消耗 ${formatCost(nextFoundationCost)} 法力`);
+    const qiChallengeActive = qiRefiningChallengeActive();
+    const foundationStage = byId("foundation-stage");
+    setTextIfChanged(foundationStage.querySelector("h2"), qiChallengeActive
+      ? `炼气${format(state.currentQiLayer + 1, 0)}层`
+      : "筑基");
+    setTextIfChanged(foundationStage.querySelector(".item-content p"), qiChallengeActive
+      ? "消耗法力提升炼气层数"
+      : "百日筑基，吐纳更难获得法力，解除爆屋软上限。");
+    setTextIfChanged(foundationStage.querySelector(".purchase-control span"), qiChallengeActive
+      ? `当前炼气${format(state.currentQiLayer, 0)}层`
+      : "进入筑基境界");
+    setHiddenIfChanged(byId("golden-core-stage"), !state.foundationUnlocked);
+    setTextIfChanged(byId("golden-core-cost"), `消耗 ${formatCost(nextGoldenCoreCost)} 法力`);
+    ADVANCED_REALMS.forEach((realm, index) => {
+      const unlocked = state.advancedRealmLevel > index;
+      const isNextRealm = state.goldenCoreUnlocked && state.advancedRealmLevel === index;
+      const resourceKey = advancedRealmResource(index);
+      const resourceName = resourceKey === "immortalPower" ? "仙灵力" : "法力";
+      const resourceAmount = resourceKey === "immortalPower" ? state.immortalPower : state.mana;
+      setHiddenIfChanged(byId(`${realm.slug}-stage`), !state.goldenCoreUnlocked || index > state.advancedRealmLevel);
+      setTextIfChanged(byId(`${realm.slug}-cost`), `消耗 ${formatCost(advancedRealmCost(index))} ${resourceName}`);
+      updateOneTimeUnlock(`${realm.slug}-stage`, `unlock-${realm.slug}`, unlocked, isNextRealm && gteBN(resourceAmount, advancedRealmCost(index)));
+      if (index === 9 && !unlocked && challengeCompletionCount("severSelfCorpse") < 1) {
+        setTextIfChanged(byId(`${realm.slug}-cost`), `消耗 ${formatCost(advancedRealmCost(index))} 仙灵力；需先完成斩自我尸`);
+        setDisabledIfChanged(byId(`unlock-${realm.slug}`), true);
+      }
+    });
+    }
+    if (renderAbilities) {
     nextQiSpellCost = qiSpellCost();
     nextLongevityCost = longevityCost();
     nextFoundationSpellCost = foundationSpellCost();
-    nextFoundationCost = foundationCost();
-    nextGoldenCoreCost = goldenCoreCost();
     nextGoldenCoreLongevityCost = goldenCoreLongevityCost();
     nextLongevity800Cost = longevity800Cost();
     nextHeavenlyTreasureCost = heavenlyTreasureCost();
@@ -1798,51 +1878,6 @@
     updateSortCost("longevity-800-ability", nextLongevity800Cost, state.longevity800Level >= 4);
     updateSortCost("heavenly-treasure-ability", nextHeavenlyTreasureCost, state.heavenlyTreasureLevel >= 3);
     updateSortCost("mystic-heavenly-treasure-ability", nextMysticHeavenlyTreasureCost, state.mysticHeavenlyTreasureLevel >= 3);
-    const cultivationSelected = Boolean(state.cultivation.active);
-    immortalSelected = immortalCultivationActive();
-    const cultivationBlocked = state.activeChallenge === "fiveMisfortunes";
-    if (activePage === "cultivation") {
-      const cultivationCard = document.querySelector('[data-cultivation-card="仙道"]');
-      const cultivationButton = document.querySelector('[data-cultivation="仙道"]');
-      cultivationCard.classList.toggle("selected", immortalSelected);
-      cultivationButton.textContent = immortalSelected ? "已选择" : cultivationSelected ? "已选择其他体系" : cultivationBlocked ? "五弊挑战中不可选择" : "选择仙道";
-      cultivationButton.disabled = cultivationSelected || cultivationBlocked;
-    }
-    byId("cultivation-choices").hidden = cultivationSelected;
-    byId("cultivation-status").textContent = immortalSelected
-      ? "已选择：仙道（转世重修不会重置体系）"
-      : cultivationSelected ? `已选择：${state.cultivation.active}`
-        : cultivationBlocked ? "五弊挑战中无法选择体系" : "尚未选择体系";
-    byId("immortal-progress").hidden = !immortalSelected;
-    byId("foundation-stage").hidden = !state.qiRefiningUnlocked;
-    byId("foundation-cost").textContent = `消耗 ${formatCost(nextFoundationCost)} 法力`;
-    const qiChallengeActive = qiRefiningChallengeActive();
-    const foundationStage = byId("foundation-stage");
-    foundationStage.querySelector("h2").textContent = qiChallengeActive
-      ? `炼气${format(state.currentQiLayer + 1, 0)}层`
-      : "筑基";
-    foundationStage.querySelector(".item-content p").textContent = qiChallengeActive
-      ? "消耗法力提升炼气层数"
-      : "百日筑基，吐纳更难获得法力，解除爆屋软上限。";
-    foundationStage.querySelector(".purchase-control span").textContent = qiChallengeActive
-      ? `当前炼气${format(state.currentQiLayer, 0)}层`
-      : "进入筑基境界";
-    byId("golden-core-stage").hidden = !state.foundationUnlocked;
-    byId("golden-core-cost").textContent = `消耗 ${formatCost(nextGoldenCoreCost)} 法力`;
-    ADVANCED_REALMS.forEach((realm, index) => {
-      const unlocked = state.advancedRealmLevel > index;
-      const isNextRealm = state.goldenCoreUnlocked && state.advancedRealmLevel === index;
-      const resourceKey = advancedRealmResource(index);
-      const resourceName = resourceKey === "immortalPower" ? "仙灵力" : "法力";
-      const resourceAmount = resourceKey === "immortalPower" ? state.immortalPower : state.mana;
-      byId(`${realm.slug}-stage`).hidden = !state.goldenCoreUnlocked || index > state.advancedRealmLevel;
-      byId(`${realm.slug}-cost`).textContent = `消耗 ${formatCost(advancedRealmCost(index))} ${resourceName}`;
-      updateOneTimeUnlock(`${realm.slug}-stage`, `unlock-${realm.slug}`, unlocked, isNextRealm && gteBN(resourceAmount, advancedRealmCost(index)));
-      if (index === 9 && !unlocked && challengeCompletionCount("severSelfCorpse") < 1) {
-        byId(`${realm.slug}-cost`).textContent = `消耗 ${formatCost(advancedRealmCost(index))} 仙灵力；需先完成斩自我尸`;
-        byId(`unlock-${realm.slug}`).disabled = true;
-      }
-    });
     const retainedAbilitiesVisible = state.scatterRetentionLevel > 0;
     const rootDefinition = permanentRootDefinition();
     const rootIds = {
@@ -1856,79 +1891,79 @@
     const nextRootStackCount = nextRealmRequirementStackCount();
     const rootStackCount = Math.min(3, Math.max(0, nextRootStackCount));
     const nextRootRequirementMultiplier = Math.pow(rootDefinition.requirementMultiplier, rootStackCount);
-    byId("root-abilities").hidden = !immortalSelected;
+    setHiddenIfChanged(byId("root-abilities"), !immortalSelected);
     Object.values(rootIds).forEach((rootId) => {
-      byId(`${rootId}-ability`).hidden = rootId !== activeRootId;
+      setHiddenIfChanged(byId(`${rootId}-ability`), rootId !== activeRootId);
     });
-    byId(`${activeRootId}-preview`).textContent = state.qiRefiningUnlocked
+    setTextIfChanged(byId(`${activeRootId}-preview`), state.qiRefiningUnlocked
       ? `法力获取倍率 ×${rootDefinition.manaMultiplier.toFixed(2)}`
-      : `法力获取倍率 ×${rootDefinition.manaMultiplier.toFixed(2)}（重新炼气后生效）`;
-    byId(`${activeRootId}-requirement`).textContent = state.qiRefiningUnlocked
+      : `法力获取倍率 ×${rootDefinition.manaMultiplier.toFixed(2)}（重新炼气后生效）`);
+    setTextIfChanged(byId(`${activeRootId}-requirement`), state.qiRefiningUnlocked
       ? nextRealmResource() === "immortalPower"
         ? "后续仙灵力境界需求固定，不受灵根倍率影响"
         : `下次突破累计 ×${nextRootRequirementMultiplier.toFixed(3)}（最多叠加3层）`
-      : `前三层境界要求每层 ×${rootDefinition.requirementMultiplier.toFixed(2)}，灵根永久保留`;
-    byId(`${activeRootId}-state`).textContent = state.qiRefiningUnlocked ? "已生效" : "等待炼气";
-    byId("qi-abilities").hidden = !state.qiRefiningUnlocked && !retainedAbilitiesVisible;
-    byId("qi-bottleneck-preview").textContent = !state.qiRefiningUnlocked
+      : `前三层境界要求每层 ×${rootDefinition.requirementMultiplier.toFixed(2)}，灵根永久保留`);
+    setTextIfChanged(byId(`${activeRootId}-state`), state.qiRefiningUnlocked ? "已生效" : "等待炼气");
+    setHiddenIfChanged(byId("qi-abilities"), !state.qiRefiningUnlocked && !retainedAbilitiesVisible);
+    setPreviewText(byId("qi-bottleneck-preview"), () => !state.qiRefiningUnlocked
       ? "等待重新炼气，当前不生效"
       : state.foundationUnlocked
         ? "已失效，法力获取倍率 ×1.00"
-        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nextFoundationCost, true).toFixed(2)}`;
-    byId("qi-bottleneck-state").textContent = !state.qiRefiningUnlocked ? "等待炼气" : state.foundationUnlocked ? "已失效" : "已生效";
-    byId("foundation-bottleneck-point").textContent = `拐点：${format(nextFoundationCost, 0)} 法力`;
-    byId("immortal-life-preview").textContent = state.immortalLifeUnlocked
+        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nextFoundationCost, true).toFixed(2)}`);
+    setTextIfChanged(byId("qi-bottleneck-state"), !state.qiRefiningUnlocked ? "等待炼气" : state.foundationUnlocked ? "已失效" : "已生效");
+    setTextIfChanged(byId("foundation-bottleneck-point"), `拐点：${format(nextFoundationCost, 0)} 法力`);
+    setPreviewText(byId("immortal-life-preview"), () => state.immortalLifeUnlocked
       ? "当前：战力 ×0.95；法力 ×1.10"
-      : "解锁后：战力 ×0.95；法力 ×1.10";
-    byId("immortal-life-cost").textContent = `消耗 ${formatCost(IMMORTAL_LIFE_COST)} 法力`;
-    byId("foundation-abilities").hidden = !state.foundationUnlocked && !retainedAbilitiesVisible && !circulationEffective();
-    byId("foundation-bottleneck-preview").textContent = !state.foundationUnlocked
+      : "解锁后：战力 ×0.95；法力 ×1.10");
+    setTextIfChanged(byId("immortal-life-cost"), `消耗 ${formatCost(IMMORTAL_LIFE_COST)} 法力`);
+    setHiddenIfChanged(byId("foundation-abilities"), !state.foundationUnlocked && !retainedAbilitiesVisible && !circulationEffective());
+    setPreviewText(byId("foundation-bottleneck-preview"), () => !state.foundationUnlocked
       ? "等待重新筑基，当前不生效"
       : state.goldenCoreUnlocked
         ? "已失效，法力获取倍率 ×1.00"
-        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nextGoldenCoreCost, true).toFixed(2)}`;
-    byId("foundation-bottleneck-state").textContent = !state.foundationUnlocked ? "等待筑基" : state.goldenCoreUnlocked ? "已失效" : "已生效";
-    byId("golden-core-bottleneck-point").textContent = `拐点：${format(nextGoldenCoreCost, 0)} 法力`;
-    byId("qi-spell-ability").classList.toggle("purchased", state.qiSpellLevel >= 3);
-    byId("qi-spell-level").textContent = `当前：${state.qiSpellLevel}/3级；本能力战力获取倍率 ×${qiSpellPowerMultiplier().toFixed(2)}`;
-    byId("qi-spell-cost").textContent = state.qiSpellLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextQiSpellCost)} 法力`;
-    byId("buy-qi-spell").textContent = state.qiSpellLevel >= 3 ? "已达上限" : "升级";
-    byId("buy-qi-spell").disabled = !state.qiRefiningUnlocked || state.qiSpellLevel >= 3 || !canAffordMana(nextQiSpellCost);
-    byId("technique-preview").textContent = `${state.techniqueUnlocked ? "当前：" : "解锁后："}法力 ×1.50；J ×1.50`;
+        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nextGoldenCoreCost, true).toFixed(2)}`);
+    setTextIfChanged(byId("foundation-bottleneck-state"), !state.foundationUnlocked ? "等待筑基" : state.goldenCoreUnlocked ? "已失效" : "已生效");
+    setTextIfChanged(byId("golden-core-bottleneck-point"), `拐点：${format(nextGoldenCoreCost, 0)} 法力`);
+    toggleClassIfChanged(byId("qi-spell-ability"), "purchased", state.qiSpellLevel >= 3);
+    setTextIfChanged(byId("qi-spell-level"), `当前：${state.qiSpellLevel}/3级；本能力战力获取倍率 ×${qiSpellPowerMultiplier().toFixed(2)}`);
+    setTextIfChanged(byId("qi-spell-cost"), state.qiSpellLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextQiSpellCost)} 法力`);
+    setTextIfChanged(byId("buy-qi-spell"), state.qiSpellLevel >= 3 ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-qi-spell"), !state.qiRefiningUnlocked || state.qiSpellLevel >= 3 || !canAffordMana(nextQiSpellCost));
+    setPreviewText(byId("technique-preview"), () => `${state.techniqueUnlocked ? "当前：" : "解锁后："}法力 ×1.50；J ×1.50`);
     writeSourcePreview("circulation-preview", "circulation", true);
-    byId("mana-liquefaction-preview").textContent = state.manaLiquefactionUnlocked
+    setPreviewText(byId("mana-liquefaction-preview"), () => state.manaLiquefactionUnlocked
       ? "当前：法力 ×0.80；法力 J 来源 ×1.50；吐纳 J 曲线指数 +0.3"
-      : "解锁后：法力 ×0.80；法力 J 来源 ×1.50；吐纳 J 曲线指数 +0.3";
-    byId("mana-liquefaction-cost").textContent = `消耗 ${formatCost(MANA_LIQUEFACTION_COST)} 法力`;
-    byId("longevity-ability").hidden = !state.foundationUnlocked && !retainedAbilitiesVisible;
-    byId("longevity-ability").classList.toggle("purchased", state.longevityLevel >= 2);
-    byId("longevity-level").textContent = `当前：${state.longevityLevel}/2级；健身上限 +${state.longevityLevel * 10}；本能力健身倍率 ×${additiveLevelMultiplier(state.longevityLevel, 2).toFixed(2)}`;
-    byId("longevity-cost").textContent = state.longevityLevel >= 2 ? "已达到等级上限" : `消耗 ${formatCost(nextLongevityCost)} 法力`;
-    byId("buy-longevity").textContent = state.longevityLevel >= 2 ? "已达上限" : "升级";
-    byId("buy-longevity").disabled = !state.foundationUnlocked || state.longevityLevel >= 2 || !canAffordMana(nextLongevityCost);
-    byId("foundation-spell-ability").classList.toggle("purchased", state.foundationSpellLevel >= 3);
-    byId("foundation-spell-level").textContent = `当前：${state.foundationSpellLevel}/3级；本能力战力获取倍率 ×${foundationSpellPowerMultiplier().toFixed(2)}`;
-    byId("foundation-spell-cost").textContent = state.foundationSpellLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextFoundationSpellCost)} 法力`;
-    byId("buy-foundation-spell").textContent = state.foundationSpellLevel >= 3 ? "已达上限" : "升级";
-    byId("buy-foundation-spell").disabled = !state.foundationUnlocked || state.foundationSpellLevel >= 3 || !canAffordMana(nextFoundationSpellCost);
-    byId("golden-core-abilities").hidden = !state.goldenCoreUnlocked && !retainedAbilitiesVisible;
+      : "解锁后：法力 ×0.80；法力 J 来源 ×1.50；吐纳 J 曲线指数 +0.3");
+    setTextIfChanged(byId("mana-liquefaction-cost"), `消耗 ${formatCost(MANA_LIQUEFACTION_COST)} 法力`);
+    setHiddenIfChanged(byId("longevity-ability"), !state.foundationUnlocked && !retainedAbilitiesVisible);
+    toggleClassIfChanged(byId("longevity-ability"), "purchased", state.longevityLevel >= 2);
+    setTextIfChanged(byId("longevity-level"), `当前：${state.longevityLevel}/2级；健身上限 +${state.longevityLevel * 10}；本能力健身倍率 ×${additiveLevelMultiplier(state.longevityLevel, 2).toFixed(2)}`);
+    setTextIfChanged(byId("longevity-cost"), state.longevityLevel >= 2 ? "已达到等级上限" : `消耗 ${formatCost(nextLongevityCost)} 法力`);
+    setTextIfChanged(byId("buy-longevity"), state.longevityLevel >= 2 ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-longevity"), !state.foundationUnlocked || state.longevityLevel >= 2 || !canAffordMana(nextLongevityCost));
+    toggleClassIfChanged(byId("foundation-spell-ability"), "purchased", state.foundationSpellLevel >= 3);
+    setTextIfChanged(byId("foundation-spell-level"), `当前：${state.foundationSpellLevel}/3级；本能力战力获取倍率 ×${foundationSpellPowerMultiplier().toFixed(2)}`);
+    setTextIfChanged(byId("foundation-spell-cost"), state.foundationSpellLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextFoundationSpellCost)} 法力`);
+    setTextIfChanged(byId("buy-foundation-spell"), state.foundationSpellLevel >= 3 ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-foundation-spell"), !state.foundationUnlocked || state.foundationSpellLevel >= 3 || !canAffordMana(nextFoundationSpellCost));
+    setHiddenIfChanged(byId("golden-core-abilities"), !state.goldenCoreUnlocked && !retainedAbilitiesVisible);
     const nascentSoulRequirement = advancedRealmCost(0);
     const nascentSoulUnlocked = state.advancedRealmLevel >= 1;
-    byId("golden-core-bottleneck-preview").textContent = !state.goldenCoreUnlocked
+    setPreviewText(byId("golden-core-bottleneck-preview"), () => !state.goldenCoreUnlocked
       ? "等待重新结丹，当前不生效"
       : nascentSoulUnlocked
         ? "已失效，法力获取倍率 ×1.00"
-        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nascentSoulRequirement, true).toFixed(2)}`;
-    byId("golden-core-bottleneck-state").textContent = !state.goldenCoreUnlocked ? "等待结丹" : nascentSoulUnlocked ? "已失效" : "已生效";
-    byId("nascent-soul-bottleneck-point").textContent = `拐点：${format(nascentSoulRequirement, 0)} 法力`;
+        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nascentSoulRequirement, true).toFixed(2)}`);
+    setTextIfChanged(byId("golden-core-bottleneck-state"), !state.goldenCoreUnlocked ? "等待结丹" : nascentSoulUnlocked ? "已失效" : "已生效");
+    setTextIfChanged(byId("nascent-soul-bottleneck-point"), `拐点：${format(nascentSoulRequirement, 0)} 法力`);
     ADVANCED_REALMS.slice(0, -1).forEach((realm, index) => {
       const nextRealm = ADVANCED_REALMS[index + 1];
       const currentRealmUnlocked = state.goldenCoreUnlocked && state.advancedRealmLevel > index;
       const nextRealmUnlocked = state.advancedRealmLevel > index + 1;
       const requirement = advancedRealmCost(index + 1);
       const usesImmortalPower = advancedRealmResource(index + 1) === "immortalPower";
-      byId(`${realm.slug}-abilities`).hidden = !advancedRealmAbilityGroupVisible(index);
-      byId(`${realm.slug}-bottleneck-preview`).textContent = !currentRealmUnlocked
+      setHiddenIfChanged(byId(`${realm.slug}-abilities`), !advancedRealmAbilityGroupVisible(index));
+      setTextIfChanged(byId(`${realm.slug}-bottleneck-preview`), !currentRealmUnlocked
         ? `等待重新${realm.name}，当前不生效`
         : nextRealmUnlocked
           ? usesImmortalPower
@@ -1938,127 +1973,133 @@
             ? realm.key === "trueImmortal"
               ? `仙灵力进度 ${(immortalPowerProgressRatio() * 100).toFixed(2)}%；法力天人三衰 ^${immortalPowerManaSuppressionExponent().toFixed(3)}；J/战力天人三衰 ^${Immortal.celestialDeclineExponent().toFixed(3)}`
               : `仙灵力进度 ${(immortalPowerProgressRatio() * 100).toFixed(2)}%；天人五衰 ^${celestialFiveDeclineExponent().toFixed(3)}（已取代天人三衰）`
-            : `当前法力获取倍率 ×${bottleneckManaMultiplier(requirement, true).toFixed(2)}`;
-      byId(`${realm.slug}-bottleneck-state`).textContent = !currentRealmUnlocked
+            : `当前法力获取倍率 ×${bottleneckManaMultiplier(requirement, true).toFixed(2)}`);
+      setTextIfChanged(byId(`${realm.slug}-bottleneck-state`), !currentRealmUnlocked
         ? `等待${realm.name}`
-        : nextRealmUnlocked ? realm.key === "daluo" ? "已取消" : "已失效" : "境界自带";
-      byId(`${nextRealm.slug}-bottleneck-point`).textContent = `需求：${format(requirement, 0)} ${usesImmortalPower ? "仙灵力" : "法力"}`;
+        : nextRealmUnlocked ? realm.key === "daluo" ? "已取消" : "已失效" : "境界自带");
+      setTextIfChanged(byId(`${nextRealm.slug}-bottleneck-point`), `需求：${format(requirement, 0)} ${usesImmortalPower ? "仙灵力" : "法力"}`);
     });
-    byId("flying-escape-preview").textContent = state.flyingEscapeUnlocked
+    setPreviewText(byId("flying-escape-preview"), () => state.flyingEscapeUnlocked
       ? "当前普通探寻来源 ×10"
-      : "解锁后：普通探寻来源 ×10";
-    byId("longevity-800-ability").classList.toggle("purchased", state.longevity800Level >= 4);
-    byId("longevity-800-level").textContent = `当前：${state.longevity800Level}/4级；健身上限 +${state.longevity800Level * 10}；本能力健身倍率 ×${additiveLevelMultiplier(state.longevity800Level, 8).toFixed(2)}`;
-    byId("longevity-800-cost").textContent = state.longevity800Level >= 4 ? "已达到等级上限" : `消耗 ${formatCost(nextLongevity800Cost)} 法力`;
-    byId("buy-longevity-800").textContent = state.longevity800Level >= 4 ? "已达上限" : "升级";
-    byId("buy-longevity-800").disabled = state.advancedRealmLevel < 1 || state.longevity800Level >= 4 || !canAffordMana(nextLongevity800Cost);
+      : "解锁后：普通探寻来源 ×10");
+    toggleClassIfChanged(byId("longevity-800-ability"), "purchased", state.longevity800Level >= 4);
+    setTextIfChanged(byId("longevity-800-level"), `当前：${state.longevity800Level}/4级；健身上限 +${state.longevity800Level * 10}；本能力健身倍率 ×${additiveLevelMultiplier(state.longevity800Level, 8).toFixed(2)}`);
+    setTextIfChanged(byId("longevity-800-cost"), state.longevity800Level >= 4 ? "已达到等级上限" : `消耗 ${formatCost(nextLongevity800Cost)} 法力`);
+    setTextIfChanged(byId("buy-longevity-800"), state.longevity800Level >= 4 ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-longevity-800"), state.advancedRealmLevel < 1 || state.longevity800Level >= 4 || !canAffordMana(nextLongevity800Cost));
     const naturalProgress = WIS.Cultivation.ExplorationProgress.view(state);
     const naturalTreasureCap = naturalProgress.cap;
-    byId("natural-treasure-ability").classList.toggle("purchased", naturalProgress.atCap);
-    byId("natural-treasure-level").textContent = `当前：${format(state.naturalTreasureLevel, 0)}/${format(naturalTreasureCap, 0)}级；原始倍率 ×${format(naturalTreasureRawManaMultiplier(), 3)}；动态指数 ^${format(naturalTreasureManaDiminishingExponent(), 3)}；实际倍率 ×${format(naturalTreasureManaMultiplier(), 3)}`;
+    toggleClassIfChanged(byId("natural-treasure-ability"), "purchased", naturalProgress.atCap);
+    setTextIfChanged(byId("natural-treasure-level"), `当前：${format(state.naturalTreasureLevel, 0)}/${format(naturalTreasureCap, 0)}级；原始倍率 ×${format(naturalTreasureRawManaMultiplier(), 3)}；动态指数 ^${format(naturalTreasureManaDiminishingExponent(), 3)}；实际倍率 ×${format(naturalTreasureManaMultiplier(), 3)}`);
     if(naturalProgress.levelResidual.length)byId("natural-treasure-level").textContent+=`；另记等级余量 ${naturalProgress.levelResidual.map(w=>format(WIS.Meta.TreasureLedger.project(w),6)).join(" + ")}`;
-    byId("natural-treasure-chance").textContent = naturalProgress.atCap
+    setTextIfChanged(byId("natural-treasure-chance"), naturalProgress.atCap
       ? "已达到等级上限"
-      : `独立进度 ${format(naturalProgress.progress,6)} / ${naturalProgress.demand?format(naturalProgress.demand,6):"暂无法表示"} 有效探寻量；保留小数${naturalProgress.reason?"；"+naturalProgress.reason:""}`;
-    byId("natural-treasure-state").textContent = !state.goldenCoreUnlocked
+      : `独立进度 ${format(naturalProgress.progress,6)} / ${naturalProgress.demand?format(naturalProgress.demand,6):"暂无法表示"} 有效探寻量；保留小数${naturalProgress.reason?"；"+naturalProgress.reason:""}`);
+    setTextIfChanged(byId("natural-treasure-state"), !state.goldenCoreUnlocked
       ? "等待重新结丹"
-      : naturalProgress.atCap ? "已达上限" : "仅可通过探寻升级";
-    byId("golden-core-longevity-ability").classList.toggle("purchased", state.goldenCoreLongevityLevel >= 2);
-    byId("golden-core-longevity-level").textContent = `当前：${state.goldenCoreLongevityLevel}/2级；健身上限 +${state.goldenCoreLongevityLevel * 10}；本能力健身倍率 ×${additiveLevelMultiplier(state.goldenCoreLongevityLevel, 4).toFixed(2)}`;
-    byId("golden-core-longevity-cost").textContent = state.goldenCoreLongevityLevel >= 2 ? "已达到等级上限" : `消耗 ${formatCost(nextGoldenCoreLongevityCost)} 法力`;
-    byId("buy-golden-core-longevity").textContent = state.goldenCoreLongevityLevel >= 2 ? "已达上限" : "升级";
-    byId("buy-golden-core-longevity").disabled = !state.goldenCoreUnlocked || state.goldenCoreLongevityLevel >= 2 || !canAffordMana(nextGoldenCoreLongevityCost);
-    byId("mana-solidification-preview").textContent = state.manaSolidificationUnlocked
+      : naturalProgress.atCap ? "已达上限" : "仅可通过探寻升级");
+    toggleClassIfChanged(byId("golden-core-longevity-ability"), "purchased", state.goldenCoreLongevityLevel >= 2);
+    setTextIfChanged(byId("golden-core-longevity-level"), `当前：${state.goldenCoreLongevityLevel}/2级；健身上限 +${state.goldenCoreLongevityLevel * 10}；本能力健身倍率 ×${additiveLevelMultiplier(state.goldenCoreLongevityLevel, 4).toFixed(2)}`);
+    setTextIfChanged(byId("golden-core-longevity-cost"), state.goldenCoreLongevityLevel >= 2 ? "已达到等级上限" : `消耗 ${formatCost(nextGoldenCoreLongevityCost)} 法力`);
+    setTextIfChanged(byId("buy-golden-core-longevity"), state.goldenCoreLongevityLevel >= 2 ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-golden-core-longevity"), !state.goldenCoreUnlocked || state.goldenCoreLongevityLevel >= 2 || !canAffordMana(nextGoldenCoreLongevityCost));
+    setPreviewText(byId("mana-solidification-preview"), () => state.manaSolidificationUnlocked
       ? "当前：法力 ×0.90；战力 ×1.15；吐纳 J 曲线指数 +0.4"
-      : "解锁后：法力 ×0.90；战力 ×1.15；吐纳 J 曲线指数 +0.4";
-    byId("mana-solidification-cost").textContent = `消耗 ${formatCost(MANA_SOLIDIFICATION_COST)} 法力`;
-    byId("minor-technique-preview").textContent = state.minorTechniqueUnlocked
+      : "解锁后：法力 ×0.90；战力 ×1.15；吐纳 J 曲线指数 +0.4");
+    setTextIfChanged(byId("mana-solidification-cost"), `消耗 ${formatCost(MANA_SOLIDIFICATION_COST)} 法力`);
+    setPreviewText(byId("minor-technique-preview"), () => state.minorTechniqueUnlocked
       ? `已提供 +2个百分点；当前周天比例 ${format(mulBN(circulationPercent(), 100), 1)}%`
-      : "解锁后：周天比例 6% → 8%";
+      : "解锁后：周天比例 6% → 8%");
     writeSourcePreview("magic-treasure-preview", "magicTreasure", true);
-    byId("material-control-preview").textContent = `${state.materialControlUnlocked ? "当前：" : "解锁后："}法宝来源倍率 ×5.00`;
-    byId("divine-sense-preview").textContent = `${state.divineSenseUnlocked ? "当前：" : "解锁后："}有效探寻量 ×1.25`;
+    setPreviewText(byId("material-control-preview"), () => `${state.materialControlUnlocked ? "当前：" : "解锁后："}法宝来源倍率 ×5.00`);
+    setPreviewText(byId("divine-sense-preview"), () => `${state.divineSenseUnlocked ? "当前：" : "解锁后："}有效探寻量 ×1.25`);
     const greatCultivatorPreviewMultiplier = state.greatCultivatorUnlocked
       ? greatCultivatorJMultiplier()
       : additiveLevelMultiplier(cultivationRealmLevel(), 1.5);
-    byId("great-cultivator-preview").textContent = `${state.greatCultivatorUnlocked ? "当前：" : "解锁后："}J 获取倍率 ×${greatCultivatorPreviewMultiplier.toFixed(2)}（${cultivationRealmLevel()}个境界，内部加算）`;
-    byId("second-nascent-soul-preview").textContent = state.secondNascentSoulUnlocked
+    setPreviewText(byId("great-cultivator-preview"), () => `${state.greatCultivatorUnlocked ? "当前：" : "解锁后："}J 获取倍率 ×${greatCultivatorPreviewMultiplier.toFixed(2)}（${cultivationRealmLevel()}个境界，内部加算）`);
+    setPreviewText(byId("second-nascent-soul-preview"), () => state.secondNascentSoulUnlocked
       ? `当前周天最终比例 ${format(mulBN(circulationPercent(), 100), 1)}%（基础合计 ×1.8）`
-      : "解锁后：周天最终比例 ×1.8";
-    byId("spirit-transformation-abilities").hidden = !advancedRealmAbilityGroupVisible(1);
+      : "解锁后：周天最终比例 ×1.8");
+    setHiddenIfChanged(byId("spirit-transformation-abilities"), !advancedRealmAbilityGroupVisible(1));
     const spiritWorldAscensionTreasureCap = addBN(naturalTreasureCap, state.spiritWorldAscensionUnlocked ? 0 : 10);
-    byId("spirit-world-ascension-preview").textContent = `${state.spiritWorldAscensionUnlocked ? "当前：" : "解锁后："}探寻法力 ×${CONFIG.exploration.spiritWorldAscensionMultiplier}；天材地宝上限 ${spiritWorldAscensionTreasureCap}`;
-    byId("aura-control-preview").textContent = `${state.auraControlUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${format(auraControlPotentialMultiplier(), 2)}`;
-    byId("equal-heaven-longevity-preview").textContent = `${state.equalHeavenLongevityUnlocked ? "当前：" : "解锁后："}健身 ×8；等级上限 +10`;
-    byId("five-elements-preview").textContent = state.fiveElementsUnlocked
+    setPreviewText(byId("spirit-world-ascension-preview"), () => `${state.spiritWorldAscensionUnlocked ? "当前：" : "解锁后："}探寻法力 ×${CONFIG.exploration.spiritWorldAscensionMultiplier}；天材地宝上限 ${spiritWorldAscensionTreasureCap}`);
+    setPreviewText(byId("aura-control-preview"), () => `${state.auraControlUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${format(auraControlPotentialMultiplier(), 2)}`);
+    setPreviewText(byId("equal-heaven-longevity-preview"), () => `${state.equalHeavenLongevityUnlocked ? "当前：" : "解锁后："}健身 ×8；等级上限 +10`);
+    setPreviewText(byId("five-elements-preview"), () => state.fiveElementsUnlocked
       ? `当前周天比例 ${format(mulBN(circulationPercent(), 100), 1)}%`
-      : "解锁后：周天比例 +5个百分点";
+      : "解锁后：周天比例 +5个百分点");
     const abundantAuraPotentialExponent = breathingJCurveExponent() + (state.abundantAuraUnlocked
       ? 0
       : 0.8 + (state.manaLiquefactionUnlocked ? 0.4 : 0) + (state.manaSolidificationUnlocked ? 0.6 : 0));
-    byId("abundant-aura-preview").textContent = `${state.abundantAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${abundantAuraPotentialExponent.toFixed(1)}`;
+    setPreviewText(byId("abundant-aura-preview"), () => `${state.abundantAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${abundantAuraPotentialExponent.toFixed(1)}`);
     const currentTribulationManaExponent = minorTribulationExplorationManaExponent();
-    const nextTribulationPreview = currentExplorationTribulationPreview;
-    byId("minor-tribulation-preview").textContent = state.advancedRealmLevel >= 6
+    const tribulationElement = byId("minor-tribulation-preview");
+    const explorationSnapshot = explorationPreviewSnapshot("tribulation", tribulationElement);
+    if (explorationSnapshot) {
+    ensureExplorationPreviewRefresh(tribulationElement);
+    const currentExplorationAmount = explorationSnapshot.value.amount;
+    const nextTribulationPreview = explorationSnapshot.value.tribulationPreview;
+    setPreviewText(byId("minor-tribulation-preview"), () => state.advancedRealmLevel >= 6
       ? "飞升仙界已使小天劫完全失效；负荷固定为0"
-      : `小天劫负荷 ${format(state.minorTribulationExplorationLoad)}/${format(minorTribulationTriggerLoad())}；下次探寻约 +${format(currentExplorationAmount)}`;
-    byId("minor-tribulation-recovery").textContent = state.advancedRealmLevel >= 6
+      : `小天劫负荷 ${format(state.minorTribulationExplorationLoad)}/${format(minorTribulationTriggerLoad())}；下次探寻约 +${format(currentExplorationAmount)}`);
+    setTextIfChanged(byId("minor-tribulation-recovery"), state.advancedRealmLevel >= 6
       ? "战力与探寻均不再受小天劫影响"
-      : `战力 ^${minorTribulationPowerExponent().toFixed(3)}；下次探寻法力 ^${nextTribulationPreview.manaExponent.toFixed(3)}（${nextTribulationPreview.triggered ? `本次触发，负荷强度 ${format(nextTribulationPreview.loadFactor)}` : `未触发，基础指数 ^${currentTribulationManaExponent.toFixed(3)}`}）`;
-    byId("enhanced-minor-tribulation-preview").textContent = state.advancedRealmLevel >= 3
+      : `战力 ^${minorTribulationPowerExponent().toFixed(3)}；下次探寻法力 ^${nextTribulationPreview.manaExponent.toFixed(3)}（${nextTribulationPreview.triggered ? `本次触发，负荷强度 ${format(nextTribulationPreview.loadFactor)}` : `未触发，基础指数 ^${currentTribulationManaExponent.toFixed(3)}`}）`);
+    }
+    setPreviewText(byId("enhanced-minor-tribulation-preview"), () => state.advancedRealmLevel >= 3
       ? `当前：战力区域 ^${minorTribulationPowerExponent().toFixed(3)}；探寻基础指数 ${currentTribulationManaExponent.toFixed(3)}，触发区间 0.800～0.920，仅作用于本次探寻`
-      : "等待炼虚";
+      : "等待炼虚");
     writeSourcePreview("brahma-demon-art-preview", "brahmaDemonArt", true);
     nextTrueSpiritTransformationCost = trueSpiritTransformationCost();
-    byId("true-spirit-transformation-preview").textContent = `当前：${state.trueSpiritTransformationLevel}/5级；法力获取倍率 ×${trueSpiritTransformationMultiplier().toFixed(2)}`;
-    byId("true-spirit-transformation-cost").textContent = state.trueSpiritTransformationLevel >= 5
+    setPreviewText(byId("true-spirit-transformation-preview"), () => `当前：${state.trueSpiritTransformationLevel}/5级；法力获取倍率 ×${trueSpiritTransformationMultiplier().toFixed(2)}`);
+    setTextIfChanged(byId("true-spirit-transformation-cost"), state.trueSpiritTransformationLevel >= 5
       ? "已达到等级上限"
-      : `消耗 ${formatCost(nextTrueSpiritTransformationCost)} 法力`;
-    byId("silver-tadpole-script-preview").textContent = state.silverTadpoleScriptUnlocked
+      : `消耗 ${formatCost(nextTrueSpiritTransformationCost)} 法力`);
+    setPreviewText(byId("silver-tadpole-script-preview"), () => state.silverTadpoleScriptUnlocked
       ? `当前小天劫门槛 ${format(minorTribulationTriggerLoad())}；探寻法力 ^${silverTadpoleScriptExplorationExponent().toFixed(2)}`
-      : "解锁后：小天劫门槛 150 → 1500；探寻法力 ^1.06";
-    byId("void-refining-to-qi-preview").textContent = `${state.voidRefiningToQiUnlocked ? "当前：" : "解锁后："}吐纳来源 ^1.06`;
-    byId("immortal-realm-divine-preview").textContent = `${state.immortalRealmDivineAbilityUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${format(immortalRealmDivineAbilityPotentialMultiplier(), 2)}`;
-    byId("spirit-refining-art-preview").textContent = `${state.spiritRefiningArtUnlocked ? "当前：" : "解锁后："}法力 J 来源 ^1.06`;
-    byId("perfected-technique-preview").textContent = `${state.perfectedTechniqueUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`;
+      : "解锁后：小天劫门槛 150 → 1500；探寻法力 ^1.06");
+    setPreviewText(byId("void-refining-to-qi-preview"), () => `${state.voidRefiningToQiUnlocked ? "当前：" : "解锁后："}吐纳来源 ^1.06`);
+    setPreviewText(byId("immortal-realm-divine-preview"), () => `${state.immortalRealmDivineAbilityUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${format(immortalRealmDivineAbilityPotentialMultiplier(), 2)}`);
+    setPreviewText(byId("spirit-refining-art-preview"), () => `${state.spiritRefiningArtUnlocked ? "当前：" : "解锁后："}法力 J 来源 ^1.06`);
+    setPreviewText(byId("perfected-technique-preview"), () => `${state.perfectedTechniqueUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`);
     const heavenEarthAuraPreviewExponent = breathingJCurveExponent() + (state.heavenEarthAuraUnlocked ? 0 : 0.25);
-    byId("heaven-earth-aura-preview").textContent = `${state.heavenEarthAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${heavenEarthAuraPreviewExponent.toFixed(2)}`;
-    byId("divine-ability-mastery-preview").textContent = `${state.divineAbilityMasteryUnlocked ? "当前：" : "解锁后："}全部法力 ×2.5`;
-    byId("dual-infant-unity-preview").textContent = `${state.dualInfantUnityUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08`;
-    byId("aura-into-body-preview").textContent = `${state.auraIntoBodyUnlocked ? "当前：" : "解锁后："}健身 J ×20；健身上限 +40`;
-    byId("external-incarnation-preview").textContent = `${state.externalIncarnationUnlocked ? "当前：" : "解锁后："}梵圣真魔功 ×5`;
-    byId("demon-realm-journey-preview").textContent = `${state.demonRealmJourneyUnlocked ? "当前：" : "解锁后："}普通探寻 ×5；仙道宝物进度获取 ×3`;
-    byId("return-to-origin-preview").textContent = `${state.returnToOriginUnlocked ? "当前：" : "解锁后："}J 区域 ^1.02`;
-    byId("natal-magic-treasure-preview").textContent = `${state.natalMagicTreasureUnlocked ? "当前：" : "解锁后："}前期边际 ^${(state.natalMagicTreasureUnlocked ? magicTreasureManaExponent() : MAGIC_TREASURE_MANA_CURVE_CONFIG.earlyExponent).toFixed(2)}，平滑衰减至后期边际 ^${MAGIC_TREASURE_MANA_CURVE_CONFIG.lateExponent.toFixed(2)}`;
-    byId("perfected-technique-completion-preview").textContent = `${state.perfectedTechniqueCompletionUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`;
+    setPreviewText(byId("heaven-earth-aura-preview"), () => `${state.heavenEarthAuraUnlocked ? "当前：" : "解锁后："}吐纳 J 曲线指数 ${heavenEarthAuraPreviewExponent.toFixed(2)}`);
+    setPreviewText(byId("divine-ability-mastery-preview"), () => `${state.divineAbilityMasteryUnlocked ? "当前：" : "解锁后："}全部法力 ×2.5`);
+    setPreviewText(byId("dual-infant-unity-preview"), () => `${state.dualInfantUnityUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08`);
+    setPreviewText(byId("aura-into-body-preview"), () => `${state.auraIntoBodyUnlocked ? "当前：" : "解锁后："}健身 J ×20；健身上限 +40`);
+    setPreviewText(byId("external-incarnation-preview"), () => `${state.externalIncarnationUnlocked ? "当前：" : "解锁后："}梵圣真魔功 ×5`);
+    setPreviewText(byId("demon-realm-journey-preview"), () => `${state.demonRealmJourneyUnlocked ? "当前：" : "解锁后："}普通探寻 ×5；仙道宝物进度获取 ×3`);
+    setPreviewText(byId("return-to-origin-preview"), () => `${state.returnToOriginUnlocked ? "当前：" : "解锁后："}J 区域 ^1.02`);
+    setPreviewText(byId("natal-magic-treasure-preview"), () => `${state.natalMagicTreasureUnlocked ? "当前：" : "解锁后："}前期边际 ^${(state.natalMagicTreasureUnlocked ? magicTreasureManaExponent() : MAGIC_TREASURE_MANA_CURVE_CONFIG.earlyExponent).toFixed(2)}，平滑衰减至后期边际 ^${MAGIC_TREASURE_MANA_CURVE_CONFIG.lateExponent.toFixed(2)}`);
+    setPreviewText(byId("perfected-technique-completion-preview"), () => `${state.perfectedTechniqueCompletionUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`);
     writeSourcePreview("roam-spirit-world-preview", "automaticExploration", true);
-    byId("descend-realm-preview").textContent = `${state.descendRealmUnlocked ? "当前：" : "解锁后："}仙道宝物进度获取 ×${format(descendRealmPotentialTreasureMultiplier(), 3)}`;
-    byId("nascent-soul-completion-preview").textContent = `${state.nascentSoulCompletionUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08${state.dualInfantUnityUnlocked || state.nascentSoulCompletionUnlocked ? `（${state.nascentSoulCompletionUnlocked ? "当前合计" : "解锁后合计"} ^${(1.08 * (state.dualInfantUnityUnlocked ? 1.08 : 1)).toFixed(4)}）` : ""}`;
-    byId("spirit-travel-void-preview").textContent = `${state.spiritTravelVoidUnlocked ? "当前：" : "解锁后："}强化小天劫门槛 ${format(state.spiritTravelVoidUnlocked ? minorTribulationTriggerLoad() : 150000)}`;
-    byId("golden-seal-script-preview").textContent = `${state.goldenSealScriptUnlocked ? "当前：" : "解锁后："}法力区域 ×8`;
-    byId("ascend-immortal-world-preview").textContent = state.advancedRealmLevel >= 6
+    setPreviewText(byId("descend-realm-preview"), () => `${state.descendRealmUnlocked ? "当前：" : "解锁后："}仙道宝物进度获取 ×${format(descendRealmPotentialTreasureMultiplier(), 3)}`);
+    setPreviewText(byId("nascent-soul-completion-preview"), () => `${state.nascentSoulCompletionUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.08${state.dualInfantUnityUnlocked || state.nascentSoulCompletionUnlocked ? `（${state.nascentSoulCompletionUnlocked ? "当前合计" : "解锁后合计"} ^${(1.08 * (state.dualInfantUnityUnlocked ? 1.08 : 1)).toFixed(4)}）` : ""}`);
+    setPreviewText(byId("spirit-travel-void-preview"), () => `${state.spiritTravelVoidUnlocked ? "当前：" : "解锁后："}强化小天劫门槛 ${format(state.spiritTravelVoidUnlocked ? minorTribulationTriggerLoad() : 150000)}`);
+    setPreviewText(byId("golden-seal-script-preview"), () => `${state.goldenSealScriptUnlocked ? "当前：" : "解锁后："}法力区域 ×8`);
+    setPreviewText(byId("ascend-immortal-world-preview"), () => state.advancedRealmLevel >= 6
       ? "已生效：小天劫失效；仙道宝物进度获取 ×3"
-      : "等待真仙";
-    byId("immortal-spirit-power-ability").classList.toggle("purchased", state.immortalSpiritPowerUnlocked);
+      : "等待真仙");
+    toggleClassIfChanged(byId("immortal-spirit-power-ability"), "purchased", state.immortalSpiritPowerUnlocked);
     writeSourcePreview("immortal-spirit-power-preview", "immortalPower");
-    byId("immortal-spirit-power-state").textContent = state.immortalSpiritPowerUnlocked ? "已自动解锁" : "等待真仙";
-    byId("undying-primordial-spirit-preview").textContent = `${state.undyingPrimordialSpiritUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.03`;
+    setTextIfChanged(byId("immortal-spirit-power-state"), state.immortalSpiritPowerUnlocked ? "已自动解锁" : "等待真仙");
+    setPreviewText(byId("undying-primordial-spirit-preview"), () => `${state.undyingPrimordialSpiritUnlocked ? "当前：" : "解锁后："}周天法力来源 ^1.03`);
     const currentImmortalApertureCap = immortalApertureCap();
-    byId("immortal-aperture-ability").classList.toggle("purchased", state.immortalApertureLevel >= currentImmortalApertureCap);
+    toggleClassIfChanged(byId("immortal-aperture-ability"), "purchased", state.immortalApertureLevel >= currentImmortalApertureCap);
     byId("immortal-aperture-ability").dataset.sortCost = String(state.immortalApertureLevel >= currentImmortalApertureCap ? Number.MAX_SAFE_INTEGER : nextImmortalApertureCost);
-    byId("immortal-aperture-level").textContent = `当前：${state.immortalApertureLevel}/${currentImmortalApertureCap}级；仙灵力 ×${immortalApertureMultiplier().toFixed(3)}`;
-    byId("immortal-aperture-cost").textContent = state.immortalApertureLevel >= currentImmortalApertureCap ? "已达到当前等级上限" : `消耗 ${formatCost(nextImmortalApertureCost)} 仙灵力`;
-    byId("buy-immortal-aperture").textContent = state.immortalApertureLevel >= currentImmortalApertureCap ? "已达当前上限" : "升级";
-    byId("buy-immortal-aperture").disabled = state.advancedRealmLevel < 6 || state.immortalApertureLevel >= currentImmortalApertureCap || !canAffordImmortalPower(nextImmortalApertureCost);
-    byId("xuan-immortal-body-preview").textContent = `${state.xuanImmortalBodyUnlocked ? "当前：" : "解锁后："}梵圣真魔功 ^1.40`;
+    setTextIfChanged(byId("immortal-aperture-level"), `当前：${state.immortalApertureLevel}/${currentImmortalApertureCap}级；仙灵力 ×${immortalApertureMultiplier().toFixed(3)}`);
+    setTextIfChanged(byId("immortal-aperture-cost"), state.immortalApertureLevel >= currentImmortalApertureCap ? "已达到当前等级上限" : `消耗 ${formatCost(nextImmortalApertureCost)} 仙灵力`);
+    setTextIfChanged(byId("buy-immortal-aperture"), state.immortalApertureLevel >= currentImmortalApertureCap ? "已达当前上限" : "升级");
+    setDisabledIfChanged(byId("buy-immortal-aperture"), state.advancedRealmLevel < 6 || state.immortalApertureLevel >= currentImmortalApertureCap || !canAffordImmortalPower(nextImmortalApertureCost));
+    setPreviewText(byId("xuan-immortal-body-preview"), () => `${state.xuanImmortalBodyUnlocked ? "当前：" : "解锁后："}梵圣真魔功 ^1.40`);
     const lawPreviewMultiplier = state.lawUnlocked
       ? lawImmortalPowerMultiplier()
       : lawImmortalPowerPotentialMultiplier();
-    byId("law-preview").textContent = `${state.lawUnlocked ? "当前" : "解锁后"}：原始 ^${lawImmortalPowerExponent().toFixed(2)}；衰减后 ^${format(lawImmortalPowerActualExponent(), 3)}；实际 ×${format(lawPreviewMultiplier, 3)}`;
+    setPreviewText(byId("law-preview"), () => `${state.lawUnlocked ? "当前" : "解锁后"}：原始 ^${lawImmortalPowerExponent().toFixed(2)}；衰减后 ^${format(lawImmortalPowerActualExponent(), 3)}；实际 ×${format(lawPreviewMultiplier, 3)}`);
     writeSourcePreview("spirit-domain-preview", "spiritDomain", true);
-    byId("spirit-capture-return-preview").textContent = `${state.spiritCaptureReturnUnlocked ? "当前" : "解锁后"}：仙灵力 ×${format(spiritCaptureReturnMultiplier(), 3)}`;
-    byId("flawless-jade-body-preview").textContent = `五衰基础 ^${celestialFiveDeclineBaseExponent().toFixed(3)} → 实际 ^${celestialFiveDeclineExponent().toFixed(3)}`;
-    byId("soul-qualitative-change-preview").textContent = `${state.soulQualitativeChangeUnlocked ? "当前" : "解锁后"}：吐纳来源 ×${format(soulQualitativeChangeMultiplier(), 3)}`;
+    setPreviewText(byId("spirit-capture-return-preview"), () => `${state.spiritCaptureReturnUnlocked ? "当前" : "解锁后"}：仙灵力 ×${format(spiritCaptureReturnMultiplier(), 3)}`);
+    setPreviewText(byId("flawless-jade-body-preview"), () => `五衰基础 ^${celestialFiveDeclineBaseExponent().toFixed(3)} → 实际 ^${celestialFiveDeclineExponent().toFixed(3)}`);
+    setPreviewText(byId("soul-qualitative-change-preview"), () => `${state.soulQualitativeChangeUnlocked ? "当前" : "解锁后"}：吐纳来源 ×${format(soulQualitativeChangeMultiplier(), 3)}`);
     const advancedAbilityAvailability = (cost, requiredLevel, prerequisite = true) =>
       state.advancedRealmLevel >= requiredLevel && prerequisite && canAffordImmortalPower(cost);
     updateOneTimeUnlock("immortal-aperture-ii-ability", "unlock-immortal-aperture-ii", state.immortalApertureIIUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureII, 7));
@@ -2076,26 +2117,26 @@
     updateOneTimeUnlock("immortal-aperture-vi-ability", "unlock-immortal-aperture-vi", state.immortalApertureVIUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureVI, 8, state.immortalApertureVUnlocked));
     updateOneTimeUnlock("soul-qualitative-change-ability", "unlock-soul-qualitative-change", state.soulQualitativeChangeUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.soulQualitativeChange, 8));
     updateOneTimeUnlock("immortal-aperture-vii-ability", "unlock-immortal-aperture-vii", state.immortalApertureVIIUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureVII, 8, state.immortalApertureVIUnlocked));
-    byId("trinity-preview").textContent = `${state.trinityUnlocked ? "当前：" : "解锁后："}仙灵力 ×${format(trinityImmortalPowerMultiplier(), 3)}`;
-    byId("unity-with-dao-preview").textContent = `${state.unityWithDaoUnlocked ? "当前：" : "解锁后："}仙灵力区域 ^${format(unityWithDaoExponent(), 4)}`;
-    byId("law-origin-preview").textContent = `${state.lawOriginUnlocked ? "当前：" : "解锁后："}最终法则倍率 ^1.20`;
+    setPreviewText(byId("trinity-preview"), () => `${state.trinityUnlocked ? "当前：" : "解锁后："}仙灵力 ×${format(trinityImmortalPowerMultiplier(), 3)}`);
+    setPreviewText(byId("unity-with-dao-preview"), () => `${state.unityWithDaoUnlocked ? "当前：" : "解锁后："}仙灵力区域 ^${format(unityWithDaoExponent(), 4)}`);
+    setPreviewText(byId("law-origin-preview"), () => `${state.lawOriginUnlocked ? "当前：" : "解锁后："}最终法则倍率 ^1.20`);
     const lawCrystalDetails = lawCrystalFilamentDetails();
-    byId("law-crystal-filament-preview").textContent = `当前法则倍率 ×${format(lawCrystalDetails.lawMultiplier)}；y=${format(lawCrystalDetails.magnitude, 5)}；${state.lawCrystalFilamentUnlocked ? "当前" : "解锁后"}战力区域 ^${format(lawCrystalDetails.exponent, 5)}；渐近上限 ^${format(lawCrystalDetails.maximumExponent, 2)}`;
-    byId("dao-ancestor-abilities").hidden = !daoAncestorActive();
+    setPreviewText(byId("law-crystal-filament-preview"), () => `当前法则倍率 ×${format(lawCrystalDetails.lawMultiplier)}；y=${format(lawCrystalDetails.magnitude, 5)}；${state.lawCrystalFilamentUnlocked ? "当前" : "解锁后"}战力区域 ^${format(lawCrystalDetails.exponent, 5)}；渐近上限 ^${format(lawCrystalDetails.maximumExponent, 2)}`);
+    setHiddenIfChanged(byId("dao-ancestor-abilities"), !daoAncestorActive());
     if (daoAncestorActive()) {
-      byId("dao-time-law-preview").textContent = state.daoTimeLawUnlocked
+      setPreviewText(byId("dao-time-law-preview"), () => state.daoTimeLawUnlocked
         ? `当前：四类资源获取 ^${daoTimeLawExponent().toFixed(4)}（本次转生 ${formatElapsedTime(state.reincarnationElapsedSeconds)}）`
-        : "解锁后：按本次转生时间提升四类资源";
-      byId("dao-law-unity-preview").textContent = state.daoLawUnityUnlocked
+        : "解锁后：按本次转生时间提升四类资源");
+      setPreviewText(byId("dao-law-unity-preview"), () => state.daoLawUnityUnlocked
         ? `当前：最终法则倍率 ^${CONFIG.immortalPower.daoAncestor.lawMultiplierExponent.toFixed(2)}；实际 ×${format(lawImmortalPowerMultiplier())}`
-        : `解锁后：最终法则倍率 ^${CONFIG.immortalPower.daoAncestor.lawMultiplierExponent.toFixed(2)}`;
+        : `解锁后：最终法则倍率 ^${CONFIG.immortalPower.daoAncestor.lawMultiplierExponent.toFixed(2)}`);
     writeSourcePreview("dao-power-preview", "daoPower", true);
-      byId("dao-assimilation-preview").textContent = state.daoAssimilationUnlocked
+      setPreviewText(byId("dao-assimilation-preview"), () => state.daoAssimilationUnlocked
         ? `当前：每层正常软上限损失保留 ×${daoAssimilationQ().toFixed(4)}`
-        : "解锁后：逐层弱化正常量级软上限";
-      byId("dao-domain-preview").textContent = state.daoDomainUnlocked
+        : "解锁后：逐层弱化正常量级软上限");
+      setPreviewText(byId("dao-domain-preview"), () => state.daoDomainUnlocked
         ? `当前：灵域来源 ^${daoDomainExponent().toFixed(4)}`
-        : "解锁后：灵域来源获得无上限指数";
+        : "解锁后：灵域来源获得无上限指数");
     }
     updateOneTimeUnlock("dao-law-unity-ability", "unlock-dao-law-unity", state.daoLawUnityUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.daoLawUnity, 10));
     updateOneTimeUnlock("dao-domain-ability", "unlock-dao-domain", state.daoDomainUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.daoDomain, 10));
@@ -2108,51 +2149,52 @@
     updateOneTimeUnlock("law-crystal-filament-ability", "unlock-law-crystal-filament", state.lawCrystalFilamentUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.lawCrystalFilament, 9));
     updateOneTimeUnlock("sever-three-corpses-ability", "unlock-sever-three-corpses", state.threeCorpseChallengesUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.severThreeCorpses, 9));
     updateOneTimeUnlock("ultimate-immortal-aperture-ability", "unlock-ultimate-immortal-aperture", state.ultimateImmortalApertureUnlocked, advancedAbilityAvailability(ADVANCED_IMMORTAL_ABILITY_COSTS.ultimateImmortalAperture, 9, Immortal.ultimateImmortalAperturePrerequisiteMet()));
-    byId("mystic-heavenly-treasure-ability").classList.toggle("purchased", state.mysticHeavenlyTreasureLevel >= 3);
-    byId("mystic-heavenly-treasure-level").textContent = `当前：${state.mysticHeavenlyTreasureLevel}/3级；已解锁：${["无", "仙道·幻天镜", "仙道·幻天镜、仙道·玄天圣树", "仙道·幻天镜、仙道·玄天圣树、仙道·玄天斩灵剑"][state.mysticHeavenlyTreasureLevel]}`;
-    byId("mystic-heavenly-treasure-cost").textContent = state.mysticHeavenlyTreasureLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextMysticHeavenlyTreasureCost)} 法力`;
-    byId("buy-mystic-heavenly-treasure").textContent = state.mysticHeavenlyTreasureLevel >= 3 ? "已达上限" : "升级";
-    byId("buy-mystic-heavenly-treasure").disabled = state.mysticHeavenlyTreasureLevel >= 3 || state.advancedRealmLevel < 5 || !canAffordMana(nextMysticHeavenlyTreasureCost);
-    byId("heavenly-treasure-ability").classList.toggle("purchased", state.heavenlyTreasureLevel >= 3);
-    byId("heavenly-treasure-level").textContent = `当前：${state.heavenlyTreasureLevel}/3级；已解锁：${["无", "仙道·虚天鼎", "仙道·虚天鼎、仙道·八灵尺", "仙道·虚天鼎、仙道·八灵尺、仙道·万妖幡"][state.heavenlyTreasureLevel]}`;
-    byId("heavenly-treasure-cost").textContent = state.heavenlyTreasureLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextHeavenlyTreasureCost)} 法力`;
-    byId("buy-heavenly-treasure").textContent = state.heavenlyTreasureLevel >= 3 ? "已达上限" : "升级";
-    byId("buy-heavenly-treasure").disabled = state.heavenlyTreasureLevel >= 3 || !canAffordMana(nextHeavenlyTreasureCost);
+    toggleClassIfChanged(byId("mystic-heavenly-treasure-ability"), "purchased", state.mysticHeavenlyTreasureLevel >= 3);
+    setTextIfChanged(byId("mystic-heavenly-treasure-level"), `当前：${state.mysticHeavenlyTreasureLevel}/3级；已解锁：${["无", "仙道·幻天镜", "仙道·幻天镜、仙道·玄天圣树", "仙道·幻天镜、仙道·玄天圣树、仙道·玄天斩灵剑"][state.mysticHeavenlyTreasureLevel]}`);
+    setTextIfChanged(byId("mystic-heavenly-treasure-cost"), state.mysticHeavenlyTreasureLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextMysticHeavenlyTreasureCost)} 法力`);
+    setTextIfChanged(byId("buy-mystic-heavenly-treasure"), state.mysticHeavenlyTreasureLevel >= 3 ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-mystic-heavenly-treasure"), state.mysticHeavenlyTreasureLevel >= 3 || state.advancedRealmLevel < 5 || !canAffordMana(nextMysticHeavenlyTreasureCost));
+    toggleClassIfChanged(byId("heavenly-treasure-ability"), "purchased", state.heavenlyTreasureLevel >= 3);
+    setTextIfChanged(byId("heavenly-treasure-level"), `当前：${state.heavenlyTreasureLevel}/3级；已解锁：${["无", "仙道·虚天鼎", "仙道·虚天鼎、仙道·八灵尺", "仙道·虚天鼎、仙道·八灵尺、仙道·万妖幡"][state.heavenlyTreasureLevel]}`);
+    setTextIfChanged(byId("heavenly-treasure-cost"), state.heavenlyTreasureLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextHeavenlyTreasureCost)} 法力`);
+    setTextIfChanged(byId("buy-heavenly-treasure"), state.heavenlyTreasureLevel >= 3 ? "已达上限" : "升级");
+    setDisabledIfChanged(byId("buy-heavenly-treasure"), state.heavenlyTreasureLevel >= 3 || !canAffordMana(nextHeavenlyTreasureCost));
     const currentScatterEffectLevel = effectiveScatterRebuildLevel();
     const reachedMahayanaThisRun = Immortal.hasReachedMahayanaThisRun();
     const scatterRebuildAvailable = Immortal.canScatterAndRebuild();
-    byId("scatter-rebuild-ability").classList.toggle("purchased", currentScatterEffectLevel >= 3);
-    byId("scatter-rebuild-level").textContent = `当前：散功效果 ${currentScatterEffectLevel}/3级；强化保留 ${state.scatterRetentionLevel}/3级`;
+    toggleClassIfChanged(byId("scatter-rebuild-ability"), "purchased", currentScatterEffectLevel >= 3);
+    setTextIfChanged(byId("scatter-rebuild-level"), `当前：散功效果 ${currentScatterEffectLevel}/3级；强化保留 ${state.scatterRetentionLevel}/3级`);
     const nextScatterLevel = currentScatterEffectLevel + 1;
-    byId("scatter-rebuild-description").textContent = reachedMahayanaThisRun
+    setTextIfChanged(byId("scatter-rebuild-description"), reachedMahayanaThisRun
       ? "本轮已达大乘，不可再散功重修；大乘奖励已补齐三次转世重修效果。"
       : currentScatterEffectLevel >= 3
         ? `散功效果已达上限；当前强化保留至${SCATTER_RETAINED_UPGRADE_TIERS[state.scatterRetentionLevel] ?? "无"}。转世自带的散功效果不会提供强化保留。`
-        : `第${nextScatterLevel}次将保留${SCATTER_RETAINED_UPGRADE_TIERS[nextScatterLevel]}强化；更高量级强化、资源、量级与境界重置，仙道能力继续保留。`;
-    byId("scatter-rebuild-preview").textContent = `结丹需求 ×${format(additiveLevelMultiplier(currentScatterEffectLevel, 2), 0)}；元婴需求 ×${Math.max(0.1, 1 - 0.2 * currentScatterEffectLevel).toFixed(2)}；吐纳法力 ×${scatterRebuildManaMultiplier().toFixed(2)}`;
-    byId("scatter-rebuild").textContent = reachedMahayanaThisRun
+        : `第${nextScatterLevel}次将保留${SCATTER_RETAINED_UPGRADE_TIERS[nextScatterLevel]}强化；更高量级强化、资源、量级与境界重置，仙道能力继续保留。`);
+    setPreviewText(byId("scatter-rebuild-preview"), () => `结丹需求 ×${format(additiveLevelMultiplier(currentScatterEffectLevel, 2), 0)}；元婴需求 ×${Math.max(0.1, 1 - 0.2 * currentScatterEffectLevel).toFixed(2)}；吐纳法力 ×${scatterRebuildManaMultiplier().toFixed(2)}`);
+    setTextIfChanged(byId("scatter-rebuild"), reachedMahayanaThisRun
       ? "大乘后不可重修"
-      : currentScatterEffectLevel >= 3 ? "已达上限" : "散功重修";
-    byId("scatter-rebuild").disabled = !scatterRebuildAvailable;
+      : currentScatterEffectLevel >= 3 ? "已达上限" : "散功重修");
+    setDisabledIfChanged(byId("scatter-rebuild"), !scatterRebuildAvailable);
     const nextReincarnationLevel = state.reincarnationLevel + 1;
     const nextReincarnationRoot = REINCARNATION_ROOTS[nextReincarnationLevel];
-    byId("reincarnation-ability").classList.toggle("purchased", state.reincarnationLevel >= 3);
+    toggleClassIfChanged(byId("reincarnation-ability"), "purchased", state.reincarnationLevel >= 3);
     const reincarnationAvailable = Immortal.canReincarnate();
-    byId("reincarnation-description").textContent = reachedMahayanaThisRun
+    setTextIfChanged(byId("reincarnation-description"), reachedMahayanaThisRun
       ? "本轮已达大乘，不可再转世重修；大乘奖励已补齐三次转世重修效果。"
       : state.reincarnationLevel >= 3
         ? "本轮三次转世均已完成；挑战会把本轮转世与散功次数重置为0，但不会降低永久灵根。"
-        : "提升永久灵根并重置本轮进度；挑战完成次数保留。挑战会重置本轮转世与散功次数，但不会降低灵根。";
-    byId("reincarnation-level").textContent = `当前：永久灵根 ${state.permanentRootLevel}/3级（${activeRootName()}）；本轮转世 ${state.reincarnationLevel}/3次；法力 J 来源 ^${reincarnationManaJExponent().toFixed(2)}`;
+        : "提升永久灵根并重置本轮进度；挑战完成次数保留。挑战会重置本轮转世与散功次数，但不会降低灵根。");
+    setTextIfChanged(byId("reincarnation-level"), `当前：永久灵根 ${state.permanentRootLevel}/3级（${activeRootName()}）；本轮转世 ${state.reincarnationLevel}/3次；法力 J 来源 ^${reincarnationManaJExponent().toFixed(2)}`);
     const nextPermanentRootLevel = Math.max(state.permanentRootLevel, nextReincarnationLevel);
     const nextPermanentRoot = REINCARNATION_ROOTS[nextPermanentRootLevel];
-    byId("reincarnation-preview").textContent = nextReincarnationRoot
+    setPreviewText(byId("reincarnation-preview"), () => nextReincarnationRoot
       ? `下一次：${nextPermanentRootLevel > state.permanentRootLevel ? `获得${nextPermanentRoot.name}` : `保持${nextPermanentRoot.name}`}；转世效果升至${nextReincarnationLevel}级，重返元婴后法力 J 来源 ^${[1, 1.05, 1.1, 1.15][nextReincarnationLevel].toFixed(2)}`
-      : "本轮转世已达上限；开启挑战后可重新进行转世，永久灵根不会降低";
-    byId("reincarnate").textContent = reachedMahayanaThisRun
+      : "本轮转世已达上限；开启挑战后可重新进行转世，永久灵根不会降低");
+    setTextIfChanged(byId("reincarnate"), reachedMahayanaThisRun
       ? "大乘后不可重修"
-      : state.reincarnationLevel >= 3 ? "已达上限" : "转世重修";
-    byId("reincarnate").disabled = !reincarnationAvailable;
+      : state.reincarnationLevel >= 3 ? "已达上限" : "转世重修");
+    setDisabledIfChanged(byId("reincarnate"), !reincarnationAvailable);
+    }
     }
     if (renderTreasures) {
     const pearlCount = tianNiPearlCount();
@@ -2172,106 +2214,106 @@
     const currentFiveElementsTreasureCount = fiveElementsTreasureCount();
     const currentImmortalCrystalCount = immortalCrystalCount();
     const currentFiveSpiritStoneCount = fiveSpiritStoneCount();
-    byId("tian-ni-pearl-treasure").hidden = !hasAchievement("daoFoundation");
-    byId("tian-ni-pearl-count").textContent = `×${format(pearlCount, 0)}`;
-    byId("tian-ni-pearl-chance").textContent = treasureProgressText("tianNiPearl");
-    byId("tian-ni-pearl-effect").textContent = `法力获取 ×${format(WIS.Core.Effects.value("tianNiPearlMana", state), 2)}`;
-    byId("mysterious-green-bottle-treasure").hidden = !hasAchievement("goldenCore");
-    byId("mysterious-green-bottle-count").textContent = `×${format(greenBottleCount, 0)}`;
-    byId("mysterious-green-bottle-chance").textContent = treasureProgressText("mysteriousGreenBottle");
-    byId("mysterious-green-bottle-effect").textContent = `探寻法力获取 ×${format(mysteriousGreenBottleMultiplier(), 2)}`;
-    byId("fu-bao-treasure").hidden = !hasAchievement("trueScale3");
-    byId("fu-bao-count").textContent = `×${format(currentFuBaoCount, 0)}`;
-    byId("fu-bao-chance").textContent = treasureProgressText("fuBao");
-    byId("fu-bao-effect").textContent = `额外法力为探寻基础法力的 ${format(mulBN(fuBaoManaRatio(), 100), 2)}%`;
-    byId("fitness-membership-card-treasure").hidden = !hasAchievement("scale5");
-    byId("fitness-membership-card-count").textContent = `×${format(membershipCardCount, 0)}`;
-    byId("fitness-membership-card-chance").textContent = treasureProgressText("fitnessMembershipCard");
-    byId("fitness-membership-card-effect").textContent = `健身倍率加法 +${format(fitnessMembershipCardFitnessBonus(), 3)}`;
-    byId("super-lollipop-treasure").hidden = !hasAchievement("scale8") && !gtBN(currentSuperLollipopCount, ZERO);
-    byId("super-lollipop-count").textContent = `×${format(currentSuperLollipopCount, 0)}`;
-    byId("super-lollipop-chance").textContent = treasureProgressText("superLollipop");
-    byId("super-lollipop-effect").textContent = `锻炼来源倍率 ×${format(WIS.Core.Effects.value("superLollipop", state), 2)}`;
-    byId("sky-crystal-treasure").hidden = !hasAchievement("scale9") && !gtBN(currentSkyCrystalCount, ZERO);
-    byId("sky-crystal-count").textContent = `×${format(currentSkyCrystalCount, 0)}`;
-    byId("sky-crystal-chance").textContent = treasureProgressText("skyCrystal");
-    byId("sky-crystal-effect").textContent = `打岩来源倍率 ×${format(skyCrystalRockMultiplier(), 2)}`;
-    byId("cosmic-fiber-treasure").hidden = !hasAchievement("scale13") && !gtBN(currentCosmicFiberCount, ZERO);
-    byId("cosmic-fiber-count").textContent = `×${format(currentCosmicFiberCount, 0)}`;
-    byId("cosmic-fiber-base-chance").textContent = "";
-    byId("cosmic-fiber-decayed-chance").textContent = "";
-    byId("cosmic-fiber-final-chance").textContent = treasureProgressText("cosmicFiber");
-    byId("cosmic-fiber-effect").textContent = `当前银河视为指数 ^${format(galaxyEffectiveExponent(), 6)}`;
-    byId("cosmic-will-treasure").hidden = !hasAchievement("scale14") && !gtBN(currentCosmicWillCount, ZERO);
-    byId("cosmic-will-count").textContent = `×${format(currentCosmicWillCount, 0)}`;
-    byId("cosmic-will-decayed-chance").textContent = "";
-    byId("cosmic-will-final-chance").textContent = treasureProgressText("cosmicWill");
-    byId("cosmic-will-effect").textContent = "当前暂无效果";
-    byId("xu-tian-ding-treasure").hidden = state.heavenlyTreasureLevel < 1 && !gtBN(currentXuTianDingCount, ZERO);
-    byId("xu-tian-ding-count").textContent = `×${format(currentXuTianDingCount, 0)}`;
-    byId("xu-tian-ding-chance").textContent = treasureProgressText("xuTianDing");
-    byId("xu-tian-ding-effect").textContent = `天材地宝倍率 ×${format(WIS.Core.Effects.value("naturalTreasureMana", state), 3)}`;
-    byId("ba-ling-chi-treasure").hidden = state.heavenlyTreasureLevel < 2 && !gtBN(currentBaLingChiCount, ZERO);
-    byId("ba-ling-chi-count").textContent = `×${format(currentBaLingChiCount, 0)}`;
-    byId("ba-ling-chi-chance").textContent = treasureProgressText("baLingChi");
-    byId("ba-ling-chi-effect").textContent = `健身倍率 ×${format(WIS.Core.Effects.value("baLingChiFitness", state), 3)}`;
-    byId("wan-yao-fan-treasure").hidden = state.heavenlyTreasureLevel < 3 && !gtBN(currentWanYaoFanCount, ZERO);
-    byId("wan-yao-fan-count").textContent = `×${format(currentWanYaoFanCount, 0)}`;
-    byId("wan-yao-fan-chance").textContent = treasureProgressText("wanYaoFan");
-    byId("wan-yao-fan-effect").textContent = `法宝来源倍率 ×${format(wanYaoFanMultiplier(), 3)}`;
-    byId("phantom-heaven-mirror-treasure").hidden = state.mysticHeavenlyTreasureLevel < 1 && !gtBN(currentPhantomHeavenMirrorCount, ZERO);
-    byId("phantom-heaven-mirror-count").textContent = `×${format(currentPhantomHeavenMirrorCount, 0)}`;
-    byId("phantom-heaven-mirror-chance").textContent = treasureProgressText("phantomHeavenMirror");
-    byId("phantom-heaven-mirror-effect").textContent = `天劫负荷门槛 ×${format(phantomHeavenMirrorLoadMultiplier(), 0)}`;
-    byId("mystic-heaven-sacred-tree-treasure").hidden = state.mysticHeavenlyTreasureLevel < 2 && !gtBN(currentMysticHeavenSacredTreeCount, ZERO);
-    byId("mystic-heaven-sacred-tree-count").textContent = `×${format(currentMysticHeavenSacredTreeCount, 0)}`;
-    byId("mystic-heaven-sacred-tree-chance").textContent = treasureProgressText("mysticHeavenSacredTree");
-    byId("mystic-heaven-sacred-tree-effect").textContent = `天材地宝上限 +${format(mulBN(currentMysticHeavenSacredTreeCount, 2), 0)}`;
-    byId("mystic-heaven-spirit-slaying-sword-treasure").hidden = state.mysticHeavenlyTreasureLevel < 3 && !gtBN(currentMysticHeavenSpiritSlayingSwordCount, ZERO);
-    byId("mystic-heaven-spirit-slaying-sword-count").textContent = `×${format(currentMysticHeavenSpiritSlayingSwordCount, 0)}`;
-    byId("mystic-heaven-spirit-slaying-sword-chance").textContent = treasureProgressText("mysticHeavenSpiritSlayingSword");
-    byId("mystic-heaven-spirit-slaying-sword-effect").textContent = `法宝来源 ^${format(mysticHeavenSpiritSlayingSwordExponent(), 3)}`;
-    byId("five-elements-treasure").hidden = !state.fiveElementsTreasureUnlocked && !gtBN(currentFiveElementsTreasureCount, ZERO);
-    byId("five-elements-treasure-count").textContent = `×${format(currentFiveElementsTreasureCount, 0)}`;
-    byId("five-elements-treasure-chance").textContent = treasureProgressText("fiveElementsTreasure");
-    byId("five-elements-treasure-effect").textContent = `仙灵力获取 ×${format(applyCelestialFiveDeclineToMultiplier(fiveElementsTreasureMultiplierBeforeDecline()), 3)}`;
-    byId("immortal-crystal-treasure").hidden = !hasAchievement("ascendImmortal") && !gtBN(currentImmortalCrystalCount, ZERO);
-    byId("immortal-crystal-count").textContent = `×${format(currentImmortalCrystalCount, 0)}`;
-    byId("immortal-crystal-chance").textContent = treasureProgressText("immortalCrystal");
-    byId("immortal-crystal-effect").textContent = `仙灵力倍率 ×${format(immortalCrystalMultiplier(), 6)}`;
-    byId("five-spirit-stone-treasure").hidden = !state.fiveSpiritStonePurchased && !gtBN(currentFiveSpiritStoneCount, ZERO);
-    byId("five-spirit-stone-count").textContent = `×${format(currentFiveSpiritStoneCount, 0)}`;
-    byId("five-spirit-stone-chance").textContent = treasureProgressText("fiveSpiritStone");
+    setHiddenIfChanged(byId("tian-ni-pearl-treasure"), !hasAchievement("daoFoundation"));
+    setTextIfChanged(byId("tian-ni-pearl-count"), `×${format(pearlCount, 0)}`);
+    setTextIfChanged(byId("tian-ni-pearl-chance"), treasureProgressText("tianNiPearl"));
+    setTextIfChanged(byId("tian-ni-pearl-effect"), `法力获取 ×${format(WIS.Core.Effects.value("tianNiPearlMana", state), 2)}`);
+    setHiddenIfChanged(byId("mysterious-green-bottle-treasure"), !hasAchievement("goldenCore"));
+    setTextIfChanged(byId("mysterious-green-bottle-count"), `×${format(greenBottleCount, 0)}`);
+    setTextIfChanged(byId("mysterious-green-bottle-chance"), treasureProgressText("mysteriousGreenBottle"));
+    setTextIfChanged(byId("mysterious-green-bottle-effect"), `探寻法力获取 ×${format(mysteriousGreenBottleMultiplier(), 2)}`);
+    setHiddenIfChanged(byId("fu-bao-treasure"), !hasAchievement("trueScale3"));
+    setTextIfChanged(byId("fu-bao-count"), `×${format(currentFuBaoCount, 0)}`);
+    setTextIfChanged(byId("fu-bao-chance"), treasureProgressText("fuBao"));
+    setTextIfChanged(byId("fu-bao-effect"), `额外法力为探寻基础法力的 ${format(mulBN(fuBaoManaRatio(), 100), 2)}%`);
+    setHiddenIfChanged(byId("fitness-membership-card-treasure"), !hasAchievement("scale5"));
+    setTextIfChanged(byId("fitness-membership-card-count"), `×${format(membershipCardCount, 0)}`);
+    setTextIfChanged(byId("fitness-membership-card-chance"), treasureProgressText("fitnessMembershipCard"));
+    setTextIfChanged(byId("fitness-membership-card-effect"), `健身倍率加法 +${format(fitnessMembershipCardFitnessBonus(), 3)}`);
+    setHiddenIfChanged(byId("super-lollipop-treasure"), !hasAchievement("scale8") && !gtBN(currentSuperLollipopCount, ZERO));
+    setTextIfChanged(byId("super-lollipop-count"), `×${format(currentSuperLollipopCount, 0)}`);
+    setTextIfChanged(byId("super-lollipop-chance"), treasureProgressText("superLollipop"));
+    setTextIfChanged(byId("super-lollipop-effect"), `锻炼来源倍率 ×${format(WIS.Core.Effects.value("superLollipop", state), 2)}`);
+    setHiddenIfChanged(byId("sky-crystal-treasure"), !hasAchievement("scale9") && !gtBN(currentSkyCrystalCount, ZERO));
+    setTextIfChanged(byId("sky-crystal-count"), `×${format(currentSkyCrystalCount, 0)}`);
+    setTextIfChanged(byId("sky-crystal-chance"), treasureProgressText("skyCrystal"));
+    setTextIfChanged(byId("sky-crystal-effect"), `打岩来源倍率 ×${format(skyCrystalRockMultiplier(), 2)}`);
+    setHiddenIfChanged(byId("cosmic-fiber-treasure"), !hasAchievement("scale13") && !gtBN(currentCosmicFiberCount, ZERO));
+    setTextIfChanged(byId("cosmic-fiber-count"), `×${format(currentCosmicFiberCount, 0)}`);
+    setTextIfChanged(byId("cosmic-fiber-base-chance"), "");
+    setTextIfChanged(byId("cosmic-fiber-decayed-chance"), "");
+    setTextIfChanged(byId("cosmic-fiber-final-chance"), treasureProgressText("cosmicFiber"));
+    setTextIfChanged(byId("cosmic-fiber-effect"), `当前银河视为指数 ^${format(galaxyEffectiveExponent(), 6)}`);
+    setHiddenIfChanged(byId("cosmic-will-treasure"), !hasAchievement("scale14") && !gtBN(currentCosmicWillCount, ZERO));
+    setTextIfChanged(byId("cosmic-will-count"), `×${format(currentCosmicWillCount, 0)}`);
+    setTextIfChanged(byId("cosmic-will-decayed-chance"), "");
+    setTextIfChanged(byId("cosmic-will-final-chance"), treasureProgressText("cosmicWill"));
+    setTextIfChanged(byId("cosmic-will-effect"), "当前暂无效果");
+    setHiddenIfChanged(byId("xu-tian-ding-treasure"), state.heavenlyTreasureLevel < 1 && !gtBN(currentXuTianDingCount, ZERO));
+    setTextIfChanged(byId("xu-tian-ding-count"), `×${format(currentXuTianDingCount, 0)}`);
+    setTextIfChanged(byId("xu-tian-ding-chance"), treasureProgressText("xuTianDing"));
+    setTextIfChanged(byId("xu-tian-ding-effect"), `天材地宝倍率 ×${format(WIS.Core.Effects.value("naturalTreasureMana", state), 3)}`);
+    setHiddenIfChanged(byId("ba-ling-chi-treasure"), state.heavenlyTreasureLevel < 2 && !gtBN(currentBaLingChiCount, ZERO));
+    setTextIfChanged(byId("ba-ling-chi-count"), `×${format(currentBaLingChiCount, 0)}`);
+    setTextIfChanged(byId("ba-ling-chi-chance"), treasureProgressText("baLingChi"));
+    setTextIfChanged(byId("ba-ling-chi-effect"), `健身倍率 ×${format(WIS.Core.Effects.value("baLingChiFitness", state), 3)}`);
+    setHiddenIfChanged(byId("wan-yao-fan-treasure"), state.heavenlyTreasureLevel < 3 && !gtBN(currentWanYaoFanCount, ZERO));
+    setTextIfChanged(byId("wan-yao-fan-count"), `×${format(currentWanYaoFanCount, 0)}`);
+    setTextIfChanged(byId("wan-yao-fan-chance"), treasureProgressText("wanYaoFan"));
+    setTextIfChanged(byId("wan-yao-fan-effect"), `法宝来源倍率 ×${format(wanYaoFanMultiplier(), 3)}`);
+    setHiddenIfChanged(byId("phantom-heaven-mirror-treasure"), state.mysticHeavenlyTreasureLevel < 1 && !gtBN(currentPhantomHeavenMirrorCount, ZERO));
+    setTextIfChanged(byId("phantom-heaven-mirror-count"), `×${format(currentPhantomHeavenMirrorCount, 0)}`);
+    setTextIfChanged(byId("phantom-heaven-mirror-chance"), treasureProgressText("phantomHeavenMirror"));
+    setTextIfChanged(byId("phantom-heaven-mirror-effect"), `天劫负荷门槛 ×${format(phantomHeavenMirrorLoadMultiplier(), 0)}`);
+    setHiddenIfChanged(byId("mystic-heaven-sacred-tree-treasure"), state.mysticHeavenlyTreasureLevel < 2 && !gtBN(currentMysticHeavenSacredTreeCount, ZERO));
+    setTextIfChanged(byId("mystic-heaven-sacred-tree-count"), `×${format(currentMysticHeavenSacredTreeCount, 0)}`);
+    setTextIfChanged(byId("mystic-heaven-sacred-tree-chance"), treasureProgressText("mysticHeavenSacredTree"));
+    setTextIfChanged(byId("mystic-heaven-sacred-tree-effect"), `天材地宝上限 +${format(mulBN(currentMysticHeavenSacredTreeCount, 2), 0)}`);
+    setHiddenIfChanged(byId("mystic-heaven-spirit-slaying-sword-treasure"), state.mysticHeavenlyTreasureLevel < 3 && !gtBN(currentMysticHeavenSpiritSlayingSwordCount, ZERO));
+    setTextIfChanged(byId("mystic-heaven-spirit-slaying-sword-count"), `×${format(currentMysticHeavenSpiritSlayingSwordCount, 0)}`);
+    setTextIfChanged(byId("mystic-heaven-spirit-slaying-sword-chance"), treasureProgressText("mysticHeavenSpiritSlayingSword"));
+    setTextIfChanged(byId("mystic-heaven-spirit-slaying-sword-effect"), `法宝来源 ^${format(mysticHeavenSpiritSlayingSwordExponent(), 3)}`);
+    setHiddenIfChanged(byId("five-elements-treasure"), !state.fiveElementsTreasureUnlocked && !gtBN(currentFiveElementsTreasureCount, ZERO));
+    setTextIfChanged(byId("five-elements-treasure-count"), `×${format(currentFiveElementsTreasureCount, 0)}`);
+    setTextIfChanged(byId("five-elements-treasure-chance"), treasureProgressText("fiveElementsTreasure"));
+    setTextIfChanged(byId("five-elements-treasure-effect"), `仙灵力获取 ×${format(applyCelestialFiveDeclineToMultiplier(fiveElementsTreasureMultiplierBeforeDecline()), 3)}`);
+    setHiddenIfChanged(byId("immortal-crystal-treasure"), !hasAchievement("ascendImmortal") && !gtBN(currentImmortalCrystalCount, ZERO));
+    setTextIfChanged(byId("immortal-crystal-count"), `×${format(currentImmortalCrystalCount, 0)}`);
+    setTextIfChanged(byId("immortal-crystal-chance"), treasureProgressText("immortalCrystal"));
+    setTextIfChanged(byId("immortal-crystal-effect"), `仙灵力倍率 ×${format(immortalCrystalMultiplier(), 6)}`);
+    setHiddenIfChanged(byId("five-spirit-stone-treasure"), !state.fiveSpiritStonePurchased && !gtBN(currentFiveSpiritStoneCount, ZERO));
+    setTextIfChanged(byId("five-spirit-stone-count"), `×${format(currentFiveSpiritStoneCount, 0)}`);
+    setTextIfChanged(byId("five-spirit-stone-chance"), treasureProgressText("fiveSpiritStone"));
     writeSourcePreview("five-spirit-stone-effect", ["fiveSpiritStoneJ", "fiveSpiritStonePower"], false);
     WIS.UI.Cards.updateCatalogGroupCounts(byId("treasure-list"), "宝物");
     }
     if (renderStatistics) {
-    byId("statistics-highest-j").textContent = format(state.lifetimeHighestJ);
-    byId("statistics-highest-power").textContent = format(state.lifetimeHighestPower);
-    byId("statistics-highest-scale").textContent = SCALE_THRESHOLDS[state.lifetimeHighestScaleIndex].name;
-    byId("statistics-total-j").textContent = format(state.lifetimeTotalJ);
-    byId("statistics-total-power").textContent = format(state.lifetimeTotalPower);
-    byId("statistics-highest-realm").textContent = cultivationRealmName(state.lifetimeHighestCultivationRealmLevel);
-    byId("statistics-highest-mana").textContent = format(state.lifetimeHighestMana);
-    byId("statistics-total-mana").textContent = format(state.lifetimeTotalMana);
-    byId("statistics-highest-immortal-power").textContent = format(state.lifetimeHighestImmortalPower);
-    byId("statistics-total-immortal-power").textContent = format(state.lifetimeTotalImmortalPower);
-    byId("statistics-immortal-selections").textContent = format(state.immortalSelectionCount, 0);
-    byId("statistics-real-time").textContent = formatElapsedTime(state.totalElapsedSeconds);
-    byId("statistics-game-time").textContent = formatGameCalendar(state.totalElapsedSeconds);
-    byId("statistics-current-highest-j").textContent = format(state.currentRebirthHighestJ);
-    byId("statistics-current-total-j").textContent = format(state.currentRebirthTotalJ);
-    byId("statistics-current-highest-power").textContent = format(state.currentRebirthHighestPower);
-    byId("statistics-current-total-power").textContent = format(state.currentRebirthTotalPower);
-    byId("statistics-current-highest-scale").textContent = SCALE_THRESHOLDS[state.currentRebirthHighestScaleIndex].name;
-    byId("statistics-current-highest-realm").textContent = cultivationRealmName(state.currentRebirthHighestCultivationRealmLevel);
-    byId("statistics-current-highest-mana").textContent = format(state.currentRebirthHighestMana);
-    byId("statistics-current-total-mana").textContent = format(state.currentRebirthTotalMana);
-    byId("statistics-current-highest-immortal-power").textContent = format(state.currentRebirthHighestImmortalPower);
-    byId("statistics-current-total-immortal-power").textContent = format(state.currentRebirthTotalImmortalPower);
-    byId("statistics-current-elapsed-time").textContent = formatElapsedTime(state.reincarnationElapsedSeconds);
+    setTextIfChanged(byId("statistics-highest-j"), format(state.lifetimeHighestJ));
+    setTextIfChanged(byId("statistics-highest-power"), format(state.lifetimeHighestPower));
+    setTextIfChanged(byId("statistics-highest-scale"), SCALE_THRESHOLDS[state.lifetimeHighestScaleIndex].name);
+    setTextIfChanged(byId("statistics-total-j"), format(state.lifetimeTotalJ));
+    setTextIfChanged(byId("statistics-total-power"), format(state.lifetimeTotalPower));
+    setTextIfChanged(byId("statistics-highest-realm"), cultivationRealmName(state.lifetimeHighestCultivationRealmLevel));
+    setTextIfChanged(byId("statistics-highest-mana"), format(state.lifetimeHighestMana));
+    setTextIfChanged(byId("statistics-total-mana"), format(state.lifetimeTotalMana));
+    setTextIfChanged(byId("statistics-highest-immortal-power"), format(state.lifetimeHighestImmortalPower));
+    setTextIfChanged(byId("statistics-total-immortal-power"), format(state.lifetimeTotalImmortalPower));
+    setTextIfChanged(byId("statistics-immortal-selections"), format(state.immortalSelectionCount, 0));
+    setTextIfChanged(byId("statistics-real-time"), formatElapsedTime(state.totalElapsedSeconds));
+    setTextIfChanged(byId("statistics-game-time"), formatGameCalendar(state.totalElapsedSeconds));
+    setTextIfChanged(byId("statistics-current-highest-j"), format(state.currentRebirthHighestJ));
+    setTextIfChanged(byId("statistics-current-total-j"), format(state.currentRebirthTotalJ));
+    setTextIfChanged(byId("statistics-current-highest-power"), format(state.currentRebirthHighestPower));
+    setTextIfChanged(byId("statistics-current-total-power"), format(state.currentRebirthTotalPower));
+    setTextIfChanged(byId("statistics-current-highest-scale"), SCALE_THRESHOLDS[state.currentRebirthHighestScaleIndex].name);
+    setTextIfChanged(byId("statistics-current-highest-realm"), cultivationRealmName(state.currentRebirthHighestCultivationRealmLevel));
+    setTextIfChanged(byId("statistics-current-highest-mana"), format(state.currentRebirthHighestMana));
+    setTextIfChanged(byId("statistics-current-total-mana"), format(state.currentRebirthTotalMana));
+    setTextIfChanged(byId("statistics-current-highest-immortal-power"), format(state.currentRebirthHighestImmortalPower));
+    setTextIfChanged(byId("statistics-current-total-immortal-power"), format(state.currentRebirthTotalImmortalPower));
+    setTextIfChanged(byId("statistics-current-elapsed-time"), formatElapsedTime(state.reincarnationElapsedSeconds));
     }
-    if (renderCultivation) renderCultivationPage();
+    if (renderCultivation && renderingStructure) renderCultivationPage();
     if (renderUpgrades) {
     updateOneTimeUpgrade("exercise-upgrade", "buy-exercise", state.exercisePurchased, canAffordPower(EXERCISE_COST));
     updateOneTimeUpgrade("gym-upgrade", "buy-gym", state.gymPurchased, canAffordPower(GYM_COST));
@@ -2351,15 +2393,17 @@
     updateOneTimeUpgrade("scale-unification-upgrade", "buy-scale-unification", state.scaleUnificationPurchased, state.highestScaleIndex >= 14 && canAffordPower(SCALE_UNIFICATION_COST));
     updateOneTimeUpgrade("spacetime-framework-upgrade", "buy-spacetime-framework", state.spacetimeFrameworkPurchased, state.highestScaleIndex >= 14 && canAffordPower(SPACETIME_FRAMEWORK_COST));
     }
-    if (renderCultivation) {
+    if (renderRealms) {
     updateOneTimeUnlock("qi-refining-stage", "unlock-qi-refining", state.qiRefiningUnlocked, immortalSelected && canAffordPower(QI_REFINING_COST));
-    updateOneTimeUnlock("immortal-life-ability", "unlock-immortal-life", state.immortalLifeUnlocked, state.qiRefiningUnlocked && canAffordMana(IMMORTAL_LIFE_COST));
     updateOneTimeUnlock("foundation-stage", "unlock-foundation", state.foundationUnlocked, state.qiRefiningUnlocked && canAffordMana(nextFoundationCost));
     if (qiRefiningChallengeActive()) {
-      byId("unlock-foundation").textContent = "提升炼气层数";
-      byId("unlock-foundation").disabled = !canAffordMana(nextFoundationCost);
+      setTextIfChanged(byId("unlock-foundation"), "提升炼气层数");
+      setDisabledIfChanged(byId("unlock-foundation"), !canAffordMana(nextFoundationCost));
     }
     updateOneTimeUnlock("golden-core-stage", "unlock-golden-core", state.goldenCoreUnlocked, state.foundationUnlocked && canAffordMana(nextGoldenCoreCost));
+    }
+    if (renderAbilities) {
+    updateOneTimeUnlock("immortal-life-ability", "unlock-immortal-life", state.immortalLifeUnlocked, state.qiRefiningUnlocked && canAffordMana(IMMORTAL_LIFE_COST));
     updateOneTimeUnlock(
       "circulation-stage",
       "unlock-circulation",
@@ -2367,7 +2411,7 @@
       state.foundationUnlocked && !qiRefiningChallengeActive() && canAffordMana(CIRCULATION_COST)
     );
     if (qiRefiningChallengeActive() && !state.circulationUnlocked) {
-      byId("unlock-circulation").textContent = "炼气十万年：临时解锁";
+      setTextIfChanged(byId("unlock-circulation"), "炼气十万年：临时解锁");
     }
     updateOneTimeUnlock("mana-liquefaction-ability", "unlock-mana-liquefaction", state.manaLiquefactionUnlocked, state.foundationUnlocked && canAffordMana(MANA_LIQUEFACTION_COST));
     updateOneTimeUnlock("technique-ability", "unlock-technique", state.techniqueUnlocked, state.foundationUnlocked && canAffordMana(TECHNIQUE_COST));
@@ -2391,13 +2435,13 @@
     const trueSpiritTransformationMaxed = state.trueSpiritTransformationLevel >= 5;
     const trueSpiritTransformationRow = byId("true-spirit-transformation-ability");
     const trueSpiritTransformationButton = byId("unlock-true-spirit-transformation");
-    trueSpiritTransformationRow.classList.toggle("purchased", trueSpiritTransformationMaxed);
+    toggleClassIfChanged(trueSpiritTransformationRow, "purchased", trueSpiritTransformationMaxed);
     trueSpiritTransformationRow.dataset.sortCost = String(trueSpiritTransformationMaxed
       ? Number.MAX_SAFE_INTEGER
       : nextTrueSpiritTransformationCost);
-    trueSpiritTransformationButton.textContent = trueSpiritTransformationMaxed ? "已达上限" : "升级";
-    trueSpiritTransformationButton.disabled = trueSpiritTransformationMaxed ||
-      state.advancedRealmLevel < 3 || !canAffordMana(nextTrueSpiritTransformationCost);
+    setTextIfChanged(trueSpiritTransformationButton, trueSpiritTransformationMaxed ? "已达上限" : "升级");
+    setDisabledIfChanged(trueSpiritTransformationButton, trueSpiritTransformationMaxed ||
+      state.advancedRealmLevel < 3 || !canAffordMana(nextTrueSpiritTransformationCost));
     updateOneTimeUnlock("silver-tadpole-script-ability", "unlock-silver-tadpole-script", state.silverTadpoleScriptUnlocked, state.advancedRealmLevel >= 3 && canAffordMana(SILVER_TADPOLE_SCRIPT_COST));
     updateOneTimeUnlock("void-refining-to-qi-ability", "unlock-void-refining-to-qi", state.voidRefiningToQiUnlocked, state.advancedRealmLevel >= 3 && canAffordMana(VOID_REFINING_TO_QI_COST));
     updateOneTimeUnlock("immortal-realm-divine-ability", "unlock-immortal-realm-divine", state.immortalRealmDivineAbilityUnlocked, state.advancedRealmLevel >= 3 && canAffordMana(IMMORTAL_REALM_DIVINE_ABILITY_COST));
@@ -2428,7 +2472,10 @@
     if (!bigNumberPage.isSelected()) renderPageContent("actions");
   }
   function renderUpgradesPage() { renderPageContent("upgrades"); }
-  function renderCultivationContentPage() { renderPageContent("cultivation"); xiuzhenPage.render(); }
+  function renderCultivationContentPage() {
+    renderPageContent("cultivation");
+    xiuzhenPage.render({ page: activeCultivationPage, writePreview: writeSourcePreview });
+  }
   function treasureProgressText(key) {
     return WIS.UI.Treasures.acquisition(key, WIS.Meta.TreasureProgress.view(state, key), format);
   }
@@ -2465,6 +2512,15 @@
   }
   function renderNow({ forceGlobal = false, forcePage = false } = {}) {
     if (!WIS.Core.Runtime.canPresentState()) return;
+    syncExplorationPreviewStructure();
+    const nextStructureKey = [state.cultivation.active, state.powerSystem.active, state.advancedRealmLevel,
+      state.highestScaleIndex, state.activeChallenge, state.permanentRootLevel, state.scatterRetentionLevel].join("|");
+    if (nextStructureKey !== structureKey) {
+      structureKey = nextStructureKey;
+      for (const page of PAGE_NAMES) structuralPages.add(page);
+    }
+    renderingStructure = forcePage || structuralPages.has(activePage);
+    if (renderingStructure) structureRevision++;
     achievementPresentation.sync();
     renderCurrentPageOnly = true;
     try {
@@ -2475,9 +2531,11 @@
       if (forcePage || dirtyPages.has(activePage)) {
         renderPage(activePage);
         dirtyPages.delete(activePage);
+        structuralPages.delete(activePage);
       }
     } finally {
       renderCurrentPageOnly = false;
+      renderingStructure = false;
     }
     if (activePage === "achievements") {
       const reward = rawById("achievement-beyondFractal")?.querySelector(".achievement-reward strong");
@@ -2488,7 +2546,12 @@
   }
 
   function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true } = {}) {
-    const commit = work => () => { const result = work(); context.completePlayerAction(); return result; };
+    const commit = work => () => {
+      const result = work();
+      context.completePlayerAction();
+      runtime.call("renderImmediately", activePage);
+      return result;
+    };
     action = commit(action);
     repeatAction = commit(repeatAction);
     const button = byId(id);
@@ -2621,6 +2684,13 @@
   // 高级境界能力首次达到对应境界时创建，事件绑定在节点创建后补齐。
 
     function bindEvents() {
+      document.addEventListener("toggle", event => {
+        const details = event.target;
+        if (details.tagName !== "DETAILS" || !details.open || !details.closest(".page") || !previewVisible(details)) return;
+        structuralPages.add(activePage);
+        dirtyPages.add(activePage);
+        runtime.call("renderImmediately", activePage);
+      }, true);
     configureBuildControlledUI();
     bigNumberPage.bind();
     xiuzhenPage.bind();
@@ -2642,7 +2712,7 @@
     ["pointerdown", "click", "keydown", "input", "change", "submit"].forEach((eventName) => {
       document.addEventListener(eventName, blockInteractionDuringCatchUp, true);
     });
-    subscribeCatchUpStatus(handleOfflineCatchUpStatus);
+    subscribeCatchUpStatus(status=>handleOfflineCatchUpStatus(status,false));
     document.querySelectorAll(".nav-item").forEach((button) => {
       button.addEventListener("click", () => switchPage(button.dataset.page));
     });
@@ -2733,7 +2803,13 @@
     byId("toggle-ghost-back").addEventListener("click", toggleGhostBack);
     bindManualRealmBreakthrough("unlock-qi-refining", unlockQiRefining);
     bindHoldButton("breathing-button", breathe);
-    bindHoldButton("exploration-button", explore);
+    bindHoldButton("exploration-button", () => {
+      const powerBefore = state.power;
+      const result = explore();
+      if (state.power !== powerBefore) markExplorationPreviewDirty();
+      return result;
+    });
+    rawById("refresh-exploration-preview").addEventListener("click", event => requestExplorationPreviewRefresh(event.currentTarget));
     bindManualImmortalAbility("unlock-immortal-life", "immortalLifeUnlocked", unlockImmortalLife);
     bindManualImmortalAbility("buy-qi-spell", "qiSpellLevel", buyQiSpell);
     bindManualRealmBreakthrough("unlock-foundation", unlockFoundation);
@@ -3010,9 +3086,11 @@
     byId("reset-game").addEventListener("click", resetGame);
 
 
+
     }
 
     function resetCultivationPage() {
+      markExplorationPreviewDirty();
       activeCultivationPage = "realms";
       dirtyPages.add("cultivation");
     }
@@ -3023,7 +3101,7 @@
     }
 
     return Object.freeze({
-      __test: Object.freeze({renderOnlineCompensation,handleOfflineCatchUpStatus,dismissOfflineSummary,
+      __test: Object.freeze({markExplorationPreviewDirty, explorationPreviewState: () => [...explorationPreviews].map(([key, s]) => ({ key, calculatedAt:s.calculatedAt, dirty:s.dirty })), renderOnlineCompensation,handleOfflineCatchUpStatus,dismissOfflineSummary,
         closeOfflineProgressDialog,status:()=>offlineCatchUpStatus}),
       render, renderResourceDebugPanel, renderAchievements, renderChallenges, renderCultivationPage,
       ensureAchievementCards, applyTheme, switchPage, switchCultivationPage,
