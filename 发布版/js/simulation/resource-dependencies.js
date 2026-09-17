@@ -2,7 +2,7 @@
   'use strict';
   // Development-only graph query. No SCC work occurs in production ticks.
   const G=()=>W.Simulation.ResourceGroups;
-  const targets=Object.freeze({fitness:['joules','power'],fitnessLevelCap:['joules','power'],rock:['power'],rockLevelCap:['power'],training:['power'],focus:['power'],ghostBrain:['power'],killingIntent:['joules'],elementalization:['joules'],ultimateIntent:['power'],magicTreasure:['power'],brahmaDemonArt:['power'],manaJ:['joules'],spiritDomain:['joules'],breathing:['mana'],breathingJCurve:['mana'],circulation:['mana'],exploration:['mana'],explorationAmount:['mana'],googolPenalty:['joules','power','mana','immortalPower']});
+  const targets=Object.freeze({fitness:['joules','power'],fitnessLevelCap:['joules','power'],rock:['power'],rockLevelCap:['power'],training:['power'],focus:['power'],ghostBrain:['power'],killingIntent:['joules'],elementalization:['joules'],ultimateIntent:['power'],magicTreasure:['power'],brahmaDemonArt:['power'],manaJ:['joules'],spiritDomain:['joules'],breathing:['mana'],breathingJCurve:['mana'],circulation:['mana'],exploration:['mana'],explorationAmount:['mana'],googolPenalty:['joules','power','mana','immortalPower','xianForce','yuanForce']});
   function scc(nodes,edges){
     const neighbors=new Map(nodes.map(n=>[n,edges.filter(e=>e.from===n).map(e=>e.to)])),indices=new Map(),low=new Map(),stack=[],on=new Set(),out=[];let next=0;
     function visit(v){indices.set(v,next);low.set(v,next++);stack.push(v);on.add(v);

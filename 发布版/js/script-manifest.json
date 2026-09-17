@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "release-0.1.5.6-20260916",
+  "buildId": "release-0.1.5.7-20260917",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",

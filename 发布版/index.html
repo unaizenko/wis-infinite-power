@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="WIS-无限战力系统网页试玩版" />
     <title>WIS-无限战力系统</title>
-    <link rel="stylesheet" href="styles.css?v=release-0.1.5.6-20260916" />
+    <link rel="stylesheet" href="styles.css?v=release-0.1.5.7-20260917" />
   </head>
   <body>
     <aside id="save-failure-panel" class="save-failure-panel" role="status" hidden>
@@ -18,7 +18,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.5.6</small>
+          <small id="game-version" class="game-version">v0.1.5.7</small>
         </div>
         <div class="header-actions">
           <small id="online-compensation-balance" hidden></small>
@@ -1002,6 +1002,7 @@
         </section>
 
         <div id="offline-abandon-actions" class="offline-progress-actions" hidden>
+          <button id="start-offline-progress" type="button" hidden>开始结算</button>
           <button id="convert-offline-progress" type="button">放弃剩余结算，转为 2 倍在线收益</button>
           <p id="offline-conversion-help">仅将未处理的离线时间转为在线补偿额度，已结算收益保留。六类自动资源收益两倍，游戏时钟、自动操作频率和宝物进度正常。15小时额度需在线推进15小时，收益按回归后的状态计算。</p>
           <button id="pause-offline-progress" class="secondary-button" type="button">暂停并保存</button>
@@ -1027,72 +1028,72 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/vendor/break_eternity.min.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/namespace.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/bignum.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/finite-progress.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/signed-ledger.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/meta/treasure-rules.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/config.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/meta/big-numbers.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/registry.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/formulas.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/penalties.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/integration.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/runtime.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/cultivation/xiuzhen.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/probability.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/compensation.js?v=release-0.1.5.6-20260916"></script>
-  <script src="js/core/state.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/save.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/resources.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/cultivation/resources.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/effects.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/sources.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/core/reset.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/power/scale-logic.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/power/scale.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/cultivation/immortal-logic.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/cultivation/immortal.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/meta/achievements.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/crystal-interval.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/accuracy.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/fast-forward.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/meta/treasure-ledger.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/meta/treasures.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/cultivation/exploration-progress.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/meta/challenges.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/automation.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/profiler.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/power/scale-kernel.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/resource-groups.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/resource-dependencies.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/coupled-resource-kernel.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/coordinate-coupled-kernel.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/fixed-sources.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/discrete-map.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/offline-strategy.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/predictor-groups.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/continuous-predictor.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/continuous-executor.js?v=release-0.1.5.6-20260916"></script>
-  <script src="js/simulation/resource-evolution.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/checkpoint-strategy.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/fixed-segment.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/compiled-continuous-plan.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/step.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/treasure-events.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/projection.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/discrete-batch.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/offline.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/simulation/loop.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/ui/source-preview.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/ui/format.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/ui/cards.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/ui/big-numbers.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/ui/xiuzhen.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/ui/treasures.js?v=release-0.1.5.6-20260916"></script>
-    <script src="js/ui/app.js?v=release-0.1.5.6-20260916"></script>
-    <script src="game.js?v=release-0.1.5.6-20260916"></script>
+    <script src="js/core/build-config.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/vendor/break_eternity.min.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/namespace.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/bignum.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/finite-progress.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/signed-ledger.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/meta/treasure-rules.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/config.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/meta/big-numbers.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/registry.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/formulas.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/penalties.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/integration.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/runtime.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/cultivation/xiuzhen.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/probability.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/compensation.js?v=release-0.1.5.7-20260917"></script>
+  <script src="js/core/state.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/save.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/resources.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/cultivation/resources.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/effects.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/sources.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/core/reset.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/power/scale-logic.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/power/scale.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/cultivation/immortal-logic.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/cultivation/immortal.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/meta/achievements.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/crystal-interval.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/accuracy.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/fast-forward.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/meta/treasure-ledger.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/meta/treasures.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/cultivation/exploration-progress.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/meta/challenges.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/automation.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/profiler.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/power/scale-kernel.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/resource-groups.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/resource-dependencies.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/coupled-resource-kernel.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/coordinate-coupled-kernel.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/fixed-sources.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/discrete-map.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/offline-strategy.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/predictor-groups.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/continuous-predictor.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/continuous-executor.js?v=release-0.1.5.7-20260917"></script>
+  <script src="js/simulation/resource-evolution.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/checkpoint-strategy.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/fixed-segment.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/compiled-continuous-plan.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/step.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/treasure-events.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/projection.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/discrete-batch.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/offline.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/simulation/loop.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/ui/source-preview.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/ui/format.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/ui/cards.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/ui/big-numbers.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/ui/xiuzhen.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/ui/treasures.js?v=release-0.1.5.7-20260917"></script>
+    <script src="js/ui/app.js?v=release-0.1.5.7-20260917"></script>
+    <script src="game.js?v=release-0.1.5.7-20260917"></script>
   </body>
 </html>

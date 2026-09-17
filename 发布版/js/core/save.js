@@ -123,8 +123,8 @@
     saveStatus = snapshot.saveStatus ? {...snapshot.saveStatus} : {unsaved:false,message:"",revision:saveStatus.revision};
     publishStatus();
   }
-  function backup(state) {
-    const text = loadError ? localStorage.getItem(storageKey()) : JSON.stringify(envelope(WIS.Core.State.cloneForSimulation(state), false));
+  function backup(state, options = {}) {
+    const text = loadError ? localStorage.getItem(storageKey()) : JSON.stringify(envelope(WIS.Core.State.cloneForSimulation(state), false, options));
     localStorage.setItem(backupKey(), text);
     return backupKey();
   }
@@ -156,7 +156,12 @@
   function persistLive(state,simulationLoop,offlineSimulation,options = {}) {
     if (WIS.Core.Save.getLoadError()) return;
     try {
-    simulationLoop?.prepareSave(options);
+    const prepared = simulationLoop?.prepareSave(options);
+    // While a file-picker/import transaction owns the foreground, ordinary
+    // saves are intentionally skipped. Only the import commit path may persist
+    // the newly installed state; otherwise a hidden/closing event could serialize
+    // a half-frozen old session.
+    if (prepared === false && simulationLoop?.isImportHoldActive?.() && options.importCommit !== true) return false;
     // Manual actions save outside the simulation transaction. Their confirmed
     // state must replace any model checkpoint made before the action.
     if (!options.preserveSourceModels && !offlineSimulation?.isInternalWork()) offlineSimulation?.invalidateSourceModels();
@@ -201,7 +206,9 @@
     state = WIS.Core.State.cloneForSimulation(state);
     WIS.Meta.TreasureProgress?.ensure(state);
     WIS.Cultivation.ExplorationProgress?.ensure?.(state);
-    const offlineRecovery = offlineRecoveryProvider?.(options) ?? null;
+    const offlineRecovery = Object.prototype.hasOwnProperty.call(options, 'offlineRecoveryOverride')
+      ? options.offlineRecoveryOverride
+      : (offlineRecoveryProvider?.(options) ?? null);
     return {
       game: "WIS-无限战力系统",
       encoding: "sparse-v1",

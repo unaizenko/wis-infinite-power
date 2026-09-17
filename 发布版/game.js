@@ -213,9 +213,11 @@
 
   function saveState(options = {}) {
     if (WIS.Core.Runtime.isProjection()) return;
-    if (options.closing === true) return persistStateNow(options);
+    // Import commit must be synchronous: the transaction cannot release the old
+    // session until the newly installed state and its recovery debt are in storage.
+    if (options.closing === true || options.importCommit === true) return persistStateNow(options);
     if (stepSimulation) stepSimulation.requestSave();
-    else persistStateNow();
+    else return persistStateNow(options);
   }
 
   function multiplyEffects(effects) {
@@ -269,35 +271,108 @@
     return offlineSimulation.convertOfflineToCompensation();
   }
   const retryCatchUp = (...args) => offlineSimulation.retryCatchUp(...args);
+  const startCatchUp = (...args) => offlineSimulation.startCatchUp(...args);
   const pauseCatchUpByPlayer = () => offlineSimulation.pauseCatchUpByPlayer();
   const acknowledgeCatchUp = (...args) => offlineSimulation.acknowledgeCatchUp(...args);
   const getCatchUpStatus = (...args) => offlineSimulation.getCatchUpStatus(...args);
   const subscribeCatchUpStatus = (...args) => offlineSimulation.subscribeCatchUpStatus(...args);
   const claimPauseNotice = (...args) => offlineSimulation.claimPauseNotice(...args);
+  const queueCatchUpNotice = (...args) => offlineSimulation.queueCatchUpNotice(...args);
   const setLastTickAt = (value) => simulationLoop?.setLastTickAt(value);
   function restoreOfflineRecovery(snapshot) {
     const restored = offlineSimulation.restorePersistenceSnapshot(snapshot, 0, { checkpoint: false });
     const newlyAway = simulationLoop.restoreClosedTime(snapshot);
     return restored || newlyAway > 0;
   }
+  // Import registers the freshly installed save's unsettled time and takes the
+  // foreground gate, but does NOT run the settlement worker. Same enqueue call
+  // and default task options as bootstrap, so the debt, RNG mode and clock
+  // ratio are identical; only the moment the worker starts moves later — now
+  // all the way to an explicit player start, because a high-magnitude save's
+  // multi-hour backlog saturates the main thread for minutes once it begins.
+  function prepareImportRecovery(snapshot) {
+    const restored = restoreOfflineRecovery(snapshot);
+    if (!restored) {
+      const seconds = Math.max(0, Date.now() - state.lastUpdateAt) / 1000;
+      offlineSimulation.appendCatchUpTask(seconds, seconds);
+    }
+    // Take the gate before the flush below. restoreClosedTime can park the
+    // unsettled interval behind the save's own online prefix instead of
+    // enqueueing it, and promoting such an interval is itself an auto-start
+    // path (processOnline -> returnFromAway). Order matters: hold, then flush.
+    offlineSimulation.holdCatchUpUntilUserStart("import");
+    // Same call the save path uses. It moves any parked unsettled interval into
+    // the one settlement queue, so the debt, the income gate and the wait state
+    // are all in place before control returns to the host.
+    let flushed = true;
+    try {
+      simulationLoop.prepareSave({ importCommit: true });
+    } catch (error) {
+      // Promoting parked time is settlement work, not installation. It must not
+      // roll back a legitimately installed save, and the gate has to stay until
+      // that time is accounted for, so a later promotion cannot auto-start it.
+      flushed = false;
+      WIS.Core.Save.diagnose("import-flush-unsettled", error);
+      console.error("WIS import could not promote the installed save's parked unsettled time.", error);
+    }
+    const paused = offlineSimulation.isCatchUpPaused();
+    const pending = offlineSimulation.getPendingCatchUpSeconds() > SIMULATION_EPSILON;
+    // Only a blocking recovery waits for the player. A restored pause owns its
+    // own wait, and a quiet online backlog keeps settling inline as before.
+    const blocking = pending && offlineSimulation.getCatchUpStatus().presentation === "blocking";
+    if (paused || (!blocking && flushed)) offlineSimulation.releaseCatchUpUserStart();
+    return {
+      restored,
+      paused,
+      pending,
+      awaitingStart: offlineSimulation.isCatchUpAwaitingStart()
+    };
+  }
 
-  const UI = WIS.UI.App.create({
-    saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, convertOfflineToCompensation, retryCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
-    captureImportState: () => ({ state: WIS.Core.State.cloneForSimulation(state),
+  function captureImportStateSnapshot() {
+    return { state: WIS.Core.State.cloneForSimulation(state),
       recovery: offlineSimulation.getPersistenceSnapshot(), online: simulationLoop.snapshot(),
       power: WIS.Power.Scale.snapshotTreasureTransient(), cultivation: WIS.Cultivation.Immortal.snapshotTreasureTransient(),
-      rates: { ...WIS.tmp.rates }, storage: WIS.Core.Save.storageSnapshot() }),
-    restoreImportState: snapshot => {
-      cancelCatchUp(); setStateDirect(snapshot.state);
-      offlineSimulation.restorePersistenceSnapshot(snapshot.recovery, 0, { checkpoint: false });
-      simulationLoop.restore(snapshot.online);
-      WIS.Power.Scale.restoreTreasureTransient(snapshot.power);
-      WIS.Cultivation.Immortal.restoreTreasureTransient(snapshot.cultivation);
-      for (const key of Object.keys(WIS.tmp.rates)) delete WIS.tmp.rates[key];
-      Object.assign(WIS.tmp.rates, snapshot.rates);
-      WIS.Core.Save.restoreStorage(snapshot.storage);
-    },
-    getCatchUpStatus, subscribeCatchUpStatus, claimPauseNotice, restoreOfflineRecovery, achievementStates, recordCurrentAchievements,
+      rates: { ...WIS.tmp.rates }, storage: WIS.Core.Save.storageSnapshot() };
+  }
+
+  function restoreImportStateSnapshot(snapshot) {
+    cancelCatchUp(); setStateDirect(snapshot.state);
+    offlineSimulation.restorePersistenceSnapshot(snapshot.recovery, 0, { checkpoint: false });
+    simulationLoop.restore(snapshot.online);
+    WIS.Power.Scale.restoreTreasureTransient(snapshot.power);
+    WIS.Cultivation.Immortal.restoreTreasureTransient(snapshot.cultivation);
+    for (const key of Object.keys(WIS.tmp.rates)) delete WIS.tmp.rates[key];
+    Object.assign(WIS.tmp.rates, snapshot.rates);
+    WIS.Core.Save.restoreStorage(snapshot.storage);
+  }
+
+  function beginImportTransaction() {
+    if (simulationLoop.isImportHoldActive?.()) return null;
+    const previous = captureImportStateSnapshot();
+    const hold = simulationLoop.beginImportHold();
+    if (!hold) return null;
+    return Object.freeze({ token: hold.token, startedAt: hold.startedAt, previous });
+  }
+
+  function commitImportTransaction(transaction) {
+    if (!transaction?.token) return { released: false, elapsedSeconds: 0 };
+    return simulationLoop.finishImportHold(transaction.token, { accountElapsed: false });
+  }
+
+  function rollbackImportTransaction(transaction, reason = "import-cancel") {
+    if (!transaction?.previous || !transaction?.token) return { released: false, elapsedSeconds: 0 };
+    restoreImportStateSnapshot(transaction.previous);
+    return simulationLoop.finishImportHold(transaction.token, { accountElapsed: true, reason });
+  }
+
+  const UI = WIS.UI.App.create({
+    saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, convertOfflineToCompensation, retryCatchUp, startCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
+    captureImportState: captureImportStateSnapshot,
+    restoreImportState: restoreImportStateSnapshot,
+    beginImportTransaction, commitImportTransaction, rollbackImportTransaction,
+    getCatchUpStatus, subscribeCatchUpStatus, claimPauseNotice, restoreOfflineRecovery, prepareImportRecovery,
+    queueCatchUpNotice, achievementStates, recordCurrentAchievements,
     completePlayerAction, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost,
     multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain,
     formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent,
@@ -546,6 +621,7 @@
       abandonCatchUp,
       convertOfflineToCompensation,
       retryCatchUp,
+      startCatchUp,
       acknowledgeCatchUp,
       getCatchUpStatus
     })

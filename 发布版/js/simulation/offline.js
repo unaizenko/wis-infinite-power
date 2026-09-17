@@ -63,6 +63,12 @@
       let catchUpNoticePromise = null;
       let catchUpPaused = false;
       let catchUpPauseReason = null;
+      // Independent of `paused`. Paused means an already started settlement
+      // stopped (player, error, restored history). This means a blocking debt
+      // is registered and gated, but no settlement work has ever been planned
+      // for it: the player still has to press 开始结算.
+      let catchUpAwaitingStart = false;
+      let catchUpStartReason = null;
       const pauseNotices = createPauseNotices();
       let pauseRestored = false;
       let catchUpSessionBefore = null;
@@ -268,7 +274,12 @@
           phase,
           treasureRecovery:treasureRecoveryJob?.status()||treasureRecoveryResult,
           locked: !!treasureRecoveryJob || phase === "paused" || (phase === "running"&&presentation==='blocking'&&!inlineOnline),
-          clockSuspended:!!treasureRecoveryJob||phase==='paused'||((phase==='running'||pendingCatchUpSeconds>epsilon)&&presentation==='blocking'),
+          // Waiting for the player is its own presentation state, never
+          // "running". Game time and online income stay suspended meanwhile.
+          awaitingStart: catchUpAwaitingStart && pendingCatchUpSeconds > epsilon,
+          startReason: catchUpAwaitingStart && pendingCatchUpSeconds > epsilon ? catchUpStartReason : null,
+          clockSuspended:!!treasureRecoveryJob||phase==='paused'||(catchUpAwaitingStart&&pendingCatchUpSeconds>epsilon)||
+            ((phase==='running'||pendingCatchUpSeconds>epsilon)&&presentation==='blocking'),
           presentation: treasureRecoveryJob?'blocking':inlineOnline?'notice':presentation||'blocking',
           awaySuspended,
           waitingForFrame: catchUpTasks[0]?.source==='online'&&!catchUpTasks[0]?.sealed&&catchUpTasks[0]?.remainingGameSeconds<simulationStepSeconds-epsilon,
@@ -348,6 +359,11 @@
 
       function resetCatchUpSession() {
         pauseNotices.reset();
+        // The single clearing point for the wait-for-player gate: session reset
+        // covers cancel (new save / new recovery session), abandon, completion
+        // acknowledgement and full conversion.
+        catchUpAwaitingStart = false;
+        catchUpStartReason = null;
         confirmedSources=freshConfirmedSources();
         presentation=null;
         fastForwardUsed = false; fastForwardMetrics = null;
@@ -440,7 +456,8 @@
         if (!(clockSeconds > 0)) return { converted: false, clockSeconds: 0 };
         const world = snapshotState(), oldTasks = [...catchUpTasks];
         const old = { pendingCatchUpSeconds, pendingCatchUpClockSeconds, catchUpOriginalClockSeconds,
-          catchUpPaused, catchUpPauseReason, catchUpCompleted, presentation };
+          catchUpPaused, catchUpPauseReason, catchUpCompleted, presentation,
+          catchUpAwaitingStart, catchUpStartReason };
         // A UI action runs between synchronous slices. Retire the old async
         // worker before changing either side of the resource/time transaction.
         ++catchUpGeneration;
@@ -468,6 +485,7 @@
           catchUpOriginalClockSeconds = old.catchUpOriginalClockSeconds;
           catchUpPaused = old.catchUpPaused; catchUpPauseReason = old.catchUpPauseReason;
           catchUpCompleted = old.catchUpCompleted; presentation = old.presentation;
+          catchUpAwaitingStart = old.catchUpAwaitingStart; catchUpStartReason = old.catchUpStartReason;
           // Keep an existing player/error pause. A running task stops visibly
           // on failed persistence, retaining every unprocessed second.
           if (!catchUpPaused) {
@@ -483,7 +501,7 @@
         if (!remaining.length) resetCatchUpSession();
         context.setLastTickAt?.(Date.now());
         publishCatchUpStatus(); requestRender();
-        if (remaining.length && !catchUpPaused && !awaySuspended) void simulateOfflineProgress(0, 0);
+        if (remaining.length && !catchUpPaused && !awaySuspended && !catchUpAwaitingStart) void simulateOfflineProgress(0, 0);
         return { converted: true, clockSeconds, balance: credit.balance, conversionId: credit.lastConversion };
       }
 
@@ -635,7 +653,7 @@
 
       function returnFromAway(start=true) {
         awaySuspended=false;publishCatchUpStatus();
-        if(start&&!catchUpPaused&&pendingCatchUpSeconds>epsilon)return simulateOfflineProgress(0,0);
+        if(start&&!catchUpPaused&&!catchUpAwaitingStart&&pendingCatchUpSeconds>epsilon)return simulateOfflineProgress(0,0);
         return Promise.resolve("");
       }
 
@@ -935,6 +953,10 @@
           fastForwardUsed, fastForwardMetrics,
           paused: catchUpPaused,
           pauseReason: catchUpPauseReason,
+          // A refresh before the player pressed 开始结算 must come back to the
+          // same question, not auto-start the settlement it was protecting from.
+          awaitingStart: catchUpAwaitingStart,
+          startReason: catchUpAwaitingStart ? catchUpStartReason : null,
           tasks: catchUpTasks.filter((task) => task.remainingGameSeconds > epsilon).map((task) => ({
             id: task.id, source: task.source, compensationEligible: task.compensationEligible,
             randomMode: task.randomMode, speed: task.speed, sealed: task.sealed,
@@ -1028,6 +1050,13 @@
           ? catchUpDiagnostic("fast-checkpoint-invalid", fastTask, 0, null, fastRestoreError)
           : catchUpPaused ? snapshot.pauseReason : null;
         pauseRestored = catchUpPaused && !fastRestoreError && catchUpPauseReason?.reason!=="player-paused";
+        // Older snapshots have no such field, so they restore as "not waiting"
+        // and keep their previous behaviour. A restored pause owns the wait.
+        catchUpAwaitingStart = snapshot.awaitingStart === true && !catchUpPaused &&
+          pendingCatchUpSeconds > epsilon;
+        catchUpStartReason = catchUpAwaitingStart
+          ? (typeof snapshot.startReason === "string" && snapshot.startReason ? snapshot.startReason : "import")
+          : null;
         publishCatchUpStatus();
         if (checkpoint) checkpointCatchUp();
         return true;
@@ -1064,8 +1093,50 @@
         for (const [key, value] of Object.entries(rates)) WIS.tmp.rates[key + "PerSecond"] = value;
       }
 
+      // Registered debt keeps its income gate but waits for an explicit player
+      // start. Installing a high-magnitude save must not hand a multi-hour
+      // backlog straight to the settlement runner.
+      // Callable BEFORE the debt is enqueued: an installed save's unsettled
+      // interval can still be parked in the live loop's interval list, and the
+      // gate has to be in place before anything promotes it into this queue.
+      // It only becomes an observable state once there is debt to wait for.
+      function holdCatchUpUntilUserStart(reason = "import") {
+        // A paused queue already waits for the player through retry/abandon.
+        // Do not stack a second wait state on top of that.
+        if (catchUpPaused) return false;
+        catchUpAwaitingStart = true;
+        catchUpStartReason = String(reason || "import");
+        publishCatchUpStatus();
+        return true;
+      }
+
+      // Nothing is owed (or a pause owns the wait), so stop gating.
+      function releaseCatchUpUserStart() {
+        if (!catchUpAwaitingStart) return false;
+        catchUpAwaitingStart = false;
+        catchUpStartReason = null;
+        publishCatchUpStatus();
+        return true;
+      }
+
+      // The only way out of awaitingStart into settlement. It reuses the same
+      // notice/runner entry point the live loop uses; there is no second runner.
+      function startCatchUp() {
+        if (!catchUpAwaitingStart) return catchUpPromise || Promise.resolve("");
+        catchUpAwaitingStart = false;
+        catchUpStartReason = null;
+        publishCatchUpStatus();
+        if (catchUpPaused || awaySuspended || !(pendingCatchUpSeconds > epsilon))
+          return catchUpPromise || Promise.resolve("");
+        queueCatchUpNotice(0, 0);
+        return catchUpPromise || Promise.resolve("");
+      }
+
       function retryCatchUp() {
         if (!catchUpPaused || !(pendingCatchUpSeconds > 0)) return catchUpPromise || Promise.resolve("");
+        // An explicit retry is also an explicit player start.
+        catchUpAwaitingStart = false;
+        catchUpStartReason = null;
         if (catchUpInProgress) {
           const activePromise = catchUpPromise || Promise.resolve("");
           return activePromise.then(() => retryCatchUp());
@@ -1088,6 +1159,11 @@
       function simulateOfflineProgress(elapsedSeconds, clockSeconds = elapsedSeconds) {
         appendCatchUpTask(elapsedSeconds, clockSeconds);
         if (!(pendingCatchUpSeconds > 0)) return Promise.resolve("");
+        // Hard gate, not a UI convention. Even a mistaken queueCatchUpNotice /
+        // simulateOfflineProgress from the main loop or any other entry point
+        // must not reach planning, compiled-micro, FixedSegment or kernel work
+        // before the player starts the settlement.
+        if (catchUpAwaitingStart) { publishCatchUpStatus(); return catchUpPromise || Promise.resolve(""); }
         if (catchUpPaused||awaySuspended) return Promise.resolve("");
         if (catchUpPromise) return catchUpPromise;
         // Ordinary sub-frame time is real debt, but has no runnable frame yet.
@@ -1461,6 +1537,7 @@
         abandonCatchUp,
         convertOfflineToCompensation,
         retryCatchUp,
+        holdCatchUpUntilUserStart, releaseCatchUpUserStart, startCatchUp,
         pauseCatchUpByPlayer, pauseAfterOnlineError,
         acknowledgeCatchUp,
         appendCatchUpTask,
@@ -1478,6 +1555,8 @@
         getPendingCatchUpSeconds: () => pendingCatchUpSeconds,
         getPendingCatchUpClockSeconds: () => pendingCatchUpClockSeconds,
         isCatchUpPaused: () => catchUpPaused,
+        isCatchUpAwaitingStart: () => catchUpAwaitingStart && pendingCatchUpSeconds > epsilon,
+        getCatchUpStartReason: () => (catchUpAwaitingStart ? catchUpStartReason : null),
         getCatchUpPauseReason: () => catchUpPauseReason
       });
     }

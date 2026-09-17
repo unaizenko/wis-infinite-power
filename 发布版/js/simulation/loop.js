@@ -5,6 +5,7 @@
     const epsilon=context.epsilon;
     let lastTickAt=Date.now(),started=false,preparingSave=false;
     let onlineAccumulator=0,stepping=false;
+    let importHold=null,importHoldSequence=0;
     const onlineIntervals=(getState().core.runtime.timeLedger.pendingContinuousTime||[]).map(p=>({...p}));
     onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);
     const stepSeconds=context.simulationStepSeconds||0.1;
@@ -112,9 +113,37 @@
       else offline.returnFromAway(start);
       return seconds;
     }
+    function beginImportHold() {
+      if(importHold)return null;
+      const now=Date.now();
+      importHold={token:`import-${++importHoldSequence}`,startedAt:now,speed:effectiveDevSpeed()};
+      // Retire any already scheduled recovery slice without discarding debt.
+      // The picker/read/install transaction owns the foreground until commit or rollback.
+      offline.suspendForAway();
+      lastTickAt=now;
+      return {...importHold};
+    }
+    function finishImportHold(token,{accountElapsed=false,reason='import-cancel'}={}) {
+      if(!importHold||token!==importHold.token)return {released:false,elapsedSeconds:0};
+      const hold=importHold,now=Date.now();
+      importHold=null;
+      const elapsed=Math.max(0,now-hold.startedAt)/1000;
+      lastTickAt=now;
+      if(accountElapsed&&elapsed>epsilon){
+        // Failed/cancelled imports return the picker/read time to the old save.
+        // It is registered as blocking debt so a high-value old save cannot
+        // immediately saturate the host as soon as the transaction is released.
+        offline.holdCatchUpUntilUserStart?.(reason);
+        offline.appendCatchUpTask(elapsed*hold.speed,elapsed,{source:'offline',compensationEligible:false,
+          randomMode:'state',speed:hold.speed,sealed:true,presentation:'blocking',external:true});
+        writeLedger({awaySince:null,registeredUntil:Math.max(Number(ledger().registeredUntil)||0,now),boundaryAt:now});
+      }
+      return {released:true,elapsedSeconds:elapsed};
+    }
     function runMainTick(){
       const now=Date.now();
       if(!isInitialLoadComplete()){lastTickAt=now;return;}
+      if(importHold){lastTickAt=now;return;}
       if(document.hidden)return;
       // Recovery publishes its own small progress view. Re-rendering every
       // ability/ledger here repeatedly traverses the still-uncommitted backlog.
@@ -125,25 +154,35 @@
       else {
         enqueueForegroundAt(now);
         if(offline.getPendingCatchUpSeconds()>epsilon){
-          if(!offline.isCatchUpPaused())offline.queueCatchUpNotice(0,0);
+          // A freshly imported blocking debt waits for the player. The live
+          // loop must not be the entry point that starts it instead.
+          if(!offline.isCatchUpPaused()&&!offline.isCatchUpAwaitingStart?.())offline.queueCatchUpNotice(0,0);
         }else processOnline();
+      }
+      const finalStatus=offline.getCatchUpStatus();
+      // A blocking wait owns a modal status view and the game state is frozen.
+      // Do not repeatedly rebuild the full high-number page while nothing changes.
+      if((finalStatus.awaitingStart===true||finalStatus.phase==='paused')&&finalStatus.presentation==='blocking'){
+        lastTickAt=now;return;
       }
       requestRender();flushRender(now);
     }
     function handleVisibilityChange(){
-      if(!ready())return;
+      if(!ready()||importHold)return;
       const now=Date.now();
       if(document.hidden){if(markAway(now))saveState();}
       else if(ledger().awaySince!==null){registerReturn(now);saveState();}
       requestRender();flushRender(now,{force:true});
     }
     function prepareSave(options={}){
-      if(preparingSave||offline.isInternalWork?.()||!ready())return;
+      if(importHold&&options.importCommit!==true)return false;
+      if(preparingSave||offline.isInternalWork?.()||!ready())return false;
       preparingSave=true;
       try{
         if(options.closing===true||document.hidden)markAway(Date.now());
         else {enqueueForegroundAt(Date.now());processOnline();}
       }finally{writeLedger({pendingContinuousTime:onlineIntervals.map(p=>({...p}))});preparingSave=false;}
+      return true;
     }
     function restoreClosedTime(snapshot){
       const pending=ledger().pendingContinuousTime||[];
@@ -161,7 +200,8 @@
       window.setInterval(runMainTick,context.logicIntervalMs);
     }
     return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,
-      prepareSave,restoreClosedTime,enqueueForegroundAt,
+      prepareSave,restoreClosedTime,enqueueForegroundAt,beginImportHold,finishImportHold,
+      isImportHoldActive:()=>!!importHold,
       snapshot:()=>({lastTickAt,onlineAccumulator,tickRemaining,onlineIntervals:onlineIntervals.map(part=>({...part}))}),
       restore:snapshot=>{lastTickAt=snapshot.lastTickAt;onlineAccumulator=snapshot.onlineAccumulator||0;
         tickRemaining=snapshot.tickRemaining||0;onlineIntervals.splice(0,onlineIntervals.length,...(snapshot.onlineIntervals||[]).map(part=>({...part})));},

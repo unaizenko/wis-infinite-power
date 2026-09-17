@@ -77,7 +77,8 @@
         const exponent = (label, value) => { if (!B.eq(value, 1)) add(label, "power", value); };
         const time = () => exponent("时间法则", I.daoTimeLawExponent());
         const googol = () => {
-          const value = WIS.Core.Penalties.googolPenaltyMultiplier(resource, state[resource], state);
+          const amount = ["xianForce", "yuanForce"].includes(resource) ? WIS.Cultivation.Xiuzhen.amount(state, resource) : state[resource];
+          const value = WIS.Core.Penalties.googolPenaltyMultiplier(resource, amount, state);
           if (!B.eq(value, 1)) add("古戈尔惩罚", "multiply", value);
         };
         if (["joules", "power"].includes(resource)) {
@@ -126,8 +127,9 @@
             B.add(I.goldenNatureImmortalPowerExponentBonus(), I.greatLuoManaExponentBonus()));
           time(); googol();
         } else {
-          // Xiuzhen raw already includes all its own ability multipliers.
-          add("来源层之后无额外乘区", "multiply", 1);
+          // Xiuzhen raw includes ability multipliers; the common penalty is final-only.
+          googol();
+          if (!steps.length) add("来源层之后无额外乘区", "multiply", 1);
         }
         return steps;
       }
@@ -176,7 +178,7 @@
           case "yuanForce": {
             resource = id;
             const X = WIS.Cultivation.Xiuzhen;
-            final = X.rates(state)[id]; raw = final;
+            raw = X.rawRates(state)[id]; final = X.rates(state)[id];
             break;
           }
           default: {

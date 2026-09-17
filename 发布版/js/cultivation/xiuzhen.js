@@ -159,7 +159,7 @@
       n.abilities[key] = true; if (manual) n.history.abilities[key] = true; return true; });
   }
   const yuanFromXian = x => B.pow(B.add(1, B.div(x, "1e8")), .75);
-  function rates(state) {
+  function rawRates(state) {
     let xianForce = B.ZERO, yuanForce = B.ZERO;
     if (!has(state, "xianForce") && !has(state, "yuanForce")) return { xianForce, yuanForce };
     const x = amount(state, "xianForce"), y = amount(state, "yuanForce");
@@ -175,8 +175,18 @@
     }
     return { xianForce, yuanForce };
   }
+  function rates(state) {
+    const raw = rawRates(state);
+    return {
+      xianForce: WIS.Core.Penalties.applyGoogolPenalty("xianForce", amount(state, "xianForce"), raw.xianForce, state),
+      yuanForce: WIS.Core.Penalties.applyGoogolPenalty("yuanForce", amount(state, "yuanForce"), raw.yuanForce, state)
+    };
+  }
   function intervalSupport(state) {
     if (!has(state, "xianForce") && !has(state, "yuanForce")) return { supported: true, code: "no-xiuzhen-source" };
+    // Existing one-way interval models do not represent stock-dependent Googol feedback.
+    if (resourceKeys.some(key => has(state, key) && B.gte(amount(state, key), WIS.Core.Config.googolPenalty.threshold)))
+      return { supported: false, code: "xiuzhen-googol-feedback" };
     const feedback = ["materialSpirit", "crystal", "worldAura", "rules", "divineArt"].filter(k => has(state,k));
     if (feedback.length) return { supported: false, code: "xiuzhen-feedback", feedback };
     // The source chain reads IP, X and Y only. With IP production disabled,
@@ -324,7 +334,7 @@
   }
   WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
     sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
-    canBuy, buy, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
+    canBuy, buy, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
     spendResource(state, key, cost) { return transaction(state, () => debit(state, key, cost)); } });
 }(window.WIS));

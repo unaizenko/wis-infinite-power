@@ -51,21 +51,22 @@
     const canAffordMana = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "mana", cost);
     const canAffordImmortalPower = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "immortalPower", cost);
     
-    const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, achievementStates, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt } = context;
+    const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, achievementStates, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt, beginImportTransaction, commitImportTransaction, rollbackImportTransaction } = context;
   const CONFIG = WIS.Core.Config;
   const BUILD = WIS.Core.Build;
   const formatSmallMultiplier = WIS.UI.Format.smallMultiplier;
   const googolPenaltySuffix = (resource, amount) => {
     const details = WIS.Core.Penalties.googolPenaltyDetails(resource, amount, state);
     if (!details.active) return "";
+    const highScaleText = `；高阶强度 ×${format(details.highScaleStrength, 5)}`;
     if (eqBN(details.strength, CONFIG.googolPenalty.defaultStrength)) {
-      return `；古戈尔惩罚 ×${formatSmallMultiplier(details.multiplier)}`;
+      return `；古戈尔惩罚 ×${formatSmallMultiplier(details.multiplier)}${highScaleText}`;
     }
     const strengthSources = [
       state.largeScaleAdaptationPurchased ? "大尺度适应 ×0.95" : "",
       state.scaleUnificationPurchased ? "尺度统一 ×0.85" : ""
     ].filter(Boolean);
-    return `；古戈尔惩罚：基础强度100%，修正后强度${(bnToNumber(details.strength, 0) * 100).toFixed(2)}%${strengthSources.length ? `（${strengthSources.join("；")}）` : ""}，最终 ×${formatSmallMultiplier(details.multiplier)}`;
+    return `；古戈尔惩罚：基础强度100%，修正后强度${(bnToNumber(details.strength, 0) * 100).toFixed(2)}%${strengthSources.length ? `（${strengthSources.join("；")}）` : ""}${highScaleText}，最终 ×${formatSmallMultiplier(details.multiplier)}`;
   };
   const POWER_COSTS = CONFIG.costs.power;
   const IMMORTAL_COSTS = CONFIG.costs.immortal;
@@ -273,6 +274,9 @@
     let formulaDetailsExpanded = false;
     let automationRenderSignature = "";
     let offlineCatchUpStatus = Object.freeze({ phase: "idle", locked: false });
+    let importTransaction = null;
+    let importPickerReturnTimer = null;
+    let importPickerAway = false;
     let offlineDialogDelayTimer = null;
     // Presentation survives the next online task; it never blocks simulation.
     let offlineCompletedSummary = null;
@@ -450,8 +454,10 @@
 
   async function abandonOfflineProgress() {
     const current = getCatchUpStatus();
-    if (offlineAbandonPending || !["running", "paused"].includes(current?.phase) ||
-        typeof context.abandonCatchUp !== "function") return;
+    // awaitingStart must be abandonable too, and abandoning it may not run a
+    // single offline step first: abandonCatchUp only discards debt.
+    if (offlineAbandonPending || typeof context.abandonCatchUp !== "function" ||
+        (current?.awaitingStart !== true && !["running", "paused"].includes(current?.phase))) return;
     const remaining = formatElapsedTime(Math.max(0, Number(current.pendingClockSeconds) || 0));
     if (!window.confirm(`确定要放弃剩余 ${remaining} 的离线结算吗？\n已结算的资源与宝物会保留，剩余时间及其收益将永久舍弃，无法恢复。`)) return;
     offlineAbandonPending = true;
@@ -522,8 +528,14 @@
           (Number.isFinite(wait)&&wait>=0 ? ` · 预计等待 ${formatElapsedTime(wait)}` : " · 等待时间估算中") +
           (status?.recentFastForward?.noEffectiveMerge ? " · 近期无有效合并，正在按原帧结算" : "") : "");
     }
+    const awaitingStart = status?.awaitingStart === true;
     const pauseButton = rawById("pause-offline-progress");
     if (pauseButton) pauseButton.hidden = status?.phase !== "running";
+    const startButton = rawById("start-offline-progress");
+    if (startButton) {
+      startButton.hidden = !awaitingStart;
+      startButton.disabled = offlineAbandonPending || !awaitingStart;
+    }
     const remainingSeconds = Math.max(0, Number(status?.pendingClockSeconds) || 0);
     const title = rawById("offline-progress-title");
     const detail = rawById("offline-progress-detail");
@@ -557,7 +569,7 @@
     pausePanel.hidden = status?.phase !== "paused";
     if(status?.phase!=="paused")rawById("offline-pause-reason").textContent="";
     completePanel.hidden = status?.phase !== "completed";
-    if (abandonActions) abandonActions.hidden = !["running", "paused"].includes(status?.phase);
+    if (abandonActions) abandonActions.hidden = !awaitingStart && !["running", "paused"].includes(status?.phase);
     if (abandonButton) {
       abandonButton.disabled = offlineAbandonPending || typeof context.abandonCatchUp !== "function";
       abandonButton.textContent = "无补偿直接放弃剩余时间";
@@ -577,6 +589,16 @@
       if(abandonActions)abandonActions.hidden=true;
       if(pauseButton)pauseButton.hidden=true;
       for(const id of ['convert-offline-progress','offline-conversion-help']){const element=rawById(id);if(element)element.hidden=true;}
+    } else if (awaitingStart) {
+      // Not "running": no runner exists yet, so never show a processing
+      // percentage or a speed/ETA measurement for work that has not started.
+      title.textContent = "检测到待结算离线时间";
+      progressBar.value = 0;
+      percent.textContent = "尚未开始";
+      remaining.textContent = `待结算 ${pendingTime(Math.max(0, Number(status?.pendingClockSeconds) || 0))}`;
+      setText("offline-progress-intro", "当前存档的离线结算可能需要较长时间，因此不会自动开始。");
+      detail.textContent = "开始结算前不会推进游戏时间，也不会产生在线收益。你可以直接开始结算，或把剩余离线时间转为两倍在线收益，或放弃剩余离线时间。";
+      if (wallTime) wallTime.textContent = "";
     } else if (status?.phase === "paused") {
       title.textContent = activity+"已暂停";
       detail.textContent = "剩余时间已保留，可手动继续。"+(status?.convertibleClockSeconds>0?"仅尚未处理的实际离线时间可以转换为两倍在线收益。":"")+"暂停等待不产生新收益。";
@@ -607,6 +629,17 @@
   function shouldShowOfflineProgress(status) {
     return status?.phase === 'running' && status.presentation === 'blocking' &&
       Date.now() - (Number(status.startedAt) || Date.now()) >= offlineDialogWaitMs(status);
+  }
+  // Import installs its debt and gate before the worker starts, so the usual
+  // "running" transition cannot open the window yet. Use the same duration
+  // threshold the normal presentation uses, so a trivial import stays silent.
+  function shouldPresentRecoveryBeforeStart(status) {
+    if (status?.phase === 'paused') return true;
+    // Waiting for an explicit player start always needs its window: nothing
+    // else would ever ask the question.
+    if (status?.awaitingStart === true) return true;
+    return status?.presentation === 'blocking' && status?.pendingGameSeconds > 0 &&
+      offlineDialogWaitMs(status) <= 300;
   }
   function clearOfflineSummaryPresentation() {
     window.clearTimeout(offlineSummaryTimer); offlineSummaryTimer = null;
@@ -679,7 +712,8 @@
       ? offlineCompletedSummary : offlineCatchUpStatus);
 
     if(offlineCatchUpStatus.treasureRecovery?.active){openOfflineProgressDialog();return;}
-    const quiet = offlineCatchUpStatus.presentation !== "blocking" && offlineCatchUpStatus.phase !== "paused";
+    const quiet = offlineCatchUpStatus.presentation !== "blocking" && offlineCatchUpStatus.phase !== "paused" &&
+      offlineCatchUpStatus.awaitingStart !== true;
     const catchUpNotice = rawById("catch-up-notice");
     if (catchUpNotice) {
       const delayed = Number(offlineCatchUpStatus.recoveryElapsedSeconds) >= 1;
@@ -710,7 +744,14 @@
       return;
     }
     if (offlineCatchUpStatus.phase !== "running") {
-      closeOfflineProgressDialog();
+      // Registered blocking debt that is waiting for an explicit player start.
+      // This is the only presenter for it, so it must open the window itself —
+      // including after a refresh that restored the same waiting state.
+      if (offlineCatchUpStatus.awaitingStart === true) { openOfflineProgressDialog(); return; }
+      // Registered blocking debt whose worker has not started yet. An already
+      // visible recovery window must survive that gap instead of flickering closed.
+      if (!(shouldPresentRecoveryBeforeStart(offlineCatchUpStatus) &&
+          rawById("offline-progress-dialog")?.open)) closeOfflineProgressDialog();
       return;
     }
 
@@ -784,20 +825,149 @@
     safeOperationNotice("已生成当前进度备份并请求下载，请确认浏览器下载结果；这不会恢复浏览器自动保存。");
   }
 
+  // Mobile engines are inconsistent here: some lack Blob.prototype.text, some
+  // expose it but reject for file-backed blobs. FileReader is the compatible
+  // fallback. Text stays UTF-8; numbers stay strings for Save.prepare/BigNum.
+  async function readSaveFileText(source) {
+    if (!source) throw Error("没有选择存档文件");
+    if (typeof source.text === "function") {
+      try { return String(await source.text()); } catch (error) {
+        const blobBacked = typeof window.Blob === "function" && source instanceof window.Blob;
+        if (!blobBacked || typeof window.FileReader !== "function") throw error;
+        WIS.Core.Save.diagnose("import-blob-text", error);
+      }
+    }
+    if (typeof window.FileReader !== "function") throw Error("当前浏览器不支持读取本地存档文件");
+    return await new Promise((resolve, reject) => {
+      const reader = new window.FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(reader.error || Error("文件读取失败"));
+      reader.onabort = () => reject(Error("文件读取被中断"));
+      try { reader.readAsText(source, "UTF-8"); } catch (error) { reject(error); }
+    });
+  }
+
+  // Development diagnostics only, never surfaced to players: attribute a real
+  // browser stall to one import phase instead of guessing between prepare,
+  // backup, install, save, render and recovery registration.
+  const IMPORT_SLOW_PHASE_MS = 500;
+  let lastImportPhases = null;
+  function createImportTimer() {
+    const now = () => (typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now() : Date.now());
+    const phases = [];
+    const startedAt = now();
+    let mark = startedAt;
+    const record = (name, ms) => {
+      phases.push({ phase: name, ms: Math.round(ms * 10) / 10 });
+      if (ms >= IMPORT_SLOW_PHASE_MS) {
+        WIS.Core.Save.diagnose(`import-slow-${name}`, Error(`${name} 阶段耗时 ${ms.toFixed(1)}ms`));
+        if (BUILD.mode === "development") console.warn(`WIS 存档导入阶段耗时过长：${name} ${ms.toFixed(1)}ms`);
+      }
+    };
+    return {
+      phases,
+      step(name) { const at = now(); record(name, at - mark); mark = at; },
+      finish() {
+        record("total", now() - startedAt);
+        lastImportPhases = Object.freeze(phases.map(p => Object.freeze({ ...p })));
+        if (BUILD.mode === "development")
+          console.info("WIS 存档导入阶段耗时", phases.map(p => `${p.phase}=${p.ms}ms`).join(" "));
+        return phases;
+      }
+    };
+  }
+
+  function traceImportLifecycle(stage, details = null) {
+    if (BUILD.mode !== "development") return;
+    const prefix = `[WIS ${BUILD.buildId || "unknown"} import] ${stage}`;
+    if (details == null) console.info(prefix); else console.info(prefix, details);
+  }
+
+  function beginUIImportTransaction(phase = "reading") {
+    if (importTransaction) return importTransaction;
+    const transaction = beginImportTransaction?.();
+    if (!transaction) return null;
+    importTransaction = { ...transaction, phase, committed: false };
+    traceImportLifecycle("hold-begin", { token: importTransaction.token, phase });
+    return importTransaction;
+  }
+
+  function commitUIImportTransaction(transaction = importTransaction) {
+    if (!transaction || transaction !== importTransaction) return false;
+    const result = commitImportTransaction?.(transaction);
+    if (!result?.released) throw Error("导入事务提交失败：旧会话冻结未解除");
+    transaction.committed = true;
+    traceImportLifecycle("hold-commit", { token: transaction.token, elapsedSeconds: result.elapsedSeconds });
+    importTransaction = null;
+    return true;
+  }
+
+  function rollbackUIImportTransaction(transaction = importTransaction, reason = "import-cancel") {
+    if (!transaction || transaction !== importTransaction || transaction.committed) return false;
+    const result = rollbackImportTransaction?.(transaction, reason);
+    traceImportLifecycle("hold-rollback", { token: transaction.token, reason, elapsedSeconds: result?.elapsedSeconds || 0 });
+    importTransaction = null;
+    applyTheme();
+    markGlobalDirty();
+    markPagesDirty();
+    try { saveState(); } catch (error) {
+      WIS.Core.Save.diagnose("import-rollback-save", error);
+      showNotice("原进度已恢复，但取消导入期间的时间暂未保存，请勿立即刷新页面。", 6000);
+    }
+    const status = getCatchUpStatus();
+    handleOfflineCatchUpStatus(status);
+    if (shouldPresentRecoveryBeforeStart(status)) openOfflineProgressDialog();
+    if (!(status.awaitingStart === true || status.phase === "paused")) render({ forceGlobal: true, forcePage: true });
+    return true;
+  }
+
+  function schedulePickerReturnCheck(importInput) {
+    if (!importTransaction || importTransaction.phase !== "picking") return;
+    window.clearTimeout(importPickerReturnTimer);
+    const token = importTransaction.token;
+    importPickerReturnTimer = window.setTimeout(() => {
+      importPickerReturnTimer = null;
+      if (!importTransaction || importTransaction.token !== token || importTransaction.phase !== "picking") return;
+      if (importInput.files?.length) return;
+      rollbackUIImportTransaction(importTransaction, "import-picker-cancel");
+      showNotice("已取消导入，原进度已恢复。", 1800);
+    }, 1200);
+  }
+
   async function importSave(file) {
     if (importSave.pending) { showNotice("正在导入，请等待当前操作完成。"); return; }
+    const transaction = importTransaction || beginUIImportTransaction("reading");
+    if (!transaction) { showNotice("无法开始导入：另一个导入事务尚未结束。", 4000); return; }
+    transaction.phase = "reading";
     importSave.pending = true;
-    let previous = null, switched = false;
+    const previous = transaction.previous;
+    let switched = false, installed = false, stage = "read";
     const previousSummary = offlineCompletedSummary;
+    const timer = createImportTimer();
+    traceImportLifecycle("read-start", { token: transaction.token });
     try {
-      const parsed = JSON.parse(await file.text());
+      const text = await readSaveFileText(file);
+      timer.step("read");
+      stage = "parse";
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (error) {
+        throw Error(`存档不是有效的JSON文本（${error?.message || error}）`);
+      }
+      timer.step("parse");
+      stage = "prepare";
       const prepared = WIS.Core.Save.prepare(parsed);
+      timer.step("prepare");
+      stage = "install";
       // Validation and migration have no access to the current task queue.
       // Backup must succeed before switching either progress or offline debt.
-      previous = context.captureImportState();
-      WIS.Core.Save.backup(state);
+      WIS.Core.Save.backup(previous.state, { offlineRecoveryOverride: previous.recovery });
       switched = true;
+      timer.step("backup");
       offlineCompletedSummary = null;
+      // Retires any previous import/recovery session: generation bump, queue
+      // clear, runner/promise release and the awaiting-start gate all reset, so
+      // no old runner or wait state can be inherited by the new save.
       cancelCatchUp();
       runtime.setState(prepared.state);
       WIS.Meta.TreasureProgress.ensure(runtime.getState());
@@ -810,13 +980,23 @@
       markGlobalDirty();
       markPagesDirty();
       const previousAchievements = achievementStates();
-      const restoredRecovery = context.restoreOfflineRecovery?.(prepared.offlineRecovery);
-      const offlineReport = await simulateOfflineProgress(
-        restoredRecovery ? 0 : Math.max(0, Date.now() - state.lastUpdateAt) / 1000
-      );
+      timer.step("install");
+      // The installed state now owns its unsettled time. Registering the
+      // recovery task and the foreground gate has to happen in this same
+      // synchronous step: as soon as control returns to the host, the live loop
+      // would otherwise credit that same time again as new online income.
+      // This registers debt ONLY. No settlement runner is started here, and
+      // none may start until the player presses 开始结算.
+      context.prepareImportRecovery(prepared.offlineRecovery);
+      timer.step("prepareRecovery");
       setLastTickAt(Date.now());
       context.completePlayerAction();
-      saveState();
+      saveState({ importCommit: true });
+      installed = true;
+      timer.step("save");
+      commitUIImportTransaction(transaction);
+      stage = "present";
+      // --- import transaction ends here; settlement is its own lifecycle ---
       applyTheme();
       if ((activePage === "upgrades" && !upgradesUnlocked()) ||
           (activePage === "achievements" && !achievementsUnlocked()) ||
@@ -824,21 +1004,53 @@
           (activePage === "treasures" && !treasuresUnlocked()) ||
           (activePage === "challenges" && !challengesUnlocked()) ||
           (activePage === "statistics" && !statisticsUnlocked())) {
-        switchPage("actions");
+        switchPage("actions", { deferRender: true });
       }
-      render({ forceGlobal: true, forcePage: true });
+      // Settings must not stay stacked over the recovery window. Present the
+      // lightweight recovery modal before any potentially expensive full page render.
       byId("settings-dialog").close();
-      showNotice("存档已导入");
-      if (context.getCatchUpStatus?.()?.phase !== "paused") notifyNewAchievements(previousAchievements);
-      if (offlineReport) window.setTimeout(() => showNotice(offlineReport, 6000), 1500);
-    } catch (error) {
-      if (switched) {
-        offlineCompletedSummary = previousSummary;
-        context.restoreImportState(previous);
-        achievementPresentation.reset();
+      const status = getCatchUpStatus();
+      const pending = status.pendingGameSeconds > 0;
+      const paused = status.phase === "paused";
+      const awaitingStart = status.awaitingStart === true;
+      handleOfflineCatchUpStatus(status);
+      if (shouldPresentRecoveryBeforeStart(status)) openOfflineProgressDialog();
+      const waitingForDecision = status.awaitingStart === true || status.phase === "paused";
+      if (waitingForDecision) {
+        markGlobalDirty();
+        markPagesDirty();
+      } else {
+        render({ forceGlobal: true, forcePage: true });
       }
-      showNotice(`导入失败，原进度和待结算时间已保留：${error.message || error}`);
-    } finally { importSave.pending = false; }
+      timer.step("render");
+      showNotice(!pending ? "存档已导入"
+        : awaitingStart ? "存档已读取，待结算离线时间已保留，请在离线窗口选择如何处理"
+        : paused ? "存档已读取，离线结算保留为暂停状态，可在离线窗口重试"
+        : "存档已读取，正在恢复离线进度", pending ? 6000 : 1400);
+      if (!paused) notifyNewAchievements(previousAchievements);
+      timer.step("present");
+      timer.finish();
+    } catch (error) {
+      const detail = error?.message || error;
+      timer.step(stage);
+      timer.finish();
+      WIS.Core.Save.diagnose(`import-${stage}`, error);
+      if (installed) {
+        // Never roll back a committed state for a presentation failure.
+        showNotice(`存档已导入，但界面更新失败：${detail}`, 6000);
+      } else {
+        offlineCompletedSummary = previousSummary;
+        rollbackUIImportTransaction(transaction, switched ? "import-install-failed" : `import-${stage}-failed`);
+        achievementPresentation.reset();
+        if (switched) showNotice(`导入失败，存档未完成安装，原进度和待结算时间已保留：${detail}`, 6000);
+        else if (stage === "read") showNotice(`导入失败，无法读取存档文件，原进度未改变：${detail}`, 6000);
+        else showNotice(`导入失败，存档格式或内容无效，原进度未改变：${detail}`, 6000);
+      }
+    } finally {
+      importSave.pending = false;
+      if (importTransaction === transaction && !transaction.committed)
+        rollbackUIImportTransaction(transaction, "import-finalize");
+    }
   }
 
   function resetGame() {
@@ -928,7 +1140,7 @@
     toggleClassIfChanged(byId("immortal-abilities-panel"), "active", activeCultivationPage === "abilities");
   }
 
-  function switchPage(pageName) {
+  function switchPage(pageName, { deferRender = false } = {}) {
     if (pageName === "upgrades" && !upgradesUnlocked()) {
       showNotice("达成「战力 1」后解锁强化");
       return;
@@ -964,7 +1176,10 @@
     document.querySelectorAll(".page").forEach((page) => {
       page.classList.toggle("active", page.id === `${pageName}-page`);
     });
-    runtime.call("renderImmediately", pageName);
+    if (deferRender) {
+      markGlobalDirty();
+      markPagesDirty(pageName);
+    } else runtime.call("renderImmediately", pageName);
   }
 
   function updateNavigation() {
@@ -2695,9 +2910,14 @@
     bigNumberPage.bind();
     xiuzhenPage.bind();
     const blockInteractionDuringCatchUp = (event) => {
-      if (offlineCatchUpStatus.locked !== true) return;
-      if (event.target?.closest?.("#offline-progress-dialog")) return;
-      if (offlineCatchUpStatus.phase === "paused" &&
+      const importControl = event.target?.closest?.("#import-save, #import-file, #restore-save-backup");
+      // Import is an escape hatch from a long recovery. Its launcher and file
+      // events must reach the real handlers even while settlement owns the UI.
+      if (importControl) return;
+      const importing = importTransaction !== null;
+      if (!importing && offlineCatchUpStatus.locked !== true) return;
+      if (!importing && event.target?.closest?.("#offline-progress-dialog")) return;
+      if (!importing && offlineCatchUpStatus.phase === "paused" &&
           event.target?.closest?.("#settings-dialog, #automation-dialog, #catch-up-notice")) return;
       if (event.type === "keydown" || event.type === "submit") {
         event.preventDefault();
@@ -2994,6 +3214,19 @@
       handleOfflineCatchUpStatus(getCatchUpStatus());
     });
     byId("pause-offline-progress").addEventListener("click", () => context.pauseCatchUpByPlayer());
+    byId("start-offline-progress").addEventListener("click", () => {
+      if (offlineAbandonPending || getCatchUpStatus().awaitingStart !== true) return;
+      try {
+        // Hands the already registered debt to the existing recovery runner.
+        // No second runner and no separate settlement path is created here.
+        void context.startCatchUp();
+      } catch (error) {
+        WIS.Core.Save.diagnose("catch-up-start", error);
+        showNotice(`离线结算启动失败，待结算时间已完整保留：${error?.message || error}`, 6000);
+      } finally {
+        handleOfflineCatchUpStatus(getCatchUpStatus());
+      }
+    });
     for (const id of ["convert-offline-progress", "convert-quiet-catch-up"]) byId(id).addEventListener("click", () => {
       if (offlineAbandonPending) return;
       offlineAbandonPending = true;
@@ -3077,11 +3310,62 @@
       const url=URL.createObjectURL(new Blob([text],{type:"application/json"}));
       const anchor=document.createElement("a");anchor.href=url;anchor.download="WIS-本地原始存档.json";anchor.click();URL.revokeObjectURL(url);
     });
-    byId("import-save").addEventListener("click", () => importInput.click());
+    const beginImportSelection = () => {
+      if (importSave.pending || importTransaction) {
+        showNotice("正在导入，请等待当前操作完成。");
+        return;
+      }
+      const transaction = beginUIImportTransaction("picking");
+      if (!transaction) {
+        showNotice("无法开始导入：当前会话无法进入安全冻结状态。", 4000);
+        return;
+      }
+      importInput.value = "";
+      importPickerAway = false;
+      // Do not leave the old recovery modal stacked behind the file picker.
+      // Its state is preserved and will be re-presented on rollback if needed.
+      closeOfflineProgressDialog();
+      traceImportLifecycle("picker-open", { token: transaction.token });
+      try { importInput.click(); } catch (error) {
+        rollbackUIImportTransaction(transaction, "import-picker-open-failed");
+        showNotice(`无法打开文件选择器：${error?.message || error}`, 6000);
+      }
+    };
+    byId("import-save").addEventListener("click", beginImportSelection);
     importInput.addEventListener("change", () => {
       const [file] = importInput.files;
-      if (file) importSave(file);
+      if (file) {
+        window.clearTimeout(importPickerReturnTimer); importPickerReturnTimer = null;
+        importPickerAway = false;
+        if (importTransaction) importTransaction.phase = "reading";
+        traceImportLifecycle("file-change", { token: importTransaction?.token || null, name: file.name || "" });
+        void importSave(file);
+      } else if (importTransaction?.phase === "picking") {
+        rollbackUIImportTransaction(importTransaction, "import-picker-empty");
+        showNotice("已取消导入，原进度已恢复。", 1800);
+      }
       importInput.value = "";
+    });
+    importInput.addEventListener("cancel", () => {
+      if (importTransaction?.phase !== "picking") return;
+      window.clearTimeout(importPickerReturnTimer); importPickerReturnTimer = null;
+      importPickerAway = false;
+      rollbackUIImportTransaction(importTransaction, "import-picker-cancel");
+      showNotice("已取消导入，原进度已恢复。", 1800);
+    });
+    const notePickerReturn = () => {
+      if (!importPickerAway) return;
+      importPickerAway = false;
+      schedulePickerReturnCheck(importInput);
+    };
+    window.addEventListener("blur", () => {
+      if (importTransaction?.phase === "picking") importPickerAway = true;
+    });
+    window.addEventListener("focus", notePickerReturn);
+    document.addEventListener("visibilitychange", () => {
+      if (importTransaction?.phase !== "picking") return;
+      if (document.hidden) importPickerAway = true;
+      else notePickerReturn();
     });
     byId("reset-game").addEventListener("click", resetGame);
 
@@ -3102,7 +3386,8 @@
 
     return Object.freeze({
       __test: Object.freeze({markExplorationPreviewDirty, explorationPreviewState: () => [...explorationPreviews].map(([key, s]) => ({ key, calculatedAt:s.calculatedAt, dirty:s.dirty })), renderOnlineCompensation,handleOfflineCatchUpStatus,dismissOfflineSummary,
-        closeOfflineProgressDialog,status:()=>offlineCatchUpStatus}),
+        closeOfflineProgressDialog,status:()=>offlineCatchUpStatus,importSave,readSaveFileText,
+        importPhases:()=>lastImportPhases}),
       render, renderResourceDebugPanel, renderAchievements, renderChallenges, renderCultivationPage,
       ensureAchievementCards, applyTheme, switchPage, switchCultivationPage,
       showNotice, showAchievementNotice, showScaleNotice, bindEvents,
