@@ -15,9 +15,9 @@
     const i=s.cultivation.systems.immortal,x=i.xiuzhen,n=s.meta.bigNumbers;
     return JSON.stringify({version:1,groups:G().groups.map(g=>[g.id,g.outputs]),coupledGroups:groups,
       systems:[s.powerSystem.active,s.cultivation.active],realm:[s.highestScaleIndex,s.advancedRealmLevel,x?.realm,x?.entered],
-      challenge:s.activeChallenge,abilities:[branches(s.powerSystem.systems.scale.upgrades),branches(s.powerSystem.systems.scale.actions),branches(i.abilities),branches(x?.abilities)],
+      infinity:s.meta.infinity.upgrades,challenge:s.activeChallenge,abilities:[branches(s.powerSystem.systems.scale.upgrades),branches(s.powerSystem.systems.scale.actions),branches(i.abilities),branches(x?.abilities)],
       softcapAchievements:['scale10','utmostPurity'].map(k=>!!s.unlockedAchievements?.[k]),
-      g:W.Meta.BigNumbers.MILESTONES.filter(v=>v<=n.gIndex),
+      tree:W.Meta.BigNumbers.treeSignature(s),g:W.Meta.BigNumbers.MILESTONES.filter(v=>v<=n.gIndex),
       regions:G().keys.map(k=>{const a=G().read(s,k);return [k,a.layer,B.gte(a,'1e100'),W.Core.Config.softcaps.map(t=>B.gt(a,t.threshold))];})});
   }
   // No unproved bulk formula is admitted. In particular, repeating K N times
@@ -44,7 +44,7 @@
     const started=performance.now();
     const policy=Object.values(predictor?.policy?.groups||{}),windows=policy.flatMap(g=>g.window||[]);
     const profitable=windows.length>0&&windows.some(v=>v[0]>0)&&W.Simulation.ResourceEvolution.profitability(windows)===null;
-    const kernelSupported=!!W.Core.Config.coupledKernel?.enabled&&!s.activeChallenge&&
+    const kernelSupported=!W.Meta.Infinity.dynamicTempo(s)&&!!W.Core.Config.coupledKernel?.enabled&&!s.activeChallenge&&
       G().groups.every(g=>groups.includes(g.id)||g.outputs.every(k=>B.lte(profile.rates[k]||0,0)));
     const mediumValidated=!extreme&&G().groups.every(g=>['scale','immortal','xiuzhen'].includes(g.id)||g.executionProfile?.fixedFallback===true);
     const result=Object.freeze({previousKind,executionSignature:executionSignature(s),strong,extreme,mediumValidated,kernelSupported,kernelBackend:W.Simulation.CoordinateCoupledKernel.supported(s)?'coordinate':'formal',advanceValidated:CoupledAdvance.validated&&kernelSupported,

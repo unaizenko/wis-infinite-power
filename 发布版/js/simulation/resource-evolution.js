@@ -22,8 +22,13 @@
     if(steps/Math.max(1,accepted.length)<cfg().minProfitableSteps)return 'short-span';
     return queries>=steps-accepted.length?'validation-cost':null;
   }
+  // Historical directWork remains diagnostic accounting; eligibility is
+  // determined by the existing state, signature and capability checks below.
   function create(initial,seconds,options){
     const s=S.createDraft(initial).state,dt=W.Core.Config.offlineHierarchy.microSeconds;
+    const infinityStart=initial.meta.infinity.runElapsed,dynamicTempo=W.Meta.Infinity.dynamicTempo(initial);
+    function sampleClock(at){if(dynamicTempo)s.meta.infinity={...s.meta.infinity,runElapsed:infinityStart+at};}
+    function queryAt(at,ids=null){sampleClock(at);return C().query(s,ids);}
     const initialProfile=options.sourceProfile||source(s),startSignature=C().signature(s),saved=options.predictor?C().checkpoint(options.predictor):null;
     let model=saved?.mapSignature===startSignature?saved.model:null,history=saved?.mapSignature===startSignature?saved.observations:[],position=saved?.position||0,blockSize=saved?.blockSize||cfg().initialMapSteps;
     let confidence=saved?.confidence??1,origin=saved?.trustRegionOrigin||C().coordinates(s),elapsed=0,profile=initialProfile,point={...C().observation(s,profile,position),origin:"settlement"},signature=startSignature;
@@ -65,11 +70,10 @@
       while(sample+1<nodes.length-1&&nodes[sample+1]<elapsed-1e-8)sample++;
       for(const row of Object.values(policy.groups))row.cooldown=Math.max(0,row.cooldown-duration);
       stats.realMicroSteps++;stats.frozenDirectSteps++;if(special.coupled){stats.coupledIntervals++;P().record('coupledIntervals');}else {stats.scaleIntervals++;P().record('scaleIntervals');}
-      profile=C().query(s);point={...C().observation(s,profile,position),origin:'fixed'};remember(point);special=null;
+      profile=queryAt(elapsed);point={...C().observation(s,profile,position),origin:'fixed'};remember(point);special=null;
     }
     if(!options.strong)return {advance(){return P().withScope('offline',()=>{
       if(done)throw Error('资源检查点候选已完成');
-      if((options.directWork||0)>=W.Core.Config.offlineHierarchy.maxDirectWork){const error=Error('真实固定段预算耗尽；离线债务保留');error.code='direct-work-budget';throw error;}
       for(const k of G().keys){gains[k]=B.mul(initialProfile.rates[k],seconds);const value=B.add(G().read(s,k),gains[k]);if(!B.isFiniteBN(value)||B.lt(value,0))throw Error('固定收益不可表示');G().write(s,k,value);}
       for(const [k,value] of Object.entries(lastFlux))progress[k]=B.mul(value,seconds);
       stats.realMicroSteps=1;stats[seconds<=dt+1e-8?'cadenceMicroSteps':'frozenDirectSteps']=1;P().record('realMicroSteps');
@@ -111,7 +115,7 @@
       const needed=(profile.unvalidated||[]).filter(id=>W.Simulation.FixedSources.progressDependencies.includes(id));
       if(needed.length){
         stats.progressQueries++;P().record("progressQueries");for(const id of needed)P().record("progressQuery."+id);
-        const missing=C().query(s,needed);
+        const missing=queryAt(elapsed,needed);
         profile={...profile,rates:{...profile.rates,...missing.rates},cultivation:missing.cultivation||profile.cultivation,unvalidated:profile.unvalidated.filter(id=>!needed.includes(id))};
         const actual={...C().observation(s,profile,position),origin:point.origin};model=C().rebase(model,point,actual,0);point=actual;
       }
@@ -131,7 +135,7 @@
       if(ids.length){P().record(name);stats[name==='sentinelValidation'?'sentinelValidations':'endpointValidations']++;}
       else {stats.validationSkipped++;P().record('validationSkipped');}
 
-      C().install(s,prediction.coordinates);if(C().signature(s)!==signature)return {error:Infinity,structural:true};const began=performance.now(),queried=ids.length?C().query(s,ids):null;
+      C().install(s,prediction.coordinates);if(C().signature(s)!==signature)return {error:Infinity,structural:true};const began=performance.now(),queried=ids.length?queryAt(elapsed+prediction.steps*dt,ids):null;
       const merged={...profile,rates:{...rates,...queried?.rates},cultivation:queried?.cultivation||profile.cultivation,unvalidated:G().groups.filter(g=>!ids.includes(g.id)).map(g=>g.id)};
       const p={...C().observation(s,merged,position+prediction.steps),origin:"endpoint"};P().record('validationWallMs',performance.now()-began);
       if(name==='endpointValidation')for(const g of G().groups)if(ids.includes(g.id)){
@@ -142,8 +146,8 @@
       return {point:p,profile:merged,error:C().error(p,prediction),expected:prediction.expected,queried:[...queryCosts]};
     }
     function advanceOne(){
+      sampleClock(elapsed);
       if(options.executorKind==='coupled-kernel'&&!special&&elapsed<seconds-1e-8){
-        if((options.directWork||0)+stats.realMicroSteps>=W.Core.Config.offlineHierarchy.maxDirectWork){const error=Error('真实固定段预算耗尽；保留离线债务');error.code='direct-work-budget';error.evolutionStats=stats;throw error;}
         const coupled=options.kernelBackend==='formal'?W.Simulation.CoupledResourceKernel.create(['scale','immortal']):W.Simulation.CoordinateCoupledKernel.create();
         const compiled=coupled.compileCoupledFastProfile(s);
         special={coupled,profile:compiled,seconds:seconds-elapsed,elapsed:0,flux:lastFlux,externalGains:{}};
@@ -169,12 +173,13 @@
           if(risk&&n>=cfg().sentinelMinimumSteps){const middle=C().forecast(point,model,Math.floor(n/2));checked=middle?verify(middle,'sentinelValidation'):{error:Infinity};}
           if(checked.error<=cfg().validationTolerance)checked=verify(predicted,'endpointValidation');
           C().install(s,point.coordinates);
+          sampleClock(elapsed);
           const shocked=checked.point?.delta?model.models.filter(g=>g.outputs.some(k=>Math.max(checked.point.delta[k],checked.expected[k])>cfg().shockRatio*Math.max(cfg().coordinateFloor,Math.min(checked.point.delta[k],checked.expected[k])))).map(g=>g.id):[];
           if(checked.structural){hard('mapSignature');return;}
           if(shocked.length){stats.mapRejected++;P().record('mapRejected');cooldown('shock',shocked,true);return;}
           if(checked.error<=cfg().validationTolerance){
             const before=point;for(const k of G().keys){const value=C().coordinate(G().read(s,k));const target=predicted.coordinates[k];const increment=target.value===value.value?B.mul(profile.rates[k],n*dt):B.max(0,B.sub(target.layer===0?B.BN(target.value):B.Decimal.fromComponents(1,target.layer,target.value),G().read(s,k)));gains[k]=B.add(gains[k],increment);}
-            C().install(s,predicted.coordinates);profile=checked.profile;position+=n;elapsed=Math.min(seconds,elapsed+n*dt);point={...checked.point,position};model=C().rebase(model,before,point,n,{validated:G().groups.filter(g=>!profile.unvalidated.includes(g.id)).flatMap(g=>g.outputs)});remember(point);
+            C().install(s,predicted.coordinates);profile=checked.profile;position+=n;elapsed=Math.min(seconds,elapsed+n*dt);sampleClock(elapsed);point={...checked.point,position};model=C().rebase(model,before,point,n,{validated:G().groups.filter(g=>!profile.unvalidated.includes(g.id)).flatMap(g=>g.outputs)});remember(point);
             origin=C().coordinates(s);stats.mapAccepted++;stats.softRebases++;const bucket=Math.floor(Math.log2(n));stats.blockHistogram[bucket]=(stats.blockHistogram[bucket]||0)+1;stats.virtualSteps+=n;stats.maximumBlockSteps=Math.max(stats.maximumBlockSteps,n);P().record('mapAccepted');P().record('softRebases');
             outcome(n,checked);policy.tier=Math.min(cfg().mapStepTiers.length-1,policy.tier+1);policy.failures=0;blockSize=cfg().mapStepTiers[policy.tier];largestAccepted=Math.max(largestAccepted,n);confidence=Math.min(1,confidence*.95+.05*(1-checked.error/cfg().validationTolerance));recentRebase=false;consecutiveFailures=0;return;
           }
@@ -185,7 +190,6 @@
         }
         hard('coordinateStructure');
       }
-      if((options.directWork||0)+stats.realMicroSteps>=W.Core.Config.offlineHierarchy.maxDirectWork){const error=Error('真实资源微步预算耗尽；未提交检查点与剩余离线时间保留');error.code='direct-work-budget';error.evolutionStats=stats;throw error;}
       const calibrationStart=calibrate?point:null;
       const fixed=point.delta!==null&&(cooling()||useFixedFallback||(!W.Core.Config.offlineHierarchy.mapEnabled&&options.strong)||options.strong&&!model&&history.length>=cfg().learnSteps&&!anchoring());
       // Coarse fixed steps are not a safe substitute for a proven layer-scale
@@ -194,14 +198,14 @@
         const current=G().read(s,k),next=B.add(current,B.mul(profile.rates[k],cfg().fallbackSeconds));
         return B.gt(next,current)&&(point.coordinates[k].layer>=2||next.layer>=2);
       }))){
-        let coupled=W.Simulation.CoupledResourceKernel?.select(s,profile);
+        let coupled=!dynamicTempo&&W.Simulation.CoupledResourceKernel?.select(s,profile);
         if(coupled&&W.Simulation.CoordinateCoupledKernel?.supported(s))coupled=W.Simulation.CoordinateCoupledKernel.create();
         if(coupled){
           special={coupled,profile:coupled.compileCoupledFastProfile(s),seconds:seconds-elapsed,elapsed:0,flux:elapsed===sampleAt?lastFlux:flux(source(s,profile)),externalGains:{}};
           advanceScale();return;
         }
         const K=W.Power.ScaleKernel,policy=W.Core.Config.scaleKernel;
-        const compiled=policy?.enabled&&(policy.diagnosticCoupledIntervals||K?.supportsOffline(s,source(s,profile)))?K.compileScaleFastProfile(s):null;
+        const compiled=!dynamicTempo&&policy?.enabled&&(policy.diagnosticCoupledIntervals||K?.supportsOffline(s,source(s,profile)))?K.compileScaleFastProfile(s):null;
         if(compiled){
           const duration=seconds-elapsed,externalKeys=G().keys.filter(k=>['mana','immortalPower','xianForce','yuanForce'].includes(k));
           special={profile:compiled,dynamic:K.read(s),seconds:duration,elapsed:0,flux:elapsed===sampleAt?lastFlux:flux(source(s,profile)),externalKeys,externalGains:Object.fromEntries(externalKeys.map(k=>[k,B.ZERO])),nextSample:0,sampleSeconds:Math.max(dt,Math.ceil(duration/dt/policy.trajectorySamples)*dt)};
@@ -222,7 +226,7 @@
       for(const k of G().keys){G().write(s,k,B.add(G().read(s,k),values[k]));gains[k]=B.add(gains[k],values[k]);}
       elapsed=Math.min(seconds,elapsed+step);if(fixed)while(sample+1<nodes.length-1&&nodes[sample+1]<elapsed-1e-8)sample++;position+=step/dt;stats.realMicroSteps++;stats[step<=dt+1e-8?"cadenceMicroSteps":"frozenDirectSteps"]++;P().record('realMicroSteps');
       for(const row of Object.values(policy.groups)){const prior=row.cooldown;row.cooldown=Math.max(0,row.cooldown-step);if(prior>0&&!row.cooldown&&!row.anchors)row.anchors=3;}
-      profile=C().query(s);point={...C().observation(s,profile,position),origin:step<=dt+1e-8?"micro":"fixed"};remember(point);
+      profile=queryAt(elapsed);point={...C().observation(s,profile,position),origin:step<=dt+1e-8?"micro":"fixed"};remember(point);
       for(const [id,row] of Object.entries(policy.groups))if(row.anchors){
         row.anchors--;stats.shockAnchors++;P().record('shockAnchors');
         if(!row.anchors){const part=C().fitGroup(history.slice(-4),id);

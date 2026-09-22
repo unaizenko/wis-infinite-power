@@ -153,8 +153,8 @@
   register("infinity", {
     rebirthLevel: REBIRTH_LEVEL.INFINITE,
     rebirthType: "infinite",
-    preserve: [...metaAndStatistics],
-    preservePaths: ["meta"]
+    preserve: metaAndStatistics.filter(key => !["treasureImprints", "challengeCompletions", "bestQiLayer"].includes(key)),
+    preservePaths: ["meta.infinity", "powerSystem.systems.scale.history", "cultivation.systems.immortal.history"]
   });
 
   WIS.Core.Reset = Object.freeze({ REBIRTH_LEVEL, register, describe, apply });

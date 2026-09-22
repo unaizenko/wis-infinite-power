@@ -11,7 +11,7 @@
     return JSON.stringify([state.powerSystem.active,state.cultivation.active,state.highestScaleIndex,state.advancedRealmLevel,state.currentQiLayer,
       state.qiRefiningUnlocked,state.foundationUnlocked,state.goldenCoreUnlocked,state.activeChallenge,state.challengeCompletions,state.unlockedAchievements,
       state.powerSystem.systems.scale.upgrades,state.powerSystem.systems.scale.actions,Object.fromEntries(Object.entries(i.abilities).filter(([k])=>k!=='naturalTreasureLevel')),x.entered,x.realm,x.abilities,
-      state.meta.infinity.upgrades,n.unlocked,n.fractalLevel,n.purchases,n.beyondFractal,WIS.Meta.BigNumbers.MILESTONES.filter(v=>v<=n.gIndex),
+      WIS.Meta.BigNumbers.treeSignature(state),state.meta.infinity.upgrades,n.unlocked,n.fractalLevel,n.purchases,n.beyondFractal,WIS.Meta.BigNumbers.MILESTONES.filter(v=>v<=n.gIndex),
       groups().keys.map(k=>[coordinate(groups().read(state,k)).layer,B.gte(groups().read(state,k),'1e100')]),
       groups().groups.map(g=>g.branchKey?.(state)??null)]);
   }

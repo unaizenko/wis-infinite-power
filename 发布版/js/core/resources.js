@@ -204,6 +204,11 @@
       if (!definition.snapshot || ids && !ids.has(definition.id) || typeof filter === "function" && !filter(definition)) continue;
       const raw = definition.get(s);
       if (raw === undefined) continue;
+      if (definition.kind === "meta") {
+        result.meta ||= {};
+        (result.meta[definition.owner] ||= { resources: {} }).resources[definition.shortName] = sanitize(raw);
+        continue;
+      }
       if (definition.kind === "cultivation" && !Object.hasOwn(result.cultivation.systems, definition.owner))
         result.cultivation.systems[definition.owner] = { resources: {} };
       const resources = definition.kind === "core" ? result.core.resources

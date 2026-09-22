@@ -30,7 +30,7 @@
   }
 
   function upgradesUnlocked() {
-    return hasAchievement("powerOne");
+    return hasAchievement("powerOne") || state.meta.infinity.upgradesUnlocked;
   }
 
   function cultivationUnlocked() {
@@ -177,7 +177,7 @@
       { key: "beyondFractal", name: "超越分形", description: "完成分形-5，进入 G1。", reward: beyondFractalReward(), completed: completedAchievement("beyondFractal", state.meta.bigNumbers?.fractalLevel === 5) },
       { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
       { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
-      { key: "tree3", name: "树", description: "战力达到 TREE(3)。", reward: "纪念性成就", completed: completedAchievement("tree3", reachedPowerMilestone("tree3")) }
+      { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: state.meta.bigNumbers?.tree?.rank >= 3 }
     );
 
     return definitions;
@@ -240,6 +240,7 @@
       return state.meta.achievements?.[key] === true;
     },
     record(state, key) {
+      if (key === "tree3") state.meta.infinity = {...state.meta.infinity, unlocked:true};
       if (state.meta.achievements[key] === true) return false;
       state.meta.achievements[key] = true;
       WIS.Core.Effects?.invalidate?.();

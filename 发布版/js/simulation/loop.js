@@ -6,16 +6,28 @@
     let lastTickAt=Date.now(),started=false,preparingSave=false;
     let onlineAccumulator=0,stepping=false;
     let importHold=null,importHoldSequence=0;
+    let continuationHandle=null,schedulerGeneration=0;
     const onlineIntervals=(getState().core.runtime.timeLedger.pendingContinuousTime||[]).map(p=>({...p}));
     onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);
     const stepSeconds=context.simulationStepSeconds||0.1;
     const maxSteps=context.maxOnlineStepsPerFrame||8;
+    const requestedBudget=Number(context.onlineSliceBudgetMs);
+    const onlineSliceBudgetMs=Number.isFinite(requestedBudget)&&requestedBudget>0?requestedBudget:12;
     let tickRemaining=0;
     const ledger=()=>getState().core.runtime.timeLedger;
+    const monotonicNow=()=>window.performance?.now?window.performance.now():Date.now();
     function writeLedger(fields){getState().core.runtime.timeLedger={...ledger(),...fields};}
+    function syncPendingLedger(){writeLedger({pendingContinuousTime:onlineIntervals.map(p=>({...p}))});}
     const ready=()=>context.isStateReady?context.isStateReady():isInitialLoadComplete();
+    function cancelOnlineContinuation(){
+      if(continuationHandle!==null){window.clearTimeout(continuationHandle);continuationHandle=null;}
+    }
+    function invalidateOnlineScheduler(){schedulerGeneration++;cancelOnlineContinuation();}
     function setLastTickAt(value){lastTickAt=Number.isFinite(Number(value))?Math.max(0,Number(value)):Date.now();}
-    function resetAccumulators(){lastTickAt=Date.now();onlineAccumulator=0;onlineIntervals.length=0;tickRemaining=0;writeLedger({pendingContinuousTime:[]});}
+    function resetAccumulators(){
+      invalidateOnlineScheduler();
+      lastTickAt=Date.now();onlineAccumulator=0;onlineIntervals.length=0;tickRemaining=0;writeLedger({pendingContinuousTime:[]});
+    }
     function eligible(){return WIS.Simulation.Compensation?.eligibleAtEnqueue?.(getState())===true;}
     function enqueueForegroundAt(now,{leaving=false}={}){
       const previous=lastTickAt;lastTickAt=now;
@@ -39,26 +51,67 @@
       }
       writeLedger({boundaryAt:now});return seconds;
     }
-    function processOnline(flush=false){
+    function captureForegroundTime(now=Date.now(),options={}){
+      if(importHold)return 0;
+      const seconds=enqueueForegroundAt(now,options);
+      syncPendingLedger();
+      return seconds;
+    }
+    function onlineBlocked(status=offline.getCatchUpStatus()){
+      return stepping||status.clockSuspended||status.phase==='running'||status.phase==='paused'||
+        status.pendingGameSeconds>epsilon||status.treasureRecovery?.active;
+    }
+    function dropEmptyOnlineHeads(){
+      while(onlineIntervals.length&&onlineIntervals[0].source!=='offline'&&!(onlineIntervals[0].clock>epsilon)){
+        onlineAccumulator=Math.max(0,onlineAccumulator-Math.max(0,Number(onlineIntervals[0].clock)||0));
+        onlineIntervals.shift();
+      }
+    }
+    function currentCadence(){
+      return tickRemaining>epsilon?tickRemaining:
+        (getState().core.runtime.onlineCadenceRemaining>epsilon?getState().core.runtime.onlineCadenceRemaining:stepSeconds);
+    }
+    function hasRunnableOnlineWork(flush=false){
+      if(importHold||document.hidden||!isInitialLoadComplete())return false;
+      if(onlineBlocked())return false;
+      dropEmptyOnlineHeads();
+      if(!onlineIntervals.length)return false;
+      if(onlineIntervals[0].source==='offline')return true;
+      const offlineIndex=onlineIntervals.findIndex(p=>p.source==='offline');
+      const prefix=offlineIndex<0?onlineIntervals:onlineIntervals.slice(0,offlineIndex);
+      const availableGame=prefix.reduce((sum,part)=>sum+part.clock*part.speed,0);
+      if(availableGame+epsilon>=currentCadence())return true;
+      if(offlineIndex>=0&&availableGame>epsilon)return true;
+      return flush&&availableGame>epsilon;
+    }
+    function drainOnlineSlice(flush=false){
       const status=offline.getCatchUpStatus();
-      if(stepping||status.clockSuspended||status.phase==='running'||status.phase==='paused'||
-          status.pendingGameSeconds>epsilon||status.treasureRecovery?.active)return;
+      if(onlineBlocked(status))return {progressed:false,blocked:true,needsContinuation:false,hitOfflineBarrier:false,steps:0};
       const previousAchievements=context.achievementStates?.();
+      const sliceStartedAt=monotonicNow();
+      let progressed=false,hitOfflineBarrier=false,blocked=false,steps=0;
       stepping=true;context.beginTransaction?.();
       try {
-        for(let steps=0;steps<maxSteps&&onlineIntervals.length;steps++){
+        while(steps<maxSteps&&onlineIntervals.length){
+          dropEmptyOnlineHeads();
+          if(!onlineIntervals.length)break;
+          // Budget is checked only between complete atomic settlements. The first
+          // settlement is always allowed to finish even if it exceeds the soft budget.
+          if(steps>0&&monotonicNow()-sliceStartedAt>=onlineSliceBudgetMs)break;
           const head=onlineIntervals[0];
           if(head.source==='offline'){
             offline.appendCatchUpTask(head.clock*head.speed,head.clock,{source:'offline',compensationEligible:false,
               randomMode:'state',speed:head.speed,sealed:true,presentation:'blocking',external:true});
-            onlineIntervals.shift();writeLedger({pendingContinuousTime:onlineIntervals.map(p=>({...p}))});
-            offline.returnFromAway(true);break;
+            onlineIntervals.shift();syncPendingLedger();
+            // The offline worker now owns the foreground. Any queued online callback
+            // belongs to the old scheduling generation and must not survive it.
+            invalidateOnlineScheduler();
+            offline.returnFromAway(true);hitOfflineBarrier=true;break;
           }
           const offlineIndex=onlineIntervals.findIndex(p=>p.source==='offline');
           const prefix=offlineIndex<0?onlineIntervals:onlineIntervals.slice(0,offlineIndex);
           const availableGame=prefix.reduce((sum,part)=>sum+part.clock*part.speed,0);
-          const cadence=tickRemaining>epsilon?tickRemaining:
-            (getState().core.runtime.onlineCadenceRemaining>epsilon?getState().core.runtime.onlineCadenceRemaining:stepSeconds);
+          const cadence=currentCadence();
           if(availableGame+epsilon<cadence&&!flush&&offlineIndex<0)break;
           const part=onlineIntervals[0],seconds=Math.min(cadence,part.clock*part.speed);
           const result=context.advanceGameStep(seconds,true,{
@@ -69,8 +122,9 @@
           const processed=Math.max(0,Math.min(seconds,Number(result?.processedSeconds)||0));
           if(!(processed>0)){
             if(result?.treasureRecoveryRequired)offline.queueCatchUpNotice(0,0);
-            break;
+            blocked=true;break;
           }
+          progressed=true;steps++;
           const clock=processed/part.speed;
           part.clock=Math.max(0,part.clock-clock);
           onlineAccumulator=Math.max(0,onlineAccumulator-clock);
@@ -83,6 +137,7 @@
           if(!getState().unlockedAchievements?.trainingUp&&getState().totalElapsedSeconds>=600)
             WIS.Meta.Achievements.recordCurrent();
           Object.assign(WIS.tmp.rates,rates);
+          if(monotonicNow()-sliceStartedAt>=onlineSliceBudgetMs)break;
         }
         if(previousAchievements)context.notifyNewAchievements?.(previousAchievements);
       } finally {
@@ -91,11 +146,32 @@
         const rates={...WIS.tmp.rates};
         try{context.endTransaction?.();}finally{Object.assign(WIS.tmp.rates,rates);stepping=false;}
       }
+      const needsContinuation=!hitOfflineBarrier&&!blocked&&hasRunnableOnlineWork(flush);
+      return {progressed,blocked,needsContinuation,hitOfflineBarrier,steps};
+    }
+    function scheduleOnlineContinuation(){
+      if(continuationHandle!==null||!hasRunnableOnlineWork(false))return false;
+      const generation=schedulerGeneration;
+      continuationHandle=window.setTimeout(()=>{
+        continuationHandle=null;
+        if(generation!==schedulerGeneration||importHold||document.hidden)return;
+        const result=drainOnlineSlice(false);
+        requestRender();flushRender(Date.now());
+        if(result.needsContinuation&&generation===schedulerGeneration)scheduleOnlineContinuation();
+      },0);
+      return true;
+    }
+    function processOnline(flush=false){
+      const result=drainOnlineSlice(flush);
+      if(result.needsContinuation)scheduleOnlineContinuation();
+      return result;
     }
     function markAway(now){
       if(!ready()||ledger().awaySince!==null)return false;
-      enqueueForegroundAt(now,{leaving:true});
-      processOnline();
+      invalidateOnlineScheduler();
+      // Leaving records the final foreground interval but never forces a heavy
+      // settlement. The committed state and its ordered time debt are persisted.
+      enqueueForegroundAt(now,{leaving:true});syncPendingLedger();
       writeLedger({awaySince:now,registeredUntil:now,boundaryAt:now});
       offline.suspendForAway();return true;
     }
@@ -105,7 +181,7 @@
       const from=Math.max(left,p.registeredUntil||0),seconds=Math.max(0,now-from)/1000;
       offline.invalidateSourceModels();
       if(seconds>0){const speed=effectiveDevSpeed();
-        if(onlineIntervals.length)onlineIntervals.push({source:'offline',clock:seconds,speed,compensationEligible:false});
+        if(onlineIntervals.length){onlineIntervals.push({source:'offline',clock:seconds,speed,compensationEligible:false});syncPendingLedger();}
         else offline.appendCatchUpTask(seconds*speed,seconds,{source:'offline',compensationEligible:false,
           randomMode:'state',speed,sealed:true,presentation,external:true});}
       writeLedger({awaySince:null,registeredUntil:Math.max(from,now),boundaryAt:now});lastTickAt=now;
@@ -115,6 +191,7 @@
     }
     function beginImportHold() {
       if(importHold)return null;
+      invalidateOnlineScheduler();
       const now=Date.now();
       importHold={token:`import-${++importHoldSequence}`,startedAt:now,speed:effectiveDevSpeed()};
       // Retire any already scheduled recovery slice without discarding debt.
@@ -157,7 +234,7 @@
           // A freshly imported blocking debt waits for the player. The live
           // loop must not be the entry point that starts it instead.
           if(!offline.isCatchUpPaused()&&!offline.isCatchUpAwaitingStart?.())offline.queueCatchUpNotice(0,0);
-        }else processOnline();
+        }else if(continuationHandle===null)processOnline();
       }
       const finalStatus=offline.getCatchUpStatus();
       // A blocking wait owns a modal status view and the game state is frozen.
@@ -180,11 +257,15 @@
       preparingSave=true;
       try{
         if(options.closing===true||document.hidden)markAway(Date.now());
-        else {enqueueForegroundAt(Date.now());processOnline();}
-      }finally{writeLedger({pendingContinuousTime:onlineIntervals.map(p=>({...p}))});preparingSave=false;}
+        else {
+          enqueueForegroundAt(Date.now());
+          if(options.captureOnly!==true)processOnline();
+        }
+      }finally{syncPendingLedger();preparingSave=false;}
       return true;
     }
     function restoreClosedTime(snapshot){
+      invalidateOnlineScheduler();
       const pending=ledger().pendingContinuousTime||[];
       onlineIntervals.splice(0,onlineIntervals.length,...pending.map(p=>({...p})));
       onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);
@@ -195,16 +276,41 @@
         onlineIntervals.length?getState().lastUpdateAt:null;
       return registerReturn(Date.now(),{start:false,presentation:'blocking',fallbackClosedAt:fallback});
     }
+    function handoffImportRecovery(){
+      // Installation owns the hold and the caller has established the recovery
+      // gate. Transfer ordered metadata only; a save slice is not a drain proof.
+      if(!importHold||stepping||preparingSave)return {complete:false};
+      invalidateOnlineScheduler();
+      while(onlineIntervals.length){
+        const part=onlineIntervals[0];
+        if(part.clock>epsilon){
+          const source=part.source==='offline'?'offline':'online';
+          offline.appendCatchUpTask(part.clock*part.speed,part.clock,{source,
+            compensationEligible:source==='online'&&part.compensationEligible===true,
+            randomMode:'state',speed:part.speed,sealed:true,
+            presentation:source==='offline'?'blocking':'quiet',external:true});
+        }
+        onlineIntervals.shift();
+        onlineAccumulator=onlineIntervals.reduce((sum,p)=>sum+(p.source==='offline'?0:p.clock),0);
+        syncPendingLedger();
+      }
+      return {complete:true};
+    }
     function start(){if(started)return;started=true;
       document.addEventListener('visibilitychange',handleVisibilityChange);
       window.setInterval(runMainTick,context.logicIntervalMs);
     }
     return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,
-      prepareSave,restoreClosedTime,enqueueForegroundAt,beginImportHold,finishImportHold,
+      prepareSave,restoreClosedTime,handoffImportRecovery,enqueueForegroundAt,captureForegroundTime,beginImportHold,finishImportHold,
+      invalidateOnlineScheduler,
       isImportHoldActive:()=>!!importHold,
       snapshot:()=>({lastTickAt,onlineAccumulator,tickRemaining,onlineIntervals:onlineIntervals.map(part=>({...part}))}),
-      restore:snapshot=>{lastTickAt=snapshot.lastTickAt;onlineAccumulator=snapshot.onlineAccumulator||0;
-        tickRemaining=snapshot.tickRemaining||0;onlineIntervals.splice(0,onlineIntervals.length,...(snapshot.onlineIntervals||[]).map(part=>({...part})));},
+      restore:snapshot=>{
+        invalidateOnlineScheduler();
+        lastTickAt=snapshot.lastTickAt;onlineAccumulator=snapshot.onlineAccumulator||0;
+        tickRemaining=snapshot.tickRemaining||0;onlineIntervals.splice(0,onlineIntervals.length,...(snapshot.onlineIntervals||[]).map(part=>({...part})));
+        syncPendingLedger();
+      },
       getUnprocessedOnlineClockSeconds:()=>onlineAccumulator,
       getSimulationClockAccumulator:()=>onlineAccumulator});
   }});

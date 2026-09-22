@@ -9,6 +9,7 @@
   const DISCRETE_CADENCE_SECONDS = CONFIG.fixedSettlement.discreteCadenceSeconds;
   const SIMULATION_STEP_SECONDS = DISCRETE_CADENCE_SECONDS; // legacy local-rule adapters
   const MAX_ONLINE_STEPS_PER_FRAME = 8;
+  const ONLINE_SLICE_BUDGET_MS = 12;
   const MAX_DISCRETE_EVENTS_PER_STEP = 128;
   const SIMULATION_EPSILON = 1e-10;
   const OFFLINE_ERROR_TOLERANCE = 1e-4;
@@ -262,17 +263,19 @@
 
   const formatGameCalendar = WIS.UI.Format.gameCalendar;
 
-  const simulateOfflineProgress = (...args) => offlineSimulation.simulateOfflineProgress(...args);
-  const cancelCatchUp = (...args) => offlineSimulation.cancelCatchUp(...args);
-  const abandonCatchUp = (...args) => offlineSimulation.abandonCatchUp(...args);
+  const invalidateOnlineScheduler = () => simulationLoop?.invalidateOnlineScheduler?.();
+  const simulateOfflineProgress = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.simulateOfflineProgress(...args); };
+  const cancelCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.cancelCatchUp(...args); };
+  const abandonCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.abandonCatchUp(...args); };
   function convertOfflineToCompensation() {
     simulationLoop.prepareSave();
+    invalidateOnlineScheduler();
     offlineSimulation.sealOnlineTail();
     return offlineSimulation.convertOfflineToCompensation();
   }
-  const retryCatchUp = (...args) => offlineSimulation.retryCatchUp(...args);
-  const startCatchUp = (...args) => offlineSimulation.startCatchUp(...args);
-  const pauseCatchUpByPlayer = () => offlineSimulation.pauseCatchUpByPlayer();
+  const retryCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.retryCatchUp(...args); };
+  const startCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.startCatchUp(...args); };
+  const pauseCatchUpByPlayer = () => { invalidateOnlineScheduler(); return offlineSimulation.pauseCatchUpByPlayer(); };
   const acknowledgeCatchUp = (...args) => offlineSimulation.acknowledgeCatchUp(...args);
   const getCatchUpStatus = (...args) => offlineSimulation.getCatchUpStatus(...args);
   const subscribeCatchUpStatus = (...args) => offlineSimulation.subscribeCatchUpStatus(...args);
@@ -280,6 +283,7 @@
   const queueCatchUpNotice = (...args) => offlineSimulation.queueCatchUpNotice(...args);
   const setLastTickAt = (value) => simulationLoop?.setLastTickAt(value);
   function restoreOfflineRecovery(snapshot) {
+    invalidateOnlineScheduler();
     const restored = offlineSimulation.restorePersistenceSnapshot(snapshot, 0, { checkpoint: false });
     const newlyAway = simulationLoop.restoreClosedTime(snapshot);
     return restored || newlyAway > 0;
@@ -287,40 +291,27 @@
   // Import registers the freshly installed save's unsettled time and takes the
   // foreground gate, but does NOT run the settlement worker. Same enqueue call
   // and default task options as bootstrap, so the debt, RNG mode and clock
-  // ratio are identical; only the moment the worker starts moves later — now
-  // all the way to an explicit player start, because a high-magnitude save's
-  // multi-hour backlog saturates the main thread for minutes once it begins.
+  // ratio are identical. The worker starts only after commit and handoff,
+  // when the running UI has had its first paint.
   function prepareImportRecovery(snapshot) {
     const restored = restoreOfflineRecovery(snapshot);
     if (!restored) {
       const seconds = Math.max(0, Date.now() - state.lastUpdateAt) / 1000;
       offlineSimulation.appendCatchUpTask(seconds, seconds);
     }
-    // Take the gate before the flush below. restoreClosedTime can park the
-    // unsettled interval behind the save's own online prefix instead of
-    // enqueueing it, and promoting such an interval is itself an auto-start
-    // path (processOnline -> returnFromAway). Order matters: hold, then flush.
+    // A successful save slice does not imply that all parked blocking time
+    // has been handed off. Capture without settlement, then transfer metadata
+    // under the recovery gate. A failed handoff rolls back the import transaction.
     offlineSimulation.holdCatchUpUntilUserStart("import");
-    // Same call the save path uses. It moves any parked unsettled interval into
-    // the one settlement queue, so the debt, the income gate and the wait state
-    // are all in place before control returns to the host.
-    let flushed = true;
-    try {
-      simulationLoop.prepareSave({ importCommit: true });
-    } catch (error) {
-      // Promoting parked time is settlement work, not installation. It must not
-      // roll back a legitimately installed save, and the gate has to stay until
-      // that time is accounted for, so a later promotion cannot auto-start it.
-      flushed = false;
-      WIS.Core.Save.diagnose("import-flush-unsettled", error);
-      console.error("WIS import could not promote the installed save's parked unsettled time.", error);
-    }
+    const prepared = simulationLoop.prepareSave({ importCommit: true, captureOnly: true });
+    const handoff = prepared && simulationLoop.handoffImportRecovery();
+    if (!handoff?.complete) throw new Error("导入恢复时间尚未完成交接");
     const paused = offlineSimulation.isCatchUpPaused();
     const pending = offlineSimulation.getPendingCatchUpSeconds() > SIMULATION_EPSILON;
-    // Only a blocking recovery waits for the player. A restored pause owns its
-    // own wait, and a quiet online backlog keeps settling inline as before.
+    // Only a blocking recovery waits for committed UI paint. A restored pause
+    // owns its own wait, and a quiet online backlog settles inline as before.
     const blocking = pending && offlineSimulation.getCatchUpStatus().presentation === "blocking";
-    if (paused || (!blocking && flushed)) offlineSimulation.releaseCatchUpUserStart();
+    if (handoff.complete && (paused || !blocking)) offlineSimulation.releaseCatchUpUserStart();
     return {
       restored,
       paused,
@@ -345,6 +336,16 @@
     for (const key of Object.keys(WIS.tmp.rates)) delete WIS.tmp.rates[key];
     Object.assign(WIS.tmp.rates, snapshot.rates);
     WIS.Core.Save.restoreStorage(snapshot.storage);
+  }
+
+  function infinityRebirth(options) {
+    const next=WIS.Meta.Infinity.commitRebirth(options,{
+      getState:()=>state,capture:captureImportStateSnapshot,
+      cancel:()=>{cancelCatchUp();simulationLoop.resetAccumulators();},
+      install:next=>{setStateDirect(next);simulationLoop.resetAccumulators();WIS.Power.Scale.resetTransient?.();WIS.Cultivation.Immortal.resetTransient?.();},
+      save:()=>saveState({importCommit:true}),restore:restoreImportStateSnapshot
+    });
+    UI.resetCultivationPage();requestRender();return next;
   }
 
   function beginImportTransaction() {
@@ -378,7 +379,8 @@
     formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent,
     planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages,
     achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
-    challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt
+    challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt,
+    captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0
   });
   ({
     render, renderResourceDebugPanel, ensureAdvancedRealmAbilityGroups, applyTheme, switchPage, showNotice,
@@ -544,6 +546,7 @@
     epsilon: SIMULATION_EPSILON,
     simulationStepSeconds: SIMULATION_STEP_SECONDS,
     maxOnlineStepsPerFrame: MAX_ONLINE_STEPS_PER_FRAME,
+    onlineSliceBudgetMs: ONLINE_SLICE_BUDGET_MS,
     maxDiscreteEventsPerStep: MAX_DISCRETE_EVENTS_PER_STEP,
     logicIntervalMs: LOGIC_INTERVAL_MS
   });
@@ -553,6 +556,7 @@
     state: () => state,
     setState: setStateDirect,
     save: saveState,
+    infinityRebirth,
     render: requestRender,
     renderImmediately: (pageName) => {
       requestRender(pageName);
@@ -690,7 +694,7 @@
       // model avoids resampling at wall-clock-dependent save times. Real player
       // actions still invalidate through saveState; normal foreground time
       // advances the live state directly through prepareSave/the main loop.
-      if (!document.hidden) try { persistStateNow({ preserveSourceModels: true }); }
+      if (!document.hidden) try { persistStateNow({ preserveSourceModels: true, captureOnly: true }); }
       catch(error) { /* Save status retains the failure; keep the existing 5s cadence. */ }
     }, 5000);
   }

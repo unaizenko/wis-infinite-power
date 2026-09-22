@@ -13,14 +13,25 @@
     return value.toFixed(fractionDigits).replace(/\.?0+$/, "");
   }
 
-  function formatScientificParts(mantissa, exponent, sign = 1) {
-    let roundedMantissa = Math.round((mantissa + 1e-12) * 100) / 100;
+  // Display policy only: nine-digit scientific exponents use existing ee notation.
+  const SCIENTIFIC_EXPONENT_DISPLAY_LIMIT = 1e8;
+  function formatScientificParts(mantissa, exponent, sign = 1, fractionDigits = 2) {
+    const scale = Math.pow(10, fractionDigits);
+    let roundedMantissa = Math.round((mantissa + 1e-12) * scale) / scale;
     let adjustedExponent = Math.trunc(exponent);
     if (roundedMantissa >= 10) {
       roundedMantissa = 1;
       adjustedExponent += 1;
     }
-    return `${sign < 0 ? "-" : ""}${trimFixed(roundedMantissa)}e${adjustedExponent}`;
+    if (adjustedExponent >= SCIENTIFIC_EXPONENT_DISPLAY_LIMIT) {
+      const magnitude = Math.log10(exponent + Math.log10(mantissa));
+      return `${sign < 0 ? "-" : ""}ee${formatLayerMagnitude(magnitude)}`;
+    }
+    if (adjustedExponent <= -SCIENTIFIC_EXPONENT_DISPLAY_LIMIT) {
+      const magnitude = Math.log10(-(exponent + Math.log10(mantissa)));
+      return `${sign < 0 ? "-" : ""}e-e${formatLayerMagnitude(magnitude)}`;
+    }
+    return `${sign < 0 ? "-" : ""}${trimFixed(roundedMantissa, fractionDigits)}e${adjustedExponent}`;
   }
 
   function formatLayerMagnitude(magnitude) {
@@ -46,6 +57,11 @@
         : Math.pow(10, magnitude - exponent);
       return formatScientificParts(mantissa, exponent, sign);
     }
+    if (magnitude < 0) {
+      const exponentLayer = layer - 1;
+      const prefix = exponentLayer <= 5 ? "e".repeat(exponentLayer) : `(e^${exponentLayer})`;
+      return `${sign < 0 ? "-" : ""}e-${prefix}${formatLayerMagnitude(-magnitude)}`;
+    }
     const layerPrefix = layer <= 5 ? "e".repeat(layer) : `(e^${layer})`;
     return `${sign < 0 ? "-" : ""}${layerPrefix}${formatLayerMagnitude(magnitude)}`;
   }
@@ -53,6 +69,7 @@
   function formatNumber(value, maximumFractionDigits = 2) {
     const decimal = BN(value);
     if (!isFiniteBN(decimal) || isNaNBN(decimal)) return "0";
+    if (decimal.layer > 0 && decimal.mag < 0) return formatLargeDecimal(decimal);
     if (gte(absBN(decimal), 1e9)) return formatLargeDecimal(decimal);
     const number = decimal.toNumber();
     const absolute = Math.abs(number);
@@ -82,16 +99,14 @@
     const decimal = WIS.Core.BigNum.parseFinite(value);
     if (!decimal || decimal.lt(0)) return "—";
     if (decimal.eq(0) || decimal.eq(1)) return decimal.toString();
-    const trim = n => n.toFixed(3).replace(/\.?0+$/, "");
+    if (decimal.layer >= 2 && decimal.mag < 0) return formatLargeDecimal(decimal);
     if (decimal.layer >= 2) {
       const prefix = decimal.layer <= 5 ? "e".repeat(decimal.layer) : `(e^${decimal.layer})`;
       return prefix + formatLayerMagnitude(decimal.mag);
     }
     let exponent = decimal.layer === 0 ? Math.floor(Math.log10(decimal.mag)) : Math.floor(decimal.mag);
     const mantissa = decimal.layer === 0 ? decimal.mag / Math.pow(10, exponent) : Math.pow(10, decimal.mag - exponent);
-    let rounded = Math.round((mantissa + 1e-12) * 1000) / 1000;
-    if (rounded >= 10) { rounded = 1; exponent++; }
-    return `${trim(rounded)}e${exponent}`;
+    return formatScientificParts(mantissa, exponent, 1, 3);
   }
 
   function formatGameCalendar(totalRealSeconds) {

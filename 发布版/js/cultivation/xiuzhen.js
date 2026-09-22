@@ -301,6 +301,12 @@
     return !!level && get(state).highestRealm >= level;
   }
   function reset(state, previous, profile, challengeKey) {
+    if (profile === "infinity") {
+      const n = fresh();
+      n.history = normalize(get(previous)).history;
+      state.cultivation.systems.immortal.xiuzhen = n;
+      return;
+    }
     if (profile === "scatter") return; // same lower-tier retention as other retained abilities
     const old = get(previous), n = fresh();
     n.history = normalize(old).history; n.highestRealm = old.highestRealm;

@@ -72,7 +72,7 @@
       const s = R.getState();
       for (const key of ["mortalTransformation", "yinVoidYangReal"]) {
         const running = s.activeChallenge === key, count = s.challengeCompletions[key] || 0;
-        $("xiuzhen-challenge-" + key).hidden = !WIS.Meta.Challenges.challengeUnlocked(key);
+        $("xiuzhen-challenge-" + key).hidden = !WIS.Meta.Challenges.challengeVisible(key);
         $("xiuzhen-challenge-status-" + key).textContent = running ? "挑战进行中" : `完成：${count}/1`;
         const button = $("xiuzhen-challenge-button-" + key);
         button.textContent = running ? "退出挑战" : count ? "重复挑战（无额外奖励）" : "开启挑战";

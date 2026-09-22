@@ -196,12 +196,21 @@
   }
   function challengeUnlocked(challengeKey) {
     const challenge = definitions[challengeKey];
+    if (!challenge || (challenge.infinityUpgrade && !WIS.Meta.Infinity.has(state, challenge.infinityUpgrade))) return false;
     if (challengeKey === "mortalTransformation" && (state.activeChallenge === challengeKey || completionCount(state, challengeKey) > 0)) return true;
     if (challengeKey === "yinVoidYangReal") return WIS.Meta.Achievements.has(state, "infantTransformationImmortal");
     const challengesAvailable = WIS.Meta.Achievements.has(state, "scale4");
     return Boolean(challenge && challengesAvailable && (
       !challenge.unlockAchievementKey || WIS.Meta.Achievements.has(state, challenge.unlockAchievementKey)
     ) && threeCorpsePrerequisiteSatisfied(challengeKey));
+  }
+  function isCompletionLimitReached(challenge, completed) {
+    return Boolean(challenge && challenge.unlimited !== true && challenge.repeatable !== true &&
+      Number.isFinite(challenge.maxCompletions) && challenge.maxCompletions > 0 && completed >= challenge.maxCompletions);
+  }
+  function challengeVisible(challengeKey) {
+    return challengeUnlocked(challengeKey) && (state.activeChallenge === challengeKey || !state.hideCompletedChallenges ||
+      !isCompletionLimitReached(definitions[challengeKey], completionCount(state, challengeKey)));
   }
   function challengeStartable(challengeKey) {
     return challengeUnlocked(challengeKey) && !state.activeChallenge;
@@ -228,6 +237,7 @@
       currentScaleElapsedSeconds: 0,
       lastUpdateAt: Date.now()
     } });
+    if (definitions[challengeKey]?.resetBigNumbers) nextState.meta.bigNumbers = WIS.Meta.BigNumbers.fresh();
     if (requiredCultivationSystem) nextState.cultivation.active = requiredCultivationSystem;
     if (challengeKey === "qiRefiningHundredThousandYears") {
       nextState.cultivation.active = "immortal";
@@ -301,7 +311,9 @@
     const challengeKey = state.activeChallenge;
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
     if (!challenge || !systemActive(state, challengeKey) || challenge.manualCompletion) return false;
-    const targetReached = challenge.targetXiuzhenRealm
+    const targetReached = challenge.targetG ? WIS.Meta.BigNumbers.get(state).gIndex >= challenge.targetG
+      : challenge.targetTree ? WIS.Meta.BigNumbers.get(state).tree.rank >= challenge.targetTree
+      : challenge.targetXiuzhenRealm
       ? WIS.Cultivation.Xiuzhen.get(state).realm >= challenge.targetXiuzhenRealm
       : challenge.requiresJAndPower
       ? gte(state.joules, scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power) &&
@@ -309,6 +321,10 @@
       : Number.isFinite(challenge.targetAdvancedRealmLevel)
         ? state.advancedRealmLevel >= challenge.targetAdvancedRealmLevel
         : state.highestScaleIndex >= challengeRequiredScaleIndex(challengeKey);
+    if (challenge.deadlineSeconds && (state.activeChallengeElapsedSeconds > challenge.deadlineSeconds + 1e-9 ||
+        (!targetReached && state.activeChallengeElapsedSeconds >= challenge.deadlineSeconds - 1e-9))) {
+      state.activeChallenge=null;state.activeChallengeElapsedSeconds=0;WIS.Core.Effects.invalidate();saveState();showNotice(`挑战失败：${challenge.name}（超时）`);return true;
+    }
     if (!targetReached) return false;
     const previousCompletions = challengeCompletionCount(challengeKey);
     state.challengeCompletions[challengeKey] = Math.min(challenge.maxCompletions, previousCompletions + 1);
@@ -333,7 +349,7 @@
     solarPowerLogProgress, solarPowerLimitExponent, solarPowerRewardExponent,
     blackHoleLogProgress, blackHoleLimitExponent, blackHoleLossOrders,
     blackHoleRequirementMultiplierFromLoss, blackHoleRewardRequirement,
-    challengeUnlocked, challengeStartable, challengeRequiredScaleIndex,
+    challengeUnlocked, challengeStartable, challengeRequiredScaleIndex, challengeVisible, isCompletionLimitReached,
     resetForChallenge, startChallenge, exitChallenge, checkActiveChallengeCompletion
   });
 }(window.WIS));

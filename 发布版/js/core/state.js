@@ -140,9 +140,10 @@
     fiveElementsTreasureRollProgress: 0, immortalCrystalRollProgress: 0, minorTribulationExplorationLoad: ZERO,
     activeChallenge: null, activeChallengeElapsedSeconds: 0, threeCorpseChallengesUnlocked: false,
     currentQiLayer: 1, bestQiLayer: 0,
-    hideUnlockedAchievements: false, offlineFastForwardEnabled: true, autoCloseOfflineDialogEnabled: true,
+    hideUnlockedAchievements: false, hideCompletedChallenges: false, offlineFastForwardEnabled: true, autoCloseOfflineDialogEnabled: true,
     immortalAbilityAutomationEnabled: true, immortalRealmAutomationEnabled: true,
     scaleUpgradeAutomationEnabled: true, scaleActionAutomationEnabled: true,
+    scaleFitnessAutomationEnabled: true, scaleRockAutomationEnabled: true,
     theme: "light"
   });
 
@@ -644,6 +645,7 @@
       treasureQualifications: source.treasureQualifications && typeof source.treasureQualifications === "object" ? clone(source.treasureQualifications) : {},
       treasureProgressVersion: source.treasureProgressVersion === 1 ? 1 : 0,
       hideUnlockedAchievements: source.hideUnlockedAchievements === true,
+      hideCompletedChallenges: source.hideCompletedChallenges === true,
       // The retired player toggle no longer disables the standard settlement path.
       offlineFastForwardEnabled: true,
       autoCloseOfflineDialogEnabled: source.autoCloseOfflineDialogEnabled !== false,
@@ -651,6 +653,8 @@
       immortalRealmAutomationEnabled: source.immortalRealmAutomationEnabled !== false,
       scaleUpgradeAutomationEnabled: source.scaleUpgradeAutomationEnabled !== false,
       scaleActionAutomationEnabled: source.scaleActionAutomationEnabled !== false,
+      scaleFitnessAutomationEnabled: (source.scaleFitnessAutomationEnabled ?? source.scaleActionAutomationEnabled) !== false,
+      scaleRockAutomationEnabled: (source.scaleRockAutomationEnabled ?? source.scaleActionAutomationEnabled) !== false,
       theme: source.theme === "dark" ? "dark" : "light",
       timeLedger: normalizeTimeLedger(source.timeLedger),
       compensation: WIS.Simulation.Compensation.normalize(source.compensation),
@@ -665,8 +669,8 @@
     "core.resources": ["joules", "joulesGainResidual", "joulesGainResidualTail", "power", "powerGainResidual", "powerGainResidualTail"],
     "core.runtime": ["totalElapsedSeconds", "reincarnationElapsedSeconds", "currentScaleElapsedSeconds", "lastUpdateAt", "randomState", "timeLedger", "compensation"],
     "core.preferences": [
-      "hideUnlockedAchievements", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
-      "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "theme", "offlineFastForwardEnabled", "autoCloseOfflineDialogEnabled"
+      "hideUnlockedAchievements", "hideCompletedChallenges", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
+      "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "scaleFitnessAutomationEnabled", "scaleRockAutomationEnabled", "theme", "offlineFastForwardEnabled", "autoCloseOfflineDialogEnabled"
     ],
     "powerSystem.systems.scale.progress": ["highestPower", "totalPower", "maxSinglePowerGain", "brickUnlocked", "wallUnlocked", "highestScaleIndex", "superLollipopRollProgress", "fiveSpiritStoneRollProgress"],
     "powerSystem.systems.scale.actions": ["runningLevel", "rockLevel", "ghostBackActive"],
@@ -856,7 +860,7 @@
       core: { resources: {}, runtime: {}, preferences: {} },
       powerSystem: { active: "scale", systems: { scale: { progress: {}, actions: {}, upgrades: {}, history: { manualUpgrades: {} } } } },
       cultivation: { active: null, systems: { immortal: { resources: {}, progress: {}, abilities: {}, persistent: {}, history: { manualAbilities: {}, manualRealmLevel: 0 } } } },
-      meta: { achievements: {}, treasures: {}, milestones: {}, statistics: {}, challenges: {}, infinity: { currency: ZERO, upgrades: {} } }
+      meta: { achievements: {}, treasures: {}, milestones: {}, statistics: {}, challenges: {}, infinity: WIS.Meta.Infinity.fresh() }
     };
   }
 
@@ -918,6 +922,7 @@
     legacyPaths.forEach(({ write }, key) => write(domain, clone(flat[key])));
     domain.cultivation.active = flat.cultivationSystem === "仙道" || flat.cultivationSystem === "immortal" ? "immortal" : null;
     domain.meta.achievements = clone(flat.unlockedAchievements || {});
+    domain.meta.infinity = WIS.Meta.Infinity.normalize(flatInput?.infinity,domain.meta.achievements.tree3 === true);
     domain.meta.treasures = clone(flat.treasureImprints || {});
     domain.meta.milestones = clone(flat.symbolicPowerMilestones || {});
     domain.meta.challenges.activeChallenge = flat.activeChallenge ?? null;
@@ -1056,10 +1061,7 @@
         ? source.cultivation.active
         : normalizedKnown.cultivation.active;
 
-    const infinity = isRecord(source.meta?.infinity) ? clone(source.meta.infinity) : {};
-    infinity.currency = maxBN(ZERO, BN(infinity.currency));
-    if (!isRecord(infinity.upgrades)) infinity.upgrades = {};
-    domain.meta.infinity = infinity;
+    domain.meta.infinity = WIS.Meta.Infinity.normalize(source.meta?.infinity,source.meta?.achievements?.tree3 === true);
     domain.meta.bigNumbers = WIS.Meta.BigNumbers?.normalize(source.meta?.bigNumbers) ?? source.meta?.bigNumbers ?? {};
     domain.cultivation.systems.immortal.xiuzhen = WIS.Cultivation.Xiuzhen?.normalize(source.cultivation?.systems?.immortal?.xiuzhen)
       ?? source.cultivation?.systems?.immortal?.xiuzhen ?? {};
@@ -1138,6 +1140,8 @@
           ["lastUpdateAt", "highestPower", "cultivationSystem"].some(key => Object.hasOwn(data, key))))
       throw Error("不是有效的WIS存档");
     const migration = migrations[version] || migrations[Math.min(version, 54)] || migrations[36];
+    // v62 initializes TREE independently; historical G64 progress is never exchanged.
+    // Legacy TREE3 flags are normalized to completed TREE state at load.
     // v53 separates lifetime exploration input from fractional/integer carry;
     // unknown historical totals are flagged, never inferred from loot or replayed.
     // v52 adds the independent Xiuzhen subdomain; existing resource meanings stay intact.
@@ -1149,6 +1153,11 @@
     // v48 adds independent progress ledgers. Normalization preserves them;
     // source-remainder conversion is lazy, after runtime/effects are bound.
     const result = migration(data);
+    if (version < 64) {
+      // Sparse expansion already filled new defaults: migrate by schema, not presence.
+      result.scaleFitnessAutomationEnabled = result.scaleActionAutomationEnabled !== false;
+      result.scaleRockAutomationEnabled = result.scaleActionAutomationEnabled !== false;
+    }
     WIS.Core.Resources.validateState(result);
     // This field is a display-only lifetime statistic. Merge legacy words once;
     // fractional attempts and all treasure ledgers are deliberately untouched.
@@ -1213,15 +1222,17 @@
         get(_,k){const value=current()[k];if(!mutable(value))return value;
           if(nodes.has(value))return value;
           const cached=children.get(k);if(cached?.base===value)return cached.proxy;
-          const child=wrap(value,changed,k,current()[k]!==base[k]);children.set(k,child);return child.proxy;},
+          const child=wrap(value,changed,k,assigned||current()[k]!==base[k]);children.set(k,child);return child.proxy;},
         set(_,k,v){if(current()[k]===v)return true;changed();copy[k]=v;children.delete(k);return true;},
         deleteProperty(_,k){if(k in current()){changed();delete copy[k];children.delete(k);}return true;},
         has:(_,k)=>k in current(),ownKeys:()=>Reflect.ownKeys(current()),
         getOwnPropertyDescriptor(_,k){const d=Object.getOwnPropertyDescriptor(current(),k);return d&&{...d,configurable:k==='length'&&Array.isArray(base)?false:true};}
       });
+      // Assigned containers may hold our proxies even in unchanged properties.
+      // Propagate that ownership to read children and also resolve unread ones.
       const node={base,proxy,finish(){if(!copy)return assigned?finishAssigned(base):base;
         for(const k of Object.keys(copy)){const child=children.get(k);if(child&&copy[k]===child.base)copy[k]=child.finish();
-          else if(copy[k]!==base[k])copy[k]=finishAssigned(copy[k]);}
+          else if(assigned||copy[k]!==base[k])copy[k]=finishAssigned(copy[k]);}
         return copy;}};
       nodes.set(proxy,node);return node;
     }

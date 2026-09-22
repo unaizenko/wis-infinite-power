@@ -223,77 +223,119 @@
   }
 
   const QI_LAYER_COST_BLOCK_SIZE = 256;
-  const qiLayerCostBlockTotals = [];
-  const qiLayerCostBlockPrefixes = [ZERO];
+  const qiLayerCostBlocks = new Map();
+
+  // Layer progression is exact integer work, even when its resource cost is a BigNum.
+  function nextQiLayer(current, increment = 1) {
+    const next = current + increment;
+    return Number.isSafeInteger(current) && Number.isSafeInteger(increment) && increment > 0 &&
+      Number.isSafeInteger(next) && next > current ? next : null;
+  }
+
+  function qiLayerRepresentationError(layer) {
+    const error = new Error(`representation-limit: 炼气层号 ${layer} 无法安全推进；本次购买未提交`);
+    error.code = "representation-limit";
+    return error;
+  }
+
+  function requireNextQiLayer(current, increment = 1) {
+    const next = nextQiLayer(current, increment);
+    if (next === null) throw qiLayerRepresentationError(current);
+    return next;
+  }
+
+  function qiLayerRepresentationLimit(layer, shouldRender) {
+    // Recovery must retain this unit's debt, rather than silently skip mandatory automation.
+    if (runtime.isOfflineExecution()) throw qiLayerRepresentationError(layer);
+    if (shouldRender) showNotice(qiLayerRepresentationError(layer).message);
+    return { status: "representation-limit", code: "representation-limit", purchased: 0, layer };
+  }
 
   function ensureQiLayerCostBlock(blockIndex) {
     const targetBlock = Math.max(0, Math.floor(Number(blockIndex) || 0));
-    while (qiLayerCostBlockTotals.length <= targetBlock) {
-      const nextBlock = qiLayerCostBlockTotals.length;
-      const firstLayer = nextBlock * QI_LAYER_COST_BLOCK_SIZE + 1;
-      const lastLayer = firstLayer + QI_LAYER_COST_BLOCK_SIZE - 1;
-      let blockTotal = ZERO;
-      for (let layer = firstLayer; layer <= lastLayer; layer += 1) {
-        blockTotal = add(blockTotal, qiLayerRequirement(layer));
-      }
-      qiLayerCostBlockTotals.push(blockTotal);
-      qiLayerCostBlockPrefixes.push(add(qiLayerCostBlockPrefixes[nextBlock], blockTotal));
+    const blockStart = targetBlock * QI_LAYER_COST_BLOCK_SIZE;
+    const lastLayer = requireNextQiLayer(blockStart, QI_LAYER_COST_BLOCK_SIZE);
+    if (qiLayerCostBlocks.has(targetBlock)) return qiLayerCostBlocks.get(targetBlock);
+    const firstLayer = requireNextQiLayer(blockStart);
+    let blockTotal = ZERO;
+    for (let layer = firstLayer; ; layer = requireNextQiLayer(layer)) {
+      blockTotal = add(blockTotal, qiLayerRequirement(layer));
+      if (layer === lastLayer) break;
     }
+    qiLayerCostBlocks.set(targetBlock, blockTotal);
+    return blockTotal;
   }
 
   function qiLayerCumulativeCost(fromLayer, toLayer) {
     const firstLayer = Math.max(1, Math.floor(Number(fromLayer) || 0));
     const lastLayer = Math.max(0, Math.floor(Number(toLayer) || 0));
+    if (!Number.isSafeInteger(firstLayer) || !Number.isSafeInteger(lastLayer)) {
+      throw qiLayerRepresentationError(!Number.isSafeInteger(firstLayer) ? firstLayer : lastLayer);
+    }
     if (lastLayer < firstLayer) return ZERO;
     let layer = firstLayer;
     let total = ZERO;
     while (layer <= lastLayer && (layer - 1) % QI_LAYER_COST_BLOCK_SIZE !== 0) {
       total = add(total, qiLayerRequirement(layer));
-      layer += 1;
+      if (layer === lastLayer) return total;
+      layer = requireNextQiLayer(layer);
     }
-    while (layer + QI_LAYER_COST_BLOCK_SIZE - 1 <= lastLayer) {
+    while (lastLayer - layer >= QI_LAYER_COST_BLOCK_SIZE - 1) {
       const blockIndex = Math.floor((layer - 1) / QI_LAYER_COST_BLOCK_SIZE);
-      ensureQiLayerCostBlock(blockIndex);
-      total = add(total, qiLayerCostBlockTotals[blockIndex]);
-      layer += QI_LAYER_COST_BLOCK_SIZE;
+      total = add(total, ensureQiLayerCostBlock(blockIndex));
+      if (lastLayer - layer === QI_LAYER_COST_BLOCK_SIZE - 1) return total;
+      layer = requireNextQiLayer(layer, QI_LAYER_COST_BLOCK_SIZE);
     }
     while (layer <= lastLayer) {
       total = add(total, qiLayerRequirement(layer));
-      layer += 1;
+      if (layer === lastLayer) return total;
+      layer = requireNextQiLayer(layer);
     }
     return total;
   }
 
   function maxAffordableQiLayer(currentLayer, mana) {
+    const result = maxAffordableQiLayerChecked(currentLayer, mana);
+    if (result.status === "representation-limit") throw qiLayerRepresentationError(result.layer);
+    return result.layer;
+  }
+
+  function maxAffordableQiLayerChecked(currentLayer, mana) {
     const startingLayer = Math.max(1, Math.floor(Number(currentLayer) || 1));
+    let nextLayer = nextQiLayer(startingLayer);
+    const limit = (layer) => ({ layer, status: "representation-limit" });
+    const affordable = (layer) => ({ layer, status: "ok" });
+    if (nextLayer === null) return limit(startingLayer);
     const budget = maxBN(ZERO, mana);
-    if (!isFiniteBN(budget) || !gt(budget, ZERO)) return startingLayer;
-    let nextLayer = startingLayer + 1;
+    if (!isFiniteBN(budget) || !gt(budget, ZERO)) return affordable(startingLayer);
     let spent = ZERO;
     const canAddCost = (cost) => !gt(add(spent, cost), budget);
 
     while ((nextLayer - 1) % QI_LAYER_COST_BLOCK_SIZE !== 0) {
       const cost = qiLayerRequirement(nextLayer);
-      if (!isFiniteBN(cost) || !canAddCost(cost)) return nextLayer - 1;
+      if (!isFiniteBN(cost) || !canAddCost(cost)) return affordable(nextLayer - 1);
       spent = add(spent, cost);
-      nextLayer += 1;
+      const followingLayer = nextQiLayer(nextLayer);
+      if (followingLayer === null) return limit(nextLayer);
+      nextLayer = followingLayer;
     }
     while (nextLayer <= Number.MAX_SAFE_INTEGER - QI_LAYER_COST_BLOCK_SIZE) {
       const blockIndex = Math.floor((nextLayer - 1) / QI_LAYER_COST_BLOCK_SIZE);
-      ensureQiLayerCostBlock(blockIndex);
-      const blockCost = qiLayerCostBlockTotals[blockIndex];
+      const blockCost = ensureQiLayerCostBlock(blockIndex);
       if (!isFiniteBN(blockCost) || !canAddCost(blockCost)) break;
       spent = add(spent, blockCost);
-      nextLayer += QI_LAYER_COST_BLOCK_SIZE;
+      nextLayer = requireNextQiLayer(nextLayer, QI_LAYER_COST_BLOCK_SIZE);
     }
-    const lastLayerInBlock = Math.min(Number.MAX_SAFE_INTEGER, nextLayer + QI_LAYER_COST_BLOCK_SIZE - 1);
+    const lastLayerInBlock = nextLayer + Math.min(Number.MAX_SAFE_INTEGER - nextLayer, QI_LAYER_COST_BLOCK_SIZE - 1);
     while (nextLayer <= lastLayerInBlock) {
       const cost = qiLayerRequirement(nextLayer);
-      if (!isFiniteBN(cost) || !canAddCost(cost)) return nextLayer - 1;
+      if (!isFiniteBN(cost) || !canAddCost(cost)) return affordable(nextLayer - 1);
       spent = add(spent, cost);
-      nextLayer += 1;
+      const followingLayer = nextQiLayer(nextLayer);
+      if (followingLayer === null) return limit(nextLayer);
+      nextLayer = followingLayer;
     }
-    return nextLayer - 1;
+    return affordable(nextLayer - 1);
   }
 
   function qiLayerProgress() {
@@ -1359,9 +1401,12 @@
 
   function naturalTreasureUpgradeChance(level = state.naturalTreasureLevel) {
     // Legacy diagnostic accessor: production consumes independent progress.
+    // Read the committed finite-progress requirement; diagnostics must not
+    // rebuild the high-precision cumulative boundary.
     if (!WIS.Cultivation.ExplorationProgress.belowCap(state)) return ZERO;
-    const view=WIS.Cultivation.ExplorationProgress.view(state);
-    return view.demand && gt(view.demand,ZERO) ? div(ONE,view.demand) : ZERO;
+    const progress=WIS.Cultivation.ExplorationProgress.ensure(state);
+    const demand=BN(progress.natural?.requirement);
+    return demand.isFinite() && gt(demand,ZERO) ? div(ONE,demand) : ZERO;
   }
 
   function naturalTreasureLevelCap() {
@@ -1629,7 +1674,8 @@
     applyToState = true,
     linearBudget = false,
     maximumBudgetForSegment = (_currentMana, remainingBudget) => remainingBudget,
-    googolPenalty = false
+    googolPenalty = false,
+    prepareRate = null
   ) {
     const budget = Math.max(0, Number(totalBudget) || 0);
     if (!(budget > 0) || typeof calculateGain !== "function") {
@@ -1650,11 +1696,21 @@
       const initialGain = normalizeManaEvaluation(calculateGain(budget, currentMana)).mana;
       if (gte(currentMana, WIS.Core.Config.googolPenalty.threshold) ||
           gt(add(currentMana, initialGain), WIS.Core.Config.googolPenalty.threshold)) {
-        const mana = WIS.Power.ScaleLogic.applyResourceSoftcapDynamicRateOverTime(
-          amount => normalizeManaEvaluation(calculateGain(1, amount)).mana,
-          currentMana, budget,
-          (gain, amount) => WIS.Core.Penalties.applyGoogolPenalty("mana", amount, gain, state)
-        );
+        // Only audited manual exploration supplies a factory. Its formal state
+        // and clock stay fixed during this synchronous scalar work; sampled Mana
+        // remains an explicit argument. Other callbacks keep their original path.
+        const integrate = () => {
+          const rate = prepareRate ? prepareRate() : calculateGain;
+          return WIS.Power.ScaleLogic.applyResourceSoftcapDynamicRateOverTime(
+            amount => normalizeManaEvaluation(rate(1, amount)).mana,
+            currentMana, budget,
+            (gain, amount) => WIS.Core.Penalties.applyGoogolPenalty("mana", amount, gain, state),
+            { memoizeSamples: !!prepareRate }
+          );
+        };
+        const mana = prepareRate
+          ? runtime.withEvaluationState(WIS.Core.State.cloneForSimulation(runtime.getState()), integrate)
+          : integrate();
         if (applyToState && gt(mana, ZERO)) WIS.Core.Resources.addSystem("immortal", "mana", mana);
         commitBudget(budget, mana, { mana }, currentMana);
         return { mana, budgetUsed: budget, segments: 1, capped: false };
@@ -1763,7 +1819,7 @@
     totalBudget,
     calculateGain,
     commitBudget = () => {},
-    { linearBudget = false, maximumBudgetForSegment, googolPenalty = false } = {}
+    { linearBudget = false, maximumBudgetForSegment, googolPenalty = false, prepareRate = null } = {}
   ) {
     return settleManaGainProgressive(
       totalBudget,
@@ -1772,12 +1828,13 @@
       true,
       linearBudget,
       maximumBudgetForSegment,
-      googolPenalty
+      googolPenalty,
+      prepareRate
     );
   }
 
-  function previewManaGainProgressive(totalBudget, calculateGain, { linearBudget = false, googolPenalty = false } = {}) {
-    return settleManaGainProgressive(totalBudget, calculateGain, () => {}, false, linearBudget, undefined, googolPenalty);
+  function previewManaGainProgressive(totalBudget, calculateGain, { linearBudget = false, googolPenalty = false, prepareRate = null } = {}) {
+    return settleManaGainProgressive(totalBudget, calculateGain, () => {}, false, linearBudget, undefined, googolPenalty, prepareRate);
   }
 
   function breathingManaGainProgressive() {
@@ -1806,7 +1863,7 @@
         explorationAmount,
         true
       ), actionFraction),
-      { linearBudget: true, googolPenalty: true }
+      { linearBudget: true, googolPenalty: true, prepareRate: () => prepareExplorationManaRate(explorationAmount, tribulationExponent) }
     ).mana;
   }
 
@@ -2505,6 +2562,15 @@
       currentMana, tribulationExponent, activeExploration, applyImmortalSuppression);
   }
 
+  // Called inside a fresh readonly Evaluation for exactly one manual work.
+  // Reward, spending, clocks and event commits occur outside this scope.
+  function prepareExplorationManaRate(explorationAmount, tribulationExponent) {
+    const sources = explorationManaSources(explorationAmount);
+    return (fraction, currentMana) => mul(explorationManaGainFromSources(
+      sources, currentMana, tribulationExponent, true
+    ), fraction);
+  }
+
   // Shared source breakdown: previews must preserve the settlement order below.
   function explorationManaSources(explorationAmount) {
     if (!explorationEnabled()) return [ZERO, ZERO];
@@ -3137,10 +3203,18 @@
   function autoBreakthroughImmortalRealms() {
     if (!state.immortalRealmAutomationEnabled || !hasAchievement("bodyIntegration") || state.cultivation.active !== "immortal") return 0;
     if (qiRefiningChallengeActive()) {
+      if (nextQiLayer(state.currentQiLayer) === null) {
+        if (runtime.isOfflineExecution()) throw qiLayerRepresentationError(state.currentQiLayer);
+        return 0;
+      }
+      const run = () => {
+        const result = advanceQiLayersBatch(false);
+        return typeof result === "number" ? result : 0;
+      };
       if (WIS.Simulation.FixedSegment?.collectCandidates?.("realm", [{
-        available: () => true, run: () => advanceQiLayersBatch(false)
+        available: () => true, run
       }], "mana", 1)) return 0;
-      return advanceQiLayersBatch(false);
+      return run();
     }
     const candidates = [
       { resourceKey: "power", cost: () => QI_REFINING_COST, available: () => !state.qiRefiningUnlocked, apply: () => { state.qiRefiningUnlocked = true; } },
@@ -3306,8 +3380,7 @@
 
   function unlockFoundation() {
     if (qiRefiningChallengeActive()) {
-      advanceQiLayersBatch(true);
-      return;
+      return advanceQiLayersBatch(true);
     }
     const cost = foundationCost();
     if (!state.qiRefiningUnlocked || state.foundationUnlocked || !canAffordMana(cost)) return;
@@ -3356,6 +3429,9 @@
   function commitQiLayerAdvance(targetLayer, totalCost, shouldRender) {
     const currentLayer = Math.max(1, Math.floor(Number(state.currentQiLayer) || 1));
     const safeTargetLayer = Math.max(currentLayer, Math.floor(Number(targetLayer) || currentLayer));
+    if (!Number.isSafeInteger(currentLayer) || !Number.isSafeInteger(safeTargetLayer)) {
+      throw qiLayerRepresentationError(currentLayer);
+    }
     if (safeTargetLayer <= currentLayer || !isFiniteBN(totalCost) || !gt(totalCost, ZERO) ||
         !canAffordMana(totalCost)) return 0;
     if (!WIS.Core.Resources.spendSystem("immortal", "mana", totalCost)) return 0;
@@ -3375,16 +3451,19 @@
   function advanceQiLayer(shouldRender = true) {
     if (!qiRefiningChallengeActive()) return false;
     const currentLayer = Math.max(1, Math.floor(Number(state.currentQiLayer) || 1));
-    const nextLayer = currentLayer + 1;
+    const nextLayer = nextQiLayer(currentLayer);
+    if (nextLayer === null) return qiLayerRepresentationLimit(currentLayer, shouldRender);
     return commitQiLayerAdvance(nextLayer, qiLayerRequirement(nextLayer), shouldRender) === 1;
   }
 
   function advanceQiLayersBatch(shouldRender = true) {
     if (!qiRefiningChallengeActive()) return 0;
     const currentLayer = Math.max(1, Math.floor(Number(state.currentQiLayer) || 1));
-    const targetLayer = maxAffordableQiLayer(currentLayer, state.mana);
+    const result = maxAffordableQiLayerChecked(currentLayer, state.mana);
+    if (result.status === "representation-limit") return qiLayerRepresentationLimit(currentLayer, shouldRender);
+    const targetLayer = result.layer;
     if (targetLayer <= currentLayer) return 0;
-    const totalCost = qiLayerCumulativeCost(currentLayer + 1, targetLayer);
+    const totalCost = qiLayerCumulativeCost(requireNextQiLayer(currentLayer), targetLayer);
     return commitQiLayerAdvance(targetLayer, totalCost, shouldRender);
   }
 
@@ -3668,7 +3747,7 @@
         true
       ), actionFraction),
       () => {},
-      { linearBudget: true, googolPenalty: true }
+      { linearBudget: true, googolPenalty: true, prepareRate: () => prepareExplorationManaRate(explorationAmount, tribulationPreview.manaExponent) }
     );
     state.lifetimeTotalMana = add(state.lifetimeTotalMana, gained);
     state.currentRebirthTotalMana = add(state.currentRebirthTotalMana, gained);

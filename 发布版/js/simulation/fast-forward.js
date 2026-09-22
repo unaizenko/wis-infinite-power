@@ -1080,7 +1080,7 @@ function bind(next){context=next;
     getActivePower(state){const active=registry.getActivePower(state);return active?.id==='scale'?power:active;},
     getActiveCultivation(state){const active=registry.getActiveCultivation(state);return active?.id==='immortal'?immortal:active;}});
 }
-function flags(){const s=R.getState();return ['scaleUpgradeAutomationEnabled','scaleActionAutomationEnabled',
+function flags(){const s=R.getState();return ['scaleUpgradeAutomationEnabled','scaleFitnessAutomationEnabled','scaleRockAutomationEnabled',
   'immortalAbilityAutomationEnabled','immortalRealmAutomationEnabled'].map(k=>s[k]);}
 function createSession(){
   assert(context,'Fast-forward host not bound');
@@ -1282,7 +1282,7 @@ function formulaRegime(s=R.getState()){
   s.challengeCompletions,s.symbolicPowerMilestones,s.qiRefiningUnlocked,s.foundationUnlocked,s.goldenCoreUnlocked,
   s.advancedRealmLevel,s.currentQiLayer,s.cultivation.systems.immortal.xiuzhen?.realm,
   s.cultivation.systems.immortal.xiuzhen?.abilities,
-  [s.scaleUpgradeAutomationEnabled,s.scaleActionAutomationEnabled,s.immortalAbilityAutomationEnabled,s.immortalRealmAutomationEnabled],
+  [s.scaleUpgradeAutomationEnabled,s.scaleFitnessAutomationEnabled,s.scaleRockAutomationEnabled,s.immortalAbilityAutomationEnabled,s.immortalRealmAutomationEnabled],
   // Inventory and ownership are inputs to treasure multipliers. Progress,
   // timers and Effects cache revisions are deliberately absent.
   [WIS.Simulation.Compensation.factor(),s.core.runtime.compensation?.balance>0,s.core.runtime.compensation?.grantSequence],

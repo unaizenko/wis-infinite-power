@@ -34,7 +34,7 @@ html[data-theme="dark"] {
 [hidden] { display: none !important; }
 
 /* Independent action subpage; the global resource/sticky layout is untouched. */
-.big-number-tabs { display: flex; gap: 8px; margin: 12px 0; }
+.big-number-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .big-number-tabs button { padding: 8px 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); cursor: pointer; }
 .big-number-tabs button[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent); }
 .big-number-tabs button:disabled { opacity: .5; cursor: not-allowed; }
@@ -857,3 +857,34 @@ button { font: inherit; }
 @media (max-width: 600px) and (orientation: portrait) {
   .resource-panel { gap: 6px 8px; }
 }
+/* TREE has one vertical flow at every width; only the upgrades may share a row. */
+.tree-panel, .tree-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.tree-target { margin: 0; font-weight: 600; line-height: 1.8; }
+.tree-amount { display: block; font-size: clamp(24px, 5vw, 36px); color: var(--accent); overflow-wrap: anywhere; }
+.tree-upgrades { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.tree-upgrade { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
+.tree-upgrade > * { min-width: 0; overflow-wrap: anywhere; }
+.tree-upgrade strong, .tree-upgrade small { grid-column: 1 / 3; }
+.tree-upgrade > span, .tree-upgrade button { grid-column: 3; }
+.tree-upgrade-effect { grid-column: 1 / -1; margin: 4px 0; font-size: 13px; line-height: 1.7; white-space: pre-line; }
+.tree-upgrade button { min-height: 44px; padding: 8px 12px; }
+.tree-entry > small { display: block; margin-top: 10px; }
+.tree-panel .tree-help { padding: 0; border: 0; background: transparent; font-size: 12px; color: var(--muted); }
+@media (min-width: 1100px) { .tree-upgrades { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* Infinity: one branch at a time, shared with the existing theme. */
+.infinity-panel { padding: 16px 0; }
+.infinity-branches { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:16px 0; }
+.infinity-tree { display:grid; grid-template-columns:repeat(var(--infinity-columns,2),minmax(0,1fr)); gap:18px 8px; max-width:720px; margin:24px auto; }
+.infinity-node { min-width:0; min-height:90px; display:flex; flex-direction:column; gap:6px; align-items:center; justify-content:center; padding:12px 6px; overflow-wrap:anywhere; }
+.infinity-node[aria-pressed="true"],.infinity-branches [aria-selected="true"] { outline:2px solid currentColor; outline-offset:2px; }
+.infinity-node.prerequisite,.infinity-node.exclusive,.infinity-node.unaffordable { opacity:.6; }
+.infinity-node.purchased { border-style:double; border-width:3px; }
+.infinity-details { border:1px solid currentColor; border-radius:8px; padding:16px; margin:20px 0; }
+@media(max-width:600px) { .infinity-branches { grid-template-columns:repeat(2,minmax(0,1fr)); } .infinity-node { font-size:12px; padding:10px 3px; } }
+
+.infinity-branches button,.infinity-node { background:var(--subtle); color:var(--text); border:1px solid var(--border); border-radius:8px; }
+.infinity-branches button { padding:10px 6px; cursor:pointer; }
+.infinity-node { position:relative; cursor:pointer; }
+.infinity-child::before { content:""; position:absolute; height:17px; border-left:1px solid currentColor; left:50%; top:-19px; opacity:.35; }
+.infinity-node.available { border-color:var(--accent); }.infinity-node.purchased { background:var(--accent-soft); }

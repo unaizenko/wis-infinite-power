@@ -15,12 +15,10 @@
   }
   function movement(s,profile,dt,normalized=false){let change=0;for(const k of W.Simulation.ResourceGroups.keys){const a=C().coordinate(W.Simulation.ResourceGroups.read(s,k)),b=C().coordinate(B.add(W.Simulation.ResourceGroups.read(s,k),B.mul(profile.rates[k],dt)));const x=a.layer===0?Math.log10(1+a.value):a.value,y=b.layer===0?Math.log10(1+b.value):b.value;change=Math.max(change,a.layer===b.layer?Math.abs(y-x)/(normalized?Math.max(1,Math.abs(x)):1):Number.MAX_VALUE);}return change;}
   function strengthAt(s,profile,seconds){
-    const value=movement(s,profile,seconds,true),G=W.Simulation.ResourceGroups;
-    // Multiplication by dt is almost invisible in ee and higher coordinates.
-    // A growing layered stock must never look like a weak 300-second segment
-    // merely because its one-step coordinate increment is relatively small.
-    const layered=G.keys.some(k=>{const current=G.read(s,k),next=B.add(current,B.mul(profile.rates[k],seconds));return next.layer>=2&&B.gt(next,current);});
-    return layered?Math.max(value,1):value;
+    // movement already treats a layer transition conservatively. Within one
+    // layer, use its measured travel rather than the absolute numeric layer.
+    const value=movement(s,profile,seconds,true);
+    return Number.isFinite(value)?value:Number.MAX_VALUE;
   }
   function microPlan(remaining,{budget,hardBoundary=remaining,productionReplay=false}={}) {
     const seconds=Math.min(remaining,hardBoundary,W.Core.Config.fixedSettlement.discreteCadenceSeconds);
@@ -28,14 +26,16 @@
       hardBoundary:seconds===hardBoundary,compiledMicro:!productionReplay,productionReplay};
   }
   function plan(s,remaining,{budget,hardBoundary=remaining,forceMicro=false,productionReplay=false}={}){return P().withScope('offline',()=>{
-    if(forceMicro||budget?.lastExecutorKind==='compiled-micro'||budget?.lastExecutorKind==='production-replay'||budget?.directWork>=H().maxDirectWork)
+    // Cumulative directWork is session accounting, not executor eligibility.
+    // Explicit micro/replay and all state/capability checks remain authoritative.
+    if(forceMicro||budget?.lastExecutorKind==='production-replay')
       return microPlan(remaining,{budget,hardBoundary,productionReplay:productionReplay||budget?.lastExecutorKind==='production-replay'});
     const draft=W.Core.State.createDraft(s).state;
     W.Core.Runtime.withState(draft,()=>W.Core.Runtime.withOfflineExecution(()=>W.Core.Effects.withIsolatedState(draft,()=>W.Cultivation.ExplorationProgress.settleRetained(draft))));s=draft;
     budget=budget||createBudget(remaining);const h=H(),q=Q(),profile=W.Simulation.FixedSources.query(s);let frames=budget.frames.map(f=>({...f}));
     if(!frames.length){const dt=Math.min(h.macroMaxSeconds,remaining);frames=[{seconds:dt,depth:0}];}
     let head=frames[0],strength=strengthAt(s,profile,Math.min(head.seconds,hardBoundary));
-    while(strength>h.splitThreshold&&head.depth<h.maxDepth&&head.seconds>2*h.microSeconds&&budget.directWork<h.maxDirectWork){
+    while(strength>h.splitThreshold&&head.depth<h.maxDepth&&head.seconds>2*h.microSeconds){
       const units=Math.floor(head.seconds/h.microSeconds+1e-8),parts=Math.min(h.splitFactor,units),children=[];let spent=0;
       for(let i=0;i<parts;i++){const duration=i===parts-1?head.seconds-spent:(Math.floor(units/parts)+(i<units%parts?1:0))*h.microSeconds;children.push({seconds:duration,depth:head.depth+1});spent+=duration;}
       frames.splice(0,1,...children);head=frames[0];strength=strengthAt(s,profile,Math.min(head.seconds,hardBoundary));
@@ -43,14 +43,14 @@
     const strong=strength>h.splitThreshold,macroRemaining=frames.reduce((a,f)=>a+f.seconds,0),speed=movement(s,profile,h.microSeconds,true)/h.microSeconds;
     const layered=Object.values(C().coordinates(s)).some(c=>c.layer>=2)||movement(s,profile,h.microSeconds,true)>q.fallbackCoordinateTravel;
     const cooling=Object.values(budget.predictor?.policy?.groups||{}).some(g=>g.cooldown>0&&!g.anchors);
-    const extreme=movement(s,profile,h.microSeconds,true)>q.fallbackMaxMicroCoordinateTravel||W.Simulation.ResourceGroups.keys.some(k=>{const current=W.Simulation.ResourceGroups.read(s,k),next=B.add(current,B.mul(profile.rates[k],q.fallbackSeconds));return B.gt(next,current)&&(current.layer>=2||next.layer>=2);});
+    const microMovement=movement(s,profile,h.microSeconds,true);
+    const extreme=!Number.isFinite(microMovement)||microMovement>q.fallbackMaxMicroCoordinateTravel||W.Simulation.ResourceGroups.keys.some(k=>{const current=W.Simulation.ResourceGroups.read(s,k),next=B.add(current,B.mul(profile.rates[k],q.fallbackSeconds));return B.gt(next,current)&&current.layer!==next.layer;});
     const selectionCache=W.Simulation.StrategySelector.cache(s,profile,{strong,extreme,predictor:budget.predictor,previousKind:budget.lastExecutorKind});
     const selection=W.Simulation.StrategySelector.select(selectionCache);
     if(selection.kind==='compiled-micro')return microPlan(remaining,{budget,hardBoundary});
     const preferred=['coupled-kernel','coupled-advance'].includes(selection.kind)?q.fallbackSeconds:strong&&cooling?q.fallbackSeconds:strong&&layered?Math.max(q.checkpointMinSeconds,q.checkpointCoordinateTravel/Math.max(1e-15,speed)):q.checkpointMaxSeconds;
     const aligned=Math.max(h.microSeconds,Math.floor(Math.min(q.checkpointMaxSeconds,preferred)/h.microSeconds)*h.microSeconds);
     const seconds=Math.min(remaining,hardBoundary,strong?macroRemaining:head.seconds,aligned);
-    if(budget.directWork>=h.maxDirectWork&&!budget.predictor?.model){const error=Error('真实资源微步预算耗尽；离线债务保留');error.code='direct-work-budget';throw error;}
     return {kind:'checkpoint',seconds,frames,depth:head.depth,strength,sourceProfile:profile,signature:C().signature(s),hardBoundary:seconds===hardBoundary&&hardBoundary<remaining,
       evolutionPlan:{selection,selectionCache,strong,directWork:budget.directWork,predictor:budget.predictor,sourceProfile:profile}};
   });}

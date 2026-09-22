@@ -9,6 +9,8 @@
   let projectionDepth = 0;
   let treasurePredictionDepth = 0;
   let offlineExecutionDepth = 0;
+  const MathPolicy = Object.freeze({ ONLINE_EXACT: "ONLINE_EXACT", OFFLINE_APPROX: "OFFLINE_APPROX" });
+  let mathPolicy = MathPolicy.ONLINE_EXACT;
   let randomSource = null;
   let hooks = {};
   let atomicScope = null;
@@ -109,7 +111,7 @@
     // Identity alone is insufficient: a nested domain/projection/effect scope
     // can still be bound elsewhere while the outer evaluation frame survives.
     if (previous && previous.state === nextState && previous.effectContext?.state === nextState && currentState() === nextState &&
-        previous.projectionDepth === projectionDepth && previous.offlineExecutionDepth === offlineExecutionDepth &&
+        previous.projectionDepth === projectionDepth && previous.offlineExecutionDepth === offlineExecutionDepth && previous.mathPolicy === mathPolicy &&
         previous.treasurePredictionDepth === treasurePredictionDepth && previous.randomSource === randomSource &&
         (!memo || memo === previous.effectContext.memo) && (!effects || effects === previous.effects) &&
         (!scale || scale.isScaleState(state)) && (!immortal || immortal.isImmortalState(state)) &&
@@ -118,7 +120,7 @@
       return synchronous(callback);
     }
     evaluationStatistics.evaluationStateEntries++;
-    const frame = { state: nextState, projectionDepth, offlineExecutionDepth, treasurePredictionDepth, randomSource, effects, effectContext: null };
+    const frame = { state: nextState, projectionDepth, offlineExecutionDepth, mathPolicy, treasurePredictionDepth, randomSource, effects, effectContext: null };
     if (previous?.state === nextState) frame.highestPowerOverride = previous.highestPowerOverride;
     evaluationScope = frame;
     const run = () => {
@@ -189,6 +191,21 @@
     return offlineExecutionDepth > 0;
   }
 
+  // Execution location does not authorize approximate mathematics. Select this
+  // policy at an explicit source boundary, never across a host yield/await.
+  function withMathPolicy(policy, callback) {
+    if ((policy !== MathPolicy.ONLINE_EXACT && policy !== MathPolicy.OFFLINE_APPROX) || typeof callback !== "function")
+      throw Error("数学策略或同步回调无效");
+    if (callback.constructor?.name === "AsyncFunction") throw Error("数学策略作用域不能跨 await");
+    const previous = mathPolicy;
+    mathPolicy = policy;
+    try {
+      const result = callback();
+      if (result && typeof result.then === "function") throw Error("数学策略作用域不能返回 Promise");
+      return result;
+    } finally { mathPolicy = previous; }
+  }
+
   function withRandomSource(source, callback) {
     if (typeof callback !== "function") return undefined;
     const previous = randomSource;
@@ -247,6 +264,7 @@
     resetEvaluationStatistics: () => { for (const key of Object.keys(evaluationStatistics)) evaluationStatistics[key] = 0; },
     withEvaluationState, isEvaluating: () => evaluationScope !== null, assertMutable, atomic, state, bind, setState, withState, withProjection, withRandomSource, withTreasurePrediction,
     withOfflineExecution, isOfflineExecution,
+    MathPolicy, withMathPolicy, getMathPolicy: () => mathPolicy,
     // UI publication is allowed only from the installed state at a render boundary.
     canPresentState: () => !atomicScope && !projectedState && !isProjection() &&
       !WIS.Simulation?.FastForward?.isComputing(),

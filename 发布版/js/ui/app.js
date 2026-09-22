@@ -7,8 +7,37 @@
     return Array.from({ length: Math.max(0, end - 2) }, (_, offset) => offset + 2);
   }
 
-  function globalRateText(value,status,format) {
-    return status?.clockSuspended ? "（离线结算中）" : `（+${format(value)}/秒）`;
+  function globalRateText(value,status,format,relativeHint = "") {
+    return status?.clockSuspended ? "（离线结算中）" : `（+${format(value)}/秒${relativeHint ? ` · ${relativeHint}` : ""}）`;
+  }
+
+  // Presentation-only, bounded to the six displayed resources by the caller.
+  // Coordinate keys also detect in-place value changes and state replacement.
+  function createRelativeGrowthHintCache(format) {
+    const memo = new Map();
+    return (key, current, rate, currentText, rateText) => {
+      // Ordinary/e displays do no ratio arithmetic or memo construction.
+      if (!/^(?:ee|\(e\^)/.test(currentText) || currentText !== rateText) return "";
+      if (current?.sign !== 1 || rate?.sign !== 1 || current.layer !== rate.layer
+          || !Number.isFinite(current.mag) || !Number.isFinite(rate.mag)
+          || !Number.isSafeInteger(current.layer) || current.layer < 1) return "";
+      const old = memo.get(key);
+      if (old && old.layer === current.layer && old.current === current.mag && old.rate === rate.mag) return old.text;
+      // Display-ee values can still be internal layer 1. Higher-layer unequal
+      // coordinates cannot safely give a finite ratio by this subtraction.
+      const ratio = current.layer === 1 ? 10 ** (rate.mag - current.mag)
+        : current.mag === rate.mag ? 1 : NaN;
+      let text = "";
+      if (Number.isFinite(ratio) && ratio > 0) {
+        if (ratio >= 1) text = `×${format(ratio)}/秒`;
+        else {
+          const percent = format(ratio * 100);
+          if (percent !== "0") text = `当前量的${percent}%/秒`;
+        }
+      }
+      memo.set(key, { layer: current.layer, current: current.mag, rate: rate.mag, text });
+      return text;
+    };
   }
 
   function setTextIfChanged(element, value) {
@@ -51,10 +80,11 @@
     const canAffordMana = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "mana", cost);
     const canAffordImmortalPower = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "immortalPower", cost);
     
-    const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, achievementStates, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt, beginImportTransaction, commitImportTransaction, rollbackImportTransaction } = context;
+    const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, achievementStates, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent: formatSoftcapExponentWith, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt, beginImportTransaction, commitImportTransaction, rollbackImportTransaction, captureForegroundTime } = context;
   const CONFIG = WIS.Core.Config;
   const BUILD = WIS.Core.Build;
   const formatSmallMultiplier = WIS.UI.Format.smallMultiplier;
+  const formatSoftcapExponent = value => formatSoftcapExponentWith(value, formatSmallMultiplier);
   const googolPenaltySuffix = (resource, amount) => {
     const details = WIS.Core.Penalties.googolPenaltyDetails(resource, amount, state);
     if (!details.active) return "";
@@ -255,6 +285,8 @@
 
     const PAGE_NAMES = ["actions", "upgrades", "cultivation", "treasures", "challenges", "achievements", "statistics"];
     let activePage = "actions";
+    let explorationHoldActive = false;
+    let cancelExplorationHold = () => {};
     let activeCultivationPage = "realms";
     let globalDirty = true;
     const dirtyPages = new Set(PAGE_NAMES);
@@ -314,12 +346,20 @@
         stateKey: "scaleUpgradeAutomationEnabled"
       }),
       createStoredAutomation({
-        id: "scale-actions",
-        name: "健身与打岩自动升级",
+        id: "scale-fitness",
+        name: "健身自动升级",
         group: "scale",
-        description: "自动升级健身与打岩；同消耗时强化优先。",
+        description: "自动升级健身；同消耗时强化优先。",
         unlockAchievement: "trueScale7",
-        stateKey: "scaleActionAutomationEnabled"
+        stateKey: "scaleFitnessAutomationEnabled"
+      }),
+      createStoredAutomation({
+        id: "scale-rock",
+        name: "打岩自动升级",
+        group: "scale",
+        description: "自动升级打岩；同消耗时强化优先。",
+        unlockAchievement: "trueScale7",
+        stateKey: "scaleRockAutomationEnabled"
       }),
       createStoredAutomation({
         id: "immortal-abilities",
@@ -530,11 +570,11 @@
     }
     const awaitingStart = status?.awaitingStart === true;
     const pauseButton = rawById("pause-offline-progress");
-    if (pauseButton) pauseButton.hidden = status?.phase !== "running";
+    if (pauseButton) pauseButton.hidden = status?.phase !== "running" && !awaitingStart;
     const startButton = rawById("start-offline-progress");
     if (startButton) {
-      startButton.hidden = !awaitingStart;
-      startButton.disabled = offlineAbandonPending || !awaitingStart;
+      startButton.hidden = true;
+      startButton.disabled = true;
     }
     const remainingSeconds = Math.max(0, Number(status?.pendingClockSeconds) || 0);
     const title = rawById("offline-progress-title");
@@ -589,16 +629,6 @@
       if(abandonActions)abandonActions.hidden=true;
       if(pauseButton)pauseButton.hidden=true;
       for(const id of ['convert-offline-progress','offline-conversion-help']){const element=rawById(id);if(element)element.hidden=true;}
-    } else if (awaitingStart) {
-      // Not "running": no runner exists yet, so never show a processing
-      // percentage or a speed/ETA measurement for work that has not started.
-      title.textContent = "检测到待结算离线时间";
-      progressBar.value = 0;
-      percent.textContent = "尚未开始";
-      remaining.textContent = `待结算 ${pendingTime(Math.max(0, Number(status?.pendingClockSeconds) || 0))}`;
-      setText("offline-progress-intro", "当前存档的离线结算可能需要较长时间，因此不会自动开始。");
-      detail.textContent = "开始结算前不会推进游戏时间，也不会产生在线收益。你可以直接开始结算，或把剩余离线时间转为两倍在线收益，或放弃剩余离线时间。";
-      if (wallTime) wallTime.textContent = "";
     } else if (status?.phase === "paused") {
       title.textContent = activity+"已暂停";
       detail.textContent = "剩余时间已保留，可手动继续。"+(status?.convertibleClockSeconds>0?"仅尚未处理的实际离线时间可以转换为两倍在线收益。":"")+"暂停等待不产生新收益。";
@@ -617,7 +647,7 @@
   function offlineDialogWaitMs(status) {
     // Presentation only: short foreground/back-tab debt still settles in full.
     // Keep a visible escape/retry path when even a short recovery is slow.
-    return Number(status?.originalClockSeconds) >= CONFIG.offlineNoticeMinSeconds ? 300 : 2000;
+    return Number(status?.originalClockSeconds) >= CONFIG.offlineNoticeMinSeconds ? 0 : 2000;
   }
 
   const offlineSummarySeen = new Set();
@@ -635,8 +665,7 @@
   // threshold the normal presentation uses, so a trivial import stays silent.
   function shouldPresentRecoveryBeforeStart(status) {
     if (status?.phase === 'paused') return true;
-    // Waiting for an explicit player start always needs its window: nothing
-    // else would ever ask the question.
+    // The import handoff gate lasts until the running window has painted.
     if (status?.awaitingStart === true) return true;
     return status?.presentation === 'blocking' && status?.pendingGameSeconds > 0 &&
       offlineDialogWaitMs(status) <= 300;
@@ -677,9 +706,51 @@
     });
   }
 
+  let deferredRecoveryStart = null;
+  function cancelDeferredRecoveryStart() {
+    if (!deferredRecoveryStart) return;
+    window.cancelAnimationFrame(deferredRecoveryStart.frame);
+    window.clearTimeout(deferredRecoveryStart.timer);
+    deferredRecoveryStart = null;
+  }
+
+  function scheduleRecoveryAfterPaint(status) {
+    if (status?.awaitingStart !== true || status.phase === "paused" ||
+        importTransaction || importSave.pending || deferredRecoveryStart) return;
+    const pending = { state: runtime.getState(), session: offlineSessionId(status), frame: null, timer: null };
+    deferredRecoveryStart = pending;
+    const current = () => deferredRecoveryStart === pending && runtime.getState() === pending.state &&
+      !importTransaction && !importSave.pending && getCatchUpStatus().awaitingStart === true &&
+      getCatchUpStatus().phase !== "paused" && offlineSessionId(getCatchUpStatus()) === pending.session;
+    // The first callback precedes paint. A second frame and a later host task
+    // give the committed running window a real paint before entering Offline.
+    pending.frame = window.requestAnimationFrame(() => {
+      if (!current()) return;
+      pending.frame = window.requestAnimationFrame(() => {
+        if (!current()) return;
+        pending.timer = window.setTimeout(() => {
+          if (!current()) return;
+          deferredRecoveryStart = null;
+          try {
+            Promise.resolve(context.startCatchUp()).catch(error => {
+              WIS.Core.Save.diagnose("catch-up-start", error);
+              safeOperationNotice(`离线结算启动失败，待结算时间已保留：${error?.message || error}`);
+            });
+          } catch (error) {
+            WIS.Core.Save.diagnose("catch-up-start", error);
+            safeOperationNotice(`离线结算启动失败，待结算时间已保留：${error?.message || error}`);
+          }
+        }, 0);
+      });
+    });
+  }
+
   let offlineProgressRenderedAt=-Infinity, offlineProgressRenderKey=null;
   function handleOfflineCatchUpStatus(status, force=true) {
     offlineCatchUpStatus = status || Object.freeze({ phase: "idle", locked: false });
+    if (status?.awaitingStart !== true || status.phase === "paused" ||
+        (deferredRecoveryStart && (runtime.getState() !== deferredRecoveryStart.state ||
+          offlineSessionId(status) !== deferredRecoveryStart.session))) cancelDeferredRecoveryStart();
     // Only presentation is throttled. The latest status and player actions remain
     // immediate, and every phase/lock/recovery/session transition renders at once.
     const key=[status?.phase,status?.locked,status?.presentation,status?.sessionSource,status?.startedAt,status?.originalClockSeconds,status?.treasureRecovery?.active].join('|');
@@ -710,6 +781,7 @@
     }
     renderOfflineCatchUpStatus(offlineCompletedSummary && !settlementLocked
       ? offlineCompletedSummary : offlineCatchUpStatus);
+    scheduleRecoveryAfterPaint(offlineCatchUpStatus);
 
     if(offlineCatchUpStatus.treasureRecovery?.active){openOfflineProgressDialog();return;}
     const quiet = offlineCatchUpStatus.presentation !== "blocking" && offlineCatchUpStatus.phase !== "paused" &&
@@ -744,9 +816,8 @@
       return;
     }
     if (offlineCatchUpStatus.phase !== "running") {
-      // Registered blocking debt that is waiting for an explicit player start.
-      // This is the only presenter for it, so it must open the window itself —
-      // including after a refresh that restored the same waiting state.
+      // Present the running window while the handoff/paint gate is still held,
+      // including after a refresh that restored this brief intermediate state.
       if (offlineCatchUpStatus.awaitingStart === true) { openOfflineProgressDialog(); return; }
       // Registered blocking debt whose worker has not started yet. An already
       // visible recovery window must survive that gap instead of flickering closed.
@@ -813,7 +884,13 @@
   }
 
   function exportSave() {
-    const payload = WIS.Core.Save.envelope(state);
+    // Export captures the current foreground watermark but never forces online
+    // settlement; the pending ordered time ledger travels with the snapshot.
+    const capturedAt = Date.now();
+    captureForegroundTime?.(capturedAt);
+    const snapshot = WIS.Core.State.cloneForSimulation(state);
+    snapshot.lastUpdateAt = capturedAt;
+    const payload = WIS.Core.Save.envelope(snapshot);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -888,6 +965,7 @@
     if (importTransaction) return importTransaction;
     const transaction = beginImportTransaction?.();
     if (!transaction) return null;
+    cancelDeferredRecoveryStart();
     importTransaction = { ...transaction, phase, committed: false };
     traceImportLifecycle("hold-begin", { token: importTransaction.token, phase });
     return importTransaction;
@@ -985,8 +1063,8 @@
       // recovery task and the foreground gate has to happen in this same
       // synchronous step: as soon as control returns to the host, the live loop
       // would otherwise credit that same time again as new online income.
-      // This registers debt ONLY. No settlement runner is started here, and
-      // none may start until the player presses 开始结算.
+      // This registers debt ONLY. Settlement waits for transaction commit and
+      // a real paint of the recovery window in a later host task.
       context.prepareImportRecovery(prepared.offlineRecovery);
       timer.step("prepareRecovery");
       setLastTickAt(Date.now());
@@ -1012,11 +1090,10 @@
       const status = getCatchUpStatus();
       const pending = status.pendingGameSeconds > 0;
       const paused = status.phase === "paused";
-      const awaitingStart = status.awaitingStart === true;
       handleOfflineCatchUpStatus(status);
       if (shouldPresentRecoveryBeforeStart(status)) openOfflineProgressDialog();
-      const waitingForDecision = status.awaitingStart === true || status.phase === "paused";
-      if (waitingForDecision) {
+      const awaitingPaintOrPaused = status.awaitingStart === true || status.phase === "paused";
+      if (awaitingPaintOrPaused) {
         markGlobalDirty();
         markPagesDirty();
       } else {
@@ -1024,7 +1101,6 @@
       }
       timer.step("render");
       showNotice(!pending ? "存档已导入"
-        : awaitingStart ? "存档已读取，待结算离线时间已保留，请在离线窗口选择如何处理"
         : paused ? "存档已读取，离线结算保留为暂停状态，可在离线窗口重试"
         : "存档已读取，正在恢复离线进度", pending ? 6000 : 1400);
       if (!paused) notifyNewAchievements(previousAchievements);
@@ -1050,6 +1126,7 @@
       importSave.pending = false;
       if (importTransaction === transaction && !transaction.committed)
         rollbackUIImportTransaction(transaction, "import-finalize");
+      handleOfflineCatchUpStatus(getCatchUpStatus());
     }
   }
 
@@ -1166,6 +1243,7 @@
       return;
     }
 
+    if (pageName !== activePage) cancelExplorationHold();
     activePage = pageName;
     structuralPages.add(pageName);
     if (pageName === "achievements") ensureAchievementCards();
@@ -1443,7 +1521,7 @@
     const button = byId(`toggle-${idPrefix}`);
     const card = byId(`${idPrefix}-challenge`);
 
-    card.hidden = !challengeUnlocked(challengeKey);
+    card.hidden = !WIS.Meta.Challenges.challengeVisible(challengeKey);
     if (card.hidden) return;
 
     if (challengeKey === "qiRefiningHundredThousandYears") {
@@ -1528,7 +1606,7 @@
     } else if (challengeKey === "severSelfCorpse") {
       byId(`${idPrefix}-limit`).textContent = completedDisplay
         ? "全部限制已克服"
-        : `法则与法则本源失效；仙灵力额外 ^${selfCorpseImmortalPowerLimitExponent().toFixed(3)}；E=1/[1+${IMMORTAL_POWER_CONFIG.daluo.selfCorpseCoefficient.toFixed(2)}×log10(1+I/1e16)]`;
+        : `法则与法则本源失效；仙灵力额外 ^${formatSmallMultiplier(selfCorpseImmortalPowerLimitExponent(), 3)}；E=1/[1+${IMMORTAL_POWER_CONFIG.daluo.selfCorpseCoefficient.toFixed(2)}×log10(1+I/1e16)]`;
     } else {
       byId(`${idPrefix}-limit`).textContent = completedDisplay
         ? "全部限制已克服"
@@ -1584,10 +1662,15 @@
   }
 
   function renderChallenges() {
+    const filter = byId("toggle-challenge-filter");
+    filter.textContent = state.hideCompletedChallenges ? "显示全部挑战" : "隐藏已完成挑战";
+    filter.setAttribute("aria-pressed", String(state.hideCompletedChallenges));
+    infinityPage.renderChallenges();
     xiuzhenPage.renderChallenges();
     byId("challenge-active-state").textContent = state.activeChallenge
       ? `当前挑战：${CHALLENGE_DEFINITIONS[state.activeChallenge].name}`
       : "当前未进行挑战";
+    byId("exit-hidden-challenge").hidden = !state.activeChallenge || WIS.Meta.Challenges.challengeVisible(state.activeChallenge);
     renderChallenge("innateDeficiency", "innate-deficiency");
     renderChallenge("powerless", "powerless");
     renderChallenge("longevity", "longevity");
@@ -1615,10 +1698,10 @@
     if (bigVisible) {
       const v = M.view(state), order = v.dominantOrder;
       const f = value => gtBN(value, ZERO) && !gteBN(value, 0.001)
-        ? BN(value).toExponential(3) : format(value, 4);
-      setTextIfChanged(byId("big-number-dominant"), v.gIndex > 0
+        ? WIS.UI.Format.scientificMultiplier(value) : format(value, 4);
+      setTextIfChanged(byId("big-number-dominant"), v.tree.rank >= 3 ? `TREE(${v.tree.rank})` : v.gIndex > 0
         ? `G${v.gIndex}` : `${f(v.amounts[order])} ${v.symbols[order]}`);
-      setTextIfChanged(byId("big-number-rate"), v.gIndex > 0
+      setTextIfChanged(byId("big-number-rate"), v.tree.rank >= 3 ? "当前 TREE 层级已完成" : v.gIndex > 0
         ? `超分形 ${f(v.progress)}% · +${f(v.speed)}%/秒`
         : `（+${f(v.rates[order])}/秒）`);
     }
@@ -1639,14 +1722,25 @@
         const rate = WIS.tmp.rates[key + "PerSecond"] ??
           (settlement?.seconds > 0 && settlement.gains?.[key] != null
             ? divBN(settlement.gains[key], settlement.seconds) : null);
+        if (paused || status.clockSuspended || recovering || document.hidden || rate == null) byId(key + "-rate").title = "";
         setTextIfChanged(byId(key + "-rate"), paused ? "结算暂停"
           : status.clockSuspended || recovering ? "（离线结算中）"
           : document.hidden ? "当前产出暂不展示"
-          : rate == null ? "尚无结算速率" : `（+${format(rate)}/秒）`);
+          : rate == null ? "尚无结算速率" : committedRateText(key, X.amount(state, key), rate, status));
       }
     }
     setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys]
       .every(key => byId(key + "-resource").hidden));
+  }
+
+  const relativeGrowthHint = createRelativeGrowthHintCache(format);
+  function committedRateText(key, current, rate, status) {
+    const element = byId(key + "-rate");
+    const rateText = status?.clockSuspended ? "" : format(rate);
+    const hint = status?.clockSuspended ? "" : relativeGrowthHint(key, current, rate, byId(key).textContent, rateText);
+    const title = hint ? "相对速率＝最近一次正式结算速率 / 当前库存；后续速率会随状态重新计算，不代表1秒后的库存倍率。" : "";
+    if (element.title !== title) element.title = title;
+    return globalRateText(rate, status, () => rateText, hint);
   }
 
   function renderGlobal() {
@@ -1665,16 +1759,16 @@
     setTextIfChanged(byId("next-scale-progress"), nextScaleDetails
       ? `下一量级：${nextScale.name}（基础 ${format(nextScaleDetails.baseRequirement, 0)}${!eqBN(nextScaleDetails.rewardMultiplier, ONE) ? `；黑洞挑战奖励 ×${format(nextScaleDetails.rewardMultiplier, 5)}` : ""}${!eqBN(nextScaleDetails.blackHoleMultiplier, ONE) ? `；黑洞倍率 ×${format(nextScaleDetails.blackHoleMultiplier, 3)}` : ""}；实际需求 ${format(nextScaleDetails.actualRequirement, 0)} 战力）`
       : "已达到当前量级系统上限");
-    setTextIfChanged(byId("joules-rate"), globalRateText(gain,rateStatus,format));
-    setTextIfChanged(byId("power-rate"), globalRateText(passivePowerGain,rateStatus,format));
+    setTextIfChanged(byId("joules-rate"), committedRateText("joules",state.joules,gain,rateStatus));
+    setTextIfChanged(byId("power-rate"), committedRateText("power",state.power,passivePowerGain,rateStatus));
     setHiddenIfChanged(byId("power-rate"), !rateStatus.clockSuspended && !gtBN(passivePowerGain, ZERO));
     setHiddenIfChanged(byId("mana-resource"), !immortalCultivationActive() || !state.qiRefiningUnlocked);
     setTextIfChanged(byId("mana"), format(state.mana));
-    setTextIfChanged(byId("mana-rate"), globalRateText(passiveManaGain,rateStatus,format));
+    setTextIfChanged(byId("mana-rate"), committedRateText("mana",state.mana,passiveManaGain,rateStatus));
     setHiddenIfChanged(byId("mana-rate"), !rateStatus.clockSuspended && !gtBN(passiveManaGain, ZERO));
     setHiddenIfChanged(byId("immortal-power-resource"), !immortalPowerUnlocked());
     setTextIfChanged(byId("immortal-power"), format(state.immortalPower));
-    setTextIfChanged(byId("immortal-power-rate"), globalRateText(passiveImmortalPowerGain,rateStatus,format));
+    setTextIfChanged(byId("immortal-power-rate"), committedRateText("immortal-power",state.immortalPower,passiveImmortalPowerGain,rateStatus));
     setHiddenIfChanged(byId("immortal-power-rate"), !rateStatus.clockSuspended && !gtBN(passiveImmortalPowerGain, ZERO));
     renderAdditionalResources();
     updateNavigation();
@@ -1683,6 +1777,25 @@
   // Local presentation snapshots only. Never used by explore()/settlement.
   const explorationPreviews = new Map();
   let explorationPreviewRefreshPending = false;
+  const firstExplorationPreviewPending = new Set();
+  let firstExplorationPreviewReady = null;
+  // rAF itself precedes paint. Run the exact query in the following task,
+  // after the current high-value page has had its rendering opportunity.
+  const afterExplorationPreviewPaint = callback =>
+    window.requestAnimationFrame(() => window.setTimeout(callback, 0));
+  function requestFirstExplorationPreview(key, element) {
+    if (firstExplorationPreviewPending.has(key)) return;
+    firstExplorationPreviewPending.add(key);
+    afterExplorationPreviewPaint(() => {
+      firstExplorationPreviewPending.delete(key);
+      if (document.hidden || !previewVisible(element)) return;
+      // Read the current state only now. No captured values/Evaluation survive
+      // this scheduling boundary, so load replacement cannot publish old data.
+      firstExplorationPreviewReady = key;
+      try { runtime.call("renderImmediately", activePage); }
+      finally { firstExplorationPreviewReady = null; }
+    });
+  }
   const explorationStructureFields = [
     "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
     "activeChallenge", "permanentRootLevel", "scatterRetentionLevel", "reincarnationCount",
@@ -1716,8 +1829,14 @@
   function explorationPreviewSnapshot(key, element) {
     if (document.hidden || !previewVisible(element)) return null;
     syncExplorationPreviewStructure();
+    // The formal action still settles exactly; only its presentation is merged.
+    if (explorationHoldActive) return null;
     let snapshot = explorationPreviews.get(key);
     if (explorationPreviewRefreshPending) return snapshot || null;
+    if (!snapshot && firstExplorationPreviewReady !== key) {
+      requestFirstExplorationPreview(key, element);
+      return null;
+    }
     if (!snapshot || snapshot.dirty) {
       const value = explorationPreviewValues({ includeFinal: key === "action" });
       // Source text and final action gain come from the same synchronous state.
@@ -1728,31 +1847,15 @@
     }
     return snapshot;
   }
-  function requestExplorationPreviewRefresh(button) {
+  // Programmatic refresh remains available; there is no manual UI button.
+  function requestExplorationPreviewRefresh(element = byId("exploration-preview")) {
     markExplorationPreviewDirty();
-    if (document.hidden || !previewVisible(button) || button.disabled || explorationPreviewRefreshPending) return;
+    if (document.hidden || !previewVisible(element) || explorationPreviewRefreshPending) return;
     explorationPreviewRefreshPending = true;
-    button.disabled = true;
-    setTextIfChanged(button, "正在刷新…");
-    // Allow the pending label to paint. The unchanged exact calculation itself
-    // is synchronous; no Evaluation frame is held across this host yield.
-    window.requestAnimationFrame(() => window.setTimeout(() => {
+    afterExplorationPreviewPaint(() => {
       explorationPreviewRefreshPending = false;
-      try {
-        if (!document.hidden && previewVisible(button)) runtime.call("renderImmediately", activePage);
-      } finally {
-        button.disabled = false;
-        setTextIfChanged(button, "刷新预览");
-      }
-    }, 0));
-  }
-  function ensureExplorationPreviewRefresh(element) {
-    const id = "refresh-tribulation-exploration-preview";
-    if (!element || rawById(id)) return;
-    const button = document.createElement("button");
-    button.id = id; button.type = "button"; button.textContent = "刷新预览";
-    button.addEventListener("click", () => requestExplorationPreviewRefresh(button));
-    element.parentElement.append(button);
+      if (!document.hidden && previewVisible(element)) runtime.call("renderImmediately", activePage);
+    });
   }
 
   function explorationPreviewValues({ includeFinal = true } = {}) {
@@ -2016,7 +2119,10 @@
     if (snapshot) {
       setTextIfChanged(byId("exploration-preview"), WIS.UI.SourcePreview.text(snapshot.records, format));
       toggleClassIfChanged(byId("exploration-preview"), "source-gain-preview", true);
-      setTextIfChanged(byId("exploration-preview-status"), "上次精确预览；实际收益以点击探寻时为准");
+      setTextIfChanged(byId("exploration-preview-status"), "当前状态精确预览；实际结果以探寻时为准");
+    } else if (explorationHoldActive || firstExplorationPreviewPending.has("action")) {
+      setTextIfChanged(byId("exploration-preview"), "收益预览：计算中…");
+      setTextIfChanged(byId("exploration-preview-status"), explorationHoldActive ? "松开后更新精确预览" : "正在计算首次精确预览");
     }
     setTextIfChanged(byId("exploration-cost"), "消耗当前 10% 战力，至少消耗 1M");
     // A stale low-yield preview must never prevent a newly valid live action.
@@ -2251,7 +2357,6 @@
     const tribulationElement = byId("minor-tribulation-preview");
     const explorationSnapshot = explorationPreviewSnapshot("tribulation", tribulationElement);
     if (explorationSnapshot) {
-    ensureExplorationPreviewRefresh(tribulationElement);
     const currentExplorationAmount = explorationSnapshot.value.amount;
     const nextTribulationPreview = explorationSnapshot.value.tribulationPreview;
     setPreviewText(byId("minor-tribulation-preview"), () => state.advancedRealmLevel >= 6
@@ -2680,13 +2785,14 @@
     sortCostGroups();
   }
 
+  const infinityPage = WIS.UI.Infinity.create({ ...context, performSavedAction });
   const bigNumberPage = WIS.UI.BigNumbers.create({ ...context, performSavedAction });
   const xiuzhenPage = WIS.UI.Xiuzhen.create({ ...context, performSavedAction });
   function renderActionsPage() {
     bigNumberPage.render();
-    if (!bigNumberPage.isSelected()) renderPageContent("actions");
+    if (!infinityPage.renderActions() && !bigNumberPage.isSelected()) renderPageContent("actions");
   }
-  function renderUpgradesPage() { renderPageContent("upgrades"); }
+  function renderUpgradesPage() { if (!infinityPage.renderUpgrades()) renderPageContent("upgrades"); }
   function renderCultivationContentPage() {
     renderPageContent("cultivation");
     xiuzhenPage.render({ page: activeCultivationPage, writePreview: writeSourcePreview });
@@ -2760,11 +2866,11 @@
     if (rawById("automation-dialog")?.open) renderAutomationManager();
   }
 
-  function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true } = {}) {
+  function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true, cooperative = false } = {}) {
     const commit = work => () => {
       const result = work();
       context.completePlayerAction();
-      runtime.call("renderImmediately", activePage);
+      runtime.call(cooperative && isHolding ? "render" : "renderImmediately", activePage);
       return result;
     };
     action = commit(action);
@@ -2772,6 +2878,7 @@
     const button = byId(id);
     let delayTimer = null;
     let repeatTimer = null;
+    let repeatFrame = null;
     let suppressNextClick = false;
     let isHolding = false;
     let activePointerId = null;
@@ -2779,6 +2886,8 @@
     const clearTimers = () => {
       window.clearTimeout(delayTimer);
       window.clearTimeout(repeatTimer);
+      if (repeatFrame !== null) window.cancelAnimationFrame(repeatFrame);
+      repeatFrame = null;
       delayTimer = null;
       repeatTimer = null;
     };
@@ -2787,6 +2896,11 @@
       isHolding = false;
       clearTimers();
       activePointerId = null;
+      if (cooperative && explorationHoldActive) {
+        explorationHoldActive = false;
+        // Clear scheduling before the final query, including if rendering throws.
+        runtime.call("renderImmediately", activePage);
+      }
     };
 
     const cancelRepeat = () => {
@@ -2803,13 +2917,31 @@
         stopRepeat();
         return;
       }
-      repeatAction();
+      let result;
+      try { result = repeatAction(); }
+      catch (error) {
+        try { stopRepeat(); } catch { /* Preserve the action failure and suppress the gesture click. */ }
+        throw error;
+      }
+      if (cooperative && result === false) { stopRepeat(); return; }
       if (offlineCatchUpStatus.locked === true || !isHolding || button.disabled || !canRepeat()) {
         if (offlineCatchUpStatus.locked === true) suppressNextClick = false;
         stopRepeat();
         return;
       }
-      repeatTimer = window.setTimeout(runRepeat, 110);
+      // One completion-owned continuation. Retain the existing rest interval,
+      // then cross a rendering opportunity and a host task before acting again.
+      repeatTimer = window.setTimeout(() => {
+        repeatTimer = null;
+        if (!cooperative) { runRepeat(); return; }
+        repeatFrame = window.requestAnimationFrame(() => {
+          repeatFrame = null;
+          if (isHolding) repeatTimer = window.setTimeout(() => {
+            repeatTimer = null;
+            runRepeat();
+          }, 0);
+        });
+      }, 110);
     };
 
     button.addEventListener("pointerdown", (event) => {
@@ -2829,7 +2961,14 @@
         // 不支持 Pointer Capture 的环境继续依赖取消、失焦与页面隐藏兜底。
       }
 
-      action();
+      if (cooperative) explorationHoldActive = true;
+      let result;
+      try { result = action(); }
+      catch (error) {
+        try { stopRepeat(); } catch { /* Preserve the action failure and suppress the gesture click. */ }
+        throw error;
+      }
+      if (!isHolding || cooperative && result === false) { stopRepeat(); return; }
       delayTimer = window.setTimeout(() => {
         delayTimer = null;
         runRepeat();
@@ -2871,6 +3010,7 @@
         cancelRepeat();
         return;
       }
+      if (cooperative && isHolding) { event.preventDefault(); return; }
       if (suppressNextClick) {
         event.preventDefault();
         suppressNextClick = false;
@@ -2878,6 +3018,7 @@
       }
       action();
     });
+    return cancelRepeat;
   }
 
   function bindManualScaleUpgrade(id, key, action) {
@@ -2907,6 +3048,7 @@
         runtime.call("renderImmediately", activePage);
       }, true);
     configureBuildControlledUI();
+    infinityPage.bind();
     bigNumberPage.bind();
     xiuzhenPage.bind();
     const blockInteractionDuringCatchUp = (event) => {
@@ -3023,13 +3165,13 @@
     byId("toggle-ghost-back").addEventListener("click", toggleGhostBack);
     bindManualRealmBreakthrough("unlock-qi-refining", unlockQiRefining);
     bindHoldButton("breathing-button", breathe);
-    bindHoldButton("exploration-button", () => {
+    cancelExplorationHold = bindHoldButton("exploration-button", () => {
       const powerBefore = state.power;
       const result = explore();
       if (state.power !== powerBefore) markExplorationPreviewDirty();
-      return result;
-    });
-    rawById("refresh-exploration-preview").addEventListener("click", event => requestExplorationPreviewRefresh(event.currentTarget));
+      return state.power !== powerBefore ? result : false;
+    }, { cooperative: true, canRepeat: () => Immortal.explorationEnabled() &&
+      gteBN(explorationPowerCost(), EXPLORATION_MINIMUM_POWER_COST) });
     bindManualImmortalAbility("unlock-immortal-life", "immortalLifeUnlocked", unlockImmortalLife);
     bindManualImmortalAbility("buy-qi-spell", "qiSpellLevel", buyQiSpell);
     bindManualRealmBreakthrough("unlock-foundation", unlockFoundation);
@@ -3171,6 +3313,12 @@
     document.querySelectorAll("[data-cultivation-page]").forEach((button) => {
       button.addEventListener("click", () => switchCultivationPage(button.dataset.cultivationPage));
     });
+    byId("exit-hidden-challenge").addEventListener("click", () => exitChallenge());
+    byId("toggle-challenge-filter").addEventListener("click", () => {
+      state.hideCompletedChallenges = !state.hideCompletedChallenges;
+      saveState();
+      renderChallenges();
+    });
     byId("toggle-achievement-filter").addEventListener("click", () => {
       state.hideUnlockedAchievements = !state.hideUnlockedAchievements;
       saveState();
@@ -3214,19 +3362,6 @@
       handleOfflineCatchUpStatus(getCatchUpStatus());
     });
     byId("pause-offline-progress").addEventListener("click", () => context.pauseCatchUpByPlayer());
-    byId("start-offline-progress").addEventListener("click", () => {
-      if (offlineAbandonPending || getCatchUpStatus().awaitingStart !== true) return;
-      try {
-        // Hands the already registered debt to the existing recovery runner.
-        // No second runner and no separate settlement path is created here.
-        void context.startCatchUp();
-      } catch (error) {
-        WIS.Core.Save.diagnose("catch-up-start", error);
-        showNotice(`离线结算启动失败，待结算时间已完整保留：${error?.message || error}`, 6000);
-      } finally {
-        handleOfflineCatchUpStatus(getCatchUpStatus());
-      }
-    });
     for (const id of ["convert-offline-progress", "convert-quiet-catch-up"]) byId(id).addEventListener("click", () => {
       if (offlineAbandonPending) return;
       offlineAbandonPending = true;
@@ -3385,6 +3520,7 @@
     }
 
     return Object.freeze({
+      requestExplorationPreviewRefresh,
       __test: Object.freeze({markExplorationPreviewDirty, explorationPreviewState: () => [...explorationPreviews].map(([key, s]) => ({ key, calculatedAt:s.calculatedAt, dirty:s.dirty })), renderOnlineCompensation,handleOfflineCatchUpStatus,dismissOfflineSummary,
         closeOfflineProgressDialog,status:()=>offlineCatchUpStatus,importSave,readSaveFileText,
         importPhases:()=>lastImportPhases}),
@@ -3398,5 +3534,5 @@
     });
   }
 
-  WIS.UI.App = Object.freeze({ scaleUpgradePreviewText, create, advancedRealmAbilityIndexesForLevel, globalRateText });
+  WIS.UI.App = Object.freeze({ scaleUpgradePreviewText, create, advancedRealmAbilityIndexesForLevel, globalRateText, createRelativeGrowthHintCache });
 }(window.WIS));

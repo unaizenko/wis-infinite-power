@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "release-0.1.5.7-20260917",
+  "buildId": "release-0.1.6.0-20260922",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -13,6 +13,8 @@
     "js/core/finite-progress.js",
     "js/core/signed-ledger.js",
     "js/meta/treasure-rules.js",
+    "js/meta/infinity-config.js",
+    "js/meta/infinity.js",
     "js/core/config.js",
     "js/meta/big-numbers.js",
     "js/core/registry.js",
@@ -27,6 +29,7 @@
     "js/core/save.js",
     "js/core/resources.js",
     "js/cultivation/resources.js",
+    "js/meta/big-number-resources.js",
     "js/core/effects.js",
     "js/core/sources.js",
     "js/core/reset.js",
@@ -71,6 +74,7 @@
     "js/ui/big-numbers.js",
     "js/ui/xiuzhen.js",
     "js/ui/treasures.js",
+    "js/ui/infinity.js",
     "js/ui/app.js",
     "game.js"
   ]

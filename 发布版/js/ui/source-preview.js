@@ -198,7 +198,7 @@
   }
   function processText(steps, format) {
     const amount = value => B.gt(value, 0) && B.lt(value, "0.001")
-      ? B.BN(value).toExponential(3) : format(value, 5);
+      ? WIS.UI.Format.scientificMultiplier(value) : format(value, 5);
     return steps.map(step => {
       if (step.op === "note") return step.label;
       const value = amount(step.value);
@@ -216,7 +216,7 @@
     if (!Array.isArray(records)) records = [records];
     const parts = records.flatMap(r => [{ ...r, label: r.label || labels[r.resource] }, ...(r.extra || [])]);
     const amount = value => B.gt(value, 0) && B.lt(value, "0.001")
-      ? B.BN(value).toExponential(3) : format(value);
+      ? WIS.UI.Format.scientificMultiplier(value) : format(value);
     const line = key => parts.map(r => `${amount(r[key])} ${key === "raw" ? r.rawLabel || r.label : r.label}/${r.unit}`).join("；");
     const process = includeProcess ? `\n乘区：${records.map(r => processText(r.process || [], format) +
       (r.extraProcess?.length ? `；${processText(r.extraProcess, format)}` : "")).join("；")}` : "";

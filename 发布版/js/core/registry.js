@@ -31,11 +31,11 @@
       register(definition) {
         const { id, owner, shortName, kind, get, set, add, snapshot } = definition || {};
         if (typeof id !== "string" || !id || typeof owner !== "string" || !owner ||
-            typeof shortName !== "string" || !shortName || !["core", "cultivation"].includes(kind) ||
+            typeof shortName !== "string" || !shortName || !["core", "cultivation", "meta"].includes(kind) ||
             [get, set, add].some(fn => typeof fn !== "function") || typeof snapshot !== "boolean")
           throw Error("资源定义无效");
         if (!/^[A-Za-z][A-Za-z0-9]*$/.test(owner) || !/^[A-Za-z][A-Za-z0-9]*$/.test(shortName) ||
-            kind === "core" && owner !== "core" || id !== `${kind === "core" ? "core" : `cultivation.${owner}`}.${shortName}`)
+            kind === "core" && owner !== "core" || id !== `${kind === "core" ? "core" : `${kind}.${owner}`}.${shortName}`)
           throw Error("资源逻辑 ID 与所有者不一致");
         let byKind = owners.get(kind), byOwner = byKind?.get(owner);
         if (byOwner?.has(shortName)) throw Error(`资源短名重复：${kind}.${owner}.${shortName}`);

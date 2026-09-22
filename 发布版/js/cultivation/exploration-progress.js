@@ -20,15 +20,30 @@
       for(let n=3n;n<BigInt(digits*4+32);n+=2n){term=term*zz/FP;const delta=term/n;sum+=delta;if(!delta)break;}
       return 2n*sum;};
     const LN2=logMantissa(2n*FP);
+    // Reuse the first normalized mantissa (from LN10) when a coefficient
+    // requests it again. One exact value per existing precision context;
+    // dynamic logarithm inputs cannot grow this slot or capture player state.
+    let firstLnMantissa,firstLnValue;
     function ln(x){if(x<=0n)fail('对数输入无效');let k=0n;
       while(x>=2n*FP){x/=2n;k++;}while(x<FP){x*=2n;k--;}
-      return logMantissa(x)+k*LN2;}
+      const value=x===firstLnMantissa?firstLnValue:logMantissa(x);
+      if(firstLnMantissa===undefined){firstLnMantissa=x;firstLnValue=value;}
+      return value+k*LN2;}
     const LN10=ln(10n*FP),log=x=>ln(x)*FP/LN10;
     function exp(x){let halves=0;while(abs(x)>FP/8n){x/=2n;halves++;if(halves>20)fail('指数超出局部高精度域');}
       let sum=FP,term=FP;for(let n=1n;n<BigInt(digits*2+64);n++){term=term*x/(FP*n);sum+=term;if(!term)break;}
       while(halves--)sum=sum*sum/FP;return sum;}
-    const ctx={DP,FP,LN10,fixed,ln,exp,LOW:(ln(20n*FP)-ln(13n*FP))*FP/LN10,
-      HIGH:(ln(5n*FP)-ln(3n*FP))*FP/LN10,BASE:log(2000n*FP),LOG15:log(15n*FP/10n)};
+    const ctx={DP,FP,LN10,fixed,ln,exp};
+    // A high-level demand needs HIGH/BASE, but not the low-level sum or
+    // inverse's coefficients. Keep the same expressions and precision; build
+    // each constant only when read, within the existing bounded context cache.
+    for(const [key,calculate] of Object.entries({
+      LOW:()=>(ln(20n*FP)-ln(13n*FP))*FP/LN10,
+      HIGH:()=>(ln(5n*FP)-ln(3n*FP))*FP/LN10,
+      BASE:()=>log(2000n*FP),LOG15:()=>log(15n*FP/10n)
+    }))Object.defineProperty(ctx,key,{enumerable:true,configurable:true,get(){
+      const value=calculate();Object.defineProperty(ctx,key,{value,enumerable:true});return value;
+    }});
     if(precisionCache.size>=8)precisionCache.delete(precisionCache.keys().next().value);
     precisionCache.set(digits,ctx);return ctx;
   }
@@ -40,16 +55,36 @@
     return {c:BigInt((m[1]||'')+m[2]+(m[3]||''))*BigInt(counted?counted[2]:1),e:BigInt(m[4]||0)-BigInt((m[3]||'').length)};}
   function fromLog(log,ctx){const {FP,DP,LN10,exp}=ctx;let exponent=log/FP,tail=log%FP;if(tail<0n){tail+=FP;exponent--;}
     return pack(exp(tail*LN10/FP),exponent-DP);}
+  // Pure input conversion is one of the hottest online paths at very high
+  // exploration values. Cache only the mathematical conversion, never a
+  // settlement/reward result. Keys use Decimal's complete runtime state, not
+  // formatted UI text. Returned arrays are copies so callers cannot mutate the
+  // cached value. The cache is bounded by both entry count and represented text.
+  const INPUT_CACHE_MAX_ENTRIES=64,INPUT_CACHE_MAX_CHARS=256*1024;
+  const inputCache=new Map();let inputCacheChars=0;
+  const inputKey=v=>`${v.sign}|${v.layer}|${String(v.mag)}`;
+  function cachedInput(key){const entry=inputCache.get(key);if(!entry)return null;
+    inputCache.delete(key);inputCache.set(key,entry);return entry.words.slice();}
+  function rememberInput(key,words){
+    const frozen=Object.freeze(words.slice()),chars=key.length+frozen.reduce((n,w)=>n+String(w??'').length,0);
+    if(chars>INPUT_CACHE_MAX_CHARS)return words;
+    const previous=inputCache.get(key);if(previous){inputCacheChars-=previous.chars;inputCache.delete(key);}
+    while(inputCache.size&&(inputCache.size>=INPUT_CACHE_MAX_ENTRIES||inputCacheChars+chars>INPUT_CACHE_MAX_CHARS)){
+      const oldest=inputCache.keys().next().value,entry=inputCache.get(oldest);inputCache.delete(oldest);inputCacheChars-=entry.chars;
+    }
+    inputCache.set(key,{words:frozen,chars});inputCacheChars+=chars;return frozen.slice();
+  }
   function input(value){
     if(/^-?\d+(?:\.\d*)?(?:e[+-]?\d+)?$/i.test(String(value)))return normalize([String(value)]);
     const v=B.BN(value);if(!v.isFinite()||v.sign<0)fail('有效探寻量必须有限非负');if(v.eq(0))return [];
     if(v.layer===0)return normalize([String(v)]);
     if(v.layer>=3||(v.layer===2&&Math.abs(v.mag)>4000))return normalize([String(v)]);
+    const key=inputKey(v),hit=cachedInput(key);if(hit)return hit;
     let exponent;const ctx=precision(v.layer===2?Math.ceil(Math.abs(v.mag))+1:1);
     if(v.layer===1)exponent=ctx.fixed(String(v.mag));
     else if(v.layer===2&&Math.abs(v.mag)<=4000)exponent=ctx.exp(ctx.fixed(String(Math.abs(v.mag)))*ctx.LN10/ctx.FP)*(v.mag<0?-1n:1n);
     else return normalize([String(v)]);
-    return [fromLog(exponent,ctx)];
+    return rememberInput(key,[fromLog(exponent,ctx)]);
   }
   const signed=()=>WIS.Core.SignedLedger;
   const normalize=values=>signed().normalize(values);
@@ -98,7 +133,7 @@
   }
   function demandAt(s) {
     const represented=signed().value(levelWords(s));
-    if(WIS.Core.Runtime.isOfflineExecution()&&B.gte(represented,'1e16'))return B.mul(B.div(2,3),layeredCost(represented));
+    if(WIS.Core.Runtime.getMathPolicy()===WIS.Core.Runtime.MathPolicy.OFFLINE_APPROX&&B.gte(represented,'1e16'))return B.mul(B.div(2,3),layeredCost(represented));
     const n=localInteger(levelWords(s));
     return n===null ? B.mul(B.div(2,3),layeredCost(signed().value(levelWords(s))))
       : project(minus(cumulative(n+1n),cumulative(n)));
@@ -146,7 +181,7 @@
     // Above the representable integer spacing, use the existing geometric
     // inverse directly. The demand law is unchanged; do not build thousands
     // of guard digits for levels whose public stock is already a BigNum.
-    const finiteHigh=WIS.Core.Runtime.isOfflineExecution()&&B.gte(signed().value(levelWords(s)),'1e16');
+    const finiteHigh=WIS.Core.Runtime.getMathPolicy()===WIS.Core.Runtime.MathPolicy.OFFLINE_APPROX&&B.gte(signed().value(levelWords(s)),'1e16');
     const incoming=Array.isArray(amount)?normalize(amount):finiteHigh?normalize([amount]):input(amount);if(sign(incoming)<0)fail('收入为负');
     if(!incoming.length&&!previous.natural.length)return B.ZERO;
     if(finiteHigh)return layeredNatural(s,incoming,ceiling,previous);
@@ -200,15 +235,12 @@
     WIS.Meta.Achievements.record(s,'seizeFoundation');s.explorationRewards={...p,seize:'0'};return true;
   }
   function view(s){const p=ensure(s),atCap=!belowCap(s);let demand=null,reason=null;
-    try{if(!atCap){const n=localInteger(levelWords(s));demand=n===null
-      ? B.mul(B.div(2,3),layeredCost(signed().value(levelWords(s))))
-      : project(minus(cumulative(n+1n),cumulative(n)));}}catch(e){reason=e.message;}
+    try{if(!atCap){F().validate(p.natural);demand=B.BN(p.natural.requirement);
+      if(!demand.isFinite()||!demand.gt(0))throw Error('天材地宝需求无效');}}catch(e){demand=null;reason=e.message;}
     return {level:L().value(levelWords(s)),levelResidual:p.levelResidual,cap:L().value(capWords(s)),atCap,
       progress:F().value(p.natural),demand,seizeProgress:B.BN(p.seize),reason};}
   function boundaries(s,rate){if(!B.gt(rate,0))return [];const p=ensure(s),rows=[];
     if(s.goldenCoreUnlocked&&belowCap(s)){
-      const n=localInteger(levelWords(s));
-      const demand=n===null?[String(B.mul(B.div(2,3),layeredCost(signed().value(levelWords(s)))))]:minus(cumulative(n+1n),cumulative(n));
       const left=[F().remaining(p.natural)];
       rows.push({key:'naturalTreasure',pausedReason:null,remainingSeconds:B.div(B.max(0,project(left)),rate)});
     }

@@ -63,10 +63,9 @@
       let catchUpNoticePromise = null;
       let catchUpPaused = false;
       let catchUpPauseReason = null;
-      // Independent of `paused`. Paused means an already started settlement
-      // stopped (player, error, restored history). This means a blocking debt
-      // is registered and gated, but no settlement work has ever been planned
-      // for it: the player still has to press 开始结算.
+      // Independent of `paused`: this is the temporary handoff/paint gate.
+      // Blocking debt is registered without starting settlement; the UI releases
+      // it after import commit and paint. Player/error pauses require retry.
       let catchUpAwaitingStart = false;
       let catchUpStartReason = null;
       const pauseNotices = createPauseNotices();
@@ -198,8 +197,14 @@
       }
 
       let lastInputYieldAt=-Infinity;
-      function yieldForFirstPaint() {
+      function yieldForFirstPaint(requirePaint = false) {
         if (typeof context.yieldToHost === "function") return context.yieldToHost();
+        // rAF callbacks run before paint. A second frame lets the running panel
+        // render between callbacks before the async worker resumes. Ordinary
+        // continuation slices retain their existing host-task yield cadence.
+        if (requirePaint && typeof window.requestAnimationFrame === "function" && !document.hidden) {
+          return new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+        }
         // Periodically use the timer task source as well as MessageChannel.
         // Reposting one task source continuously can crowd out input/rendering.
         const now=performance.now();
@@ -274,8 +279,8 @@
           phase,
           treasureRecovery:treasureRecoveryJob?.status()||treasureRecoveryResult,
           locked: !!treasureRecoveryJob || phase === "paused" || (phase === "running"&&presentation==='blocking'&&!inlineOnline),
-          // Waiting for the player is its own presentation state, never
-          // "running". Game time and online income stay suspended meanwhile.
+          // The runner remains idle during handoff/paint even though the UI
+          // already presents recovery. Game time and income stay suspended.
           awaitingStart: catchUpAwaitingStart && pendingCatchUpSeconds > epsilon,
           startReason: catchUpAwaitingStart && pendingCatchUpSeconds > epsilon ? catchUpStartReason : null,
           clockSuspended:!!treasureRecoveryJob||phase==='paused'||(catchUpAwaitingStart&&pendingCatchUpSeconds>epsilon)||
@@ -310,7 +315,7 @@
           pauseReason: catchUpPauseReason,
           pauseOrigin: catchUpPauseReason?.reason==="player-paused" ? "player" : catchUpPauseReason ? (pauseRestored?"history":"current") : null,
           report: catchUpCompletedReport,
-          showAfterMs: 300,
+          showAfterMs: originalClockSeconds >= CONFIG.offlineNoticeMinSeconds ? 0 : 2000,
           queuedTaskCount: catchUpTasks.length,
           planningBudgetExhaustions: catchUpPlanningBudgetExhaustions,
           cumulativeResourceGains: Object.freeze([...sessionGains]),
@@ -359,7 +364,7 @@
 
       function resetCatchUpSession() {
         pauseNotices.reset();
-        // The single clearing point for the wait-for-player gate: session reset
+        // The clearing point for the handoff/paint gate: session reset
         // covers cancel (new save / new recovery session), abandon, completion
         // acknowledgement and full conversion.
         catchUpAwaitingStart = false;
@@ -542,6 +547,7 @@
           treasureFallbackMode: false,
           treasureBatchMode: false,
           optimizationDisabled: false,
+          capabilityFallback: null,
           legacyRetryUsed: false,
           pendingTreasureEvent: null,
           planningYieldReason: null,
@@ -814,6 +820,10 @@
         // A mapped gain must never cover time in the next queue entry while
         // only the current entry's shorter clock is committed.
         const plan=context.planOfflineMacro(task.remainingGameSeconds,{budget:offlineSegmentBudget,forceMicro:task.optimizationDisabled,productionReplay:task.productionReplay===true,clockRatio:task.remainingClockSeconds/task.remainingGameSeconds});
+        const fallback=task.capabilityFallback,kind=plan.evolutionPlan?.selection?.kind;
+        if(fallback&&kind===fallback.blockedExecutor)
+          return WIS.Simulation.CheckpointStrategy.microPlan(task.remainingGameSeconds,{budget:offlineSegmentBudget,hardBoundary:plan.seconds});
+        if(fallback&&kind&&kind!==fallback.blockedExecutor)task.capabilityFallback=null;
         return plan;
       }
 
@@ -835,7 +845,9 @@
       }
 
       function pauseCatchUpByPlayer() {
-        if (!catchUpInProgress || catchUpPaused || !(pendingCatchUpSeconds > epsilon)) return false;
+        if ((!catchUpInProgress && !catchUpAwaitingStart) || catchUpPaused || !(pendingCatchUpSeconds > epsilon)) return false;
+        catchUpAwaitingStart = false;
+        catchUpStartReason = null;
         pauseCatchUp({ reason: "player-paused", pendingGameSeconds: pendingCatchUpSeconds });
         checkpointCatchUp();
         return true;
@@ -953,8 +965,8 @@
           fastForwardUsed, fastForwardMetrics,
           paused: catchUpPaused,
           pauseReason: catchUpPauseReason,
-          // A refresh before the player pressed 开始结算 must come back to the
-          // same question, not auto-start the settlement it was protecting from.
+          // A refresh during handoff/paint restores the gate so the running
+          // window paints before the UI resumes the existing recovery runner.
           awaitingStart: catchUpAwaitingStart,
           startReason: catchUpAwaitingStart ? catchUpStartReason : null,
           tasks: catchUpTasks.filter((task) => task.remainingGameSeconds > epsilon).map((task) => ({
@@ -1042,7 +1054,8 @@
           snapshot.pauseReason?.eventCommitted!==true&&!(Number(snapshot.pauseReason?.reportedProcessedSeconds)>0)&&
           WIS.Simulation.CompiledContinuousPlan.isCapabilityError(snapshot.pauseReason?.error);
         if(capabilityRecovery){
-          for(const task of catchUpTasks)task.optimizationDisabled=true;
+          if(snapshot.pauseReason.error.code!=='scale-external-feedback-unvalidated')
+            for(const task of catchUpTasks)task.optimizationDisabled=true;
           WIS.Simulation.CompiledContinuousPlan.recordFallback(snapshot.pauseReason.error.code);
         }
         catchUpPaused = snapshot.paused === true&&!capabilityRecovery || fastRestoreError !== null;
@@ -1093,9 +1106,9 @@
         for (const [key, value] of Object.entries(rates)) WIS.tmp.rates[key + "PerSecond"] = value;
       }
 
-      // Registered debt keeps its income gate but waits for an explicit player
-      // start. Installing a high-magnitude save must not hand a multi-hour
-      // backlog straight to the settlement runner.
+      // Registered debt keeps its income gate through transaction handoff and
+      // the first paint. Installing a save never enters the settlement runner.
+      // The legacy API name remains compatible with existing integrations.
       // Callable BEFORE the debt is enqueued: an installed save's unsettled
       // interval can still be parked in the live loop's interval list, and the
       // gate has to be in place before anything promotes it into this queue.
@@ -1162,7 +1175,7 @@
         // Hard gate, not a UI convention. Even a mistaken queueCatchUpNotice /
         // simulateOfflineProgress from the main loop or any other entry point
         // must not reach planning, compiled-micro, FixedSegment or kernel work
-        // before the player starts the settlement.
+        // before startCatchUp explicitly releases the handoff/paint gate.
         if (catchUpAwaitingStart) { publishCatchUpStatus(); return catchUpPromise || Promise.resolve(""); }
         if (catchUpPaused||awaySuspended) return Promise.resolve("");
         if (catchUpPromise) return catchUpPromise;
@@ -1180,6 +1193,9 @@
         checkpointCatchUp(presentation==='blocking');
         publishCatchUpStatus();
         void (async () => {
+          const firstStatus = getCatchUpStatus();
+          if (firstStatus.presentation === 'blocking' && firstStatus.sessionSource !== 'online' &&
+              firstStatus.originalClockSeconds >= CONFIG.offlineNoticeMinSeconds) await yieldForFirstPaint(true);
           while (generation === catchUpGeneration && !catchUpPaused && !awaySuspended) {
             if (catchUpTasks.length === 0||!prepareQueueHead()) break;
             // Historical treasure work never runs inside the simulation's
@@ -1253,8 +1269,15 @@
                   offlineSegmentBudget=WIS.Simulation.CheckpointStrategy.fail(offlineSegmentBudget,error);
                   const capability=WIS.Simulation.CompiledContinuousPlan.isCapabilityError(error);
                   if(capability){
-                    task.productionReplay=task.macroPlan?.compiledMicro===true;
-                    task.optimizationDisabled=true;task.macroPlan=null;
+                    if(error.code==='scale-external-feedback-unvalidated'&&task.macroPlan?.evolutionPlan?.selection?.kind==='fixed-20s') {
+                      // This capability failed, not every executor in the remaining task.
+                      // Normal selection after a committed micro may already be weak.
+                      task.capabilityFallback={code:error.code,blockedExecutor:'fixed-20s'};
+                    } else {
+                      task.productionReplay=task.macroPlan?.compiledMicro===true;
+                      task.optimizationDisabled=true;
+                    }
+                    task.macroPlan=null;
                     WIS.Simulation.CompiledContinuousPlan.recordFallback(error.code);
                     planningYieldRequested=true;break;
                   }

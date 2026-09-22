@@ -189,9 +189,10 @@
       }));
   }
 
-  function normalResourceSoftcapExponent(currentAmount, applySpaceQuake, sourceKind = "normal", applyRealmAdjustments = true) {
+  function normalResourceSoftcapExponent(currentAmount, applySpaceQuake, sourceKind = "normal", applyRealmAdjustments = true, omit = null) {
     const amount = maxBN(ZERO, currentAmount);
     const baseExponent = resourceSoftcapStageExponents(amount, sourceKind, applySpaceQuake, applyRealmAdjustments)
+      .filter(stage => !omit || !omit(stage.name))
       .reduce((exponent, stage) => mul(exponent, stage.exponent), ONE);
     const achievementAdjustedExponent = hasAchievement("scale10")
       ? sub(
@@ -288,7 +289,33 @@
   function applyResourceSoftcap(rawGain, currentAmount) {
     const gain = maxBN(ZERO, rawGain);
     if (!gt(gain, ZERO)) return ZERO;
-    return applySoftcapExponent(gain, resourceSoftcapExponent(currentAmount));
+    return infinitySoftcapGain(gain, currentAmount);
+  }
+
+  function infinitySoftcapGain(gain, amount, kind="normal", special=false) {
+    const I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig;
+    const early=I.softcapWeakening(state,C.earlyLastStage),late=I.softcapWeakening(state,"宇宙结构");
+    const base=applySoftcapExponent(gain,normalResourceSoftcapExponent(amount,true,kind,!special));
+    if((!early&&!late)||!gt(gain,ZERO))return base;
+    const cutoff=CONFIG.scales.findIndex(x=>x.name===C.earlyLastStage);
+    const isEarly=name=>CONFIG.scales.findIndex(x=>x.name===name)<=cutoff;
+    const without=(a,b)=>applySoftcapExponent(gain,normalResourceSoftcapExponent(amount,true,kind,!special,name=>isEarly(name)?a:b));
+      // Shared weakening interpolates the whole scale result. Only the excess
+      // weakening belongs to one group; tensor interpolation would cross-mix it.
+      const shared=Math.min(early,late),strongest=Math.max(early,late);
+      const scoped=strongest>shared?without(early>late,late>early):base;
+      const partial=I.interpolate(base,scoped,shared<1?(strongest-shared)/(1-shared):0);
+      return I.interpolate(partial,gain,shared);
+  }
+  function infinitySoftcapInverse(actual, amount) {
+    const I=WIS.Meta.Infinity;
+    if(!I.softcapWeakening(state,"恒星")&&!I.softcapWeakening(state,"宇宙结构"))return rawGainForSoftcappedActualGain(actual,resourceSoftcapExponent(amount));
+    if(!gt(actual,ZERO))return ZERO;
+    let lo=log10(actual),hi=log10(rawGainForSoftcappedActualGain(actual,resourceSoftcapExponent(amount)));
+    // The weakened result is bounded by the old result and the unsoftcapped input.
+    for(let i=0;i<80;i++){const mid=div(add(lo,hi),2);if(eq(mid,lo)||eq(mid,hi))break;
+      if(lt(infinitySoftcapGain(pow10(mid),amount),actual))lo=mid;else hi=mid;}
+    return pow10(hi);
   }
 
   function resourceSoftcapEquivalentRawForComponents(normalRawGain, manaRawGain, currentAmount) {
@@ -300,10 +327,10 @@
     if (!gt(manaRaw, ZERO)) return normalRaw;
     const normalExponent = resourceSoftcapExponent(currentAmount, "normal");
     const settled = add(
-      applySoftcapExponent(normalRaw, normalExponent),
-      applySoftcapExponent(manaRaw, resourceSoftcapExponent(currentAmount, "mana"))
+      infinitySoftcapGain(normalRaw, currentAmount),
+      infinitySoftcapGain(manaRaw, currentAmount, "mana")
     );
-    return rawGainForSoftcappedActualGain(settled, normalExponent);
+    return infinitySoftcapInverse(settled, currentAmount);
   }
 
   function getResourceSoftcapBreakdown(normalRawGain, manaRawGain, currentAmount) {
@@ -312,7 +339,7 @@
     if (!WIS.Cultivation?.ImmortalLogic?.qiRefiningChallengeActive?.()) {
       const combinedRaw = add(normalRaw, manaRaw);
       const normalExponent = resourceSoftcapExponent(currentAmount, "normal");
-      const normalPostSoftcap = applySoftcapExponent(combinedRaw, normalExponent);
+      const normalPostSoftcap = infinitySoftcapGain(combinedRaw, currentAmount);
       return {
         normalPreSoftcap: combinedRaw,
         manaPreSoftcap: ZERO,
@@ -328,8 +355,8 @@
     }
     const normalExponent = resourceSoftcapExponent(currentAmount, "normal");
     const manaExponent = resourceSoftcapExponent(currentAmount, "mana");
-    const normalPostSoftcap = applySoftcapExponent(normalRaw, normalExponent);
-    const manaPostSoftcap = applySoftcapExponent(manaRaw, manaExponent);
+    const normalPostSoftcap = infinitySoftcapGain(normalRaw, currentAmount);
+    const manaPostSoftcap = infinitySoftcapGain(manaRaw, currentAmount, "mana");
     return {
       normalPreSoftcap: normalRaw,
       manaPreSoftcap: manaRaw,
@@ -364,7 +391,7 @@
   }
 
   function applySpecialResourceSoftcapRate(rawRate, currentAmount) {
-    return applySoftcapExponent(rawRate, specialResourceSoftcapExponent(currentAmount));
+    return infinitySoftcapGain(rawRate, currentAmount, "normal", true);
   }
 
   function nextResourceSoftcapThreshold(currentAmount) {
@@ -571,7 +598,9 @@
         remainingRawGain = ZERO;
         break;
       }
-      const neededRawGain = rawGainForSoftcappedActualGain(div(neededActualGain, penaltyAt(evaluationAmount)), exponent);
+      const neededRawGain = WIS.Meta.Infinity.softcapWeakening(state,"恒星") || WIS.Meta.Infinity.softcapWeakening(state,"宇宙结构")
+        ? infinitySoftcapInverse(rawGainForSoftcappedActualGain(div(neededActualGain,penaltyAt(evaluationAmount)),planetSuppressionSoftcapExponent(evaluationAmount)),evaluationAmount)
+        : rawGainForSoftcappedActualGain(div(neededActualGain, penaltyAt(evaluationAmount)), exponent);
       const tolerance = neededRawGain ? mul(maxBN(ONE, neededRawGain), Number.EPSILON * 16) : ZERO;
       if (!neededRawGain || !isFiniteBN(neededRawGain) || lt(add(remainingRawGain, tolerance), neededRawGain)) {
         settledGain = add(settledGain, refinedProgressiveSettlement(remainingRawGain, settledAmount, settle));
@@ -598,24 +627,38 @@
   function applyResourceSoftcapDynamicRateOverTime(
     rawRateAtAmount, currentAmount, elapsedSeconds,
     settleRateAtAmount = applyResourceSoftcapSettlement,
-    { foreground = false } = {}
+    { foreground = false, memoizeSamples = false } = {}
   ) {
     const seconds=Number(elapsedSeconds), initial=maxBN(ZERO,currentAmount);
     if(typeof rawRateAtAmount!=="function" || !Number.isFinite(seconds) || seconds<0 || !isFiniteBN(initial))
       throw Error("动态积分输入无效，结算未提交");
+    // Opt-in only for an audited autonomous callback in an immutable work scope.
+    // Number.toString round-trips each Decimal component exactly; no rounding.
+    // The callback has no local-time input. The formal clock is fixed by caller.
+    const samples = memoizeSamples ? new Map() : null;
+    const evaluationState=memoizeSamples && runtime.isEvaluating()?runtime.getState():null;
     const work=WIS.Core.Integration.createAdaptiveWork({amount:initial},seconds,values=>{
+      const amount = values.amount;
+      const key = samples ? [amount.sign, amount.layer, amount.mag].join(":") : null;
+      if (samples?.has(key)) return {amount:samples.get(key)};
       const raw=rawRateAtAmount(values.amount), rate=settleRateAtAmount(raw,values.amount);
       if(!isFiniteBN(raw)||!isFiniteBN(rate)||lt(rate,0))throw Error("动态积分速率无效");
+      if (samples) {
+        if (samples.size >= 256) samples.delete(samples.keys().next().value);
+        samples.set(key, rate);
+      }
       return {amount:rate};
-    },{logTolerance:foreground?1e-4:1e-6});
-    for(;;){
+    },{logTolerance:foreground?1e-4:1e-6,
+      autonomous:!!evaluationState,
+      cycleContextCurrent:()=>runtime.isEvaluating() && runtime.getState()===evaluationState});
+    try { for(;;){
       const result=work.advance({maximumEvaluations:256});
       if(result.done)return result.gains.amount;
         if(result.status==="finite-time-singularity"){
           const error=Error("动态积分具有有限时间发散证明；未处理时间和数值检查点保留");
         error.code=result.status;error.continuation=work;error.diagnostics=result.diagnostics;throw error;
       }
-    }
+    } } finally { samples?.clear(); }
   }
 
   function applyResourceSoftcapOverTime(rawRate, currentAmount, elapsedSeconds) {
@@ -628,17 +671,17 @@
     );
   }
 
-  function formatSoftcapExponent(exponent) {
+  function formatSoftcapExponent(exponent, formatValue = value => value.toString()) {
     const value = BN(exponent);
     if (eq(value, ONE)) return "1.000";
     if (eq(value, ZERO)) return "0.000";
-    if (lt(value, "0.001")) return value.toString();
+    if (lt(value, "0.001")) return formatValue(value);
     const numeric = toNumber(value, NaN);
     for (const digits of [3, 6, 9, 12, 15]) {
       const text = numeric.toFixed(digits);
       if (Number(text) !== 1) return text;
     }
-    return `1 − ${sub(ONE, value).toString()}`;
+    return `1 − ${formatValue(sub(ONE, value))}`;
   }
 
   function activeSoftcapStages(currentAmount) {
@@ -737,9 +780,13 @@
     return scaleRequirementDetails(scaleIndex, source)?.actualRequirement ?? ZERO;
   }
 
-  function updateScaleProgress(notify = true) {
+  function updateScaleProgress(notify = true, powerPeak) {
     const previousScaleIndex = state.highestScaleIndex;
-    state.highestPower = maxBN(state.highestPower, state.power);
+    // Reset profiles replace this progress domain. An old unit's observation
+    // must not revive the previous lifecycle's peak after that replacement.
+    const peak = powerPeak?.owner === state.powerSystem.systems.scale.progress
+      ? maxBN(state.power, powerPeak.value) : state.power;
+    state.highestPower = maxBN(state.highestPower, peak);
     state.highestScaleIndex = Math.max(state.highestScaleIndex, scaleIndexForPower(state.power));
     if (state.highestScaleIndex > previousScaleIndex) state.currentScaleElapsedSeconds = 0;
     state.brickUnlocked = state.highestScaleIndex >= 1;
@@ -1024,7 +1071,7 @@
   }
 
   function currentPowerMilestone() {
-    if (state.symbolicPowerMilestones?.tree3) return "tree3";
+    if (state.meta.bigNumbers?.tree?.rank >= 3) return "tree3";
     if (state.symbolicPowerMilestones?.graham64) return "graham64";
     if (gte(snapshotMemo("lifetimeHighestPower",()=>state.lifetimeHighestPower), "1e100")) return "googol";
     return "number";
@@ -1344,38 +1391,21 @@
     return WIS.Core.Effects.value("highSpeedMetabolism", state);
   }
 
-  let conversionGainCache = null;
   function conversionGain() {
-    const cacheKey = {
-      effectsRevision: WIS.Core.Effects.getRevision?.() || 0,
-      joules: state.joules,
-      power: state.power,
-      mana: state.mana,
-      immortalPower: state.immortalPower,
-      highestPower: state.highestPower,
-      totalElapsedSeconds: state.totalElapsedSeconds,
-      activeChallengeElapsedSeconds: state.activeChallengeElapsedSeconds
-    };
-    if (conversionGainCache &&
-        conversionGainCache.effectsRevision === cacheKey.effectsRevision &&
-        eq(conversionGainCache.joules, cacheKey.joules) &&
-        eq(conversionGainCache.power, cacheKey.power) &&
-        eq(conversionGainCache.mana, cacheKey.mana) &&
-        eq(conversionGainCache.immortalPower, cacheKey.immortalPower) &&
-        eq(conversionGainCache.highestPower, cacheKey.highestPower) &&
-        conversionGainCache.totalElapsedSeconds === cacheKey.totalElapsedSeconds &&
-        conversionGainCache.activeChallengeElapsedSeconds === cacheKey.activeChallengeElapsedSeconds) {
-      return conversionGainCache.value;
-    }
-    const value = applyResourceSoftcapProgressive(
+    // Preview and train share the formula, never a mutable cross-candidate cache.
+    // Reuse only an existing immutable evaluation. Outside it, recompute using
+    // the ordinary live Effects lifecycle rather than retaining an action cache.
+    return snapshotMemo("conversionGain", conversionGainUncached);
+  }
+
+  function conversionGainUncached() {
+    return applyResourceSoftcapProgressive(
       preSoftcapPowerGainFromSources([
         challengeAdjustedPowerSource(trainingPowerSource(), "training")
       ]),
       state.power,
       { googolResource: "power" }
     );
-    conversionGainCache = { ...cacheKey, value };
-    return value;
   }
 
   function ghostBrainPotentialPowerBonus() {
@@ -1989,8 +2019,9 @@
   function autoUpgradeEnhancements() {
     if (state.powerSystem.active !== "scale") return 0;
     const upgradeAutomationActive = state.scaleUpgradeAutomationEnabled && hasAchievement("scale6");
-    const actionAutomationActive = state.scaleActionAutomationEnabled && hasAchievement("trueScale7");
-    if (!upgradeAutomationActive && !actionAutomationActive) return 0;
+    const fitnessAutomationActive = state.scaleFitnessAutomationEnabled && hasAchievement("trueScale7");
+    const rockAutomationActive = state.scaleRockAutomationEnabled && hasAchievement("trueScale7");
+    if (!upgradeAutomationActive && !fitnessAutomationActive && !rockAutomationActive) return 0;
     const candidates = [
       { historyKey: "gymPurchased", cost: () => GYM_COST, available: () => upgradesUnlocked() && !state.gymPurchased, apply: () => { state.gymPurchased = true; } },
       { historyKey: "exercisePurchased", cost: () => EXERCISE_COST, available: () => upgradesUnlocked() && !state.exercisePurchased, apply: () => { state.exercisePurchased = true; } },
@@ -2051,8 +2082,8 @@
       { historyKey: "freedomPurchased", cost: () => FREEDOM_COST, available: () => state.highestScaleIndex >= 9 && !state.freedomPurchased, apply: () => { state.freedomPurchased = true; } },
       { historyKey: "chicxulubMeteoritePurchased", cost: () => CHICXULUB_METEORITE_COST, available: () => state.highestScaleIndex >= 9 && !state.chicxulubMeteoritePurchased, apply: () => { state.chicxulubMeteoritePurchased = true; } },
       // 行动候选放在强化候选之后；稳定排序保证相同消耗时强化优先。
-      { cost: runningCost, available: () => actionAutomationActive && upgradesUnlocked() && state.runningLevel < fitnessLevelCap(), apply: () => { state.runningLevel += 1; }, buyMax: (ceiling) => buyMaxPowerLevels("runningLevel", fitnessLevelCap(), runningCost, ceiling) },
-      { cost: rockCost, available: () => actionAutomationActive && state.wallUnlocked && state.rockLevel < rockLevelCap(), apply: () => { state.rockLevel += 1; }, buyMax: (ceiling) => buyMaxPowerLevels("rockLevel", rockLevelCap(), rockCost, ceiling) }
+      { cost: runningCost, available: () => fitnessAutomationActive && upgradesUnlocked() && state.runningLevel < fitnessLevelCap(), apply: () => { state.runningLevel += 1; }, buyMax: (ceiling) => buyMaxPowerLevels("runningLevel", fitnessLevelCap(), runningCost, ceiling) },
+      { cost: rockCost, available: () => rockAutomationActive && state.wallUnlocked && state.rockLevel < rockLevelCap(), apply: () => { state.rockLevel += 1; }, buyMax: (ceiling) => buyMaxPowerLevels("rockLevel", rockLevelCap(), rockCost, ceiling) }
     ];
     const starEnhancementCandidates = [
       { historyKey: "planetWillPurchased", cost: () => PLANET_WILL_COST, available: () => state.highestScaleIndex >= 10 && !state.planetWillPurchased, apply: () => { state.planetWillPurchased = true; } },
@@ -2611,3 +2642,4 @@
   });
   WIS.Power.ScaleLogic = api;
 }(window.WIS));
+

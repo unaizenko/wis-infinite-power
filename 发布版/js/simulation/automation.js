@@ -9,7 +9,7 @@
         const realm = s.cultivation.active === "immortal" && s.immortalRealmAutomationEnabled && achievements.bodyIntegration;
         const ability = s.cultivation.active === "immortal" && s.immortalAbilityAutomationEnabled && achievements.infantSpirit;
         const scale = s.powerSystem.active === "scale" &&
-          ((s.scaleUpgradeAutomationEnabled && achievements.scale6) || (s.scaleActionAutomationEnabled && achievements.trueScale7));
+          ((s.scaleUpgradeAutomationEnabled && achievements.scale6) || ((s.scaleFitnessAutomationEnabled || s.scaleRockAutomationEnabled) && achievements.trueScale7));
         return (realm ? autoBreakthroughImmortalRealms() + (WIS.Cultivation.Xiuzhen?.automation(s, "realm") || 0) : 0) +
           (ability ? autoUpgradeImmortalAbilities() + (WIS.Cultivation.Xiuzhen?.automation(s, "ability") || 0) : 0) +
           (scale ? autoUpgradeEnhancements() : 0);

@@ -123,7 +123,7 @@
     return { joules: passiveJ, power: passivePower, rates };
   }
 
-  function commitAutomaticGains(state, result, { writeRates = true } = {}) {
+  function commitAutomaticGains(state, result, { writeRates = true, powerPeak } = {}) {
     const plan = result || { joules: ZERO, power: ZERO, rates: {} };
     if (writeRates) Object.assign(WIS.tmp.rates, plan.rates);
     if (plan.repeatJoules) {
@@ -134,6 +134,13 @@
       Object.assign(state.core.resources, WIS.Core.Resources.prepareTerms(state.core.resources,"joules",[`${term}*${count}`]));
     } else WIS.Core.Resources.add("joules", plan.joules);
     WIS.Core.Resources.add("power", plan.power);
+    if (powerPeak) {
+      // Unit-local observation of credited stock, never a published statistic.
+      const owner = state.powerSystem.systems.scale.progress;
+      powerPeak.value = powerPeak.owner === owner
+        ? WIS.Core.BigNum.max(powerPeak.value, state.power) : state.power;
+      powerPeak.owner = owner;
+    }
     state.lifetimeTotalJ = add(state.lifetimeTotalJ, plan.joules);
     state.currentRebirthTotalJ = add(state.currentRebirthTotalJ, plan.joules);
     state.totalPower = add(state.totalPower, plan.power);
@@ -181,8 +188,8 @@
     cosmicWillRollAccumulator = Math.max(0, Number(snapshot.cosmicWillRollAccumulator) || 0);
   }
 
-  function afterStep() {
-    WIS.Power.ScaleLogic.updateProgress(false);
+  function afterStep(_state, _seconds, powerPeak) {
+    WIS.Power.ScaleLogic.updateProgress(false, powerPeak);
   }
 
   const system = WIS.Core.Registries.powerSystems.register({

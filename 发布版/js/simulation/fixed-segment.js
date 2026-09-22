@@ -152,7 +152,7 @@
     const power=WIS.Core.Registries.getActivePower(state), immortal=WIS.Core.Registries.getActiveCultivation(state);
     unit.options.onPhase?.("continuous-commit");
     power?.commitAutomaticGains?.(state,{joules:plan.gains.joules,power:plan.gains.power,
-      rates:{joulesPerSecond:sources.rates.joules,powerPerSecond:sources.rates.power}},{writeRates:!options.projection});
+      rates:{joulesPerSecond:sources.rates.joules,powerPerSecond:sources.rates.power}},{writeRates:!options.projection,powerPeak:options.powerPeak});
     immortal?.commitAutomaticGain?.(state,cultivation,{writeRates:!options.projection,skipTreasureRolls:true});
     WIS.Simulation.ResourceGroups.commitAdditional(state,plan.gains);
     for(const [key,debit] of Object.entries(plan.debits)) if(B.gt(debit,0)) {
@@ -218,7 +218,8 @@
   }
   function createWork(state,seconds,options) {
     const candidate=S.cloneForSimulation(state), roots=[state.core,state.powerSystem,state.cultivation,state.meta];
-    R.withState(candidate,()=>R.withOfflineExecution(()=>E.withIsolatedState(candidate,()=>WIS.Cultivation.ExplorationProgress.settleRetained(candidate))));
+    const mathPolicy=options.offline===true ? R.MathPolicy.OFFLINE_APPROX : R.MathPolicy.ONLINE_EXACT;
+    R.withMathPolicy(mathPolicy,()=>R.withState(candidate,()=>R.withOfflineExecution(()=>E.withIsolatedState(candidate,()=>WIS.Cultivation.ExplorationProgress.settleRetained(candidate)))));
     let unit, parts, closed=false, workMs=0;
     const evolution=options.evolutionPlan?WIS.Simulation.ContinuousExecutor.create(seconds,options.evolutionPlan).prepare(candidate):null;let evolved=null;
     return {
@@ -227,7 +228,7 @@
         let next;
         do {
           const began=clock(),rates={...WIS.tmp.rates};
-          try {next=R.withState(candidate,()=>R.withProjection(()=>R.withOfflineExecution(()=>
+          try {next=R.withMathPolicy(mathPolicy,()=>R.withState(candidate,()=>R.withProjection(()=>R.withOfflineExecution(()=>
             E.withIsolatedState(candidate,()=> {
               if(evolution&&!evolved){const outcome=evolution.runInterval(seconds,deadline);if(!outcome.done)return {done:false};evolved=outcome.result;
                 options={...options,mapPlan:{gains:evolved.gains,progressTotals:evolved.progressTotals,resourceOnly:true}};}
@@ -238,7 +239,7 @@
               }
               return parts.next();
               } finally {WIS.Simulation.Profiler.withScope('offline',()=>WIS.Simulation.Profiler.record("settlementWallMs",clock()-settlementStarted));}
-            }))));}
+            })))));}
           finally {
             for(const key of Object.keys(WIS.tmp.rates))if(!Object.hasOwn(rates,key))delete WIS.tmp.rates[key];
             Object.assign(WIS.tmp.rates,rates);

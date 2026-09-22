@@ -87,10 +87,23 @@
     let shrinkingTime=0, previousTail=null;
     const tolerance=options.logTolerance??1e-4;
     const gainTolerance=options.gainRelativeTolerance??.002;
+    // Restricted to an explicitly autonomous scalar callback in an immutable
+    // work context. Unknown callbacks retain the original solver unchanged.
+    const cycleEnabled=options.autonomous===true && keys.length===1 &&
+      typeof options.cycleContextCurrent==='function' && !options.singularityCertificate;
+    const exact=x=>{const n=B.BN(x);return [n.sign,n.layer,n.mag].map(v=>Object.is(v,-0)?'-0':String(v)).join(':');};
+    const vector=z=>z.map(exact).join('|');
+    const sampleKey=a=>JSON.stringify([a.direction.map(exact),a.inverse===null?null:exact(a.inverse),
+      keys.map(k=>exact(a.values[k])),keys.map(k=>exact(a.r[k]??0))]);
+    let trialSamples=null,failedTrial=null,previousCycle=null;
+    let skippedEvaluations=0,skippedAccepted=0,skippedRejected=0;
+    let cycleFastForwardCount=0,cycleFastForwardLogicalCycles=0;
+    const clearCycle=()=>{failedTrial=null;previousCycle=null;};
     class TrialError extends Error {}
     const stocks=z=>Object.fromEntries(keys.map((k,i)=>[k,B.max(0,expm1(z[i]))]));
     function* sample(z){
       const values=stocks(z),r=rateAt(values);evaluations++;
+      if(trialSamples)trialSamples.push([vector(z),keys.map(k=>exact(values[k])),keys.map(k=>exact(r[k]??0))]);
       const speed=keys.map(k=>B.div(r[k]??0,B.mul(B.add(values[k],1),LN10)));
       if(speed.some(x=>!B.isFiniteBN(x)||B.lt(x,0)))throw new TrialError("连续积分速率无法表示");
       const fastest=speed.reduce((a,b)=>B.max(a,b),B.ZERO);
@@ -165,7 +178,10 @@
       return {done,status:done?'completed':diagnosis?.code||'pending',
         classification:diagnosis?.code==='singularity-suspected'?'undetermined':classification,remainingSeconds:String(remaining),
         gains:Object.fromEntries(keys.map((k,i)=>[k,midpointAccepted||B.eq(y[i],initialLog[i])?smallGains[k]:B.max(0,B.sub(final[k],start[k]))])),final,
-        diagnostics:{evaluations,accepted,rejected,slices,diagnosis,arc:String(arc)}};
+        diagnostics:{evaluations,accepted,rejected,slices,diagnosis,arc:String(arc),
+          actualEvaluations:evaluations,logicalEvaluations:evaluations+skippedEvaluations,
+          logicalAccepted:accepted+skippedAccepted,logicalRejected:rejected+skippedRejected,
+          cycleFastForwardCount,cycleFastForwardLogicalCycles}};
     }
     function* solve(){
       // Embedded midpoint/Euler predictor is cheap when this whole logical
@@ -195,6 +211,10 @@
           // Initial linear prediction is only a bracket, never the settlement.
           arc=B.max('1e-300',log1p(B.div(remaining,a.inverse)));
         }
+        const cycleCurrent=cycleEnabled && options.cycleContextCurrent();
+        if(!cycleCurrent)clearCycle();
+        trialSamples=cycleCurrent?[]:null;
+        const trialEvaluations=evaluations,trialY=cycleCurrent?vector(y):null,trialArc=cycleCurrent?exact(arc):null;
         let full,half1,half2;
         try{
           const integrate=keys.length>1 && rejected>=8 && B.gt(arc,.25)?implicitPath:path;
@@ -203,7 +223,7 @@
           if(!(error instanceof TrialError))throw error;
           // A trial overflow is rejected; committed state and logical time stay
           // untouched. It is not evidence that the underlying ODE diverges.
-          arc=B.mul(arc,.25);rejected++;last=a;
+          clearCycle();arc=B.mul(arc,.25);rejected++;last=a;
           if(!B.gt(arc,0))throw error;
           continue;
         }
@@ -215,7 +235,12 @@
         }
         const timeError=B.abs(B.log10(B.div(time,full.time)));
         error=B.max(error,B.div(timeError,B.max(tolerance,B.mul(Number.EPSILON*64,B.abs(B.log10(time))))));
+        const trialKey=cycleCurrent?JSON.stringify([trialY,trialArc,sampleKey(a),trialSamples,
+          vector(full.y),vector(half1.y),vector(half2.y),exact(full.time),exact(half1.time),exact(half2.time),
+          exact(time),exact(error),exact(timeError),sampleKey(half2.end)]):null;
         if(!B.isFiniteBN(error)||B.gt(error,1)){
+          if(failedTrial)previousCycle=null;
+          failedTrial=cycleCurrent && B.isFiniteBN(error)?{key:trialKey,y:trialY,arc:trialArc,count:evaluations-trialEvaluations}:null;
           arc=B.mul(arc,.5);rejected++;last=a;continue;
         }
         const ratio=B.div(time,remaining);
@@ -234,7 +259,7 @@
           const term=B.mul(B.div(remaining,a.inverse),B.mul(slope,LN10));
           let next=B.eq(slope,0)?B.div(remaining,a.inverse):B.gt(B.add(1,term),0)?B.div(log1p(term),slope):B.mul(arc,.5);
           if(!B.gt(next,0)||!B.lt(next,arc))next=B.mul(arc,.5);
-          arc=next;last=a;continue;
+          clearCycle();arc=next;last=a;continue;
         }
         // A local power-law fit cannot prove the global behavior of an arbitrary
         // callback. Keep numerical suspicion separate from an analytic contract;
@@ -260,6 +285,31 @@
         remaining=B.max(0,B.sub(remaining,time));
         if(B.lt(time,B.mul(seconds,'1e-12')))classification='steep-finite';
         arc=B.mul(arc,B.lt(error,.05)?2:1.25);
+        // A reject/accept pair can return to exactly the same representable
+        // solver state. Observe two identical pairs, including every sample,
+        // before omitting further quadrature. Never batch initial smallGains.
+        const repeatable=cycleCurrent && options.cycleContextCurrent() && failedTrial &&
+          trialY===vector(y) && failedTrial.y===trialY && failedTrial.arc===exact(arc) &&
+          sampleKey(a)===sampleKey(last) && !B.eq(y[0],initialLog[0]) &&
+          !diagnosis && shrinkingTime===0 && previousTail===null && B.gt(time,0);
+        const cycleKey=repeatable?JSON.stringify([failedTrial.key,trialKey,classification]):null;
+        if(cycleKey && cycleKey===previousCycle){
+          // Keep two complete cycles plus the endpoint with the original solver.
+          // Repeated Decimal subtraction is intentional: N*time can round
+          // differently and must not change the final endpoint arc or stock.
+          const reserve=B.mul(time,4);
+          let count=0;
+          const limit=Math.floor(B.toNumber(B.div(remaining,time),NaN));
+          if(Number.isSafeInteger(limit) && Number.isSafeInteger(limit*(failedTrial.count+evaluations-trialEvaluations)))for(let i=0;i<limit && B.gt(remaining,reserve);i++){
+            const nextRemaining=B.max(0,B.sub(remaining,time));
+            if(!B.lt(nextRemaining,remaining))break;
+            remaining=nextRemaining;count++;
+          }
+          if(count){cycleFastForwardCount++;cycleFastForwardLogicalCycles+=count;
+            skippedEvaluations+=count*(failedTrial.count+evaluations-trialEvaluations);
+            skippedAccepted+=count;skippedRejected+=count;}
+        }
+        previousCycle=cycleKey;failedTrial=null;trialSamples=null;
       }
       return result();
     }

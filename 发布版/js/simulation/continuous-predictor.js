@@ -10,7 +10,7 @@
   function signature(s){const i=s.cultivation.systems.immortal,x=W.Cultivation.Xiuzhen.get(s),n=s.meta.bigNumbers;
     return JSON.stringify([s.powerSystem.active,s.cultivation.active,s.highestScaleIndex,s.advancedRealmLevel,x.realm,x.entered,
       branch(s.powerSystem.systems.scale.upgrades),branch(s.powerSystem.systems.scale.actions),branch(Object.fromEntries(Object.entries(i.abilities).filter(([k])=>k!=='naturalTreasureLevel'))),branch(x.abilities),
-      s.activeChallenge,s.challengeCompletions,s.unlockedAchievements,n.unlocked,n.fractalLevel,n.beyondFractal,W.Meta.BigNumbers.MILESTONES.filter(v=>v<=n.gIndex),
+      W.Meta.BigNumbers.treeSignature(s),s.meta.infinity.upgrades,s.activeChallenge,s.challengeCompletions,s.unlockedAchievements,n.unlocked,n.fractalLevel,n.beyondFractal,W.Meta.BigNumbers.MILESTONES.filter(v=>v<=n.gIndex),
       G().keys.map(k=>[coordinate(G().read(s,k)).layer,B.gte(G().read(s,k),'1e100')]),G().groups.map(g=>g.mapSignature(s))]);
   }
   function query(s,groupIds=null){return P().withScope('offline',()=>P().measure('resourceGroupWallMs',()=>R.withState(s,()=>R.withProjection(()=>R.withOfflineExecution(()=>E.withIsolatedState(s,()=>G().evaluate(s,{groupIds})))))));}

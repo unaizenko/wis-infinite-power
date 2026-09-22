@@ -7,7 +7,7 @@
     const text = (id, value) => { const el = $(id); if (el.textContent !== value) el.textContent = value; };
     const f = x => {
       const n = B.BN(x);
-      if (B.gt(n, 0) && B.lt(n, 0.001)) return n.toExponential(3);
+      if (B.gt(n, 0) && B.lt(n, 0.001)) return WIS.UI.Format.scientificMultiplier(n);
       return context.format(n, 4);
     };
     const quantity = (value, order) => `${f(value)} ${M.SYMBOLS[order]}`;
@@ -17,22 +17,69 @@
     const source = (id, raw, final, label) => {
       $(id).classList.add("source-gain-preview"); text(id, sourceText(raw, final, label));
     };
-    const rows = [], milestones = [];
+    const rows = [], milestones = [], treeRows = [];
+    function renderTree() {
+      const v = M.treeView(state), locked = context.getCatchUpStatus().locked === true;
+      text("tree-target", v.phase === "complete" ? `TREE(${v.rank})` : v.rank < 3
+        ? `目标：TREE(${v.target})　标签：${v.labels}` : `TREE(${v.rank}) → TREE(${v.target})　标签：${v.labels}`);
+      for (const phase of ["explicit", "super", "complete"]) $("tree-" + phase).hidden = v.phase !== phase;
+      if (v.phase === "explicit") {
+        text("tree-sequence-title", v.labels === 3 ? "三标签坏序列" : `${v.labels}标签坏序列`);
+        text("tree-sequence", `当前：T${context.format(v.currentIndex, 0)}`);
+        const thresholdText = `T${context.format(v.thresholdIndex, 0)}`;
+        $("tree-unlock").hidden = v.canEnter;
+        text("tree-unlock-target", `超构造解锁：${thresholdText}`);
+        $("tree-unlock-bar").value = v.unlockProgress;
+        text("tree-unlock-progress", `${context.format(v.unlockProgress * 100, 2)}%`);
+        text("tree-construction", context.format(v.construction, 4));
+        text("tree-rate", `+${context.format(v.constructionRate, 4)} /秒`);
+        treeRows.forEach(({ key, level, effect, cost, button }) => {
+          const u = v.upgrades[key]; level.textContent = `Lv.${u.level}`; cost.textContent = `费用：${f(u.cost)}`;
+          const multiplier = context.format(u.multiplier, 2);
+          effect.textContent = key === "label"
+            ? `高阶坏序列推进 ×${u.effect}/级\n${u.active ? `当前 ×${multiplier}`
+              : u.level > 0 ? `高阶倍率 ×${multiplier} · ${thresholdText}后生效\n${thresholdText}后解锁升级` : `${thresholdText}后解锁`}`
+            : `${key === "node" ? "树构造点获取" : "坏序列推进"} ×${u.effect}/级 · 当前 ×${multiplier}`;
+          button.textContent = key === "label" && !u.active ? "升级：锁定" : "升级";
+          button.disabled = locked || !u.canPurchase;
+        });
+        $("tree-entry").hidden = !v.canEnter;
+        text("tree-entry-base", `超构造基础 ×${context.format(v.superMultiplier, 2)}`);
+        $("tree-enter").disabled = locked || !v.canEnter;
+        $("tree-enter").hidden = !v.canEnter;
+        $("tree-entry-note").hidden = !v.canEnter;
+      } else if (v.phase === "super") {
+        $("tree-super-bar").value = v.superProgress;
+        text("tree-super-progress", `${(v.superProgress * 100).toFixed(2)}%`);
+        text("tree-super-base", `超构造基础 ×${v.superMultiplier.toFixed(3)}`);
+        text("tree-super-eta", `预计：${WIS.UI.Format.elapsedTime(Math.ceil(v.remainingSeconds))}`);
+      } else {
+        text("tree-complete-rank", `TREE(${v.rank})`);
+        text("tree-next-note", v.available ? `下一目标：TREE(${v.target})　标签：${v.labels}` : "后续 TREE 阶位暂未开放");
+        $("tree-next").hidden = !v.available; $("tree-next").disabled = locked;
+      }
+    }
     function render() {
       const unlocked = M.isUnlocked(state);
+      const treeUnlocked = M.treeUnlocked(state);
       const tab = $("big-number-tab"); tab.disabled = !unlocked;
-      $("big-number-tabs").hidden = !unlocked;
+      $("big-number-tabs").hidden = !unlocked && !treeUnlocked;
       tab.hidden = !unlocked;
       tab.title = unlocked ? "符号层级与系数" : "";
-      if (!unlocked) selected = false;
-      $("ordinary-actions-panel").hidden = selected;
-      $("big-number-panel").hidden = !selected;
+      $("tree-tab").hidden = !treeUnlocked;
+      if (selected === "tree" ? !treeUnlocked : !unlocked) selected = false;
+      $("ordinary-actions-panel").hidden = !!selected;
+      $("big-number-panel").hidden = selected !== true;
+      $("tree-panel").hidden = selected !== "tree";
       $("ordinary-actions-tab").setAttribute("aria-selected", String(!selected));
-      tab.setAttribute("aria-selected", String(selected));
+      tab.setAttribute("aria-selected", String(selected === true));
+      $("tree-tab").setAttribute("aria-selected", String(selected === "tree"));
       if (!selected) return;
+      if (selected === "tree") { renderTree(); return; }
       const v = M.view(state), order = v.dominantOrder, graham = v.gIndex > 0;
-      text("big-number-page-dominant", graham ? `G${v.gIndex}` : quantity(v.amounts[order], order));
+      text("big-number-page-dominant", v.tree.rank >= 3 ? `TREE(${v.tree.rank})` : graham ? `G${v.gIndex}` : quantity(v.amounts[order], order));
       source("big-number-page-rate", graham ? v.baseSpeed : v.rates[order], graham ? v.speed : v.rates[order], graham ? "%" : M.SYMBOLS[order]);
+      $("big-number-page-rate").hidden = v.tree.rank >= 3;
       text("big-number-secondary", graham ? `次级：${quantity(v.amounts[4], 4)}；Q = ${f(v.amounts[4])}`
         : order > 0 ? `次级：${quantity(v.amounts[order - 1], order - 1)}` : "更高阶符号尚未解锁");
       source("big-number-base", M.currentBaseYRate(state), M.currentBaseYRate(state), "Y");
@@ -52,10 +99,10 @@
         button.textContent = done ? "已强化" : next ? "强化" : "需要上一分形";
       });
       if (graham) {
-        const complete = v.gIndex === 64;
-        text("super-fractal-next", complete ? "G64 · 本阶段完成；后续层级暂未开放" : `下一阶位：G${v.gIndex + 1}`);
-        text("super-fractal-progress", complete ? `保留进度：${f(v.progress)}%（不兑换未开放阶位）` : `${B.toNumber(v.progress, 0).toFixed(2)}% / 100%`);
-        $("super-fractal-bar").value = complete ? 100 : Math.min(100, B.toNumber(v.progress, 0));
+        const complete = v.gIndex >= M.maximumG(state);
+        text("super-fractal-next", complete ? treeUnlocked ? "G64 · 本阶段完成；大数·树已开放" : "G64 · 本阶段完成；完成古戈尔成就后开放大数·树" : `下一阶位：G${v.gIndex + 1}`);
+        text("super-fractal-progress", complete ? "本阶段已完成" : `${f(v.progress)} / ${f(v.requirement)}`);
+        $("super-fractal-bar").value = complete ? 100 : Math.min(100, B.toNumber(B.mul(B.div(v.progress,v.requirement),100), 0));
         text("super-fractal-sources", `基础：${M.BASE_SUPER_SPEED}%/秒 · Graham里程碑：×${v.milestoneMultiplier} · 超越分形：×${f(v.fractalMultiplier)}`);
         const nextTarget = M.MILESTONES.find(g => g > v.gIndex);
         milestones.forEach(({ el, rank }) => {
@@ -74,6 +121,25 @@ ${sourceText(v.rates[i], v.rates[i], M.SYMBOLS[i])}
     function bind() {
       $("ordinary-actions-tab").addEventListener("click", () => { selected = false; render(); });
       $("big-number-tab").addEventListener("click", () => { selected = M.isUnlocked(state); render(); });
+      $("tree-tab").addEventListener("click", () => { selected = M.treeUnlocked(state) ? "tree" : false; render(); });
+      const treeAction = action => {
+        if (context.getCatchUpStatus().locked) return;
+        const previous = context.achievementStates();
+        context.performSavedAction(action, () => { context.notifyNewAchievements(previous); WIS.Core.Runtime.call("render"); render(); });
+      };
+      $("tree-enter").addEventListener("click", () => treeAction(() => M.enterTreeSuper(state)));
+      $("tree-next").addEventListener("click", () => treeAction(() => M.startNextTree(state)));
+      for (const [key, rule] of Object.entries(M.TREE_UPGRADES)) {
+        const el = document.createElement("article"); el.className = "tree-upgrade";
+        const title = document.createElement("strong"), level = document.createElement("span"), cost = document.createElement("small");
+        const effect = document.createElement("p"); effect.className = "tree-upgrade-effect";
+        title.textContent = rule.name; title.title = rule.description;
+        const button = document.createElement("button"); button.type = "button"; button.className = "primary-button";
+        button.id = `tree-upgrade-${key}`; button.textContent = "升级";
+        button.title = rule.description;
+        button.addEventListener("click", () => treeAction(() => M.purchaseTreeUpgrade(state, key)));
+        el.append(title, level, effect, cost, button); $("tree-upgrades").append(el); treeRows.push({ key, level, effect, cost, button });
+      }
       for (let i = 0; i < 5; i++) {
         const el = document.createElement("article"); el.className = "fractal-row";
         const label = document.createElement("div"), title = document.createElement("strong"), effect = document.createElement("p"), status = document.createElement("small");

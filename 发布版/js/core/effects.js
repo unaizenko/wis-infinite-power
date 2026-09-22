@@ -590,4 +590,5 @@
     collect, values, groups, product, value,
     getStatistics, resetStatistics, getInvalidEffects, resetInvalidEffects
   });
+  WIS.Core.Effects.register("infinity", WIS.Meta.Infinity.effects, {highestPowerEffects: []});
 }(window.WIS));

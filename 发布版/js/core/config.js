@@ -105,6 +105,7 @@
   ].map(([name, threshold, strength, growth, removedAtRealm, removedBy]) => Object.freeze({ name, threshold: BN(threshold), strength, growth, removedAtRealm, removedBy })));
 
   const challenges = Object.freeze({
+    ...WIS.Meta.InfinityConfig.challenges,
     mortalTransformation: Object.freeze({ name: "化凡", maxCompletions: 1, targetAdvancedRealmLevel: 2,
       system: "immortal", catalogSystem: "仙道", unlockAchievementKey: "qiPathComplete" }),
     yinVoidYangReal: Object.freeze({ name: "阴虚阳实", maxCompletions: 1, targetXiuzhenRealm: 3,
@@ -163,7 +164,7 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.5.7", saveVersion: 61,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.6.0", saveVersion: 64,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
