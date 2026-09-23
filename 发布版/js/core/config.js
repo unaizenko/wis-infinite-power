@@ -164,7 +164,7 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.6.1", saveVersion: 64,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.6.2", saveVersion: 64,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
@@ -321,10 +321,10 @@
       requirementCurveExponent: 1.05,
       manaLayerCoefficient: 0.000128,
       manaSourceCoefficient: 0.000192,
-      globalSoftcapCurveExponent: 0.8,
-      globalSoftcapResistanceCoefficient: 0.32,
-      manaSoftcapResistanceCoefficient: 1.28,
-      rewardLog10Maximum: 6,
+      globalSoftcapCurveExponent: 0.5,
+      globalSoftcapResistanceCoefficient: 1,
+      manaSoftcapResistanceCoefficient: 3,
+      rewardLog10Maximum: 50,
       rewardCurveExponent: 0.5
     }),
     ghostBrain: Object.freeze({
@@ -373,5 +373,4 @@
     })
   });
 }(window.WIS));
-
 

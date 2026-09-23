@@ -1532,13 +1532,16 @@
 
     if (challengeKey === "qiRefiningHundredThousandYears") {
       const currentLayer = Math.max(1, state.currentQiLayer);
-      const bestLayer = Math.max(state.bestQiLayer, active ? currentLayer : 0);
-      byId(`${idPrefix}-progress`).textContent = `最高：炼气${format(bestLayer, 0)}层${finished ? "（目标已达成）" : ""}`;
+      const recordedBest = Math.max(0, state.bestQiLayer);
+      const projectedBest = active ? Math.max(recordedBest, currentLayer) : recordedBest;
+      byId(`${idPrefix}-progress`).textContent = `历史最高：炼气${format(recordedBest, 0)}层${finished ? "（目标已达成）" : ""}`;
       byId(`${idPrefix}-limit`).textContent = active
-        ? `本轮炼气${format(currentLayer, 0)}层；下层需求 ${format(qiLayerRequirement(currentLayer + 1))} 法力`
-        : `历史最高奖励只取一次；重复挑战不会叠加完成奖励`;
-      byId(`${idPrefix}-reward`).textContent = `永久吐纳法力倍率 ×${format(qiChallengeReward(bestLayer))}`;
-      button.textContent = active ? "退出挑战" : finished ? "重复挑战（无完成奖励）" : "开启挑战";
+        ? `本轮炼气${format(currentLayer, 0)}层；下一层要求 ${format(qiLayerRequirement(currentLayer + 1))} 法力（不消耗）`
+        : `退出时刷新历史最高层；10万层完成记录只增加一次`;
+      byId(`${idPrefix}-reward`).textContent = active
+        ? `若现在退出，永久吐纳法力倍率 ×${format(qiChallengeReward(projectedBest))}`
+        : `根据历史最高炼气层，永久吐纳法力倍率 ×${format(qiChallengeReward(recordedBest))}`;
+      button.textContent = active ? "退出挑战" : finished ? "重复挑战（可刷新最高层）" : "开启挑战";
       button.disabled = state.activeChallenge !== null && !active;
       return;
     }
@@ -2160,14 +2163,16 @@
     setHiddenIfChanged(byId("immortal-progress"), !immortalSelected);
     if (renderRealms) {
     setHiddenIfChanged(byId("foundation-stage"), !state.qiRefiningUnlocked);
-    setTextIfChanged(byId("foundation-cost"), `消耗 ${formatCost(nextFoundationCost)} 法力`);
+    setTextIfChanged(byId("foundation-cost"), qiRefiningChallengeActive()
+      ? `下一层要求 ${formatCost(nextFoundationCost)} 法力（不消耗）`
+      : `消耗 ${formatCost(nextFoundationCost)} 法力`);
     const qiChallengeActive = qiRefiningChallengeActive();
     const foundationStage = byId("foundation-stage");
     setTextIfChanged(foundationStage.querySelector("h2"), qiChallengeActive
       ? `炼气${format(state.currentQiLayer + 1, 0)}层`
       : "筑基");
     setTextIfChanged(foundationStage.querySelector(".item-content p"), qiChallengeActive
-      ? "消耗法力提升炼气层数"
+      ? "法力达到下一层要求后，可直接提升至当前可达的最高炼气层，不消耗法力。"
       : "百日筑基，吐纳更难获得法力，解除爆屋软上限。");
     setTextIfChanged(foundationStage.querySelector(".purchase-control span"), qiChallengeActive
       ? `当前炼气${format(state.currentQiLayer, 0)}层`

@@ -27,6 +27,9 @@
         text("tree-sequence-title", v.labels === 3 ? "三标签坏序列" : `${v.labels}标签坏序列`);
         text("tree-sequence", `当前：T${context.format(v.currentIndex, 0)}`);
         const thresholdText = `T${context.format(v.thresholdIndex, 0)}`;
+        const decayText = `T${context.format(v.decayIndex, 0)}`;
+        text("tree-construction-threshold", `实际构造阈值：${thresholdText}`);
+        text("tree-decay-threshold", `实际衰减阈值：${decayText}`);
         $("tree-unlock").hidden = v.canEnter;
         text("tree-unlock-target", `超构造解锁：${thresholdText}`);
         $("tree-unlock-bar").value = v.unlockProgress;
@@ -37,22 +40,24 @@
           const u = v.upgrades[key]; level.textContent = `Lv.${u.level}`; cost.textContent = `费用：${f(u.cost)}`;
           const multiplier = context.format(u.multiplier, 2);
           effect.textContent = key === "label"
-            ? `高阶坏序列推进 ×${u.effect}/级\n${u.active ? `当前 ×${multiplier}`
-              : u.level > 0 ? `高阶倍率 ×${multiplier} · ${thresholdText}后生效\n${thresholdText}后解锁升级` : `${thresholdText}后解锁`}`
+            ? `高阶坏序列推进 ×${u.effect}/级\n${u.active ? `当前 ×${multiplier} · 超过${decayText}后生效`
+              : u.level > 0 ? `高阶倍率 ×${multiplier} · 超过${decayText}后生效\n达到${decayText}后解锁升级` : `达到${decayText}后解锁升级`}`
             : `${key === "node" ? "树构造点获取" : "坏序列推进"} ×${u.effect}/级 · 当前 ×${multiplier}`;
           button.textContent = key === "label" && !u.active ? "升级：锁定" : "升级";
           button.disabled = locked || !u.canPurchase;
         });
-        $("tree-entry").hidden = !v.canEnter;
-        text("tree-entry-base", `超构造基础 ×${context.format(v.superMultiplier, 2)}`);
+        $("tree-entry").hidden = false;
+        text("tree-entry-base", `若现在进入超构造：进度倍率 ×${context.format(v.superMultiplier, 2)}`);
         $("tree-enter").disabled = locked || !v.canEnter;
         $("tree-enter").hidden = !v.canEnter;
-        $("tree-entry-note").hidden = !v.canEnter;
+        $("tree-entry-note").hidden = false;
       } else if (v.phase === "super") {
-        $("tree-super-bar").value = v.superProgress;
-        text("tree-super-progress", `${(v.superProgress * 100).toFixed(2)}%`);
-        text("tree-super-base", `超构造基础 ×${v.superMultiplier.toFixed(3)}`);
-        text("tree-super-eta", `预计：${WIS.UI.Format.elapsedTime(Math.ceil(v.remainingSeconds))}`);
+        $("tree-super-bar").value = v.superProgressFraction;
+        text("tree-super-progress", `TREE(${v.rank}) → TREE(${v.target})：${f(v.superCompleted)} / ${f(v.superRequirement)}（${(v.superProgressFraction * 100).toFixed(2)}%）`);
+        text("tree-super-base", `实际总进度倍率 ×${v.superMultiplier.toFixed(3)}`);
+        text("tree-super-sources", `来源：${v.superSources.map(source => `${source.name} ×${f(source.multiplier)}`).join(" · ")}`);
+        text("tree-super-eta", Number.isFinite(v.remainingSeconds)
+          ? `预计：${WIS.UI.Format.elapsedTime(Math.ceil(v.remainingSeconds))}` : "预计：极长（以进度需求为准）");
       } else {
         text("tree-complete-rank", `TREE(${v.rank})`);
         text("tree-next-note", v.available ? `下一目标：TREE(${v.target})　标签：${v.labels}` : "后续 TREE 阶位暂未开放");

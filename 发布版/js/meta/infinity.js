@@ -40,7 +40,9 @@
     if(!prerequisites(n,node))return 'prerequisite';return B.gte(n.points,node.price)?'available':'unaffordable';}
   function purchase(s,id){WIS.Core.Runtime.assertMutable();if(status(s,id)!=='available')return false;const n=get(s),price=money(C.nodes[id].price);
     // Settlement candidates validate domain root identity before publishing.
-    s.meta={...s.meta,infinity:{...n,points:B.sub(n.points,price),upgrades:{...n.upgrades,[id]:true},purchaseLedger:[...n.purchaseLedger,{nodeId:id,pricePaid:price}]}};WIS.Core.Effects?.invalidate();return true;}
+    s.meta={...s.meta,infinity:{...n,points:B.sub(n.points,price),upgrades:{...n.upgrades,[id]:true},purchaseLedger:[...n.purchaseLedger,{nodeId:id,pricePaid:price}]}};
+    if(id==='D1-2')WIS.Meta.BigNumbers.continueUnlockedTree(s);
+    WIS.Core.Effects?.invalidate();return true;}
   const ledgerTotal=n=>(n?.purchaseLedger||[]).reduce((v,e)=>B.add(v,e.pricePaid),B.BN(0));
   const invested=s=>ledgerTotal(get(s));
   const completed=(s,id)=>(s.challengeCompletions?.[id]||0)>0;
@@ -60,8 +62,13 @@
     let m=B.BN(completed(s,'trueG1')?C.fractalReward:1);
     if(order>0&&has(s,'D2-1'))m=B.mul(m,factor(order-1));
     if(s.activeChallenge==='trueG1')for(let i=0;i<order;i++)m=B.div(m,factor(i));return m;}
-  function gRequirement(s,g){return B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?1+C.gChallengeCoefficient*g:(!s.activeChallenge&&completed(s,'trueGraham')?C.gRewardExponent:1));}
-  const gSpeedMultiplier=s=>has(s,'D4')?B.pow(C.treeGBase,Math.max(0,WIS.Meta.BigNumbers.get(s).tree.rank-C.treeGStart)):B.BN(1);
+  function gBaseRequirement(s,g){return B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?1+C.gChallengeCoefficient*g:(!s.activeChallenge&&completed(s,'trueGraham')?C.gRewardExponent:1));}
+  function gRequirement(s,g){
+    const capacity=B.pow(B.add(1,B.div(Math.max(g-C.gCapacityStart,0),C.gCapacityDivisor)),C.gCapacityPower);
+    const treeReduction=has(s,'D4')?B.pow(C.treeGBase,Math.max(0,WIS.Meta.BigNumbers.get(s).tree.rank-C.treeGStart)):B.ONE;
+    return B.div(B.mul(gBaseRequirement(s,g),capacity),treeReduction);
+  }
+  const gSpeedMultiplier=_s=>B.ONE;
   const treeGainMultiplier=s=>B.mul(has(s,'D2-2')?B.pow(B.add(1,B.div(WIS.Meta.BigNumbers.get(s).gIndex,C.gTreeDivisor)),C.gTreePower):1,completed(s,'trueTree3')?C.treeReward:1);
   function effects(s){return [
     {id:'infinityJ',name:'无限节奏',group:'无限',target:'joules',layer:'regionMultiplier',value:tempoMultiplier(s)},
@@ -100,5 +107,5 @@
     return next;
   }
   WIS.Meta.Infinity=Object.freeze({fresh,normalize,get,has,hasInfinityUpgrade:has,status,purchase,invested,previewRebirth,prepareRebirth,
-    commitRebirth,completed,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
+    commitRebirth,completed,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gBaseRequirement,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
 }(window.WIS));

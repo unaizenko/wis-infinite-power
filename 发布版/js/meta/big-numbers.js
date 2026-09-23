@@ -14,7 +14,7 @@
   });
   function freshTree() {
     return { rank: 0, phase: "explicit", construction: B.BN(0), totalConstruction: B.BN(0), sequenceWork: B.BN(0),
-      upgrades: { node: 0, branch: 0, label: 0 }, superEntryMultiplier: 1, superProgress: 0 };
+      upgrades: { node: 0, branch: 0, label: 0 }, superEntryMultiplier: 1, superProgress: B.ZERO };
   }
   function normalizeTree(raw, legacyComplete = false) {
     const t = freshTree();
@@ -33,19 +33,20 @@
         t[key] = value;
       }
       for (const key of Object.keys(TREE_UPGRADES)) t.upgrades[key] = integer(raw.upgrades?.[key]);
-      for (const key of ["superEntryMultiplier", "superProgress"]) {
-        const value = Number(raw[key] ?? t[key]);
-        if (!Number.isFinite(value)) throw Error("TREE 超构造数值无效");
-        t[key] = Math.max(key === "superProgress" ? 0 : 1, Math.min(key === "superProgress" ? 1 : 2.5, value));
-      }
+      const multiplier=Number(raw.superEntryMultiplier ?? 1);
+      if (!Number.isFinite(multiplier)) throw Error("TREE 超构造倍率无效");
+      t.superEntryMultiplier=Math.max(1,Math.min(2.5,multiplier));
+      const progress=B.parseFinite(raw.superProgress ?? 0);
+      if (!progress || B.lt(progress,0) || B.gt(progress,1)) throw Error("TREE 超构造进度无效");
+      t.superProgress=progress;
       if (![undefined, "explicit", "super", "complete"].includes(raw.phase)) throw Error("TREE 阶段无效");
       t.phase = raw.phase || "explicit";
     }
     // Permanent achievements never restore current-run TREE progress.
     if (t.rank >= 3 && t.phase === "complete") {
-      t.phase = "complete"; t.superProgress = 1;
+      t.phase = "complete"; t.superProgress = B.ONE;
     } else if (t.phase === "complete") throw Error("TREE 完成状态缺少阶位");
-    if (t.phase === "explicit") { t.superEntryMultiplier = 1; t.superProgress = 0; }
+    if (t.phase === "explicit") { t.superEntryMultiplier = 1; t.superProgress = B.ZERO; }
     return t;
   }
   const cloneTree = t => ({ ...t, upgrades: { ...t.upgrades } });
@@ -61,7 +62,7 @@
   function fresh() {
     return { version: 1, unlocked: false, fractalLevel: 0, purchases: [false, false, false, false, false],
       resources: SYMBOLS.map(entry), gIndex: 0, superProgress: B.BN(0), superResidual: [],
-      beyondFractal: false, elapsedSeconds: 0, ySample: null, tree: freshTree() };
+      beyondFractal: false, elapsedSeconds: 0, ySample: null, gCapacityModel: 1, tree: freshTree() };
   }
   const nonnegative = v => {
     if (!B.isFiniteBN(v ?? 0) || B.lt(v ?? 0, 0)) throw Error("大数存档包含非法系数");
@@ -96,7 +97,17 @@
     });
     n.superProgress = merge(raw.superProgress,raw.superResidual);
     n.superResidual = [];
+    n.gCapacityModel=raw.gCapacityModel===1?1:0;
     return n;
+  }
+  function reconcileGCapacity(state) {
+    const n=get(state);
+    if(n.gCapacityModel===1)return;
+    if(n.gIndex>=IC.gCapacityStart+1){
+      const oldRequirement=I.gBaseRequirement(state,n.gIndex);
+      n.superProgress=B.mul(B.div(n.superProgress,oldRequirement),I.gRequirement(state,n.gIndex));
+    }
+    n.gCapacityModel=1;
   }
   function get(state) {
     // Load/normalize owns persistent initialization; queries only return a view.
@@ -120,6 +131,8 @@
   }
   function syncUnlock(state) {
     if (!state.meta.bigNumbers?.resources || !state.meta.bigNumbers.tree) state.meta.bigNumbers = normalize(state.meta.bigNumbers);
+    reconcileGCapacity(state);
+    continueUnlockedTree(state);
     syncMilestones(state);
     const n = get(state), r = requirements(state);
     if (r.power) n.unlocked = true;
@@ -239,7 +252,9 @@
   const treeUnlocked = state => WIS.Meta.Achievements.has(state, "googol") && get(state).gIndex >= 64;
   const targetTreeRank = state => treeState(state).rank < 3 ? 3 : treeState(state).rank + 1;
   const treeSuperThresholdWork = (state, _target) => B.pow(IC.treeWork,state.activeChallenge==='trueTree3'?IC.treeChallengeExponent:1);
-  const treeSuperSeconds = target => IC.treeSeconds * Math.pow(IC.treeTimeGrowth, target - 3);
+  const treeDecayThresholdWork = (_state, _target) => B.BN(IC.treeDecayWork);
+  const treeSuperRequirement = (_state,target) => B.mul(IC.treeSeconds,B.pow(IC.treeTimeGrowth,target-3));
+  const treeSuperSeconds = target => B.toNumber(B.mul(IC.treeSeconds,B.pow(IC.treeTimeGrowth,target-3)),Infinity);
   const treeEffect = (state, key) => B.pow(TREE_UPGRADES[key].effect, treeState(state).upgrades[key]);
   const treeUpgradeCost = (state, key) => {
     const rule = TREE_UPGRADES[key];
@@ -250,7 +265,7 @@
   const treeConstructionGain = (state, seconds) => B.mul(treeConstructionRate(state), seconds);
   function treeSequenceGain(state, constructionGain) {
     const baseWork = B.mul(constructionGain, treeEffect(state, "branch"));
-    const remaining = B.max(0, B.sub(treeSuperThresholdWork(state, targetTreeRank(state)), treeState(state).sequenceWork));
+    const remaining = B.max(0, B.sub(treeDecayThresholdWork(state, targetTreeRank(state)), treeState(state).sequenceWork));
     const before = B.min(baseWork, remaining);
     return B.add(before, B.mul(B.sub(baseWork, before), treeEffect(state, "label")));
   }
@@ -261,11 +276,11 @@
     const i = treeSequenceIndex(treeState(state).sequenceWork);
     return B.toNumber(B.min(2.5, B.max(1, B.add(1, B.mul(0.35, B.log10(B.div(i, TREE_INDEX_BASE)))))), 1);
   }
-  const treeSuperSpeed = state => treeState(state).superEntryMultiplier / treeSuperSeconds(targetTreeRank(state));
+  const treeSuperSpeed = state => B.div(treeState(state).superEntryMultiplier,treeSuperRequirement(state,targetTreeRank(state)));
   const treeActive = state => treeUnlocked(state) && targetTreeRank(state) <= maximumTree(state);
   function canPurchaseTreeUpgrade(state, key) {
     return Object.hasOwn(TREE_UPGRADES, key) && treeActive(state) && treeState(state).phase === "explicit"
-      && (key !== "label" || B.gte(treeState(state).sequenceWork, treeSuperThresholdWork(state, targetTreeRank(state))))
+      && (key !== "label" || B.gte(treeState(state).sequenceWork, treeDecayThresholdWork(state, targetTreeRank(state))))
       && treeState(state).upgrades[key] < Number.MAX_SAFE_INTEGER && B.gte(treeState(state).construction, treeUpgradeCost(state, key));
   }
   function purchaseTreeUpgrade(state, key) {
@@ -282,13 +297,20 @@
   function enterTreeSuper(state) {
     if (!canEnterTreeSuper(state)) return false;
     WIS.Core.Runtime.assertMutable();
-    transaction(state, n => { n.tree.superEntryMultiplier = treeSuperMultiplier(state); n.tree.superProgress = 0; n.tree.phase = "super"; });
+    transaction(state, n => { n.tree.superEntryMultiplier = treeSuperMultiplier(state); n.tree.superProgress = B.ZERO; n.tree.phase = "super"; });
     return true;
+  }
+  function resetRankProgress(t) {
+    t.phase="explicit";t.construction=B.ZERO;t.sequenceWork=B.ZERO;t.superProgress=B.ZERO;t.superEntryMultiplier=1;
+  }
+  function continueUnlockedTree(state) {
+    const t=treeState(state);
+    if(t.phase==="complete" && t.rank>=3 && I.has(state,"D1-2"))resetRankProgress(t);
   }
   function startNextTree(state) {
     if (!treeActive(state) || treeState(state).phase !== "complete") return false;
     WIS.Core.Runtime.assertMutable();
-    transaction(state, n => { n.tree = { ...freshTree(), rank: n.tree.rank, upgrades: { ...n.tree.upgrades } }; });
+    transaction(state, n => { resetRankProgress(n.tree); });
     return true;
   }
   function advanceTree(state, seconds) {
@@ -300,22 +322,33 @@
       t.totalConstruction = nonnegative(B.add(t.totalConstruction, gain));
       t.sequenceWork = nonnegative(B.add(t.sequenceWork, treeSequenceGain(state, gain)));
     } else if (t.phase === "super") {
-      const remaining = (1 - t.superProgress) / treeSuperSpeed(state);
-      t.superProgress = seconds >= remaining ? 1 : Math.min(1, t.superProgress + seconds * treeSuperSpeed(state));
-      if (t.superProgress >= 1) { t.rank = targetTreeRank(state); t.phase = "complete"; }
+      const remaining=B.toNumber(B.div(B.mul(B.sub(1,t.superProgress),treeSuperRequirement(state,targetTreeRank(state))),t.superEntryMultiplier),Infinity);
+      t.superProgress=B.min(1,B.add(t.superProgress,B.mul(seconds,treeSuperSpeed(state))));
+      if (B.gte(t.superProgress,1)) {
+        t.rank=targetTreeRank(state);t.phase="complete";
+        if(I.has(state,"D1-2")){
+          resetRankProgress(t);
+          if(seconds>remaining)advanceTree(state,seconds-remaining);
+        }
+      }
     }
   }
   function treeView(state) {
     const t = treeState(state), target = targetTreeRank(state), unlocked = treeUnlocked(state);
     const sequenceIndex = treeSequenceIndex(t.sequenceWork), currentIndex = sequenceIndex.floor();
     const thresholdIndex = treeSequenceIndex(treeSuperThresholdWork(state, target));
-    const labelActive = B.gte(t.sequenceWork, treeSuperThresholdWork(state, target));
+    const decayIndex = treeSequenceIndex(treeDecayThresholdWork(state,target));
+    const labelActive = B.gte(t.sequenceWork, treeDecayThresholdWork(state, target));
+    const requirement=treeSuperRequirement(state,target);
     return { ...cloneTree(t), unlocked, target, labels: target, available: target <= maximumTree(state),
       sequenceIndex, currentIndex, nextIndex: B.add(currentIndex, 1), sequenceProgress: B.toNumber(B.sub(sequenceIndex, currentIndex), 0),
-      thresholdIndex, unlockProgress: B.toNumber(B.min(1, B.max(0, B.div(sequenceIndex, thresholdIndex))), 0),
+      thresholdIndex, decayIndex, unlockProgress: B.toNumber(B.min(1, B.max(0, B.div(sequenceIndex, thresholdIndex))), 0),
       constructionRate: unlocked && t.phase === "explicit" && target <= maximumTree(state) ? treeConstructionRate(state) : B.ZERO,
       superMultiplier: t.phase === "explicit" ? treeSuperMultiplier(state) : t.superEntryMultiplier,
-      remainingSeconds: t.phase === "super" ? (1 - t.superProgress) / treeSuperSpeed(state) : 0,
+      superRequirement: requirement, superCompleted: B.mul(t.superProgress,requirement),
+      superProgressFraction: B.toNumber(t.superProgress,0),
+      superSources: [{name:"基础",multiplier:B.ONE},{name:"进入时锁定",multiplier:B.BN(t.phase==="explicit"?treeSuperMultiplier(state):t.superEntryMultiplier)}],
+      remainingSeconds: t.phase === "super" ? B.toNumber(B.div(B.mul(B.sub(1,t.superProgress),requirement),t.superEntryMultiplier),Infinity) : 0,
       canEnter: canEnterTreeSuper(state), upgrades: Object.fromEntries(Object.entries(TREE_UPGRADES).map(([key, rule]) =>
         [key, { ...rule, level: t.upgrades[key], multiplier: treeEffect(state, key), active: key !== "label" || labelActive,
           cost: treeUpgradeCost(state, key), canPurchase: canPurchaseTreeUpgrade(state, key) }])) };
@@ -401,16 +434,57 @@
     for(const end of [...MILESTONES.filter(x=>x>n.gIndex&&x<cap),cap]){
       if(n.gIndex>=end)continue;
       const k=milestoneMultiplier(n.gIndex),req=I.gRequirement(state,n.gIndex),maxLevels=end-n.gIndex;
-      const estimate=B.eq(ratio,1)?B.div(B.mul(available,k),req):B.div(B.log10(B.add(1,B.div(B.mul(B.mul(available,k),B.sub(ratio,1)),req))),B.log10(ratio));
-      let levels=Math.min(maxLevels,Math.max(0,Math.floor(B.toNumber(B.min(estimate,maxLevels),0))));
-      const cost=count=>B.div(B.mul(req,B.eq(ratio,1)?count:B.div(B.sub(B.pow(ratio,count),1),B.sub(ratio,1))),k);
-      if(levels>0&&B.gt(cost(levels),available))levels--;
-      if(levels<maxLevels&&B.lte(cost(levels+1),available))levels++;
+      const capacity=n.gIndex>=IC.gCapacityStart;
+      const cost=count=>{
+        if(capacity&&count<=32){let exact=B.ZERO;for(let j=0;j<count;j++)exact=B.add(exact,I.gRequirement(state,n.gIndex+j));return B.div(exact,k);}
+        return B.div(B.mul(req,capacity?gCapacitySum(n.gIndex,count,ratio):
+          B.eq(ratio,1)?count:B.div(B.sub(B.pow(ratio,count),1),B.sub(ratio,1))),k);
+      };
+      let levels;
+      if(capacity){
+        if(B.lt(available,cost(1)))levels=0;
+        else {let lo=0,hi=Math.min(maxLevels,Math.max(1,Math.floor(B.toNumber(B.div(B.mul(available,k),req),maxLevels))+1));
+          while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
+          levels=lo;
+        }
+      }else{
+        const estimate=B.eq(ratio,1)?B.div(B.mul(available,k),req):B.div(B.log10(B.add(1,B.div(B.mul(B.mul(available,k),B.sub(ratio,1)),req))),B.log10(ratio));
+        levels=Math.min(maxLevels,Math.max(0,Math.floor(B.toNumber(B.min(estimate,maxLevels),0))));
+        if(levels>0&&B.gt(cost(levels),available))levels--;
+        if(levels<maxLevels&&B.lte(cost(levels+1),available))levels++;
+      }
       available=B.sub(available,cost(levels));n.gIndex+=levels;
       if(n.gIndex<end)break;
     }
     n.superProgress=B.mul(available,milestoneMultiplier(n.gIndex));n.superResidual=[];
     return MILESTONES.filter(g=>g>old&&g<=n.gIndex).length;
+  }
+  function gCapacitySum(g,count,ratio){
+    if(count===0)return B.ZERO;
+    const power=IC.gCapacityPower;
+    if(!Number.isInteger(power)||power<0)throw Error('G需求容量指数必须为非负整数');
+    const a=B.add(1,B.div(g-IC.gCapacityStart,IC.gCapacityDivisor)),b=B.div(1,IC.gCapacityDivisor),m=B.BN(count);
+    if(power===2&&B.eq(ratio,1)){
+      const sum=B.add(B.add(B.mul(m,B.pow(a,2)),B.mul(B.mul(a,b),B.mul(m,B.sub(m,1)))),
+        B.div(B.mul(B.pow(b,2),B.mul(B.mul(m,B.sub(m,1)),B.sub(B.mul(2,m),1))),6));
+      return B.div(sum,B.pow(a,2));
+    }
+    const choose=(n,k)=>{let value=1;for(let i=1;i<=k;i++)value=value*(n-i+1)/i;return value;};
+    const join=(left,right)=>({length:left.length+right.length,p:B.mul(left.p,right.p),
+      moments:left.moments.map((value,k)=>{
+        let shifted=B.ZERO;
+        for(let i=0;i<=k;i++)shifted=B.add(shifted,B.mul(B.mul(choose(k,i),B.pow(left.length,k-i)),right.moments[i]));
+        return B.add(value,B.mul(left.p,shifted));
+      })});
+    let sum={length:0,p:B.ONE,moments:Array.from({length:power+1},()=>B.ZERO)};
+    let block={length:1,p:ratio,moments:[B.ONE,...Array.from({length:power},()=>B.ZERO)]};
+    for(let remaining=count;remaining>0;remaining=Math.floor(remaining/2)){
+      if(remaining%2)sum=join(sum,block);
+      if(remaining>1)block=join(block,block);
+    }
+    let weighted=B.ZERO;
+    for(let i=0;i<=power;i++)weighted=B.add(weighted,B.mul(B.mul(choose(power,i),B.mul(B.pow(a,power-i),B.pow(b,i))),sum.moments[i]));
+    return B.div(weighted,B.pow(a,power));
   }
   function grahamExposureSeconds(q, work, limit) {
     // Invert the existing monotone convex Graham integral at a G64 crossing.
@@ -475,10 +549,10 @@
     if (B.eq(ca, 0) || B.eq(cb, 0)) return ca.cmp(cb);
     return a.order !== b.order ? Math.sign(a.order - b.order) : a.order === 6 ? Math.sign(a.treeRank - b.treeRank) : a.order === 5 ? Math.sign(a.gIndex - b.gIndex) : ca.cmp(cb);
   }
-  WIS.Meta.BigNumbers = Object.freeze({ BASE_SUPER_SPEED, SYMBOLS, COSTS, MILESTONES, fresh, normalize, get, requirements, isUnlocked,
+  WIS.Meta.BigNumbers = Object.freeze({ BASE_SUPER_SPEED, SYMBOLS, COSTS, MILESTONES, fresh, normalize, get, reconcileGCapacity, continueUnlockedTree, requirements, isUnlocked,
     syncUnlock, syncMilestones, baseYRate, currentBaseYRate, sampledYGain, rates, amount, canPurchase, purchase, milestoneMultiplier, fractalMultiplier,
     exposure, advance, prepare, view, compareSymbolic, maximumGIndex: 64, maximumG, maximumTree,
-    MAX_TREE_RANK, TREE_UPGRADES, freshTree, normalizeTree, treeUnlocked, targetTreeRank, treeSuperThresholdWork, treeSuperSeconds,
+    MAX_TREE_RANK, TREE_UPGRADES, freshTree, normalizeTree, treeUnlocked, targetTreeRank, treeSuperThresholdWork, treeDecayThresholdWork, treeSuperRequirement, treeSuperSeconds,
     treeUpgradeCost, treeConstructionRate, treeConstructionGain, treeSequenceGain, treeSequenceIndex, treeSuperMultiplier, treeSuperSpeed,
     canPurchaseTreeUpgrade, purchaseTreeUpgrade, canEnterTreeSuper, enterTreeSuper, startNextTree, treeView, treeSignature });
 }(window.WIS));

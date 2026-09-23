@@ -667,7 +667,6 @@ button { font: inherit; }
   }
   .app-header p { display: block; font-size: 11px; }
   .scale-progress small { font-size: 9px; }
-
   .settings-button { width: 32px; height: 32px; font-size: 17px; }
   .app-body { min-height: calc(100vh - 111px); display: flex; flex-direction: column; }
   .sidebar { padding: 14px 16px; }
@@ -679,7 +678,6 @@ button { font: inherit; }
   .resource-value { display: flex; margin-top: 3px; gap: 5px; }
   .resource-value strong { font-size: 18px; }
   .resource-value small { font-size: 10px; }
-
   .navigation { position: static; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); margin-top: 12px; }
   .nav-item { justify-content: center; gap: 8px; }
   .nav-item small { display: none; }
@@ -717,7 +715,6 @@ button { font: inherit; }
   .app-header .game-version { padding: 2px 5px; font-size: 9px; }
   .header-actions { gap: 6px; }
   .scale-progress small { display: block; font-size: 9px; white-space: normal; line-height: 1.3; }
-
   .resource-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resource-row { padding: 4px 8px; }
   .resource-row:nth-child(odd) { padding-left: 0; border-left: 0; }

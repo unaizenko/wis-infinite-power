@@ -942,7 +942,10 @@
       currentRealmLevel,
       Math.floor(Number(flat.lifetimeHighestCultivationRealmLevel) || 0)
     );
-    return attachLegacyAliases(domain);
+    attachLegacyAliases(domain);
+    WIS.Meta.BigNumbers?.reconcileGCapacity(domain);
+    WIS.Meta.BigNumbers?.continueUnlockedTree(domain);
+    return domain;
   }
 
   function toFlat(state) {
@@ -1065,7 +1068,10 @@
     domain.meta.bigNumbers = WIS.Meta.BigNumbers?.normalize(source.meta?.bigNumbers) ?? source.meta?.bigNumbers ?? {};
     domain.cultivation.systems.immortal.xiuzhen = WIS.Cultivation.Xiuzhen?.normalize(source.cultivation?.systems?.immortal?.xiuzhen)
       ?? source.cultivation?.systems?.immortal?.xiuzhen ?? {};
-    return attachLegacyAliases(domain);
+    attachLegacyAliases(domain);
+    WIS.Meta.BigNumbers?.reconcileGCapacity(domain);
+    WIS.Meta.BigNumbers?.continueUnlockedTree(domain);
+    return domain;
   }
 
   function normalize(input) {

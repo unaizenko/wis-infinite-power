@@ -3334,7 +3334,6 @@
   function autoBreakthroughImmortalRealms() {
     if (!state.immortalRealmAutomationEnabled || !hasAchievement("bodyIntegration") || state.cultivation.active !== "immortal") return 0;
     if (qiRefiningChallengeActive()) {
-      if (runtime.getMathPolicy() === runtime.MathPolicy.OFFLINE_APPROX) return 0;
       if (nextQiLayer(state.currentQiLayer) === null) {
         if (runtime.isOfflineExecution()) throw qiLayerRepresentationError(state.currentQiLayer);
         return 0;
@@ -3558,15 +3557,34 @@
     notifyNewAchievements(previousAchievements);
   }
 
-  function commitQiLayerAdvance(targetLayer, totalCost, shouldRender) {
+  function highestQualifiedQiLayer(currentLayer, mana) {
+    const nextLayer = nextQiLayer(currentLayer);
+    if (nextLayer === null) return { layer: currentLayer, status: "representation-limit" };
+    if (!isFiniteBN(mana) || !gte(mana, qiLayerRequirement(nextLayer)))
+      return { layer: currentLayer, status: "ok" };
+    let lower = nextLayer;
+    let upper = Math.min(Number.MAX_SAFE_INTEGER, currentLayer + 2);
+    while (gte(mana, qiLayerRequirement(upper))) {
+      lower = upper;
+      if (upper === Number.MAX_SAFE_INTEGER)
+        return { layer: upper, status: "representation-limit" };
+      upper = Math.min(Number.MAX_SAFE_INTEGER, currentLayer + 2 * (upper - currentLayer));
+    }
+    while (upper - lower > 1) {
+      const middle = lower + Math.floor((upper - lower) / 2);
+      if (gte(mana, qiLayerRequirement(middle))) lower = middle;
+      else upper = middle;
+    }
+    return { layer: lower, status: "ok" };
+  }
+
+  function commitQiLayerAdvance(targetLayer, shouldRender) {
     const currentLayer = Math.max(1, Math.floor(Number(state.currentQiLayer) || 1));
     const safeTargetLayer = Math.max(currentLayer, Math.floor(Number(targetLayer) || currentLayer));
     if (!Number.isSafeInteger(currentLayer) || !Number.isSafeInteger(safeTargetLayer)) {
       throw qiLayerRepresentationError(currentLayer);
     }
-    if (safeTargetLayer <= currentLayer || !isFiniteBN(totalCost) || !gt(totalCost, ZERO) ||
-        !canAffordMana(totalCost)) return 0;
-    if (!WIS.Core.Resources.spendSystem("immortal", "mana", totalCost)) return 0;
+    if (safeTargetLayer <= currentLayer || !canAffordMana(qiLayerRequirement(safeTargetLayer))) return 0;
     state.currentQiLayer = safeTargetLayer;
     if (safeTargetLayer >= QI_CHALLENGE_CONFIG.targetLayer &&
         WIS.Meta.Challenges.completionCount(state, "qiRefiningHundredThousandYears") < 1) {
@@ -3582,22 +3600,17 @@
 
   function advanceQiLayer(shouldRender = true) {
     if (!qiRefiningChallengeActive()) return false;
-    const currentLayer = Math.max(1, Math.floor(Number(state.currentQiLayer) || 1));
-    const nextLayer = nextQiLayer(currentLayer);
-    if (nextLayer === null) return qiLayerRepresentationLimit(currentLayer, shouldRender);
-    return commitQiLayerAdvance(nextLayer, qiLayerRequirement(nextLayer), shouldRender) === 1;
+    return advanceQiLayersBatch(shouldRender) > 0;
   }
 
   function advanceQiLayersBatch(shouldRender = true) {
     if (!qiRefiningChallengeActive()) return 0;
-    if (shouldRender && !qiBatchScope && !runtime.isProjection() && !runtime.isOfflineExecution() && runtime.has("requestQiBatch"))
-      return runtime.call("requestQiBatch", shouldRender);
     const currentLayer = Math.max(1, Math.floor(Number(state.currentQiLayer) || 1));
-    const result = calculateQiBatch(currentLayer, state.mana);
+    const result = highestQualifiedQiLayer(currentLayer, state.mana);
     if (result.status === "representation-limit") return qiLayerRepresentationLimit(currentLayer, shouldRender);
     const targetLayer = result.layer;
     if (targetLayer <= currentLayer) return 0;
-    return commitQiLayerAdvance(targetLayer, result.cost, shouldRender);
+    return commitQiLayerAdvance(targetLayer, shouldRender);
   }
 
   function unlockImmortalLife() {
