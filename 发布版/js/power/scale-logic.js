@@ -1038,12 +1038,7 @@
   }
 
   function activeChallengeLimitExponent(key) {
-    if (state.activeChallenge !== key) return 1;
-    const challenge = CHALLENGE_DEFINITIONS[key];
-    const limitExponent = challenge.limitExponents[challengeCompletionCount(key)] ?? 1;
-    if (!challenge.timeToLimitSeconds) return limitExponent;
-    const progress = Math.max(0, Math.min(1, state.activeChallengeElapsedSeconds / challenge.timeToLimitSeconds));
-    return 1 - (1 - limitExponent) * progress;
+    return WIS.Meta.Challenges.activeLimit(state, key);
   }
 
   function jGainExponent(){return snapshotMemo("jGainExponent",jGainExponentUncached);}

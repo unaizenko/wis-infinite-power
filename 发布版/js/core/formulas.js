@@ -59,6 +59,18 @@
         !Number.isFinite(numericLateExponent) || numericLateExponent < 0 ||
         !Number.isFinite(numericSharpness) || numericSharpness <= 0) return ZERO;
 
+    // At huge exponents the two powers can round to the same layer/magnitude;
+    // dividing them then returns 1. Factor (x/scale)^k out of the denominator:
+    // x^early / (1+(x/scale)^k)^((early-late)/k)
+    // = x^late * scale^(early-late) * (1+(scale/x)^k)^(-(early-late)/k).
+    // The reciprocal correction is <= 1 for x >= scale. No exponent or
+    // precision policy changes; ordinary values retain their exact old path.
+    if ((decimalValue.layer >= 2 || (decimalValue.layer === 1 && decimalValue.mag >= 1e12)) &&
+        gt(decimalValue, decimalScale)) {
+      const difference = numericEarlyExponent - numericLateExponent;
+      const correction = pow(add(ONE, pow(div(decimalScale, decimalValue), numericSharpness)), -difference / numericSharpness);
+      return mul(mul(pow(decimalValue, numericLateExponent), pow(decimalScale, difference)), correction);
+    }
     const transition = add(ONE, pow(div(decimalValue, decimalScale), numericSharpness));
     return div(
       pow(decimalValue, numericEarlyExponent),

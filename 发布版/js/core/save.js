@@ -51,8 +51,7 @@
           !Number.isFinite(task.clockSeconds) || task.clockSeconds < 0 ||
           (task.logicalTickRemaining != null && (!Number.isFinite(task.logicalTickRemaining) || task.logicalTickRemaining < 0 || task.logicalTickRemaining > 0.1)))
         throw Error("离线剩余时间无效");
-      if (task.random != null && (!Number.isInteger(task.random) || task.random < 0 || task.random > 0xffffffff))
-        throw Error("离线随机状态无效");
+      // Obsolete task.random is ignored: production rewards use deterministic progress.
       // v59 discards obsolete numerical model caches. They are not the
       // confirmed asset/debt record and must not block recovery of that record.
     }
@@ -90,7 +89,7 @@
       throw Error("不支持的固定分段规则");
     const offlineRecovery = validatedRecovery ? { ...validatedRecovery,
       fastForwardUsed: false, fastForwardMetrics: null,
-      tasks: validatedRecovery.tasks.map(task => ({ ...task, fastForward: null })) } : null;
+      tasks: validatedRecovery.tasks.map(({ random, ...task }) => ({ ...task, fastForward: null })) } : null;
     WIS.Core.Runtime.withState(candidate, () => WIS.Core.Effects.withIsolatedState(candidate, () => {
       WIS.Meta.TreasureProgress.ensure(candidate);
       WIS.Cultivation.ExplorationProgress?.validate?.(candidate);
@@ -124,7 +123,16 @@
     publishStatus();
   }
   function backup(state, options = {}) {
-    const text = loadError ? localStorage.getItem(storageKey()) : JSON.stringify(envelope(WIS.Core.State.cloneForSimulation(state), false, options));
+    const saved = WIS.Core.State.cloneForSimulation(state);
+    const ledger = saved.core.runtime.timeLedger;
+    // The caller captured this state and pending together before entering hold.
+    // A standalone backup uses the state's existing authority, never wall now.
+    const capturedAt = options.capturedAt ?? Math.max(saved.lastUpdateAt, ledger.boundaryAt, ledger.registeredUntil);
+    saved.lastUpdateAt = capturedAt;
+    const recovery = Object.prototype.hasOwnProperty.call(options, 'offlineRecoveryOverride')
+      ? options.offlineRecoveryOverride : offlineRecoveryProvider?.(options);
+    const text = loadError ? localStorage.getItem(storageKey()) : JSON.stringify(envelope(saved, false,
+      { ...options, offlineRecoveryOverride: recovery ? { ...recovery, closedAt: capturedAt } : null }));
     localStorage.setItem(backupKey(), text);
     return backupKey();
   }

@@ -20,6 +20,14 @@
       for(const id of paid){const node=C.nodes[id];if(!prerequisites(n,node))throw Error('无限强化前置不满足');
         if(node.exclusiveGroup&&Object.values(C.nodes).some(o=>o.id!==id&&o.exclusiveGroup===node.exclusiveGroup&&n.upgrades[o.id]))throw Error('无限强化路线互斥');}
     }
+    // One-time compatibility refund using the validated actual payment ledger.
+    // Removing both the flag and payment makes subsequent load/respec idempotent.
+    if(n.upgrades.C1){
+      const payment=n.purchaseLedger.find(e=>e.nodeId==='C1');
+      n.points=B.add(n.points,payment.pricePaid);
+      delete n.upgrades.C1;
+      n.purchaseLedger=n.purchaseLedger.filter(e=>e.nodeId!=='C1');
+    }
     n.unlocked=achievement||raw?.unlocked===true||n.rebirthCount>0;
     n.upgradesUnlocked=raw?.version===1&&(raw.upgradesUnlocked===true||n.rebirthCount>0);
     return n;
@@ -27,13 +35,14 @@
   const get=s=>s.meta.infinity;
   const has=(s,id)=>get(s)?.upgrades?.[id]===true;
   function prerequisites(n,node){return node.prerequisiteMode==='any'?node.prerequisites.some(id=>n.upgrades[id]):node.prerequisites.every(id=>n.upgrades[id]);}
-  function status(s,id){const node=C.nodes[id],n=get(s);if(!node||!n?.upgradesUnlocked)return 'prerequisite';if(has(s,id))return 'purchased';
+  function status(s,id){const node=C.nodes[id],n=get(s);if(!node||!n?.upgradesUnlocked)return 'prerequisite';if(node.implemented===false)return 'unimplemented';if(has(s,id))return 'purchased';
     if(node.exclusiveGroup&&Object.values(C.nodes).some(o=>o.id!==id&&o.exclusiveGroup===node.exclusiveGroup&&has(s,o.id)))return 'exclusive';
     if(!prerequisites(n,node))return 'prerequisite';return B.gte(n.points,node.price)?'available':'unaffordable';}
   function purchase(s,id){WIS.Core.Runtime.assertMutable();if(status(s,id)!=='available')return false;const n=get(s),price=money(C.nodes[id].price);
     // Settlement candidates validate domain root identity before publishing.
     s.meta={...s.meta,infinity:{...n,points:B.sub(n.points,price),upgrades:{...n.upgrades,[id]:true},purchaseLedger:[...n.purchaseLedger,{nodeId:id,pricePaid:price}]}};WIS.Core.Effects?.invalidate();return true;}
-  const invested=s=>(get(s)?.purchaseLedger||[]).reduce((v,e)=>B.add(v,e.pricePaid),B.BN(0));
+  const ledgerTotal=n=>(n?.purchaseLedger||[]).reduce((v,e)=>B.add(v,e.pricePaid),B.BN(0));
+  const invested=s=>ledgerTotal(get(s));
   const completed=(s,id)=>(s.challengeCompletions?.[id]||0)>0;
   function tempoValue(s,table,prefix){const t=get(s)?.runElapsed||0;
     if(has(s,prefix+'1'))return table.online.floor+table.online.amplitude*Math.pow(2,-t/table.online.halfLife);
@@ -59,17 +68,17 @@
     {id:'infinityPower',name:'无限节奏',group:'无限',target:'power',layer:'regionMultiplier',value:tempoMultiplier(s)},
     {id:'infinityGoogol',name:'古戈尔适应',group:'无限',target:'googolPenalty',layer:'strengthMultiplier',value:has(s,'B4')?1-C.googolWeakening:1}
   ];}
-  function previewRebirth(s,{respec=false}={}) {
-    const n=get(s),rank=WIS.Meta.BigNumbers.get(s).tree.rank;
+  function previewRebirth(s,{respec=false}={},n=get(s)) {
+    const rank=WIS.Meta.BigNumbers.get(s).tree.rank;
     let multiplier=B.BN(has(s,'B2')?C.pointMultiplier:1);
     if((s.challengeCompletions.infinityFast||0)>0){const stock=WIS.Meta.Treasures.count(s,'cosmicWill');
       multiplier=B.mul(multiplier,B.add(1,B.log10(B.add(C.fastLogOffset,B.log10(B.add(stock,C.fastStockOffset))))));}
     const points=rank<C.minimumTree?B.BN(0):B.mul(rank,multiplier).floor();
     const earned=B.add(n.totalPointsEarned,points),cap=has(s,'B1-1')?B.max(C.treasureCap,B.mul(C.treasureCap,earned)):B.BN(C.treasureCap);
-    return {allowed:n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?invested(s):B.BN(0),rebirthCount:n.rebirthCount};
+    return {allowed:n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
   }
   function prepareRebirth(s,options={}) {
-    WIS.Core.Runtime.assertMutable();const old=normalize(get(s),s.unlockedAchievements.tree3===true),v=previewRebirth(s,options);
+    WIS.Core.Runtime.assertMutable();const old=normalize(get(s),s.unlockedAchievements.tree3===true),v=previewRebirth(s,options,old);
     if(!v.allowed)throw Error('当前不能无限转生');
     if(options.expectedRebirthCount!=null&&options.expectedRebirthCount!==old.rebirthCount)throw Error('无限周目已改变');
     if(old.rebirthCount>=Number.MAX_SAFE_INTEGER)throw Error('无限转生次数超出安全范围');

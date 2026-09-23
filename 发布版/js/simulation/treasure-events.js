@@ -1,7 +1,7 @@
 (function defineSimulationTreasureEvents(WIS) {
   "use strict";
-  // ACTIVE: Offline uses createOfflineTaskRandom for legacy random-mode tasks. Prediction
-  // helpers remain DIAGNOSTIC/reference APIs; this mixed module stays assembled.
+  // Legacy random helpers remain available to diagnostic prediction tools.
+  // Production recovery no longer creates or persists a task RNG.
 
   WIS.Simulation = WIS.Simulation || {};
   WIS.Simulation.TreasureEvents = Object.freeze({

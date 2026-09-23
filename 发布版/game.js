@@ -290,15 +290,11 @@
   }
   // Import registers the freshly installed save's unsettled time and takes the
   // foreground gate, but does NOT run the settlement worker. Same enqueue call
-  // and default task options as bootstrap, so the debt, RNG mode and clock
+  // and default task options as bootstrap, so the debt, execution mode and clock
   // ratio are identical. The worker starts only after commit and handoff,
   // when the running UI has had its first paint.
   function prepareImportRecovery(snapshot) {
     const restored = restoreOfflineRecovery(snapshot);
-    if (!restored) {
-      const seconds = Math.max(0, Date.now() - state.lastUpdateAt) / 1000;
-      offlineSimulation.appendCatchUpTask(seconds, seconds);
-    }
     // A successful save slice does not imply that all parked blocking time
     // has been handed off. Capture without settlement, then transfer metadata
     // under the recovery gate. A failed handoff rolls back the import transaction.
@@ -350,8 +346,11 @@
 
   function beginImportTransaction() {
     if (simulationLoop.isImportHoldActive?.()) return null;
+    const now = Date.now();
+    // Register the unsampled prefix before capturing rollback/backup. No settlement.
+    simulationLoop.captureForegroundTime(now);
     const previous = captureImportStateSnapshot();
-    const hold = simulationLoop.beginImportHold();
+    const hold = simulationLoop.beginImportHold(now);
     if (!hold) return null;
     return Object.freeze({ token: hold.token, startedAt: hold.startedAt, previous });
   }
@@ -476,7 +475,6 @@
     nextKnownSimulationBoundarySeconds: stepSimulation.nextKnownSimulationBoundarySeconds,
     adaptiveOfflineStepSeconds: projectionSimulation.adaptiveOfflineStepSeconds,
     nextEffectiveTreasureEventSeconds: treasureEventSimulation.nextEffectiveTreasureEventSeconds,
-    createOfflineTaskRandom: treasureEventSimulation.createOfflineTaskRandom,
     beginTransaction: stepSimulation.beginTransaction,
     endTransaction: stepSimulation.endTransaction,
     achievementStates,
@@ -529,6 +527,8 @@
   simulationLoop = WIS.Simulation.Loop.create({
     getState: () => state,
     advanceGameStep: stepSimulation.advanceGameStep,
+    invalidateDeferredQi: stepSimulation.invalidateDeferredQi,
+    hasDeferredQi: stepSimulation.hasDeferredQi,
     beginTransaction: stepSimulation.beginTransaction,
     endTransaction: stepSimulation.endTransaction,
     offline: offlineSimulation,
@@ -557,6 +557,7 @@
     setState: setStateDirect,
     save: saveState,
     infinityRebirth,
+    requestQiBatch:shouldRender=>simulationLoop.requestQiBatch(shouldRender),
     render: requestRender,
     renderImmediately: (pageName) => {
       requestRender(pageName);
@@ -585,6 +586,7 @@
     format,
     freshState: freshDefaultState,
     resetTransientAccumulators: () => {
+      simulationLoop?.invalidateOnlineScheduler();
       WIS.Power.Scale.resetTransient?.();
       WIS.Cultivation.Immortal.resetTransient?.();
     },
@@ -595,9 +597,9 @@
   completePlayerAction();
   UI.bindEvents();
   const initialAchievementStates = achievementStates();
-  const restoredOfflineRecovery = restoreOfflineRecovery(savedOfflineRecovery);
-  const initialOfflineElapsedSeconds = restoredOfflineRecovery
-    ? 0 : Math.max(0, Date.now() - state.lastUpdateAt) / 1000;
+  restoreOfflineRecovery(savedOfflineRecovery);
+  // restoreClosedTime owns all registration, including legacy timestamp saves.
+  const initialOfflineElapsedSeconds = 0;
   // A tab may be created hidden, without receiving a visibilitychange event.
   // Register its new absence separately from the older saved offline debt.
   if (document.hidden) simulationLoop.prepareSave({ closing: true });

@@ -2,8 +2,11 @@
   'use strict';
   WIS.UI.Infinity=Object.freeze({create(context){
     const I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig,R=WIS.Core.Runtime,s=R.state,$=id=>document.getElementById(id);
-    const f=value=>context.format(value,0),label={purchased:'已购买',exclusive:'互斥锁定',prerequisite:'未满足前置',available:'可购买',unaffordable:'点数不足'};
+    const f=value=>context.format(value,0),label={unimplemented:'尚未实装 / 后续开放',purchased:'已购买',exclusive:'互斥锁定',prerequisite:'未满足前置',available:'可购买',unaffordable:'点数不足'};
     let selected=false,upgrades=false,branch='regular',nodeId='B1-1',displayedRun=0;
+    const nodeViews=new Map();
+    const text=(el,value)=>{if(el.textContent!==value)el.textContent=value;};
+    const attribute=(el,name,value)=>{if(el.getAttribute(name)!==value)el.setAttribute(name,value);};
     const repaint=()=>R.call('renderImmediately');
     const element=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;};
     function rebirth(respec){const v=I.previewRebirth(s,{respec});if(!v.allowed)return;
@@ -28,13 +31,22 @@
       if(!upgrades)return false;displayedRun=n.rebirthCount;
       $('infinity-points').textContent=`无限点数：${f(n.points)}`;
       for(const el of $('infinity-branches').children)el.setAttribute('aria-selected',String(el.dataset.branch===branch));
-      const tree=$('infinity-tree');tree.replaceChildren();tree.style.setProperty('--infinity-columns',branch==='tempo'?3:branch==='systems'?1:2);
-      for(const node of Object.values(C.nodes).filter(n=>n.branch===branch)){
-        const status=I.status(s,node.id),button=element('button',`infinity-node ${status}`);button.type='button';button.dataset.node=node.id;
-        button.style.gridRow=String(node.position.row+1);button.style.gridColumn=Object.values(C.nodes).filter(n=>n.branch===branch&&n.position.row===node.position.row).length===1?'1 / -1':String(node.position.column+1);
-        if(node.position.row>0)button.classList.add('infinity-child');
-        button.append(element('strong','',node.name),element('span','',`${node.price} 无限点`),element('small','',label[status]));
-        button.setAttribute('aria-pressed',String(nodeId===node.id));button.addEventListener('click',()=>{nodeId=node.id;renderDetails();});tree.append(button);
+      const tree=$('infinity-tree');tree.style.setProperty('--infinity-columns',branch==='tempo'?3:branch==='systems'?1:2);
+      for(const node of Object.values(C.nodes)){
+        let view=nodeViews.get(node.id);
+        if(!view){
+          const button=element('button');button.type='button';button.dataset.node=node.id;
+          button.style.gridRow=String(node.position.row+1);button.style.gridColumn=Object.values(C.nodes).filter(n=>n.branch===node.branch&&n.position.row===node.position.row).length===1?'1 / -1':String(node.position.column+1);
+          view={button,name:element('strong'),price:element('span'),status:element('small')};
+          button.append(view.name,view.price,view.status);
+          button.addEventListener('click',()=>{nodeId=node.id;renderDetails();});
+          nodeViews.set(node.id,view);tree.append(button);
+        }
+        const status=I.status(s,node.id),classes=`infinity-node ${status}${node.position.row>0?' infinity-child':''}`;
+        if(view.button.className!==classes)view.button.className=classes;
+        const hidden=node.branch!==branch;if(view.button.hidden!==hidden)view.button.hidden=hidden;
+        text(view.name,node.name);text(view.price,`${node.price} 无限点`);text(view.status,label[status]);
+        attribute(view.button,'aria-pressed',String(nodeId===node.id));
       }
       $('infinity-invested').textContent=`已投入无限点数：${f(I.invested(s))}`;renderDetails();return true;
     }
@@ -42,7 +54,7 @@
       $('infinity-node-price').textContent=`价格：${node.price} 无限点数`;
       $('infinity-node-prerequisites').textContent=`前置：${node.prerequisites.map(id=>C.nodes[id].name).join(node.prerequisiteMode==='any'?' / ':' + ')||'无'}${node.prerequisiteMode==='any'?'（任意一项）':''}`;
       $('infinity-node-effect').textContent=node.description;$('infinity-buy').disabled=I.status(s,nodeId)!=='available';
-      for(const el of $('infinity-tree').children)el.setAttribute('aria-pressed',String(el.dataset.node===nodeId));
+      for(const el of $('infinity-tree').children)attribute(el,'aria-pressed',String(el.dataset.node===nodeId));
     }
     function renderChallenges(){for(const [id,def] of Object.entries(C.challenges)){const card=$(`infinity-challenge-${id}`);card.hidden=!WIS.Meta.Challenges.challengeVisible(id);if(card.hidden)continue;
       card.querySelector('.infinity-challenge-status').textContent=`完成：${s.challengeCompletions[id]||0}/${def.maxCompletions}${s.activeChallenge===id?`　当前 ${context.format(s.activeChallengeElapsedSeconds,2)}秒`:''}`;

@@ -302,9 +302,9 @@
     const achievementNoticeQueue = [];
     let achievementNoticeActive = false;
     let scaleNoticeTimer;
-    const debugSpeedOptions = Object.freeze([1, 5, 20, 100]);
-    let formulaDetailsExpanded = false;
     let automationRenderSignature = "";
+    const automationViews = new Map();
+    const automationGroupViews = new Map();
     let offlineCatchUpStatus = Object.freeze({ phase: "idle", locked: false });
     let importTransaction = null;
     let importPickerReturnTimer = null;
@@ -380,32 +380,7 @@
     ]);
     const AUTOMATION_BY_ID = new Map(AUTOMATION_DEFINITIONS.map((definition) => [definition.id, definition]));
 
-  function configureBuildControlledUI() {
-    const debugSpeedButton = rawById("debug-speed-button");
-    if (debugSpeedButton) {
-      debugSpeedButton.hidden = !BUILD.enableSpeedControls;
-      if (!BUILD.enableSpeedControls) {
-        debugSpeedButton.dataset.multiplier = "1";
-        debugSpeedButton.textContent = "速度 ×1";
-      }
-    }
-    const formulaToggle = rawById("formula-details-toggle");
-    const formulaRefresh = rawById("formula-details-refresh");
-    const formulaTools = document.querySelector(".resource-debug-tools");
-    const formulaPanel = document.querySelector(".resource-debug-breakdown");
-    if (!BUILD.enableFormulaDetails) formulaDetailsExpanded = false;
-    if (formulaTools) formulaTools.hidden = !BUILD.enableFormulaDetails;
-    if (formulaToggle) {
-      formulaToggle.hidden = !BUILD.enableFormulaDetails;
-      formulaToggle.setAttribute("aria-expanded", String(
-        BUILD.enableFormulaDetails && formulaDetailsExpanded
-      ));
-    }
-    if (formulaPanel) {
-      formulaPanel.hidden = !BUILD.enableFormulaDetails || !formulaDetailsExpanded;
-    }
-    if (formulaRefresh) formulaRefresh.hidden = !BUILD.enableFormulaDetails || !formulaDetailsExpanded;
-  }
+  function configureBuildControlledUI() {}
 
   function renderAutomationManager(force = false) {
     const groupsRoot = rawById("automation-groups");
@@ -419,51 +394,70 @@
     automationRenderSignature = signature;
 
     const unlockedDefinitions = AUTOMATION_DEFINITIONS.filter((definition) => definition.isUnlocked());
-    groupsRoot.replaceChildren();
+    const unlockedIds = new Set(unlockedDefinitions.map((definition) => definition.id));
+    for (const [id, view] of automationViews) {
+      if (unlockedIds.has(id)) continue;
+      view.row.remove();
+      automationViews.delete(id);
+    }
     AUTOMATION_GROUPS.forEach((group) => {
       const definitions = unlockedDefinitions.filter((definition) => definition.group === group.key);
-      if (definitions.length === 0) return;
-
-      const section = document.createElement("section");
-      section.className = "automation-group";
-      section.dataset.automationGroup = group.key;
-
-      const header = document.createElement("div");
-      header.className = "automation-group-header";
-      const heading = document.createElement("h3");
-      heading.textContent = group.label;
-      const count = document.createElement("small");
-      count.textContent = `${definitions.length}项`;
-      header.append(heading, count);
-
-      const items = document.createElement("div");
-      items.className = "automation-items";
+      let groupView = automationGroupViews.get(group.key);
+      if (definitions.length === 0) {
+        groupView?.section.remove();
+        automationGroupViews.delete(group.key);
+        return;
+      }
+      if (!groupView) {
+        const section = document.createElement("section");
+        section.className = "automation-group";
+        section.dataset.automationGroup = group.key;
+        const header = document.createElement("div");
+        header.className = "automation-group-header";
+        const heading = document.createElement("h3");
+        heading.textContent = group.label;
+        const count = document.createElement("small");
+        header.append(heading, count);
+        const items = document.createElement("div");
+        items.className = "automation-items";
+        section.append(header, items);
+        groupView = { section, count, items };
+        automationGroupViews.set(group.key, groupView);
+        const nextGroup = AUTOMATION_GROUPS.slice(AUTOMATION_GROUPS.indexOf(group) + 1)
+          .map((next) => automationGroupViews.get(next.key)?.section).find(Boolean);
+        groupsRoot.insertBefore(section, nextGroup || null);
+      }
+      const countText = `${definitions.length}项`;
+      if (groupView.count.textContent !== countText) groupView.count.textContent = countText;
       definitions.forEach((definition) => {
-        const row = document.createElement("article");
-        row.className = "automation-row";
-
-        const copy = document.createElement("div");
-        const name = document.createElement("h4");
-        name.textContent = definition.name;
-        const description = document.createElement("p");
-        description.textContent = definition.description;
-        copy.append(name, description);
-
+        let view = automationViews.get(definition.id);
+        if (!view) {
+          const row = document.createElement("article");
+          row.className = "automation-row";
+          const copy = document.createElement("div");
+          const name = document.createElement("h4");
+          name.textContent = definition.name;
+          const description = document.createElement("p");
+          description.textContent = definition.description;
+          copy.append(name, description);
+          const toggle = document.createElement("button");
+          toggle.className = "automation-toggle";
+          toggle.type = "button";
+          toggle.dataset.automationId = definition.id;
+          row.append(copy, toggle);
+          view = { row, toggle, name, description };
+          automationViews.set(definition.id, view);
+          const nextDefinition = definitions.slice(definitions.indexOf(definition) + 1)
+            .map((next) => automationViews.get(next.id)?.row).find(Boolean);
+          groupView.items.insertBefore(row, nextDefinition || null);
+        }
         const enabled = definition.isEnabled();
-        const toggle = document.createElement("button");
-        toggle.className = "automation-toggle";
-        toggle.type = "button";
-        toggle.dataset.automationId = definition.id;
+        const toggle = view.toggle;
         toggle.setAttribute("aria-pressed", String(enabled));
         toggle.setAttribute("aria-label", `${definition.name}：${enabled ? "已开启" : "已关闭"}`);
-        toggle.textContent = enabled ? "已开启" : "已关闭";
-
-        row.append(copy, toggle);
-        items.appendChild(row);
+        const statusText = enabled ? "已开启" : "已关闭";
+        if (toggle.textContent !== statusText) toggle.textContent = statusText;
       });
-
-      section.append(header, items);
-      groupsRoot.appendChild(section);
     });
     emptyState.hidden = unlockedDefinitions.length > 0;
   }
@@ -1039,7 +1033,7 @@
       stage = "install";
       // Validation and migration have no access to the current task queue.
       // Backup must succeed before switching either progress or offline debt.
-      WIS.Core.Save.backup(previous.state, { offlineRecoveryOverride: previous.recovery });
+      WIS.Core.Save.backup(previous.state, { offlineRecoveryOverride: previous.recovery, capturedAt: transaction.startedAt });
       switched = true;
       timer.step("backup");
       offlineCompletedSummary = null;
@@ -1158,10 +1152,22 @@
   function showNotice(message, duration = 1400) {
     if (WIS.Core.Runtime.isProjection()) return;
     const notice = byId("notice");
+    // A modal's top layer outranks document z-index. Keep the live region in
+    // the active modal (outside inert content), then promote the manual popover.
+    // Older engines without Popover still render it above that modal's contents.
+    if (notice.showPopover && notice.matches(":popover-open")) notice.hidePopover();
+    const modal = document.activeElement?.closest?.("dialog[open]") ||
+      [...document.querySelectorAll("dialog[open]")].at(-1);
+    const host = modal || document.body;
+    if (host && notice.parentElement !== host) host.appendChild(notice);
     notice.textContent = message;
+    notice.showPopover?.();
     notice.classList.add("show");
     window.clearTimeout(noticeTimer);
-    noticeTimer = window.setTimeout(() => notice.classList.remove("show"), duration);
+    noticeTimer = window.setTimeout(() => {
+      notice.classList.remove("show");
+      if (notice.showPopover && notice.matches(":popover-open")) notice.hidePopover();
+    }, duration);
   }
 
   function showAchievementNotice(names) {
@@ -1515,7 +1521,7 @@
     const completed = challengeCompletionCount(challengeKey);
     const finished = completed >= challenge.maxCompletions;
     const active = state.activeChallenge === challengeKey;
-    const nextLimit = challenge.limitExponents?.[Math.min(completed, (challenge.limitExponents?.length ?? 1) - 1)];
+    const nextLimit = WIS.Meta.Challenges.activeLimit(state, challengeKey, { preview: true });
     const nextSourceExponent = challenge.sourceExponents?.[Math.min(completed, (challenge.sourceExponents?.length ?? 1) - 1)];
     const rewardExponent = challengeRewardExponent(challengeKey);
     const button = byId(`toggle-${idPrefix}`);
@@ -3504,8 +3510,7 @@
     });
     byId("reset-game").addEventListener("click", resetGame);
 
-
-
+    
     }
 
     function resetCultivationPage() {
@@ -3513,11 +3518,7 @@
       activeCultivationPage = "realms";
       dirtyPages.add("cultivation");
     }
-    function effectiveDevSpeed() {
-      if (!BUILD.enableSpeedControls) return 1;
-      const savedSpeed = Number(rawById("debug-speed-button")?.dataset.multiplier) || 1;
-      return debugSpeedOptions.includes(savedSpeed) ? savedSpeed : 1;
-    }
+    function effectiveDevSpeed() { return 1; }
 
     return Object.freeze({
       requestExplorationPreviewRefresh,

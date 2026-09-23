@@ -27,7 +27,7 @@
     create(context) {
       const {
         getState, advanceGameStep, nextKnownSimulationBoundarySeconds,
-        adaptiveOfflineStepSeconds, nextEffectiveTreasureEventSeconds, createOfflineTaskRandom,
+        adaptiveOfflineStepSeconds, nextEffectiveTreasureEventSeconds,
         beginTransaction, endTransaction, achievementStates, recordCurrentAchievements,
         notifyNewAchievements, markAchievementsDirty, showNotice, requestRender,
         formatElapsedTime, format, resetOnlineAccumulators,
@@ -433,6 +433,7 @@
         const discardedClockSeconds = pendingCatchUpClockSeconds;
         if (!(discardedGameSeconds > epsilon)) return { abandoned: false };
         const previousUpdateAt = getState().lastUpdateAt;
+        const previousLedger = getState().core.runtime.timeLedger;
         pendingCatchUpSeconds = 0;
         pendingCatchUpClockSeconds = 0;
         resetOnlineAccumulators();
@@ -440,11 +441,13 @@
         try {
           // Persist resources and zero remaining debt in the SAME save. A
           // refresh must not resurrect the time the player chose to abandon.
+          context.setLastTickAt?.(getState().lastUpdateAt);
           context.checkpoint?.();
         } catch (error) {
           pendingCatchUpSeconds = discardedGameSeconds;
           pendingCatchUpClockSeconds = discardedClockSeconds;
           getState().lastUpdateAt = previousUpdateAt;
+          getState().core.runtime.timeLedger = previousLedger;
           pauseCatchUp(catchUpDiagnostic("abandon-checkpoint-failed", catchUpTasks[0], 0, null, error));
           return { abandoned: false, error: String(error?.message || error) };
         }
@@ -480,6 +483,9 @@
         try {
           credit = WIS.Simulation.Compensation.grant(getState(), clockSeconds);
           internalWork = true;
+          // The refunded state and the end of its frozen wait share a checkpoint.
+          // restoreState(world) rolls back this watermark if persistence fails.
+          context.setLastTickAt?.(Date.now());
           context.checkpoint?.();
           if(!remaining.length)confirmedSources=freshConfirmedSources();
         } catch (error) {
@@ -539,11 +545,6 @@
           legacyReferenceStep,
           suggestedStepSeconds: Math.min(safeElapsed,
             Math.max(simulationStepSeconds, Math.min(1, safeElapsed / offlineMaxSteps))),
-          random: options.randomMode==='state'?{
-            next:()=>WIS.Core.Runtime.withRandomSource(null,()=>WIS.Core.Runtime.random()),
-            snapshot:()=>getState().core.runtime.randomState>>>0,
-            restore:value=>{getState().core.runtime.randomState=value>>>0;}
-          }:createOfflineTaskRandom(options.randomSeed ?? WIS.Core.Runtime.random()),
           treasureFallbackMode: false,
           treasureBatchMode: false,
           optimizationDisabled: false,
@@ -859,7 +860,6 @@
           fixedConfirmed: WIS.Simulation.FixedSegment.confirmed(),
           onlineConfirmed:context.onlineMetrics?.(),
           state: confirmedState ?? (typeof snapshotState === "function" ? snapshotState({ borrow }) : null),
-          random: typeof task?.random?.snapshot === "function" ? task.random.snapshot() : null,
           task: task ? {
             clockCursor: task.clockCursor,
             remainingGameSeconds: task.remainingGameSeconds,
@@ -907,9 +907,6 @@
         let restoreError = null;
         if (snapshot?.state !== null && typeof restoreState === "function") {
           try { restoreState(snapshot.state); } catch (error) { restoreError = error; }
-        }
-        if (snapshot?.random !== null && typeof task?.random?.restore === "function") {
-          try { task.random.restore(snapshot.random); } catch (error) { restoreError ||= error; }
         }
         if (task && snapshot?.task) Object.assign(task, snapshot.task);
         sessionGains = snapshot.sessionGains;
@@ -975,7 +972,6 @@
             clockCursor: task.clockCursor,
             gameSeconds: task.remainingGameSeconds,
             clockSeconds: task.remainingClockSeconds,
-            random: task.random?.snapshot?.() ?? null,
             logicalTickRemaining: task.logicalTickRemaining || 0,
             unverifiableBatchPrecision: task.unverifiableBatchPrecision === true,
             fastForward: task.fastDriver ? task.fastDriver.export() : task.fastForward?.memory ? WIS.Simulation.FastForward.exportPoint(task.fastForward.point) : task.fastForward || null
@@ -999,12 +995,10 @@
         if((processedEvidence&&!savedSources)||snapshot.tasks.some(task=>!['online','offline'].includes(task.source)))confirmedSources.unknown=true;
         if(processedEvidence&&!confirmedSources.online&&!confirmedSources.offline)confirmedSources.unknown=true;
         for (const savedTask of snapshot.tasks) {
-          // Restoring an existing task must not consume the online RNG again.
-          // Legacy online tails must finish on their own: the live loop no
-          // longer appends foreground time to fill an old fractional task.
+          // Historical random snapshots have no gameplay consumer. Preserve the
+          // saved state and time metadata; never seed or overwrite state RNG here.
           const task = appendCatchUpTask(savedTask.gameSeconds, savedTask.clockSeconds,
-            { ...savedTask, sealed: true, randomSeed: (savedTask.random ?? getState().core.runtime.randomState) / 0x100000000 });
-          if (savedTask.random !== null) task.random?.restore?.(savedTask.random);
+            { ...savedTask, sealed: true });
           task.logicalTickRemaining = Math.max(0, Math.min(simulationStepSeconds,
             Number(savedTask.logicalTickRemaining) || 0));
           task.unverifiableBatchPrecision = savedTask.unverifiableBatchPrecision === true;
@@ -1303,9 +1297,7 @@
                 transactionStarted = true;
                 const preparedFixedSegment=task.fixedToken;task.fixedToken=null;
                 const preparedOnlineSegment=task.onlineToken;task.onlineToken=null;
-                result = WIS.Core.Runtime.withRandomSource(
-                  () => task.random.next(),
-                  () => WIS.Core.Runtime.withOfflineExecution(() =>
+                result = WIS.Core.Runtime.withOfflineExecution(() =>
                     advanceGameStep(requestedSeconds, true, {
                       offline: false,
                       foreground: false,
@@ -1314,8 +1306,7 @@
                       timeSegment: {source:task.source, compensationEligible:task.compensationEligible,
                         clockRatio:task.remainingGameSeconds>0?task.remainingClockSeconds/task.remainingGameSeconds:0},
                       integrationMethod: "end", preparedStepPlan: task.preparedStepPlan
-                    }))
-                );
+                    }));
                 acceptedSeconds = Math.max(0, Math.min(
                   requestedSeconds,
                   Number(result?.processedSeconds) || 0

@@ -39,15 +39,14 @@
     const difficulty = inheritedLimitDifficultyByHost[state.meta.challenges.activeChallenge];
     return Number.isInteger(difficulty) ? difficulty : null;
   }
-  function activeLimit(state, key) {
-    const inheritedDifficulty = inheritedLimitDifficulty(state, key);
-    if (state.meta.challenges.activeChallenge !== key && inheritedDifficulty === null) return 1;
+  function activeLimit(state, key, { preview = false } = {}) {
+    const inheritedDifficulty = preview ? null : inheritedLimitDifficulty(state, key);
+    if (!preview && state.meta.challenges.activeChallenge !== key && inheritedDifficulty === null) return 1;
     const challenge = definitions[key];
-    const difficultyIndex = inheritedDifficulty === null
-      ? completionCount(state, key)
-      : Math.min(inheritedDifficulty, Math.max(0, (challenge.limitExponents?.length ?? 1) - 1));
+    const difficultyIndex = Math.min(inheritedDifficulty ?? completionCount(state, key),
+      Math.max(0, (challenge.limitExponents?.length ?? 1) - 1));
     const limit = challenge.limitExponents?.[difficultyIndex] ?? 1;
-    if (inheritedDifficulty !== null) return limit;
+    if (preview || inheritedDifficulty !== null) return limit;
     if (!challenge.timeToLimitSeconds) return limit;
     const progress = Math.max(0, Math.min(1, state.meta.challenges.activeChallengeElapsedSeconds / challenge.timeToLimitSeconds));
     return 1 - (1 - limit) * progress;
@@ -343,7 +342,7 @@
     get(key) { return definitions[key] || null; },
     completionCount, totalCompletionCount, systemRequirementSatisfied, systemActive,
     isActive(state, key) { return state.meta.challenges.activeChallenge === key; },
-    getEffects: effects,
+    getEffects: effects, activeLimit,
     evilCorpseRawLimitExponent, evilCorpseAdjustedLimitExponent,
     evilCorpseLimitExponent, evilCorpseRewardMultiplier, planetSuppressionRewardExponent,
     solarPowerLogProgress, solarPowerLimitExponent, solarPowerRewardExponent,

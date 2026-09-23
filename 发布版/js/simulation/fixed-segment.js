@@ -97,6 +97,21 @@
       for(const k of ["manaSpent","manaSpentResidual","manaDebitResidual"]) n[k]=Array.isArray(x[k])?x[k].slice():x[k];
     }
   }
+  function* runQiCooperatively(callback) {
+    const I=WIS.Cultivation.ImmortalLogic;
+    // Foreground's atomic owner catches the signal and rolls back the entire
+    // step. Recovery already owns a private generator: yield within that owner.
+    if(I.hasQiBatchScope() || !R.isProjection())return callback();
+    const scope={};
+    for(;;) {
+      try {return I.withQiBatchScope(scope,callback);}
+      catch(error) {
+        const work=I.qiDeferredWork(error);
+        if(!work)throw error;
+        do {yield;if(!work.result())work.advance();}while(!work.result());
+      }
+    }
+  }
   function* runAutomations(state, unit) {
     if(unit.options.offline) {
       let count=0;
@@ -105,7 +120,10 @@
       while(true) {
         const began=clock();
         E.invalidate();
-        const changes=R.withState(state,()=>Number(unit.options.runAchievementAutomations?.())||0);
+        // Qi is the first realm operation, before any other automation mutates
+        // this pass. Its deferred signal therefore permits retrying this pass;
+        // arbitrary automation failures are never caught/retried here.
+        const changes=yield* runQiCooperatively(()=>R.withState(state,()=>Number(unit.options.runAchievementAutomations?.())||0));
         const unlocked=unit.options.afterAutomation?.(state)===true;
         statistics.automationMs+=clock()-began;
         if(!(changes>0)&&!unlocked)break;
@@ -127,7 +145,7 @@
         const shadow=draft?draft.state:base;
         const before=draft?base:S.toSerializable(shadow);
         let operations=0, purchased=0;
-        R.withState(shadow,()=>E.withIsolatedState(shadow,()=> {
+        yield* runQiCooperatively(()=>R.withState(shadow,()=>E.withIsolatedState(shadow,()=> {
           if (candidate.runOn) { purchased=Number(candidate.runOn(shadow))||0;operations=purchased?1:0; }
           else if (candidate.run) {purchased=Number(candidate.run())||0;operations=purchased?1:0;}
           else if (candidate.buyMax) {purchased=Number(candidate.buyMax())||0;operations=purchased?1:0;}
@@ -139,7 +157,7 @@
             if(!paid) break;
             candidate.apply(); operations++; purchased++;
           }
-        }));
+        })));
         if(operations) {installChanges(state,before,draft?draft.finish():S.toSerializable(shadow));opportunities-=operations;count+=purchased;}
         const automationMs=clock()-began;statistics.automationMs+=automationMs;recordCost("automation",automationMs);
         yield;

@@ -33,6 +33,13 @@
       // Tokens only reuse a deterministic gain plan. Treasure rolls, purchases,
       // achievements and the resource commit still execute on the live state.
       const preparedPlans = new WeakMap();
+      let deferredQi = null;
+      let qiGeneration = 0;
+      function invalidateDeferredQi() {
+        qiGeneration++;
+        deferredQi?.work.cancel();
+        deferredQi = null;
+      }
 
 
       function stepStateKey(state) {
@@ -625,7 +632,39 @@
         // A task source takes precedence over the legacy offline option. No
         // source/option means exact, even when called by an Offline runner.
         const policy=source==='offline'||source==null&&options.offline===true ? R.MathPolicy.OFFLINE_APPROX : R.MathPolicy.ONLINE_EXACT;
-        return R.withMathPolicy(policy,()=>profiler.withScope(scope,()=>profiler.measure('totalStep',()=>advanceProfiledStep(elapsedSeconds,silentTreasureRolls,options))));
+        const run=()=>R.withMathPolicy(policy,()=>profiler.withScope(scope,()=>profiler.measure('totalStep',()=>advanceProfiledStep(elapsedSeconds,silentTreasureRolls,options))));
+        if (!options.foreground || options.preparedOnlineSegment || options.preparedFixedSegment) return run();
+        const I=WIS.Cultivation.ImmortalLogic,original=getState();
+        const signature=[elapsedSeconds,silentTreasureRolls,source,options.timeSegment?.clockRatio,
+          options.timeSegment?.compensationEligible,options.deferAutomation].join('|');
+        if(deferredQi && (deferredQi.original!==original || deferredQi.generation!==qiGeneration ||
+            deferredQi.signature!==signature || deferredQi.key!==I.qiBatchStateKey(original))) invalidateDeferredQi();
+        const qiScope={work:deferredQi?.work};
+        if(deferredQi && !qiScope.work.result()) {
+          try {
+            const progress=qiScope.work.advance();
+            if(!progress.done)return {processedSeconds:0,remainingSeconds:elapsedSeconds,qiDeferred:true};
+          } catch(error) {
+            invalidateDeferredQi();
+            return {processedSeconds:0,remainingSeconds:elapsedSeconds,qiWorkFailed:true,error};
+          }
+        }
+        try {
+          const result=I.withQiBatchScope(qiScope,run);
+          deferredQi=null;
+          return result;
+        } catch(error) {
+          const work=I.qiDeferredWork(error);
+          if(!work){
+            invalidateDeferredQi();
+            if(I.qiWorkFailure(error))return {processedSeconds:0,remainingSeconds:elapsedSeconds,qiWorkFailed:true,error};
+            throw error;
+          }
+          // advanceAtomicStep has already restored all roots, transients,
+          // notifications and rates. Only pure math remains between callbacks.
+          deferredQi={work,original,generation:qiGeneration,signature,key:I.qiBatchStateKey(original)};
+          return {processedSeconds:0,remainingSeconds:elapsedSeconds,qiDeferred:true};
+        }
       }
       function advanceProfiledStep(elapsedSeconds, silentTreasureRolls, options = {}) {
         if (options.preparedOnlineSegment) return installOnlineSegment(options.preparedOnlineSegment);
@@ -802,6 +841,7 @@
       }
 
       return Object.freeze({
+        invalidateDeferredQi, hasDeferredQi:()=>deferredQi!==null,
         prepareOnlineWork:createOnlineWork, findNextSimulationBoundary, onlineMetrics:()=>({...onlineMetrics}),
         restoreOnlineMetrics(point){if(point)for(const k of ['segments','gameSeconds','compatibilitySubsteps','continuousSegments'])onlineMetrics[k]=point[k];},
         planOfflineMacro(seconds,options={}) {

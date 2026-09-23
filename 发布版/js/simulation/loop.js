@@ -7,6 +7,7 @@
     let onlineAccumulator=0,stepping=false;
     let importHold=null,importHoldSequence=0;
     let continuationHandle=null,schedulerGeneration=0;
+    let manualQi=null;
     const onlineIntervals=(getState().core.runtime.timeLedger.pendingContinuousTime||[]).map(p=>({...p}));
     onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);
     const stepSeconds=context.simulationStepSeconds||0.1;
@@ -22,8 +23,47 @@
     function cancelOnlineContinuation(){
       if(continuationHandle!==null){window.clearTimeout(continuationHandle);continuationHandle=null;}
     }
-    function invalidateOnlineScheduler(){schedulerGeneration++;cancelOnlineContinuation();}
-    function setLastTickAt(value){lastTickAt=Number.isFinite(Number(value))?Math.max(0,Number(value)):Date.now();}
+    function cancelQiWork(){manualQi?.scope.work?.cancel();manualQi=null;context.invalidateDeferredQi?.();}
+    function invalidateOnlineScheduler(){schedulerGeneration++;cancelOnlineContinuation();cancelQiWork();}
+    function reportQiFailure(){
+      if(WIS.Core.Runtime.has('showNotice'))WIS.Core.Runtime.call('showNotice','炼气计算未完成，本次购买未提交；进度时间已保留。');
+    }
+    function advanceManualQi(){
+      const job=manualQi,I=WIS.Cultivation.ImmortalLogic;
+      if(job.original!==getState()||job.generation!==schedulerGeneration||job.key!==I.qiBatchStateKey(getState())){
+        job.scope.work?.cancel();manualQi=null;return false;
+      }
+      try{
+        // Resume only pure math. A completed result re-enters the original
+        // one-shot payment under this slice's existing transaction.
+        if(job.scope.work&&!job.scope.work.result()){
+          try{if(!job.scope.work.advance().done)return false;}
+          catch(error){job.scope.work.cancel();manualQi=null;reportQiFailure();return false;}
+        }
+        job.value=I.withQiBatchScope(job.scope,()=>I.advanceQiLayersBatch(job.shouldRender));
+        manualQi=null;return job.value>0;
+      }catch(error){
+        if(I.qiDeferredWork(error))return false;
+        job.scope.work?.cancel();manualQi=null;
+        if(I.qiWorkFailure(error)){reportQiFailure();return false;}
+        throw error;
+      }
+    }
+    function requestQiBatch(shouldRender=true){
+      // Manual and automatic work share the same owner; repeated clicks do not
+      // queue purchases or steal another slice from a pending automatic step.
+      if(manualQi||context.hasDeferredQi?.()||importHold||document.hidden||!isInitialLoadComplete()||onlineBlocked())return 0;
+      const job={original:getState(),generation:schedulerGeneration,
+        key:WIS.Cultivation.ImmortalLogic.qiBatchStateKey(getState()),scope:{},shouldRender,value:0};
+      manualQi=job;processOnline();return job.value;
+    }
+    function setLastTickAt(value){
+      lastTickAt=Number.isFinite(Number(value))?Math.max(0,Number(value)):Date.now();
+      // Explicitly ending a frozen interval must persist the same new online
+      // origin. Otherwise a completed recovery checkpoint replays that wait.
+      // A hidden interval still belongs to registerReturn and stays untouched.
+      if(ledger().awaySince===null)writeLedger({boundaryAt:Math.max(ledger().boundaryAt||0,lastTickAt)});
+    }
     function resetAccumulators(){
       invalidateOnlineScheduler();
       lastTickAt=Date.now();onlineAccumulator=0;onlineIntervals.length=0;tickRemaining=0;writeLedger({pendingContinuousTime:[]});
@@ -74,6 +114,7 @@
     function hasRunnableOnlineWork(flush=false){
       if(importHold||document.hidden||!isInitialLoadComplete())return false;
       if(onlineBlocked())return false;
+      if(manualQi)return true;
       dropEmptyOnlineHeads();
       if(!onlineIntervals.length)return false;
       if(onlineIntervals[0].source==='offline')return true;
@@ -92,12 +133,13 @@
       let progressed=false,hitOfflineBarrier=false,blocked=false,steps=0;
       stepping=true;context.beginTransaction?.();
       try {
-        while(steps<maxSteps&&onlineIntervals.length){
+        if(manualQi)progressed=advanceManualQi();
+        while(!manualQi&&steps<maxSteps&&onlineIntervals.length){
           dropEmptyOnlineHeads();
           if(!onlineIntervals.length)break;
           // Budget is checked only between complete atomic settlements. The first
           // settlement is always allowed to finish even if it exceeds the soft budget.
-          if(steps>0&&monotonicNow()-sliceStartedAt>=onlineSliceBudgetMs)break;
+          if((steps>0||progressed)&&monotonicNow()-sliceStartedAt>=onlineSliceBudgetMs)break;
           const head=onlineIntervals[0];
           if(head.source==='offline'){
             offline.appendCatchUpTask(head.clock*head.speed,head.clock,{source:'offline',compensationEligible:false,
@@ -120,6 +162,13 @@
             deferAutomation:seconds+epsilon<cadence
           });
           const processed=Math.max(0,Math.min(seconds,Number(result?.processedSeconds)||0));
+          // An unfinished Qi calculation has committed no part of this step.
+          // Keep its complete debt and let the existing single owner resume it.
+          if(result?.qiDeferred)break;
+          if(result?.qiWorkFailed){
+            reportQiFailure();
+            blocked=true;break;
+          }
           if(!(processed>0)){
             if(result?.treasureRecoveryRequired)offline.queueCatchUpNotice(0,0);
             blocked=true;break;
@@ -189,10 +238,10 @@
       else offline.returnFromAway(start);
       return seconds;
     }
-    function beginImportHold() {
+    function beginImportHold(now=Date.now()) {
       if(importHold)return null;
+      captureForegroundTime(now);
       invalidateOnlineScheduler();
-      const now=Date.now();
       importHold={token:`import-${++importHoldSequence}`,startedAt:now,speed:effectiveDevSpeed()};
       // Retire any already scheduled recovery slice without discarding debt.
       // The picker/read/install transaction owns the foreground until commit or rollback.
@@ -203,7 +252,6 @@
     function finishImportHold(token,{accountElapsed=false,reason='import-cancel'}={}) {
       if(!importHold||token!==importHold.token)return {released:false,elapsedSeconds:0};
       const hold=importHold,now=Date.now();
-      importHold=null;
       const elapsed=Math.max(0,now-hold.startedAt)/1000;
       lastTickAt=now;
       if(accountElapsed&&elapsed>epsilon){
@@ -211,10 +259,14 @@
         // It is registered as blocking debt so a high-value old save cannot
         // immediately saturate the host as soon as the transaction is released.
         offline.holdCatchUpUntilUserStart?.(reason);
-        offline.appendCatchUpTask(elapsed*hold.speed,elapsed,{source:'offline',compensationEligible:false,
-          randomMode:'state',speed:hold.speed,sealed:true,presentation:'blocking',external:true});
+        // Keep the original order: recovery, parked online prefix, picker time.
+        // Transfer metadata only; online portions still use ONLINE_EXACT.
+        onlineIntervals.push({source:'offline',clock:elapsed,speed:hold.speed,compensationEligible:false});
+        syncPendingLedger();
+        handoffImportRecovery();
         writeLedger({awaySince:null,registeredUntil:Math.max(Number(ledger().registeredUntil)||0,now),boundaryAt:now});
       }
+      importHold=null;
       return {released:true,elapsedSeconds:elapsed};
     }
     function runMainTick(){
@@ -222,6 +274,7 @@
       if(!isInitialLoadComplete()){lastTickAt=now;return;}
       if(importHold){lastTickAt=now;return;}
       if(document.hidden)return;
+      if(onlineBlocked()&&(manualQi||context.hasDeferredQi?.()))invalidateOnlineScheduler();
       // Recovery publishes its own small progress view. Re-rendering every
       // ability/ledger here repeatedly traverses the still-uncommitted backlog.
       if(offline.getCatchUpStatus().treasureRecovery?.active){lastTickAt=now;return;}
@@ -257,7 +310,7 @@
       preparingSave=true;
       try{
         if(options.closing===true||document.hidden)markAway(Date.now());
-        else {
+        else if(!importHold) {
           enqueueForegroundAt(Date.now());
           if(options.captureOnly!==true)processOnline();
         }
@@ -270,10 +323,12 @@
       onlineIntervals.splice(0,onlineIntervals.length,...pending.map(p=>({...p})));
       onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);
       tickRemaining=0;
-      // An explicit leave/normal-close is evidence of new offline time.
-      // A checkpoint while blocking with neither marker is recovery waiting.
-      const fallback=snapshot?.closedAt>0?snapshot.closedAt:
-        onlineIntervals.length?getState().lastUpdateAt:null;
+      // One authority for committed state + registered pending. Only a legacy
+      // save without a ledger watermark uses lastUpdateAt. Zero new time is final.
+      // An open recovery checkpoint without a close/away marker is frozen waiting.
+      const p=ledger(),watermark=Math.max(p.boundaryAt||0,p.registeredUntil||0);
+      const fallback=snapshot?.closedAt>0?Math.max(snapshot.closedAt,watermark):
+        snapshot?null:watermark>0?watermark:getState().lastUpdateAt;
       return registerReturn(Date.now(),{start:false,presentation:'blocking',fallbackClosedAt:fallback});
     }
     function handoffImportRecovery(){
@@ -302,7 +357,7 @@
     }
     return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,
       prepareSave,restoreClosedTime,handoffImportRecovery,enqueueForegroundAt,captureForegroundTime,beginImportHold,finishImportHold,
-      invalidateOnlineScheduler,
+      invalidateOnlineScheduler,requestQiBatch,
       isImportHoldActive:()=>!!importHold,
       snapshot:()=>({lastTickAt,onlineAccumulator,tickRemaining,onlineIntervals:onlineIntervals.map(part=>({...part}))}),
       restore:snapshot=>{

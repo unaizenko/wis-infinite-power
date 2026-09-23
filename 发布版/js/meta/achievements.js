@@ -177,7 +177,7 @@
       { key: "beyondFractal", name: "超越分形", description: "完成分形-5，进入 G1。", reward: beyondFractalReward(), completed: completedAchievement("beyondFractal", state.meta.bigNumbers?.fractalLevel === 5) },
       { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
       { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
-      { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: state.meta.bigNumbers?.tree?.rank >= 3 }
+      { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", state.meta.bigNumbers?.tree?.rank >= 3) }
     );
 
     return definitions;

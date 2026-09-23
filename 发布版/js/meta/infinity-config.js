@@ -7,7 +7,7 @@
     ['B3-1','regular','界限突破-1',3,['B2'],null,null,'earlySoftcap',2,0,'削弱恒星及以前的量级软上限30%。'],
     ['B3-2','regular','界限突破-2',3,['B2'],null,null,'lateSoftcap',2,1,'削弱星系至宇宙结构的量级软上限30%。'],
     ['B4','regular','古戈尔适应',5,['B3-1','B3-2'],null,null,'googol',3,0,'削弱古戈尔惩罚强度35%。'],
-    ['C1','systems','体系无限',5,[],null,null,'systems',0,0,'各体系解锁无限阶段相关内容的统一前置。'],
+    ['C1','systems','体系无限',5,[],null,null,'systems',0,0,'尚未实装，后续开放。当前不可购买。'],
     ['D1-1','numbers','超越葛立恒',1,[],null,null,'grahamCap',0,0,'允许G65及以上阶位。'],
     ['D1-2','numbers','超越树',1,[],null,null,'treeCap',0,1,'允许TREE(4)及以上阶位。'],
     ['D2-1','numbers','分形递进',2,['D1-1'],null,null,'fractal',1,0,'前一级分形资源强化后一级获取：1 + √log10(F前 + 1)。'],
@@ -24,7 +24,7 @@
     ['E4','tempo','节奏挑战-1',9,['E3-1','E3-2','E3-3'],null,null,'fastChallenge',3,0,'解锁挑战·快速：5秒内达到宇宙结构。']
   ];
   const nodes=Object.freeze(Object.fromEntries(rows.map(([id,branch,name,price,prerequisites,exclusiveGroup,route,effectId,row,column,description])=>
-    [id,Object.freeze({id,branch,name,price,prerequisites:Object.freeze(prerequisites),prerequisiteMode:id==='E4'?'any':'all',exclusiveGroup,route,effectId,position:Object.freeze({row,column}),description})])));
+    [id,Object.freeze({id,branch,name,price,implemented:id!=='C1',prerequisites:Object.freeze(prerequisites),prerequisiteMode:id==='E4'?'any':'all',exclusiveGroup,route,effectId,position:Object.freeze({row,column}),description})])));
   WIS.Meta.InfinityConfig=Object.freeze({nodes,branches:Object.freeze({regular:'常规',systems:'体系',numbers:'大数',tempo:'节奏'}),
     minimumTree:3,treasureCap:999,pointMultiplier:2,softcapWeakening:.30,googolWeakening:.35,earlyLastStage:'恒星',
     retainedChallenges:Object.freeze(['innateDeficiency','powerless','longevity','fiveMisfortunes']),

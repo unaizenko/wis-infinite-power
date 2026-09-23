@@ -224,6 +224,136 @@
 
   const QI_LAYER_COST_BLOCK_SIZE = 256;
   const qiLayerCostBlocks = new Map();
+  // 2,097,152 layers of complete costs: about eight times the current 269k
+  // natural range. Eviction changes only recomputation, never the sum order.
+  const QI_LAYER_COST_CACHE_LIMIT = 8192;
+  const qiWorkClock = () => typeof performance !== "undefined" ? performance.now() : Date.now();
+  const qiWorkMetrics = { slices: 0, terms: 0, blocks: 0, cpuMs: 0, maxSliceMs: 0, completed: 0, cancelled: 0 };
+  const qiDeferredWorks = new WeakMap();
+  const qiWorkFailures = new WeakSet();
+  let qiBatchScope = null;
+
+  function readQiCostBlock(index) {
+    const value = qiLayerCostBlocks.get(index);
+    if (value !== undefined) { qiLayerCostBlocks.delete(index); qiLayerCostBlocks.set(index, value); }
+    return value;
+  }
+  function retainQiCostBlock(index, value) {
+    qiLayerCostBlocks.delete(index);
+    qiLayerCostBlocks.set(index, value);
+    if (qiLayerCostBlocks.size > QI_LAYER_COST_CACHE_LIMIT) qiLayerCostBlocks.delete(qiLayerCostBlocks.keys().next().value);
+  }
+  function withQiBatchScope(scope, callback) {
+    const previous = qiBatchScope;
+    qiBatchScope = scope;
+    try { return callback(); } finally { qiBatchScope = previous; }
+  }
+  function qiBatchWorkMetrics() {
+    return { ...qiWorkMetrics, cacheEntries: qiLayerCostBlocks.size, cacheLimit: QI_LAYER_COST_CACHE_LIMIT };
+  }
+  function qiBatchStateKey(source) {
+    // Capturing new wall time is independent of the gameplay input. Every
+    // gameplay field remains in this key, including in-place UI flag edits.
+    return JSON.stringify(WIS.Core.State.toSerializable(source),
+      (key, value) => key === "lastUpdateAt" || key === "timeLedger" ? undefined : value);
+  }
+
+  // This cursor owns mathematics only. No State/Runtime/Evaluation scope or
+  // partially purchased layer survives a host yield. Prefix, block and tail
+  // additions have exactly the order used by qiLayerCumulativeCost.
+  function createQiBatchWork(currentLayer, mana) {
+    const startLayer = Math.max(1, Math.floor(Number(currentLayer) || 1));
+    const availableMana = maxBN(ZERO, mana);
+    let cursor = nextQiLayer(startLayer), spent = ZERO, phase = "prefix", partial = null, tail = null;
+    let result = null, cancelled = false;
+    const finish = (layer, status = "ok") => { result = { layer, cost: spent, status }; qiWorkMetrics.completed++; };
+    if (cursor === null) finish(startLayer, "representation-limit");
+    else if (!isFiniteBN(availableMana) || !gt(availableMana, ZERO)) finish(startLayer);
+    const canAdd = cost => !gt(add(spent, cost), availableMana);
+    return Object.freeze({
+      matches: (layer, amount) => !cancelled && startLayer === layer && eq(availableMana, amount),
+      result: () => result,
+      cancel() { if (!cancelled) { cancelled = true; partial = null; qiWorkMetrics.cancelled++; } },
+      advance(options = {}) {
+        const began = qiWorkClock();
+        const deadline = options.deadlineMs ?? began + 3;
+        const maxTerms = options.maximumTerms ?? 4096, maxBlocks = options.maximumBlocks ?? 256;
+        let terms = 0, blocks = 0;
+        try {
+          while (!result && !cancelled) {
+            if (terms >= maxTerms || blocks >= maxBlocks || qiWorkClock() >= deadline) break;
+            if (phase === "prefix" && (cursor - 1) % QI_LAYER_COST_BLOCK_SIZE === 0) phase = "blocks";
+            if (phase === "blocks" && cursor <= Number.MAX_SAFE_INTEGER - QI_LAYER_COST_BLOCK_SIZE) {
+              const index = Math.floor((cursor - 1) / QI_LAYER_COST_BLOCK_SIZE);
+              let cost = partial?.done ? partial.total : readQiCostBlock(index);
+              if (cost === undefined) {
+                if (!partial) partial = { cursor, last: requireNextQiLayer(cursor, QI_LAYER_COST_BLOCK_SIZE - 1), total: ZERO, done: false };
+                // Only the owning work sees an incomplete block. Check both
+                // host time and term count before computing the next term.
+                while (!partial.done && terms < maxTerms && qiWorkClock() < deadline) {
+                  partial.total = add(partial.total, qiLayerRequirement(partial.cursor)); terms++;
+                  if (partial.cursor === partial.last) partial.done = true;
+                  else partial.cursor = requireNextQiLayer(partial.cursor);
+                }
+                if (!partial.done) break;
+                cost = partial.total;
+                retainQiCostBlock(index, cost);
+              }
+              blocks++;
+              if (!isFiniteBN(cost) || !canAdd(cost)) {
+                tail = { last: requireNextQiLayer(cursor, QI_LAYER_COST_BLOCK_SIZE - 1), before: spent, fullCost: cost };
+                phase = "tail"; partial = null; continue;
+              }
+              spent = add(spent, cost); partial = null;
+              cursor = requireNextQiLayer(cursor, QI_LAYER_COST_BLOCK_SIZE);
+              continue;
+            }
+            if (phase === "blocks") {
+              tail = { last: cursor + Math.min(Number.MAX_SAFE_INTEGER - cursor, QI_LAYER_COST_BLOCK_SIZE - 1) };
+              phase = "tail";
+            }
+            const cost = qiLayerRequirement(cursor); terms++;
+            if (!isFiniteBN(cost) || !canAdd(cost)) { finish(cursor - 1); break; }
+            spent = add(spent, cost);
+            const next = nextQiLayer(cursor);
+            if (next === null) { finish(cursor, "representation-limit"); break; }
+            if (phase === "tail" && cursor === tail.last) {
+              // The old affordability scan can accept all individual terms of
+              // a rejected block through rounding. Payment still recomputes
+              // that WHOLE block, and may therefore reject the entire purchase.
+              if (tail.fullCost !== undefined) spent = add(tail.before, tail.fullCost);
+              finish(cursor); break;
+            }
+            cursor = next;
+          }
+          return { done: !!result || cancelled, cancelled, result, terms, blocks };
+        } finally {
+          const elapsed = qiWorkClock() - began;
+          qiWorkMetrics.slices++; qiWorkMetrics.terms += terms; qiWorkMetrics.blocks += blocks;
+          qiWorkMetrics.cpuMs += elapsed; qiWorkMetrics.maxSliceMs = Math.max(qiWorkMetrics.maxSliceMs, elapsed);
+        }
+      }
+    });
+  }
+
+  function calculateQiBatch(currentLayer, mana) {
+    let work = qiBatchScope?.work;
+    if (!work?.matches(currentLayer, mana)) {
+      work?.cancel();
+      work = createQiBatchWork(currentLayer, mana);
+      if (qiBatchScope) qiBatchScope.work = work;
+    }
+    let progress;
+    try { progress = work.result() ? { done: true, result: work.result() } : work.advance(qiBatchScope
+      ? qiBatchScope.budget : { deadlineMs: Infinity, maximumTerms: Infinity, maximumBlocks: Infinity }); }
+    catch(error) { work.cancel(); if(error && typeof error === 'object')qiWorkFailures.add(error); throw error; }
+    if (!progress.done) {
+      const error = new Error("qi-work-deferred");
+      qiDeferredWorks.set(error, work);
+      throw error;
+    }
+    return progress.result;
+  }
 
   // Layer progression is exact integer work, even when its resource cost is a BigNum.
   function nextQiLayer(current, increment = 1) {
@@ -255,14 +385,15 @@
     const targetBlock = Math.max(0, Math.floor(Number(blockIndex) || 0));
     const blockStart = targetBlock * QI_LAYER_COST_BLOCK_SIZE;
     const lastLayer = requireNextQiLayer(blockStart, QI_LAYER_COST_BLOCK_SIZE);
-    if (qiLayerCostBlocks.has(targetBlock)) return qiLayerCostBlocks.get(targetBlock);
+    const cached = readQiCostBlock(targetBlock);
+    if (cached !== undefined) return cached;
     const firstLayer = requireNextQiLayer(blockStart);
     let blockTotal = ZERO;
     for (let layer = firstLayer; ; layer = requireNextQiLayer(layer)) {
       blockTotal = add(blockTotal, qiLayerRequirement(layer));
       if (layer === lastLayer) break;
     }
-    qiLayerCostBlocks.set(targetBlock, blockTotal);
+    retainQiCostBlock(targetBlock, blockTotal);
     return blockTotal;
   }
 
@@ -3203,6 +3334,7 @@
   function autoBreakthroughImmortalRealms() {
     if (!state.immortalRealmAutomationEnabled || !hasAchievement("bodyIntegration") || state.cultivation.active !== "immortal") return 0;
     if (qiRefiningChallengeActive()) {
+      if (runtime.getMathPolicy() === runtime.MathPolicy.OFFLINE_APPROX) return 0;
       if (nextQiLayer(state.currentQiLayer) === null) {
         if (runtime.isOfflineExecution()) throw qiLayerRepresentationError(state.currentQiLayer);
         return 0;
@@ -3458,13 +3590,14 @@
 
   function advanceQiLayersBatch(shouldRender = true) {
     if (!qiRefiningChallengeActive()) return 0;
+    if (shouldRender && !qiBatchScope && !runtime.isProjection() && !runtime.isOfflineExecution() && runtime.has("requestQiBatch"))
+      return runtime.call("requestQiBatch", shouldRender);
     const currentLayer = Math.max(1, Math.floor(Number(state.currentQiLayer) || 1));
-    const result = maxAffordableQiLayerChecked(currentLayer, state.mana);
+    const result = calculateQiBatch(currentLayer, state.mana);
     if (result.status === "representation-limit") return qiLayerRepresentationLimit(currentLayer, shouldRender);
     const targetLayer = result.layer;
     if (targetLayer <= currentLayer) return 0;
-    const totalCost = qiLayerCumulativeCost(requireNextQiLayer(currentLayer), targetLayer);
-    return commitQiLayerAdvance(targetLayer, totalCost, shouldRender);
+    return commitQiLayerAdvance(targetLayer, result.cost, shouldRender);
   }
 
   function unlockImmortalLife() {
@@ -3958,6 +4091,8 @@
     daoImmortalPowerRatio, daoPowerSource, daoAssimilationQ, daoAdjustedSoftcapExponent,
     daoDomainExponent,
     qiRefiningChallengeActive, qiLayerRequirement, qiLayerCumulativeCost, maxAffordableQiLayer,
+    createQiBatchWork, withQiBatchScope, qiBatchWorkMetrics, qiBatchStateKey,
+    qiDeferredWork: error => qiDeferredWorks.get(error), qiWorkFailure: error => qiWorkFailures.has(error), hasQiBatchScope: () => qiBatchScope !== null,
     qiLayerProgress,
     qiLayerManaMultiplier, qiLayerManaSourceMultiplier, qiGlobalSoftcapQ,
     qiManaSoftcapQ, qiAdjustedSoftcapExponent, qiChallengeReward, advanceQiLayer, advanceQiLayersBatch,
