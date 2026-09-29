@@ -33,9 +33,9 @@
         t[key] = value;
       }
       for (const key of Object.keys(TREE_UPGRADES)) t.upgrades[key] = integer(raw.upgrades?.[key]);
-      const multiplier=Number(raw.superEntryMultiplier ?? 1);
-      if (!Number.isFinite(multiplier)) throw Error("TREE 超构造倍率无效");
-      t.superEntryMultiplier=Math.max(1,Math.min(2.5,multiplier));
+      const multiplier=B.parseFinite(raw.superEntryMultiplier ?? 1);
+      if (!multiplier || B.lt(multiplier, 1)) throw Error("TREE 超构造倍率无效");
+      t.superEntryMultiplier=multiplier;
       const progress=B.parseFinite(raw.superProgress ?? 0);
       if (!progress || B.lt(progress,0) || B.gt(progress,1)) throw Error("TREE 超构造进度无效");
       t.superProgress=progress;
@@ -252,7 +252,7 @@
   const treeUnlocked = state => WIS.Meta.Achievements.has(state, "googol") && get(state).gIndex >= 64;
   const targetTreeRank = state => treeState(state).rank < 3 ? 3 : treeState(state).rank + 1;
   const treeSuperThresholdWork = (state, _target) => B.pow(IC.treeWork,state.activeChallenge==='trueTree3'?IC.treeChallengeExponent:1);
-  const treeDecayThresholdWork = (_state, _target) => B.BN(IC.treeDecayWork);
+  const treeDecayThresholdWork = (state, _target) => B.mul(IC.treeDecayWork, treeEffect(state, "label"));
   const treeSuperRequirement = (_state,target) => B.mul(IC.treeSeconds,B.pow(IC.treeTimeGrowth,target-3));
   const treeSuperSeconds = target => B.toNumber(B.mul(IC.treeSeconds,B.pow(IC.treeTimeGrowth,target-3)),Infinity);
   const treeEffect = (state, key) => B.pow(TREE_UPGRADES[key].effect, treeState(state).upgrades[key]);
@@ -264,17 +264,19 @@
   const treeConstructionRate = state => B.mul(B.mul(B.div(get(state).gIndex, 64), treeEffect(state, "node")), I.treeGainMultiplier(state));
   const treeConstructionGain = (state, seconds) => B.mul(treeConstructionRate(state), seconds);
   function treeSequenceGain(state, constructionGain) {
-    const baseWork = B.mul(constructionGain, treeEffect(state, "branch"));
-    const remaining = B.max(0, B.sub(treeDecayThresholdWork(state, targetTreeRank(state)), treeState(state).sequenceWork));
-    const before = B.min(baseWork, remaining);
-    return B.add(before, B.mul(B.sub(baseWork, before), treeEffect(state, "label")));
+    return B.mul(constructionGain, treeEffect(state, "branch"));
   }
-  function treeSequenceIndex(work) {
-    return B.max(1, B.mul(TREE_INDEX_BASE, B.pow(B.div(work, TREE_WORK_BASE), B.lte(work, TREE_WORK_BASE) ? 0.8 : 0.5)));
+  function treeSequenceIndex(work, decayWork = IC.treeDecayWork) {
+    const before = B.mul(TREE_INDEX_BASE, B.pow(B.div(work, TREE_WORK_BASE), 0.8));
+    if (B.lte(work, decayWork)) return B.max(1, before);
+    const atDecay = B.mul(TREE_INDEX_BASE, B.pow(B.div(decayWork, TREE_WORK_BASE), 0.8));
+    return B.max(1, B.mul(atDecay, B.pow(B.div(work, decayWork), 0.5)));
   }
   function treeSuperMultiplier(state) {
-    const i = treeSequenceIndex(treeState(state).sequenceWork);
-    return B.toNumber(B.min(2.5, B.max(1, B.add(1, B.mul(0.35, B.log10(B.div(i, TREE_INDEX_BASE)))))), 1);
+    const i = treeSequenceIndex(treeState(state).sequenceWork, treeDecayThresholdWork(state, targetTreeRank(state)));
+    if (B.lte(i, TREE_INDEX_BASE)) return B.ONE;
+    const raw = B.add(1, B.mul(0.5, B.log10(B.div(i, TREE_INDEX_BASE))));
+    return B.lte(raw, 5) ? raw : B.mul(5, B.pow(B.div(raw, 5), 0.75));
   }
   const treeSuperSpeed = state => B.div(treeState(state).superEntryMultiplier,treeSuperRequirement(state,targetTreeRank(state)));
   const treeActive = state => treeUnlocked(state) && targetTreeRank(state) <= maximumTree(state);
@@ -335,14 +337,17 @@
   }
   function treeView(state) {
     const t = treeState(state), target = targetTreeRank(state), unlocked = treeUnlocked(state);
-    const sequenceIndex = treeSequenceIndex(t.sequenceWork), currentIndex = sequenceIndex.floor();
-    const thresholdIndex = treeSequenceIndex(treeSuperThresholdWork(state, target));
-    const decayIndex = treeSequenceIndex(treeDecayThresholdWork(state,target));
-    const labelActive = B.gte(t.sequenceWork, treeDecayThresholdWork(state, target));
+    const decayWork = treeDecayThresholdWork(state, target);
+    const sequenceIndex = treeSequenceIndex(t.sequenceWork, decayWork), currentIndex = sequenceIndex.floor();
+    const thresholdIndex = treeSequenceIndex(treeSuperThresholdWork(state, target), decayWork);
+    const decayIndex = treeSequenceIndex(decayWork, decayWork);
+    const nextDecayWork = B.mul(decayWork, TREE_UPGRADES.label.effect);
+    const nextDecayIndex = treeSequenceIndex(nextDecayWork, nextDecayWork);
+    const labelActive = B.gte(t.sequenceWork, decayWork);
     const requirement=treeSuperRequirement(state,target);
     return { ...cloneTree(t), unlocked, target, labels: target, available: target <= maximumTree(state),
       sequenceIndex, currentIndex, nextIndex: B.add(currentIndex, 1), sequenceProgress: B.toNumber(B.sub(sequenceIndex, currentIndex), 0),
-      thresholdIndex, decayIndex, unlockProgress: B.toNumber(B.min(1, B.max(0, B.div(sequenceIndex, thresholdIndex))), 0),
+      thresholdIndex, decayIndex, nextDecayIndex, unlockProgress: B.toNumber(B.min(1, B.max(0, B.div(sequenceIndex, thresholdIndex))), 0),
       constructionRate: unlocked && t.phase === "explicit" && target <= maximumTree(state) ? treeConstructionRate(state) : B.ZERO,
       superMultiplier: t.phase === "explicit" ? treeSuperMultiplier(state) : t.superEntryMultiplier,
       superRequirement: requirement, superCompleted: B.mul(t.superProgress,requirement),

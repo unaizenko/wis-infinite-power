@@ -478,12 +478,17 @@
 
   function openOfflineProgressDialog() {
     const dialog = rawById("offline-progress-dialog");
+    if (dialog?.classList.contains("offline-completed-presentation")) {
+      if (dialog.open) dialog.close();
+      dialog.classList.remove("offline-completed-presentation");
+    }
     if (dialog && !dialog.open) dialog.showModal();
   }
 
   function closeOfflineProgressDialog() {
     const dialog = rawById("offline-progress-dialog");
     if (dialog?.open) dialog.close();
+    dialog?.classList.remove("offline-completed-presentation");
   }
 
   async function abandonOfflineProgress() {
@@ -679,7 +684,15 @@
     handleOfflineCatchUpStatus(getCatchUpStatus());
   }
   function presentOfflineSummary() {
-    openOfflineProgressDialog();
+    const dialog = rawById('offline-progress-dialog');
+    if (!dialog) return;
+    // Settlement is complete: keep the summary visible without a modal top
+    // layer intercepting clicks on the now-unlocked game underneath it.
+    if (!dialog.classList.contains('offline-completed-presentation')) {
+      if (dialog.open) dialog.close();
+      dialog.classList.add('offline-completed-presentation');
+    }
+    if (!dialog.open) dialog.show();
     if (offlineSummaryFrame !== null || offlineSummaryTimer !== null) return;
     const summary = offlineCompletedSummary, id = offlineSessionId(summary);
     // Let the completed panel paint before starting any auto-close countdown.
@@ -3533,7 +3546,7 @@
       render, renderResourceDebugPanel, renderAchievements, renderChallenges, renderCultivationPage,
       ensureAchievementCards, applyTheme, switchPage, switchCultivationPage,
       showNotice, showAchievementNotice, showScaleNotice, bindEvents,
-      resetCultivationPage, effectiveDevSpeed, getDebugSpeedMultiplier: effectiveDevSpeed,
+      resetCultivationPage, dismissOfflineSummary, effectiveDevSpeed, getDebugSpeedMultiplier: effectiveDevSpeed,
       ensureAdvancedRealmAbilityGroups,
       markGlobalDirty, markCurrentPageDirty, markPagesDirty,
       markCostGroupsDirty, markAchievementsDirty

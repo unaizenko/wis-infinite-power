@@ -573,6 +573,15 @@ button { font: inherit; }
   max-height: min(78vh, 680px);
   max-height: min(78dvh, 680px);
 }
+.offline-progress-dialog.offline-completed-presentation {
+  position: fixed;
+  inset: 16px 16px auto auto;
+  margin: 0;
+  width: min(380px, calc(100% - 32px));
+  max-height: min(55dvh, 420px);
+  pointer-events: none;
+}
+.offline-progress-dialog.offline-completed-presentation #continue-after-offline { pointer-events: auto; }
 .offline-progress-content {
   min-height: 0;
   display: grid;

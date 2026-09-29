@@ -341,7 +341,7 @@
       install:next=>{setStateDirect(next);simulationLoop.resetAccumulators();WIS.Power.Scale.resetTransient?.();WIS.Cultivation.Immortal.resetTransient?.();},
       save:()=>saveState({importCommit:true}),restore:restoreImportStateSnapshot
     });
-    UI.resetCultivationPage();requestRender();return next;
+    UI.dismissOfflineSummary();UI.resetCultivationPage();requestRender();return next;
   }
 
   function beginImportTransaction() {

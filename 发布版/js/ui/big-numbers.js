@@ -40,8 +40,7 @@
           const u = v.upgrades[key]; level.textContent = `Lv.${u.level}`; cost.textContent = `费用：${f(u.cost)}`;
           const multiplier = context.format(u.multiplier, 2);
           effect.textContent = key === "label"
-            ? `高阶坏序列推进 ×${u.effect}/级\n${u.active ? `当前 ×${multiplier} · 超过${decayText}后生效`
-              : u.level > 0 ? `高阶倍率 ×${multiplier} · 超过${decayText}后生效\n达到${decayText}后解锁升级` : `达到${decayText}后解锁升级`}`
+            ? `实际衰减阈值 ×${u.effect}/级\n当前：${decayText}\n下一等级：T${context.format(v.nextDecayIndex, 0)}${u.active ? "" : `\n达到当前阈值后可升级`}`
             : `${key === "node" ? "树构造点获取" : "坏序列推进"} ×${u.effect}/级 · 当前 ×${multiplier}`;
           button.textContent = key === "label" && !u.active ? "升级：锁定" : "升级";
           button.disabled = locked || !u.canPurchase;
@@ -54,7 +53,7 @@
       } else if (v.phase === "super") {
         $("tree-super-bar").value = v.superProgressFraction;
         text("tree-super-progress", `TREE(${v.rank}) → TREE(${v.target})：${f(v.superCompleted)} / ${f(v.superRequirement)}（${(v.superProgressFraction * 100).toFixed(2)}%）`);
-        text("tree-super-base", `实际总进度倍率 ×${v.superMultiplier.toFixed(3)}`);
+        text("tree-super-base", `实际总进度倍率 ×${context.format(v.superMultiplier, 3)}`);
         text("tree-super-sources", `来源：${v.superSources.map(source => `${source.name} ×${f(source.multiplier)}`).join(" · ")}`);
         text("tree-super-eta", Number.isFinite(v.remainingSeconds)
           ? `预计：${WIS.UI.Format.elapsedTime(Math.ceil(v.remainingSeconds))}` : "预计：极长（以进度需求为准）");
