@@ -10,13 +10,13 @@
     ["intent", "意境", 1, "mana", "2e50", "战力获取 ^1.05"],
     ["spirit", "元神", 1, "mana", "5e50", "法力获取 ^1.05"],
     ["xianForce", "仙力", 2, "mana", "2e60", "依据当前仙灵力获得仙力"],
-    ["body", "仙体", 2, "xianForce", "1e5", "J获取 ×(1 + 当前仙力)^0.25"],
-    ["materialSpirit", "元神实质", 2, "xianForce", "1e6", "仙力获取 ×(1 + 当前仙力)^0.08"],
+    ["body", "仙体", 2, "xianForce", "1e5", "根据当前仙力提升J获取。"],
+    ["materialSpirit", "元神实质", 2, "xianForce", "1e6", "根据当前仙力提升仙力获取。"],
     ["yuanForce", "元力", 3, "xianForce", "2e8", "依据当前仙力获得元力"],
-    ["crystal", "问鼎之晶", 3, "yuanForce", "1e4", "元力获取 ×(1 + 当前元力)^0.15"],
-    ["worldAura", "天地元气", 4, "yuanForce", "3e5", "元力获取 ×(1 + 当前元力)^0.25；不新增元气资源"],
-    ["rules", "规则掌控", 5, "yuanForce", "3e8", "仙灵力、仙力获取 ×(1 + 当前元力)^0.18"],
-    ["divineArt", "自创神通", 6, "yuanForce", "3e12", "战力获取 ×(1 + 当前元力)^0.25"]
+    ["crystal", "问鼎之晶", 3, "yuanForce", "1e4", "根据当前元力提升元力获取。"],
+    ["worldAura", "天地元气", 4, "yuanForce", "3e5", "根据当前元力提升元力获取。"],
+    ["rules", "规则掌控", 5, "yuanForce", "3e8", "根据当前元力提升仙灵力、仙力获取。"],
+    ["divineArt", "自创神通", 6, "yuanForce", "3e12", "根据当前元力提升战力获取。"]
   ].map(([key, name, realm, resource, cost, description]) => Object.freeze({ key, name, realm, resource, cost: B.BN(cost), description })));
   const resourceKeys = Object.freeze(["xianForce", "yuanForce"]);
   const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力" });
@@ -158,20 +158,31 @@
     return transaction(state, n => { const a = abilities.find(a => a.key === key); if (!debit(state, a.resource, a.cost)) return false;
       n.abilities[key] = true; if (manual) n.history.abilities[key] = true; return true; });
   }
+  // Shared by production sources/effects and the current-effect UI preview.
+  const abilityMultiplierRules = Object.freeze({
+    body: ["xianForce", .25], materialSpirit: ["xianForce", .08],
+    crystal: ["yuanForce", .15], worldAura: ["yuanForce", .25],
+    rules: ["yuanForce", .18], divineArt: ["yuanForce", .25]
+  });
+  function abilityMultiplier(state, key) {
+    const rule = abilityMultiplierRules[key];
+    if (!rule || !has(state, key)) return 1;
+    return B.pow(B.add(1, amount(state, rule[0])), rule[1]);
+  }
   const yuanFromXian = x => B.pow(B.add(1, B.div(x, "1e8")), .75);
   function rawRates(state) {
     let xianForce = B.ZERO, yuanForce = B.ZERO;
     if (!has(state, "xianForce") && !has(state, "yuanForce")) return { xianForce, yuanForce };
-    const x = amount(state, "xianForce"), y = amount(state, "yuanForce");
+    const x = amount(state, "xianForce");
     if (has(state, "xianForce")) {
       xianForce = B.mul("2e4", B.add(1, B.log10(B.add(1, B.div(state.immortalPower, "1e40")))));
-      if (has(state, "materialSpirit")) xianForce = B.mul(xianForce, B.pow(B.add(1, x), .08));
-      if (has(state, "rules")) xianForce = B.mul(xianForce, B.pow(B.add(1, y), .18));
+      if (has(state, "materialSpirit")) xianForce = B.mul(xianForce, abilityMultiplier(state, "materialSpirit"));
+      if (has(state, "rules")) xianForce = B.mul(xianForce, abilityMultiplier(state, "rules"));
     }
     if (has(state, "yuanForce")) {
       yuanForce = yuanFromXian(x);
-      if (has(state, "crystal")) yuanForce = B.mul(yuanForce, B.pow(B.add(1, y), .15));
-      if (has(state, "worldAura")) yuanForce = B.mul(yuanForce, B.pow(B.add(1, y), .25));
+      if (has(state, "crystal")) yuanForce = B.mul(yuanForce, abilityMultiplier(state, "crystal"));
+      if (has(state, "worldAura")) yuanForce = B.mul(yuanForce, abilityMultiplier(state, "worldAura"));
     }
     return { xianForce, yuanForce };
   }
@@ -273,9 +284,9 @@
       group: "修真道", target, layer, value:typeof value==="function"?value(state):value, valueAt:typeof value==="function"?value:null, dynamicResources:({body:["xianForce"],rules:["yuanForce"],divineArt:["yuanForce"]})[id]||[] });
     const result = [effect("intent", "power", "regionExponent", has(state, "intent") ? 1.05 : 1),
       effect("spirit", "mana", "regionExponent", has(state, "spirit") ? 1.05 : 1),
-      effect("body", "joules", "regionMultiplier", current=>has(current, "body") ? B.pow(B.add(1, amount(current, "xianForce")), .25) : 1),
-      effect("rules", "immortalPower", "regionMultiplier", current=>has(current, "rules") ? B.pow(B.add(1, amount(current, "yuanForce")), .18) : 1),
-      effect("divineArt", "power", "regionMultiplier", current=>has(current, "divineArt") ? B.pow(B.add(1, amount(current, "yuanForce")), .25) : 1)];
+      effect("body", "joules", "regionMultiplier", current=>abilityMultiplier(current, "body")),
+      effect("rules", "immortalPower", "regionMultiplier", current=>abilityMultiplier(current, "rules")),
+      effect("divineArt", "power", "regionMultiplier", current=>abilityMultiplier(current, "divineArt"))];
     if (yinYang(state)) for (const key of ["joules", "power"])
       result.push(effect("yinYang-" + key, key, "regionExponent", .85));
     return result;
@@ -340,7 +351,7 @@
   }
   WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
     sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
-    canBuy, buy, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
+    canBuy, buy, abilityMultiplier, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
     spendResource(state, key, cost) { return transaction(state, () => debit(state, key, cost)); } });
 }(window.WIS));

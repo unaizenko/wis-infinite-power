@@ -5,6 +5,8 @@
     const $ = id => document.getElementById(id), rows = [], groups = [];
     let mounted = false, lastRealm = -1;
     const f = value => context.format(value, 4);
+    const effectLabels = Object.freeze({ body: "J获取", materialSpirit: "仙力获取",
+      crystal: "元力获取", worldAura: "元力获取", rules: "仙灵力、仙力获取", divineArt: "战力获取" });
     function el(tag, text, className) {
       const n = document.createElement(tag); if (text) n.textContent = text; if (className) n.className = className; return n;
     }
@@ -28,7 +30,12 @@
         preview = el("span", "", "source-gain-preview"); preview.id = key + "-source-preview";
         control.prepend(preview);
       }
-      return { item, price, button, preview };
+      let effectPreview;
+      if (key.startsWith("buy-") && effectLabels[key.slice(4)]) {
+        effectPreview = el("span", "", "source-gain-preview"); effectPreview.id = key + "-effect-preview";
+        control.prepend(effectPreview);
+      }
+      return { item, price, button, preview, effectPreview };
     }
     function bind() {
       if (mounted) return; mounted = true;
@@ -39,8 +46,8 @@
       $("immortal-realms-panel").append(realms);
       const note = el("p", "", "big-number-note"); note.id = "xiuzhen-unlock-note"; realms.append(note);
       X.realms.forEach(r => rows.push({ type: "realm", definition: r, ...row(realms, r.name,
-        r.level < 4 ? r.level === 2 ? "开放仙力体系；获得成就·婴变为仙，解锁仙道挑战·阴虚阳实。" : r.level === 3 ? "开放元力体系。" : "完成挑战·化凡后解锁；开放意境、元神。"
-          : `永久取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限（挑战重新施加时除外）。`, r.cost, r.resource,
+        r.level < 4 ? r.level === 2 ? "开放仙力。" : r.level === 3 ? "开放元力体系。" : "完成挑战·化凡后解锁；开放意境、元神。"
+          : `永久取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。`, r.cost, r.resource,
         state => X.get(state).realm === r.level - 1 && X.breakthrough(state), "realm-" + r.level) }));
       const abilitiesPanel = $("immortal-abilities-panel"), oldContent = abilitiesPanel.querySelector(".upgrade-groups");
       const oldAbilities = fold("仙道·炼气道能力", "qi-path-abilities");
@@ -102,6 +109,10 @@
         r.button.textContent = done ? r.type === "ability" ? "已强化" : "已突破"
           : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : "突破") : "强化";
         r.button.disabled = locked || done || !available;
+        if (r.effectPreview) {
+          const text = `当前：${effectLabels[d.key]} ×${f(X.abilityMultiplier(s, d.key))}`;
+          if (r.effectPreview.textContent !== text) r.effectPreview.textContent = text;
+        }
         if (r.preview) {
           if (writePreview) writePreview(r.preview.id, d.key, !done);
           else WIS.UI.SourcePreview.write(r.preview, d.key, context.format, s, { assumeUnlocked: !done });

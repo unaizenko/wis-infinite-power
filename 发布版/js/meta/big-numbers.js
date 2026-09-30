@@ -392,7 +392,7 @@
       const q = amount(state, 4);
       const oldIndex = n.gIndex;
       const startingRates = options.fixedSources ? rates(state) : null;
-      const modified = I.has(state,'D1-1') || I.has(state,'D2-1') || I.has(state,'D4') || I.completed(state,'trueG1') || I.completed(state,'trueGraham') || ['trueG1','trueGraham'].includes(state.activeChallenge);
+      const modified = I.has(state,'D1-1') || I.has(state,'D2-1') || I.has(state,'D4') || I.rewardUnlocked(state,'trueG1') || I.rewardUnlocked(state,'trueGraham') || ['trueG1','trueGraham'].includes(state.activeChallenge);
       let crossingSeconds=seconds;
       if(modified && oldIndex>0 && oldIndex<64){
         const probe={...n};advanceGrahamInfinity(probe,seconds,q,state,options,64);

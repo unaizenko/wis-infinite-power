@@ -242,6 +242,12 @@
         if (unlocked === true) unlockedAchievements[key] = true;
       });
     }
+    // Schema 64 compatibility: historical challenge wins become permanent achievements once.
+    for (const [key, challenge] of Object.entries(WIS.Meta.InfinityConfig.challenges)) {
+      if (challenge.achievementKey && (Number(source.challengeCompletions?.[key]) || 0) > 0) {
+        unlockedAchievements[challenge.achievementKey] = true;
+      }
+    }
     if (gte(totalPower, 1)) unlockedAchievements.powerOne = true;
     if (gte(totalPower, 5)) unlockedAchievements.five = true;
     if (highestScaleIndex >= 1) unlockedAchievements.brick = true;

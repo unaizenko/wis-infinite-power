@@ -1263,10 +1263,12 @@
                   offlineSegmentBudget=WIS.Simulation.CheckpointStrategy.fail(offlineSegmentBudget,error);
                   const capability=WIS.Simulation.CompiledContinuousPlan.isCapabilityError(error);
                   if(capability){
-                    if(error.code==='scale-external-feedback-unvalidated'&&task.macroPlan?.evolutionPlan?.selection?.kind==='fixed-20s') {
+                    const failedExecutor=task.macroPlan?.evolutionPlan?.selection?.kind;
+                    if((error.code==='scale-external-feedback-unvalidated'&&failedExecutor==='fixed-20s')||
+                        (error.code==='specialized-scale-required'&&failedExecutor)) {
                       // This capability failed, not every executor in the remaining task.
                       // Normal selection after a committed micro may already be weak.
-                      task.capabilityFallback={code:error.code,blockedExecutor:'fixed-20s'};
+                      task.capabilityFallback={code:error.code,blockedExecutor:failedExecutor};
                     } else {
                       task.productionReplay=task.macroPlan?.compiledMicro===true;
                       task.optimizationDisabled=true;

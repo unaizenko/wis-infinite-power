@@ -1402,8 +1402,8 @@
               <div class="purchase-control"><span id="brahma-demon-art-preview">解锁后：基础来源 +0 战力/秒；当前实际：+0 战力/秒</span><small>消耗 1e14 法力</small><button id="unlock-brahma-demon-art" class="primary-button" type="button">解锁</button></div>
             </article>
             <article class="item-row" id="true-spirit-transformation-ability" data-sort-cost="50000000000000">
-              <div class="item-content"><h2>真灵变</h2><p>可升5级，每级使全部法力获取倍率增加0.6，本能力内部加算。</p></div>
-              <div class="purchase-control"><span id="true-spirit-transformation-preview">当前：0/5级；法力获取倍率 ×1.00</span><small id="true-spirit-transformation-cost">消耗 5e13 法力</small><button id="unlock-true-spirit-transformation" class="primary-button" type="button">升级</button></div>
+              <div class="item-content"><h2>真灵变</h2><p>可升5级，每级使全部法力获取增加0.6，本能力内部加算。</p></div>
+              <div class="purchase-control"><span id="true-spirit-transformation-preview">当前：0/5级；法力获取 ×1.00</span><small id="true-spirit-transformation-cost">消耗 5e13 法力</small><button id="unlock-true-spirit-transformation" class="primary-button" type="button">升级</button></div>
             </article>
             <article class="item-row" id="silver-tadpole-script-ability" data-sort-cost="500000000000000">
               <div class="item-content"><h2>银蝌文</h2><p>使小天劫负荷门槛由150提高至1500，并使探寻法力在小天劫结算前 ^1.06。</p></div>
@@ -1415,7 +1415,7 @@
             </article>
             <article class="item-row" id="immortal-realm-divine-ability" data-sort-cost="1200000000000000">
               <div class="item-content"><h2>仙界神通</h2><p>根据当前 J提供独立吐纳来源倍率。</p></div>
-              <div class="purchase-control"><span id="immortal-realm-divine-preview">解锁后：吐纳法力获取倍率 ×1</span><small>消耗 1.2e15 法力</small><button id="unlock-immortal-realm-divine" class="primary-button" type="button">解锁</button></div>
+              <div class="purchase-control"><span id="immortal-realm-divine-preview">解锁后：吐纳法力获取 ×1</span><small>消耗 1.2e15 法力</small><button id="unlock-immortal-realm-divine" class="primary-button" type="button">解锁</button></div>
             </article>
             <article class="item-row" id="spirit-refining-art-ability" data-sort-cost="2000000000000000">
               <div class="item-content"><h2>炼神术</h2><p>使当前法力提供的 J 来源额外 ^1.06。</p></div>
@@ -1424,23 +1424,23 @@
       const bodyIntegrationAbilities = realm.key === "bodyIntegration" ? `
             <article class="item-row" id="perfected-technique-ability" data-sort-cost="${PERFECTED_TECHNIQUE_COST}"><div class="item-content"><h2>功法大成</h2><p>使周天最终比例 ×1.5。</p></div><div class="purchase-control"><span id="perfected-technique-preview">解锁后：周天比例 ×1.5</span><small>消耗 ${formatCost(PERFECTED_TECHNIQUE_COST)} 法力</small><button id="unlock-perfected-technique" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="heaven-earth-aura-ability" data-sort-cost="${HEAVEN_EARTH_AURA_COST}"><div class="item-content"><h2>天地元气</h2><p>使吐纳 J 曲线指数 +0.25。</p></div><div class="purchase-control"><span id="heaven-earth-aura-preview">解锁后：吐纳 J 曲线指数 +0.25</span><small>消耗 ${formatCost(HEAVEN_EARTH_AURA_COST)} 法力</small><button id="unlock-heaven-earth-aura" class="primary-button" type="button">解锁</button></div></article>
-            <article class="item-row" id="divine-ability-mastery-ability" data-sort-cost="${DIVINE_ABILITY_MASTERY_COST}"><div class="item-content"><h2>神通通神</h2><p>使全部法力获取倍率 ×2.5。</p></div><div class="purchase-control"><span id="divine-ability-mastery-preview">解锁后：全部法力 ×2.5</span><small>消耗 ${formatCost(DIVINE_ABILITY_MASTERY_COST)} 法力</small><button id="unlock-divine-ability-mastery" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="divine-ability-mastery-ability" data-sort-cost="${DIVINE_ABILITY_MASTERY_COST}"><div class="item-content"><h2>神通通神</h2><p>使全部法力获取 ×2.5。</p></div><div class="purchase-control"><span id="divine-ability-mastery-preview">解锁后：全部法力 ×2.5</span><small>消耗 ${formatCost(DIVINE_ABILITY_MASTERY_COST)} 法力</small><button id="unlock-divine-ability-mastery" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="dual-infant-unity-ability" data-sort-cost="${DUAL_INFANT_UNITY_COST}"><div class="item-content"><h2>双婴合一</h2><p>使周天法力来源 ^1.08。</p></div><div class="purchase-control"><span id="dual-infant-unity-preview">解锁后：周天法力来源 ^1.08</span><small>消耗 ${formatCost(DUAL_INFANT_UNITY_COST)} 法力</small><button id="unlock-dual-infant-unity" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="aura-into-body-ability" data-sort-cost="${AURA_INTO_BODY_COST}"><div class="item-content"><h2>元气入体</h2><p>使健身 J 来源 ×20，并提高40级健身上限。</p></div><div class="purchase-control"><span id="aura-into-body-preview">解锁后：健身 J ×20；健身上限 +40</span><small>消耗 ${formatCost(AURA_INTO_BODY_COST)} 法力</small><button id="unlock-aura-into-body" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="external-incarnation-ability" data-sort-cost="${EXTERNAL_INCARNATION_COST}"><div class="item-content"><h2>身外化身</h2><p>使梵圣真魔功的独立战力来源 ×5。</p></div><div class="purchase-control"><span id="external-incarnation-preview">解锁后：梵圣真魔功 ×5</span><small>消耗 ${formatCost(EXTERNAL_INCARNATION_COST)} 法力</small><button id="unlock-external-incarnation" class="primary-button" type="button">解锁</button></div></article>
-            <article class="item-row" id="demon-realm-journey-ability" data-sort-cost="${DEMON_REALM_JOURNEY_COST}"><div class="item-content"><h2>魔界之游</h2><p>使普通探寻法力来源 ×5，并使仙道宝物进度获取倍率 ×3。</p></div><div class="purchase-control"><span id="demon-realm-journey-preview">解锁后：普通探寻 ×5；仙道宝物进度获取 ×3</span><small>消耗 ${formatCost(DEMON_REALM_JOURNEY_COST)} 法力</small><button id="unlock-demon-realm-journey" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="demon-realm-journey-ability" data-sort-cost="${DEMON_REALM_JOURNEY_COST}"><div class="item-content"><h2>魔界之游</h2><p>使普通探寻法力来源 ×5，并使仙道宝物进度获取 ×3。</p></div><div class="purchase-control"><span id="demon-realm-journey-preview">解锁后：普通探寻 ×5；仙道宝物进度获取 ×3</span><small>消耗 ${formatCost(DEMON_REALM_JOURNEY_COST)} 法力</small><button id="unlock-demon-realm-journey" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="return-to-origin-ability" data-sort-cost="${RETURN_TO_ORIGIN_COST}"><div class="item-content"><h2>返本归元</h2><p>使 J 区域结果 ^1.02。</p></div><div class="purchase-control"><span id="return-to-origin-preview">解锁后：J 区域 ^1.02</span><small>消耗 ${formatCost(RETURN_TO_ORIGIN_COST)} 法力</small><button id="unlock-return-to-origin" class="primary-button" type="button">解锁</button></div></article>` : "";
       const mahayanaAbilities = realm.key === "mahayana" ? `
             <article class="item-row" id="natal-magic-treasure-ability" data-sort-cost="${NATAL_MAGIC_TREASURE_COST}"><div class="item-content"><h2>本命法宝</h2><p>将法宝法力曲线的前期边际由0.65提高至0.80，并随法力提高平滑衰减至后期边际0.76。</p></div><div class="purchase-control"><span id="natal-magic-treasure-preview">解锁后：前期边际 ^0.80，平滑衰减至 ^0.76</span><small>消耗 ${formatCost(NATAL_MAGIC_TREASURE_COST)} 法力</small><button id="unlock-natal-magic-treasure" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="perfected-technique-completion-ability" data-sort-cost="${PERFECTED_TECHNIQUE_COMPLETION_COST}"><div class="item-content"><h2>功法圆满</h2><p>使周天最终比例 ×1.5。</p></div><div class="purchase-control"><span id="perfected-technique-completion-preview">解锁后：周天比例 ×1.5</span><small>消耗 ${formatCost(PERFECTED_TECHNIQUE_COMPLETION_COST)} 法力</small><button id="unlock-perfected-technique-completion" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="roam-spirit-world-ability" data-sort-cost="${ROAM_SPIRIT_WORLD_COST}"><div class="item-content"><h2>纵横灵界</h2><p>每秒获得当前一次完整探寻收益的0.02%，包括法力、有效探寻量与宝物判定，不消耗战力。</p></div><div class="purchase-control"><span id="roam-spirit-world-preview">解锁后：每5000秒等效完成1次当前探寻</span><small>消耗 ${formatCost(ROAM_SPIRIT_WORLD_COST)} 法力</small><button id="unlock-roam-spirit-world" class="primary-button" type="button">解锁</button></div></article>
-            <article class="item-row" id="descend-realm-ability" data-sort-cost="${DESCEND_REALM_COST}"><div class="item-content"><h2>降界</h2><p>根据当前战力提高仙道宝物进度获取倍率，最高 ×10。</p></div><div class="purchase-control"><span id="descend-realm-preview">解锁后：仙道宝物进度获取随战力提高</span><small>消耗 ${formatCost(DESCEND_REALM_COST)} 法力</small><button id="unlock-descend-realm" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="descend-realm-ability" data-sort-cost="${DESCEND_REALM_COST}"><div class="item-content"><h2>降界</h2><p>根据当前战力提高仙道宝物进度获取，最高 ×10。</p></div><div class="purchase-control"><span id="descend-realm-preview">解锁后：仙道宝物进度获取随战力提高</span><small>消耗 ${formatCost(DESCEND_REALM_COST)} 法力</small><button id="unlock-descend-realm" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="mystic-heavenly-treasure-ability" data-sort-cost="${MYSTIC_HEAVENLY_TREASURE_COSTS[0]}"><div class="item-content"><h2>玄天灵宝</h2><p>可升3级，依次解锁永久烙印：仙道·幻天镜、仙道·玄天圣树、仙道·玄天斩灵剑。</p></div><div class="purchase-control"><span id="mystic-heavenly-treasure-level">当前：0/3级</span><small id="mystic-heavenly-treasure-cost">消耗 ${formatCost(MYSTIC_HEAVENLY_TREASURE_COSTS[0])} 法力</small><button id="buy-mystic-heavenly-treasure" class="primary-button" type="button">升级</button></div></article>
             <article class="item-row" id="nascent-soul-completion-ability" data-sort-cost="${NASCENT_SOUL_COMPLETION_COST}"><div class="item-content"><h2>元婴大成</h2><p>使周天法力来源额外 ^1.08。</p></div><div class="purchase-control"><span id="nascent-soul-completion-preview">解锁后：周天法力来源 ^1.08</span><small>消耗 ${formatCost(NASCENT_SOUL_COMPLETION_COST)} 法力</small><button id="unlock-nascent-soul-completion" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="spirit-travel-void-ability" data-sort-cost="${SPIRIT_TRAVEL_VOID_COST}"><div class="item-content"><h2>神游太虚</h2><p>将强化小天劫负荷门槛由1500提高至150000。</p></div><div class="purchase-control"><span id="spirit-travel-void-preview">解锁后：强化小天劫门槛 1500 → 150000</span><small>消耗 ${formatCost(SPIRIT_TRAVEL_VOID_COST)} 法力</small><button id="unlock-spirit-travel-void" class="primary-button" type="button">解锁</button></div></article>
-            <article class="item-row" id="golden-seal-script-ability" data-sort-cost="${GOLDEN_SEAL_SCRIPT_COST}"><div class="item-content"><h2>金篆文</h2><p>使法力区域获取倍率 ×8。</p></div><div class="purchase-control"><span id="golden-seal-script-preview">解锁后：法力区域 ×8</span><small>消耗 ${formatCost(GOLDEN_SEAL_SCRIPT_COST)} 法力</small><button id="unlock-golden-seal-script" class="primary-button" type="button">解锁</button></div></article>` : "";
+            <article class="item-row" id="golden-seal-script-ability" data-sort-cost="${GOLDEN_SEAL_SCRIPT_COST}"><div class="item-content"><h2>金篆文</h2><p>使法力区域获取 ×8。</p></div><div class="purchase-control"><span id="golden-seal-script-preview">解锁后：法力区域 ×8</span><small>消耗 ${formatCost(GOLDEN_SEAL_SCRIPT_COST)} 法力</small><button id="unlock-golden-seal-script" class="primary-button" type="button">解锁</button></div></article>` : "";
       const trueImmortalAbilities = realm.key === "trueImmortal" ? `
-            <article class="item-row purchased" id="ascend-immortal-world-ability" data-sort-cost="0"><div class="item-content"><h2>飞升仙界</h2><p>真仙自带。小天劫完全失效并清空负荷；仙道宝物进度获取倍率 ×3。</p></div><div class="purchase-control"><span id="ascend-immortal-world-preview">等待真仙</span><button class="primary-button" type="button" disabled>真仙自带</button></div></article>
+            <article class="item-row purchased" id="ascend-immortal-world-ability" data-sort-cost="0"><div class="item-content"><h2>飞升仙界</h2><p>真仙自带。小天劫完全失效并清空负荷；仙道宝物进度获取 ×3。</p></div><div class="purchase-control"><span id="ascend-immortal-world-preview">等待真仙</span><button class="primary-button" type="button" disabled>真仙自带</button></div></article>
             <article class="item-row" id="immortal-spirit-power-ability" data-sort-cost="0"><div class="item-content"><h2>仙灵力</h2><p>根据当前法力自动获得仙灵力，不消耗法力。</p></div><div class="purchase-control"><span id="immortal-spirit-power-preview">等待真仙</span><small>费用：免费</small><button id="immortal-spirit-power-state" class="primary-button" type="button" disabled>等待真仙</button></div></article>
             <article class="item-row" id="undying-primordial-spirit-ability" data-sort-cost="${UNDYING_PRIMORDIAL_SPIRIT_COST}"><div class="item-content"><h2>不灭元神</h2><p>使周天法力来源额外 ^1.03。</p></div><div class="purchase-control"><span id="undying-primordial-spirit-preview">解锁后：周天法力来源 ^1.03</span><small>消耗 ${formatCost(UNDYING_PRIMORDIAL_SPIRIT_COST)} 仙灵力</small><button id="unlock-undying-primordial-spirit" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="immortal-aperture-ability" data-sort-cost="${IMMORTAL_POWER_CONFIG.immortalAperture.baseCost}"><div class="item-content"><h2>仙窍</h2><p>可升36级；每级使仙灵力 ×1.10，每6级额外 ×1.25。</p></div><div class="purchase-control"><span id="immortal-aperture-level">当前：0/36级</span><small id="immortal-aperture-cost">消耗 ${formatCost(IMMORTAL_POWER_CONFIG.immortalAperture.baseCost)} 仙灵力</small><button id="buy-immortal-aperture" class="primary-button" type="button">升级</button></div></article>
@@ -1464,12 +1464,12 @@
             <article class="item-row" id="soul-qualitative-change-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.soulQualitativeChange}"><div class="item-content"><h2>神魂质变</h2><p>吐纳来源倍率 ×[1+(当前仙灵力/1e16)^0.40]；周天仅通过吐纳来源继承一次。</p></div><div class="purchase-control"><span id="soul-qualitative-change-preview">吐纳来源 ×1.000</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.soulQualitativeChange)} 仙灵力</small><button id="unlock-soul-qualitative-change" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="immortal-aperture-vii-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureVII}"><div class="item-content"><h2>仙窍Ⅶ</h2><p>拥有仙窍Ⅵ后，将仙窍等级上限由276提高至360。</p></div><div class="purchase-control"><span>仙窍上限 276 → 360</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureVII)} 仙灵力</small><button id="unlock-immortal-aperture-vii" class="primary-button" type="button">解锁</button></div></article>` : "";
       const daluoAbilities = realm.key === "daluo" ? `
-            <article class="item-row" id="trinity-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.trinity}"><div class="item-content"><h2>三位一体</h2><p>根据当前 J 提高仙灵力获取倍率。</p></div><div class="purchase-control"><span id="trinity-preview">解锁后：仙灵力 ×1.000</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.trinity)} 仙灵力</small><button id="unlock-trinity" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="trinity-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.trinity}"><div class="item-content"><h2>三位一体</h2><p>根据当前 J 提高仙灵力获取。</p></div><div class="purchase-control"><span id="trinity-preview">解锁后：仙灵力 ×1.000</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.trinity)} 仙灵力</small><button id="unlock-trinity" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="unity-with-dao-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.unityWithDao}"><div class="item-content"><h2>与道合真</h2><p>根据当前仙灵力提供渐近 ^1.025 的仙灵力区域指数。</p></div><div class="purchase-control"><span id="unity-with-dao-preview">解锁后：仙灵力区域 ^1.000</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.unityWithDao)} 仙灵力</small><button id="unlock-unity-with-dao" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="law-origin-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.lawOrigin}"><div class="item-content"><h2>法则本源</h2><p>不改变法则动态指数；使最终法则倍率 ^1.20。</p></div><div class="purchase-control"><span id="law-origin-preview">解锁后：最终法则倍率 ^1.20</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.lawOrigin)} 仙灵力</small><button id="unlock-law-origin" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="law-crystal-filament-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.lawCrystalFilament}"><div class="item-content"><h2>法则晶丝</h2><p>根据当前实际法则倍率提高战力区域指数，渐近 ^1.20。</p></div><div class="purchase-control"><span id="law-crystal-filament-preview">当前法则倍率 ×1；y=0.00000；解锁后战力区域 ^1.00000；渐近上限 ^1.20</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.lawCrystalFilament)} 仙灵力</small><button id="unlock-law-crystal-filament" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="sever-three-corpses-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.severThreeCorpses}"><div class="item-content"><h2>斩三尸</h2><p>首次购买永久解锁斩恶尸、斩善尸、斩自我尸挑战。</p></div><div class="purchase-control"><span>永久开放斩三尸挑战链</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.severThreeCorpses)} 仙灵力</small><button id="unlock-sever-three-corpses" class="primary-button" type="button">解锁</button></div></article>
-            <article class="item-row" id="ultimate-immortal-aperture-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.ultimateImmortalAperture}"><div class="item-content"><h2>终极仙窍</h2><p>拥有仙窍Ⅶ后，将仙窍上限由360提高至1800；361级后启用新收益和费用曲线。</p></div><div class="purchase-control"><span>仙窍上限 360 → 1800</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.ultimateImmortalAperture)} 仙灵力</small><button id="unlock-ultimate-immortal-aperture" class="primary-button" type="button">解锁</button></div></article>` : "";
+            <article class="item-row" id="ultimate-immortal-aperture-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.ultimateImmortalAperture}"><div class="item-content"><h2>终极仙窍</h2><p>拥有仙窍Ⅶ后，将仙窍上限由360提高至1800。</p></div><div class="purchase-control"><span>仙窍上限 360 → 1800</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.ultimateImmortalAperture)} 仙灵力</small><button id="unlock-ultimate-immortal-aperture" class="primary-button" type="button">解锁</button></div></article>` : "";
       return `
         <details class="upgrade-group" id="${realm.slug}-abilities" hidden>
           <summary>
@@ -1479,10 +1479,10 @@
             <article class="item-row purchased" id="${realm.slug}-bottleneck-ability" data-sort-cost="0">
               <div class="item-content">
                 <h2>${realm.key === "trueImmortal" ? "天人三衰" : ["goldenImmortal", "taiyi", "daluo"].includes(realm.key) ? "天人五衰" : `${nextRealm.name}瓶颈`}</h2>
-                <p>${realm.key === "trueImmortal" ? `根据当前仙灵力与${nextRealm.name}需求的进度，以不同动态指数压制法力、J与战力。突破金仙后由天人五衰接管。` : ["goldenImmortal", "taiyi"].includes(realm.key) ? `境界自动生效、无价格；已取代天人三衰，以统一指数压制法力、J、战力、宝物收益倍率与挑战奖励倍率。` : realm.key === "daluo" ? `境界自动生效、无价格；延续太乙终点指数 ^0.65，统一压制相关资源与倍率，突破道祖后完全取消。` : `法力越接近当前${nextRealm.name}实际需求，法力获取倍率下降越快；突破${nextRealm.name}后解除。`}</p>
+                <p>${realm.key === "trueImmortal" ? `根据当前仙灵力与${nextRealm.name}需求的进度，以不同动态指数压制法力、J与战力。突破金仙后由天人五衰接管。` : ["goldenImmortal", "taiyi"].includes(realm.key) ? `境界自动生效、无价格；已取代天人三衰，以统一指数压制法力、J、战力、宝物收益倍率与挑战奖励倍率。` : realm.key === "daluo" ? `境界自动生效、无价格；延续太乙终点指数 ^0.65，统一压制相关资源与倍率，突破道祖后完全取消。` : `法力越接近当前${nextRealm.name}实际需求，法力获取下降越快；突破${nextRealm.name}后解除。`}</p>
               </div>
               <div class="purchase-control">
-                <span id="${realm.slug}-bottleneck-preview">当前法力获取倍率 ×1.00</span>
+                <span id="${realm.slug}-bottleneck-preview">当前法力获取 ×1.00</span>
                 <small id="${nextRealm.slug}-bottleneck-point">拐点：当前${nextRealm.name}实际需求</small>
                 <button id="${realm.slug}-bottleneck-state" class="primary-button" type="button" disabled>已生效</button>
               </div>
@@ -1978,9 +1978,9 @@
       const gymPotential = mulBN(gymPotentialMultiplier(), sonicMovementMultiplier());
       const exercisePotential = mulBN(exercisePotentialMultiplier(), extremeExerciseEffectMultiplier());
       const transcendentPotential = transcendentPotentialMultiplier();
-    setPreviewText(byId("gym-preview"), () => `${state.gymPurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(state.gymPurchased ? gym : gymPotential, 2)}`);
-    setPreviewText(byId("exercise-preview"), () => `${state.exercisePurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(state.exercisePurchased ? exercise : exercisePotential, 2)}`);
-    setPreviewText(byId("transcendent-preview"), () => `${state.transcendentPurchased ? "当前：" : "解锁后："}战力获取倍率 ×${format(state.transcendentPurchased ? transcendent : transcendentPotential, 2)}`);
+    setPreviewText(byId("gym-preview"), () => `${state.gymPurchased ? "当前：" : "解锁后："}J 获取 ×${format(state.gymPurchased ? gym : gymPotential, 2)}`);
+    setPreviewText(byId("exercise-preview"), () => `${state.exercisePurchased ? "当前：" : "解锁后："}J 获取 ×${format(state.exercisePurchased ? exercise : exercisePotential, 2)}`);
+    setPreviewText(byId("transcendent-preview"), () => `${state.transcendentPurchased ? "当前：" : "解锁后："}战力获取 ×${format(state.transcendentPurchased ? transcendent : transcendentPotential, 2)}`);
     writeSourcePreview("focus-preview", "focus", true);
     setPreviewText(byId("breathing-method-preview"), () => `${state.breathingMethodPurchased ? "当前：" : "解锁后："}跑步倍率 ×1.5`);
     setPreviewText(byId("extreme-exercise-preview"), () => `${state.extremeExercisePurchased ? "当前：" : "解锁后："}运动倍率 ×1.5`);
@@ -2037,9 +2037,9 @@
       const intuitionPotential = intuitionPotentialFocusMultiplier();
       const carbonLimitPotential = carbonLimitPotentialFitnessBonus();
       const nextMindDivisionCost = mindDivisionCost();
-    setPreviewText(byId("water-preview"), () => `${state.waterPurchased ? "当前：" : "解锁后："}J 获取倍率 ×${format(waterPotential, 2)}`);
+    setPreviewText(byId("water-preview"), () => `${state.waterPurchased ? "当前：" : "解锁后："}J 获取 ×${format(waterPotential, 2)}`);
     writeSourcePreview("ghost-brain-preview", "ghostBrain", true);
-    setPreviewText(byId("natural-strength-preview"), () => `${state.naturalStrengthPurchased ? "当前：" : "解锁后："}战力获取倍率 ×${format(naturalStrengthPotential, 2)}`);
+    setPreviewText(byId("natural-strength-preview"), () => `${state.naturalStrengthPurchased ? "当前：" : "解锁后："}战力获取 ×${format(naturalStrengthPotential, 2)}`);
     setPreviewText(byId("mental-power-preview"), () => `${state.mentalPowerPurchased ? "当前：集中比例" : "解锁后：集中比例"} ${state.mentalPowerPurchased ? `${(focusPercent() * 100).toFixed(1)}%` : "+1个百分点"}`);
     setPreviewText(byId("life-power-preview"), () => `${state.lifePowerPurchased ? "当前：" : "解锁后："}健身倍率 ×1.50`);
     setPreviewText(byId("my-style-preview"), () => `${state.myStylePurchased ? "当前：" : "解锁后："}健身倍率 ×${format(myStylePotential, 2)}`);
@@ -2099,7 +2099,7 @@
     setPreviewText(byId("rock-strike-preview"), () => `${state.rockStrikePurchased ? "当前：" : "解锁后："}打岩来源 ×2；等级上限 +20`);
     setPreviewText(byId("high-speed-metabolism-preview"), () => `${state.highSpeedMetabolismPurchased ? "当前：" : "解锁后："}锻炼来源 ×1.75`);
     setPreviewText(byId("endurance-enhancement-preview"), () => `${state.enduranceEnhancementPurchased ? "当前：" : "解锁后："}健身倍率 ×2；等级上限 +20`);
-    setPreviewText(byId("bullet-time-preview"), () => `${state.bulletTimePurchased ? "当前：" : "解锁后："}战力获取倍率 ×1.5`);
+    setPreviewText(byId("bullet-time-preview"), () => `${state.bulletTimePurchased ? "当前：" : "解锁后："}战力获取 ×1.5`);
     setPreviewText(byId("dynamic-focus-preview"), () => `${state.dynamicFocusPurchased ? "当前：" : "解锁后："}集中倍率 ×1.5`);
     setPreviewText(byId("super-perception-preview"), () => `${state.superPerceptionPurchased ? "当前：" : "解锁后："}直感倍率 ×1.50`);
     setPreviewText(byId("invulnerable-preview"), () => `${state.invulnerablePurchased ? "当前：" : "解锁后："}健身来源 ^1.15`);
@@ -2241,8 +2241,8 @@
       setHiddenIfChanged(byId(`${rootId}-ability`), rootId !== activeRootId);
     });
     setTextIfChanged(byId(`${activeRootId}-preview`), state.qiRefiningUnlocked
-      ? `法力获取倍率 ×${rootDefinition.manaMultiplier.toFixed(2)}`
-      : `法力获取倍率 ×${rootDefinition.manaMultiplier.toFixed(2)}（重新炼气后生效）`);
+      ? `法力获取 ×${rootDefinition.manaMultiplier.toFixed(2)}`
+      : `法力获取 ×${rootDefinition.manaMultiplier.toFixed(2)}（重新炼气后生效）`);
     setTextIfChanged(byId(`${activeRootId}-requirement`), state.qiRefiningUnlocked
       ? nextRealmResource() === "immortalPower"
         ? "后续仙灵力境界需求固定，不受灵根倍率影响"
@@ -2253,8 +2253,8 @@
     setPreviewText(byId("qi-bottleneck-preview"), () => !state.qiRefiningUnlocked
       ? "等待重新炼气，当前不生效"
       : state.foundationUnlocked
-        ? "已失效，法力获取倍率 ×1.00"
-        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nextFoundationCost, true).toFixed(2)}`);
+        ? "已失效，法力获取 ×1.00"
+        : `当前法力获取 ×${bottleneckManaMultiplier(nextFoundationCost, true).toFixed(2)}`);
     setTextIfChanged(byId("qi-bottleneck-state"), !state.qiRefiningUnlocked ? "等待炼气" : state.foundationUnlocked ? "已失效" : "已生效");
     setTextIfChanged(byId("foundation-bottleneck-point"), `拐点：${format(nextFoundationCost, 0)} 法力`);
     setPreviewText(byId("immortal-life-preview"), () => state.immortalLifeUnlocked
@@ -2265,12 +2265,12 @@
     setPreviewText(byId("foundation-bottleneck-preview"), () => !state.foundationUnlocked
       ? "等待重新筑基，当前不生效"
       : state.goldenCoreUnlocked
-        ? "已失效，法力获取倍率 ×1.00"
-        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nextGoldenCoreCost, true).toFixed(2)}`);
+        ? "已失效，法力获取 ×1.00"
+        : `当前法力获取 ×${bottleneckManaMultiplier(nextGoldenCoreCost, true).toFixed(2)}`);
     setTextIfChanged(byId("foundation-bottleneck-state"), !state.foundationUnlocked ? "等待筑基" : state.goldenCoreUnlocked ? "已失效" : "已生效");
     setTextIfChanged(byId("golden-core-bottleneck-point"), `拐点：${format(nextGoldenCoreCost, 0)} 法力`);
     toggleClassIfChanged(byId("qi-spell-ability"), "purchased", state.qiSpellLevel >= 3);
-    setTextIfChanged(byId("qi-spell-level"), `当前：${state.qiSpellLevel}/3级；本能力战力获取倍率 ×${qiSpellPowerMultiplier().toFixed(2)}`);
+    setTextIfChanged(byId("qi-spell-level"), `当前：${state.qiSpellLevel}/3级；本能力战力获取 ×${qiSpellPowerMultiplier().toFixed(2)}`);
     setTextIfChanged(byId("qi-spell-cost"), state.qiSpellLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextQiSpellCost)} 法力`);
     setTextIfChanged(byId("buy-qi-spell"), state.qiSpellLevel >= 3 ? "已达上限" : "升级");
     setDisabledIfChanged(byId("buy-qi-spell"), !state.qiRefiningUnlocked || state.qiSpellLevel >= 3 || !canAffordMana(nextQiSpellCost));
@@ -2287,7 +2287,7 @@
     setTextIfChanged(byId("buy-longevity"), state.longevityLevel >= 2 ? "已达上限" : "升级");
     setDisabledIfChanged(byId("buy-longevity"), !state.foundationUnlocked || state.longevityLevel >= 2 || !canAffordMana(nextLongevityCost));
     toggleClassIfChanged(byId("foundation-spell-ability"), "purchased", state.foundationSpellLevel >= 3);
-    setTextIfChanged(byId("foundation-spell-level"), `当前：${state.foundationSpellLevel}/3级；本能力战力获取倍率 ×${foundationSpellPowerMultiplier().toFixed(2)}`);
+    setTextIfChanged(byId("foundation-spell-level"), `当前：${state.foundationSpellLevel}/3级；本能力战力获取 ×${foundationSpellPowerMultiplier().toFixed(2)}`);
     setTextIfChanged(byId("foundation-spell-cost"), state.foundationSpellLevel >= 3 ? "已达到等级上限" : `消耗 ${formatCost(nextFoundationSpellCost)} 法力`);
     setTextIfChanged(byId("buy-foundation-spell"), state.foundationSpellLevel >= 3 ? "已达上限" : "升级");
     setDisabledIfChanged(byId("buy-foundation-spell"), !state.foundationUnlocked || state.foundationSpellLevel >= 3 || !canAffordMana(nextFoundationSpellCost));
@@ -2297,8 +2297,8 @@
     setPreviewText(byId("golden-core-bottleneck-preview"), () => !state.goldenCoreUnlocked
       ? "等待重新结丹，当前不生效"
       : nascentSoulUnlocked
-        ? "已失效，法力获取倍率 ×1.00"
-        : `当前法力获取倍率 ×${bottleneckManaMultiplier(nascentSoulRequirement, true).toFixed(2)}`);
+        ? "已失效，法力获取 ×1.00"
+        : `当前法力获取 ×${bottleneckManaMultiplier(nascentSoulRequirement, true).toFixed(2)}`);
     setTextIfChanged(byId("golden-core-bottleneck-state"), !state.goldenCoreUnlocked ? "等待结丹" : nascentSoulUnlocked ? "已失效" : "已生效");
     setTextIfChanged(byId("nascent-soul-bottleneck-point"), `拐点：${format(nascentSoulRequirement, 0)} 法力`);
     ADVANCED_REALMS.slice(0, -1).forEach((realm, index) => {
@@ -2313,12 +2313,12 @@
         : nextRealmUnlocked
           ? usesImmortalPower
             ? realm.key === "daluo" ? "突破道祖，天人五衰已取消" : "本境界进度已完成"
-            : "已失效，法力获取倍率 ×1.00"
+            : "已失效，法力获取 ×1.00"
           : usesImmortalPower
             ? realm.key === "trueImmortal"
               ? `仙灵力进度 ${(immortalPowerProgressRatio() * 100).toFixed(2)}%；法力天人三衰 ^${immortalPowerManaSuppressionExponent().toFixed(3)}；J/战力天人三衰 ^${Immortal.celestialDeclineExponent().toFixed(3)}`
               : `仙灵力进度 ${(immortalPowerProgressRatio() * 100).toFixed(2)}%；天人五衰 ^${celestialFiveDeclineExponent().toFixed(3)}（已取代天人三衰）`
-            : `当前法力获取倍率 ×${bottleneckManaMultiplier(requirement, true).toFixed(2)}`);
+            : `当前法力获取 ×${bottleneckManaMultiplier(requirement, true).toFixed(2)}`);
       setTextIfChanged(byId(`${realm.slug}-bottleneck-state`), !currentRealmUnlocked
         ? `等待${realm.name}`
         : nextRealmUnlocked ? realm.key === "daluo" ? "已取消" : "已失效" : "境界自带");
@@ -2361,14 +2361,14 @@
     const greatCultivatorPreviewMultiplier = state.greatCultivatorUnlocked
       ? greatCultivatorJMultiplier()
       : additiveLevelMultiplier(cultivationRealmLevel(), 1.5);
-    setPreviewText(byId("great-cultivator-preview"), () => `${state.greatCultivatorUnlocked ? "当前：" : "解锁后："}J 获取倍率 ×${greatCultivatorPreviewMultiplier.toFixed(2)}（${cultivationRealmLevel()}个境界，内部加算）`);
+    setPreviewText(byId("great-cultivator-preview"), () => `${state.greatCultivatorUnlocked ? "当前：" : "解锁后："}J 获取 ×${greatCultivatorPreviewMultiplier.toFixed(2)}（${cultivationRealmLevel()}个境界，内部加算）`);
     setPreviewText(byId("second-nascent-soul-preview"), () => state.secondNascentSoulUnlocked
       ? `当前周天最终比例 ${format(mulBN(circulationPercent(), 100), 1)}%（基础合计 ×1.8）`
       : "解锁后：周天最终比例 ×1.8");
     setHiddenIfChanged(byId("spirit-transformation-abilities"), !advancedRealmAbilityGroupVisible(1));
     const spiritWorldAscensionTreasureCap = addBN(naturalTreasureCap, state.spiritWorldAscensionUnlocked ? 0 : 10);
     setPreviewText(byId("spirit-world-ascension-preview"), () => `${state.spiritWorldAscensionUnlocked ? "当前：" : "解锁后："}探寻法力 ×${CONFIG.exploration.spiritWorldAscensionMultiplier}；天材地宝上限 ${spiritWorldAscensionTreasureCap}`);
-    setPreviewText(byId("aura-control-preview"), () => `${state.auraControlUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${format(auraControlPotentialMultiplier(), 2)}`);
+    setPreviewText(byId("aura-control-preview"), () => `${state.auraControlUnlocked ? "当前：" : "解锁后："}吐纳法力获取 ×${format(auraControlPotentialMultiplier(), 2)}`);
     setPreviewText(byId("equal-heaven-longevity-preview"), () => `${state.equalHeavenLongevityUnlocked ? "当前：" : "解锁后："}健身 ×8；等级上限 +10`);
     setPreviewText(byId("five-elements-preview"), () => state.fiveElementsUnlocked
       ? `当前周天比例 ${format(mulBN(circulationPercent(), 100), 1)}%`
@@ -2395,7 +2395,7 @@
       : "等待炼虚");
     writeSourcePreview("brahma-demon-art-preview", "brahmaDemonArt", true);
     nextTrueSpiritTransformationCost = trueSpiritTransformationCost();
-    setPreviewText(byId("true-spirit-transformation-preview"), () => `当前：${state.trueSpiritTransformationLevel}/5级；法力获取倍率 ×${trueSpiritTransformationMultiplier().toFixed(2)}`);
+    setPreviewText(byId("true-spirit-transformation-preview"), () => `当前：${state.trueSpiritTransformationLevel}/5级；法力获取 ×${trueSpiritTransformationMultiplier().toFixed(2)}`);
     setTextIfChanged(byId("true-spirit-transformation-cost"), state.trueSpiritTransformationLevel >= 5
       ? "已达到等级上限"
       : `消耗 ${formatCost(nextTrueSpiritTransformationCost)} 法力`);
@@ -2403,7 +2403,7 @@
       ? `当前小天劫门槛 ${format(minorTribulationTriggerLoad())}；探寻法力 ^${silverTadpoleScriptExplorationExponent().toFixed(2)}`
       : "解锁后：小天劫门槛 150 → 1500；探寻法力 ^1.06");
     setPreviewText(byId("void-refining-to-qi-preview"), () => `${state.voidRefiningToQiUnlocked ? "当前：" : "解锁后："}吐纳来源 ^1.06`);
-    setPreviewText(byId("immortal-realm-divine-preview"), () => `${state.immortalRealmDivineAbilityUnlocked ? "当前：" : "解锁后："}吐纳法力获取倍率 ×${format(immortalRealmDivineAbilityPotentialMultiplier(), 2)}`);
+    setPreviewText(byId("immortal-realm-divine-preview"), () => `${state.immortalRealmDivineAbilityUnlocked ? "当前：" : "解锁后："}吐纳法力获取 ×${format(immortalRealmDivineAbilityPotentialMultiplier(), 2)}`);
     setPreviewText(byId("spirit-refining-art-preview"), () => `${state.spiritRefiningArtUnlocked ? "当前：" : "解锁后："}法力 J 来源 ^1.06`);
     setPreviewText(byId("perfected-technique-preview"), () => `${state.perfectedTechniqueUnlocked ? "当前：" : "解锁后："}周天比例 ×1.5`);
     const heavenEarthAuraPreviewExponent = breathingJCurveExponent() + (state.heavenEarthAuraUnlocked ? 0 : 0.25);

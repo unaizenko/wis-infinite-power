@@ -208,8 +208,11 @@
       Number.isFinite(challenge.maxCompletions) && challenge.maxCompletions > 0 && completed >= challenge.maxCompletions);
   }
   function challengeVisible(challengeKey) {
-    return challengeUnlocked(challengeKey) && (state.activeChallenge === challengeKey || !state.hideCompletedChallenges ||
-      !isCompletionLimitReached(definitions[challengeKey], completionCount(state, challengeKey)));
+    const challenge = definitions[challengeKey];
+    const conquered = challenge?.achievementKey
+      ? WIS.Meta.Achievements.has(state, challenge.achievementKey)
+      : isCompletionLimitReached(challenge, completionCount(state, challengeKey));
+    return challengeUnlocked(challengeKey) && (state.activeChallenge === challengeKey || !state.hideCompletedChallenges || !conquered);
   }
   function challengeStartable(challengeKey) {
     return challengeUnlocked(challengeKey) && !state.activeChallenge;
@@ -252,7 +255,9 @@
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
     if (!challenge || !challengeStartable(challengeKey)) return;
     const completed = challengeCompletionCount(challengeKey);
-    const rewardlessRepeat = completed >= challenge.maxCompletions;
+    const rewardlessRepeat = challenge.achievementKey
+      ? WIS.Meta.Achievements.has(state, challenge.achievementKey)
+      : completed >= challenge.maxCompletions;
     const runLabel = rewardlessRepeat ? "重复挑战（不再获得完成奖励）" : `第${completed + 1}次挑战`;
     if (!window.confirm(`开启「${challenge.name}」${runLabel}将重置行动、强化与体系进度，并把本轮散功、转世次数重置为0；永久灵根与挑战完成次数保留。挑战成功或退出时不会再次重置。确定开启吗？`)) return;
     const snapshot = {
@@ -326,12 +331,14 @@
     }
     if (!targetReached) return false;
     const previousCompletions = challengeCompletionCount(challengeKey);
+    const achievementAlreadyEarned = challenge.achievementKey && WIS.Meta.Achievements.has(state, challenge.achievementKey);
     state.challengeCompletions[challengeKey] = Math.min(challenge.maxCompletions, previousCompletions + 1);
+    if (challenge.achievementKey) WIS.Meta.Achievements.record(state, challenge.achievementKey);
     state.activeChallenge = null;
     state.activeChallengeElapsedSeconds = 0;
     WIS.Core.Effects.invalidate();
     saveState();
-    showNotice(previousCompletions >= challenge.maxCompletions
+    showNotice(previousCompletions >= challenge.maxCompletions || achievementAlreadyEarned
       ? `重复挑战成功：${challenge.name}（无额外奖励）`
       : `挑战成功：${challenge.name} ${state.challengeCompletions[challengeKey]} / ${challenge.maxCompletions}`);
     return true;
@@ -352,3 +359,4 @@
     resetForChallenge, startChallenge, exitChallenge, checkActiveChallengeCompletion
   });
 }(window.WIS));
+

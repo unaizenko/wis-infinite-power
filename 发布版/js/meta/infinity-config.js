@@ -38,9 +38,10 @@
       offline:Object.freeze({floor:.10,amplitude:.45,halfLife:1800})}),
     fastSeconds:5,fastTargetScale:14,fastStockOffset:10,fastLogOffset:1,
     challenges:Object.freeze({
-      trueG1:Object.freeze({name:'真G1',maxCompletions:1,infinityUpgrade:'D3',targetG:1,resetBigNumbers:true,catalogSystem:'大数',description:'各低层分形累计削弱高层获取。',rewardDescription:'所有分形获取 ×10'}),
-      trueGraham:Object.freeze({name:'真葛立恒',maxCompletions:1,infinityUpgrade:'D3',targetG:64,resetBigNumbers:true,catalogSystem:'大数',description:'G提升需求提高至原需求^(1 + 0.01×G)。',rewardDescription:'正常状态G提升需求变为原需求^0.95'}),
-      trueTree3:Object.freeze({name:'真TREE3',maxCompletions:1,infinityUpgrade:'D3',targetTree:3,resetBigNumbers:true,catalogSystem:'大数',description:'超构造阈值提高至原阈值^1.10。',rewardDescription:'树构造点获取 ×3'}),
+      trueG1:Object.freeze({name:'真 G1',maxCompletions:1,infinityUpgrade:'D3',targetG:1,resetBigNumbers:true,catalogSystem:'大数',description:'各低层分形累计削弱高层获取。',achievementKey:'trueG1',rewardDescription:'解锁成就·真 G1'}),
+      trueGraham:Object.freeze({name:'真葛立恒',maxCompletions:1,infinityUpgrade:'D3',targetG:64,resetBigNumbers:true,catalogSystem:'大数',description:'G提升需求提高至原需求^(1 + 0.01×G)。',achievementKey:'trueGraham',rewardDescription:'解锁成就·真葛立恒'}),
+      trueTree3:Object.freeze({name:'真 TREE3',maxCompletions:1,infinityUpgrade:'D3',targetTree:3,resetBigNumbers:true,catalogSystem:'大数',description:'超构造阈值提高至原阈值^1.10。',achievementKey:'trueTree3',rewardDescription:'解锁成就·真 TREE3'}),
       infinityFast:Object.freeze({name:'快速',maxCompletions:1,infinityUpgrade:'E4',deadlineSeconds:5,requiredScaleIndex:14,catalogSystem:'节奏',description:'5秒内达到宇宙结构，超时失败。',rewardDescription:'宇宙意志的双对数提升无限点数获取'})
     })});
 }(window.WIS));
+

@@ -92,7 +92,9 @@
       if (graham !== lastGraham) $("fractal-panel").open = !graham;
       lastGraham = graham;
       text("fractal-summary", `分形：已完成 ${v.fractalLevel}/5`);
-      rows.forEach(({ el, status, button }, i) => {
+      rows.forEach(({ el, effect, status, button }, i) => {
+        const preview = sourceText(B.ONE, WIS.Meta.Infinity.fractalGainMultiplier(state, i), M.SYMBOLS[i]);
+        if (effect.textContent !== preview) effect.textContent = preview;
         const done = i < v.fractalLevel, next = i === v.fractalLevel;
         el.hidden = !done && !next;
         el.classList.toggle("fractal-complete", done);
@@ -113,13 +115,6 @@
           el.classList.toggle("complete", v.gIndex >= rank); el.classList.toggle("next", nextTarget === rank);
           el.textContent = `G${rank}${v.gIndex >= rank ? " ✓" : nextTarget === rank ? " · 下一目标" : ""}`;
         });
-      }
-      for (let i = 0; i < 5; i++) {
-        const el = $("big-number-detail-" + i); el.hidden = i > order;
-        el.classList.add("source-gain-preview");
-        text(el.id, `${quantity(v.amounts[i], i)}
-${sourceText(v.rates[i], v.rates[i], M.SYMBOLS[i])}
-累计获得 ${f(v.resources[i].total)} · 累计消费 ${f(v.resources[i].spent)}${v.resources[i].residual.length ? " · 含已保存尾账" : ""}`);
       }
     }
     function bind() {
@@ -149,7 +144,6 @@ ${sourceText(v.rates[i], v.rates[i], M.SYMBOLS[i])}
         const label = document.createElement("div"), title = document.createElement("strong"), effect = document.createElement("p"), status = document.createElement("small");
         title.textContent = `分形-${i + 1}`;
         effect.className = "source-gain-preview";
-        effect.textContent = sourceText(B.ONE, B.ONE, M.SYMBOLS[i]);
         if (i === 4) effect.title = "解锁后获得 G1";
         status.id = `fractal-status-${i}`; label.append(title, effect, status);
         const button = document.createElement("button"); button.type = "button"; button.className = "primary-button";
@@ -161,8 +155,7 @@ ${sourceText(v.rates[i], v.rates[i], M.SYMBOLS[i])}
             context.notifyNewAchievements(previous); WIS.Core.Runtime.call("render"); render();
           });
         });
-        el.append(label, button); $("fractal-list").append(el); rows.push({ el, status, button });
-        const detail = document.createElement("p"); detail.id = "big-number-detail-" + i; $("big-number-details").append(detail);
+        el.append(label, button); $("fractal-list").append(el); rows.push({ el, effect, status, button });
       }
       for (const rank of M.MILESTONES) {
         const el = document.createElement("span"); $("graham-milestones").append(el); milestones.push({ el, rank });
