@@ -150,7 +150,7 @@
   function freshFlat() {
     return {
       ...defaults,
-      symbolicPowerMilestones: { graham64: false, tree3: false },
+      symbolicPowerMilestones: { graham64: false, tree3: false, infiniteBox: false },
       challengeCompletions: Object.fromEntries(Object.keys(WIS.Core.Config.challenges).map((key) => [key, 0])),
       unlockedAchievements: {},
       treasureProgress: {}, treasureProgressResidual: {}, treasureQualifications: {}, treasureProgressVersion: 1,
@@ -160,8 +160,8 @@
         tianNiPearl: ZERO, mysteriousGreenBottle: ZERO, fuBao: ZERO, fitnessMembershipCard: ZERO,
         superLollipop: ZERO, skyCrystal: ZERO, xuTianDing: ZERO, baLingChi: ZERO, wanYaoFan: ZERO,
         phantomHeavenMirror: ZERO, mysticHeavenSacredTree: ZERO, mysticHeavenSpiritSlayingSword: ZERO,
-        fiveElementsTreasure: ZERO, immortalCrystal: ZERO, fiveSpiritStone: ZERO,
-        cosmicFiber: ZERO, cosmicWill: ZERO
+        fiveElementsTreasure: ZERO, immortalCrystal: ZERO, yuanCrystal: ZERO, fiveSpiritStone: ZERO,
+        cosmicFiber: ZERO, cosmicWill: ZERO, originImprint: ZERO
       },
       randomState: (Math.floor(Math.random() * 0x100000000) >>> 0) || 0x6d2b79f5,
       lastUpdateAt: Date.now()
@@ -215,7 +215,7 @@
         ? savedScaleIndex
         : Math.max(savedScaleIndex, scaleIndexForPower(power))
     ));
-    const cultivationSystem = source.cultivationSystem === "仙道" ? "仙道" : null;
+    const cultivationSystem = ["仙道", "immortal"].includes(source.cultivationSystem) ? "仙道" : ["武道", "martial"].includes(source.cultivationSystem) ? "武道" : null;
     const qiRefiningUnlocked = cultivationSystem === "仙道" && source.qiRefiningUnlocked === true;
     const foundationUnlocked = qiRefiningUnlocked && source.foundationUnlocked === true;
     const goldenCoreUnlocked = foundationUnlocked && source.goldenCoreUnlocked === true;
@@ -239,9 +239,11 @@
     const unlockedAchievements = {};
     if (source.unlockedAchievements && typeof source.unlockedAchievements === "object") {
       Object.entries(source.unlockedAchievements).forEach(([key, unlocked]) => {
-        if (unlocked === true) unlockedAchievements[key] = true;
+        if (unlocked === true && !["martialFlow", "martialFlowCity"].includes(key)) unlockedAchievements[key] = true;
       });
     }
+    // Retired speed challenge wins retain their reward as a permanent achievement.
+    if((Number(source.challengeCompletions?.infinityFast)||0)>0)unlockedAchievements.rapidUniverseStructure=true;
     // Schema 64 compatibility: historical challenge wins become permanent achievements once.
     for (const [key, challenge] of Object.entries(WIS.Meta.InfinityConfig.challenges)) {
       if (challenge.achievementKey && (Number(source.challengeCompletions?.[key]) || 0) > 0) {
@@ -305,11 +307,13 @@
       mysticHeavenSpiritSlayingSword: treasureCount(source.treasureImprints?.mysticHeavenSpiritSlayingSword),
       fiveElementsTreasure: treasureCount(source.treasureImprints?.fiveElementsTreasure),
       immortalCrystal: treasureCount(source.treasureImprints?.immortalCrystal),
+      yuanCrystal: treasureCount(source.treasureImprints?.yuanCrystal),
       superLollipop: treasureCount(source.treasureImprints?.superLollipop),
       skyCrystal: treasureCount(source.treasureImprints?.skyCrystal),
       fiveSpiritStone: treasureCount(source.treasureImprints?.fiveSpiritStone),
       cosmicFiber: treasureCount(source.treasureImprints?.cosmicFiber),
-      cosmicWill: treasureCount(source.treasureImprints?.cosmicWill)
+      cosmicWill: treasureCount(source.treasureImprints?.cosmicWill),
+      originImprint: treasureCount(source.treasureImprints?.originImprint)
     };
     // Keep serialized principals separate from tails, but use complete balances
     // for qualification and natural-treasure limits (including v49 bad principals).
@@ -622,7 +626,8 @@
         : savedMinorTribulationExplorationLoad,
       symbolicPowerMilestones: {
         graham64: source.symbolicPowerMilestones?.graham64 === true,
-        tree3: source.symbolicPowerMilestones?.tree3 === true
+        tree3: source.symbolicPowerMilestones?.tree3 === true,
+        infiniteBox: source.symbolicPowerMilestones?.infiniteBox === true
       },
       activeChallenge,
       activeChallengeElapsedSeconds: activeChallenge
@@ -875,7 +880,7 @@
   const legacyDescriptors = Object.fromEntries([...legacyPaths].filter(([key]) => key !== "treasureImprints")
     .map(([key,{read,write}]) => [key,{configurable:true,enumerable:false,
       get(){return read(this);},set(value){write(this,value);}}]));
-  for (const key of ["xianForce", "yuanForce"]) legacyDescriptors[key] = {
+  for (const key of ["xianForce", "yuanForce", "nieForce", "universeCoefficient"]) legacyDescriptors[key] = {
     configurable:true,enumerable:false,get(){return WIS.Cultivation.Xiuzhen?.amount(this,key) ?? ZERO;}
   };
 
@@ -914,8 +919,8 @@
     });
     Object.defineProperty(domain, "cultivationSystem", {
       configurable: true, enumerable: false,
-      get: () => domain.cultivation.active === "immortal" ? "仙道" : null,
-      set: (value) => { domain.cultivation.active = value === "仙道" || value === "immortal" ? "immortal" : null; }
+      get: () => domain.cultivation.active === "immortal" ? "仙道" : domain.cultivation.active === "martial" ? "武道" : null,
+      set: (value) => { domain.cultivation.active = ["仙道", "immortal"].includes(value) ? "immortal" : ["武道", "martial"].includes(value) ? "martial" : null; }
     });
     return domain;
   }
@@ -923,12 +928,17 @@
   function fromFlat(flatInput) {
     const flat = { ...freshFlat(), ...flatInput };
     const domain = emptyDomain();
+    domain.cultivation.systems.martial = WIS.Cultivation.Martial.fresh();
+    domain.meta.martialQualifications = {};
     domain.meta.bigNumbers = WIS.Meta.BigNumbers?.normalize(flatInput?.bigNumbers) ?? {};
     domain.cultivation.systems.immortal.xiuzhen = WIS.Cultivation.Xiuzhen?.normalize(flatInput?.xiuzhen) ?? {};
     legacyPaths.forEach(({ write }, key) => write(domain, clone(flat[key])));
-    domain.cultivation.active = flat.cultivationSystem === "仙道" || flat.cultivationSystem === "immortal" ? "immortal" : null;
+    domain.cultivation.active = ["仙道", "immortal"].includes(flat.cultivationSystem) ? "immortal" : ["武道", "martial"].includes(flat.cultivationSystem) ? "martial" : null;
     domain.meta.achievements = clone(flat.unlockedAchievements || {});
-    domain.meta.infinity = WIS.Meta.Infinity.normalize(flatInput?.infinity,domain.meta.achievements.tree3 === true);
+    domain.meta.infinity = WIS.Meta.Infinity.normalize(flatInput?.infinity,domain.meta.achievements.tree3 === true,domain.meta.achievements.rapidUniverseStructure===true);
+    delete domain.meta.achievements.rapidUniverseStructure;
+    delete domain.meta.achievements.martialFlow;
+    delete domain.meta.achievements.martialFlowCity;
     domain.meta.treasures = clone(flat.treasureImprints || {});
     domain.meta.milestones = clone(flat.symbolicPowerMilestones || {});
     domain.meta.challenges.activeChallenge = flat.activeChallenge ?? null;
@@ -1069,11 +1079,19 @@
       : typeof source.cultivation?.active === "string" && source.cultivation.active
         ? source.cultivation.active
         : normalizedKnown.cultivation.active;
+    if (domain.cultivation.active === "武道") domain.cultivation.active = "martial";
+    if (domain.cultivation.active === "仙道") domain.cultivation.active = "immortal";
 
-    domain.meta.infinity = WIS.Meta.Infinity.normalize(source.meta?.infinity,source.meta?.achievements?.tree3 === true);
+    domain.meta.infinity = WIS.Meta.Infinity.normalize(source.meta?.infinity,source.meta?.achievements?.tree3 === true,
+      source.meta?.achievements?.rapidUniverseStructure===true||(Number(source.meta?.challenges?.challengeCompletions?.infinityFast)||0)>0);
+    delete domain.meta.achievements.rapidUniverseStructure;
+    delete domain.meta.achievements.martialFlow;
+    delete domain.meta.achievements.martialFlowCity;
     domain.meta.bigNumbers = WIS.Meta.BigNumbers?.normalize(source.meta?.bigNumbers) ?? source.meta?.bigNumbers ?? {};
     domain.cultivation.systems.immortal.xiuzhen = WIS.Cultivation.Xiuzhen?.normalize(source.cultivation?.systems?.immortal?.xiuzhen)
       ?? source.cultivation?.systems?.immortal?.xiuzhen ?? {};
+    domain.cultivation.systems.martial = WIS.Cultivation.Martial.normalize(source.cultivation?.systems?.martial);
+    domain.meta.martialQualifications = Object.fromEntries(["stealHeaven", "innerHarmony", "innate"].filter(key => source.meta?.martialQualifications?.[key] === true).map(key => [key, true]));
     attachLegacyAliases(domain);
     WIS.Meta.BigNumbers?.reconcileGCapacity(domain);
     WIS.Meta.BigNumbers?.continueUnlockedTree(domain);
@@ -1152,6 +1170,8 @@
           ["lastUpdateAt", "highestPower", "cultivationSystem"].some(key => Object.hasOwn(data, key))))
       throw Error("不是有效的WIS存档");
     const migration = migrations[version] || migrations[Math.min(version, 54)] || migrations[36];
+    // v65: additive third-step resources, abilities and origin treasure normalize from zero.
+    // No historical Y/P balance is converted into new P, N or origin progress.
     // v62 initializes TREE independently; historical G64 progress is never exchanged.
     // Legacy TREE3 flags are normalized to completed TREE state at load.
     // v53 separates lifetime exploration input from fractional/integer carry;

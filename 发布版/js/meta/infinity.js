@@ -1,9 +1,9 @@
 (function defineInfinity(WIS) {
   'use strict';
   const B=WIS.Core.BigNum,C=WIS.Meta.InfinityConfig;
-  const fresh=()=>({version:1,points:B.BN(0),totalPointsEarned:B.BN(0),rebirthCount:0,unlocked:false,upgradesUnlocked:false,upgrades:{},purchaseLedger:[],runElapsed:0});
+  const fresh=()=>({version:1,points:B.BN(0),totalPointsEarned:B.BN(0),rebirthCount:0,unlocked:false,upgradesUnlocked:false,upgrades:{},purchaseLedger:[],runElapsed:0,challengeRewards:{}});
   function money(v) {const x=B.parseFinite(v??0);if(!x||x.lt(0)||!x.eq(x.floor()))throw Error('无限点数/支付记录必须为非负整数');return x;}
-  function normalize(raw,achievement=false) {
+  function normalize(raw,achievement=false,legacyFastReward=false) {
     const n=fresh();if(raw!=null&&(typeof raw!=='object'||Array.isArray(raw)))throw Error('无限状态无效');
     if(raw?.version!=null&&raw.version!==1)throw Error('无限状态版本无效');
     if(raw?.version===1){
@@ -11,6 +11,10 @@
       if(!Number.isSafeInteger(raw.rebirthCount)||raw.rebirthCount<0)throw Error('无限转生次数无效');
       if(!Number.isFinite(raw.runElapsed)||raw.runElapsed<0)throw Error('无限周目时间无效');
       n.rebirthCount=raw.rebirthCount;n.runElapsed=raw.runElapsed;
+      if(raw.challengeRewards!=null&&(typeof raw.challengeRewards!=='object'||Array.isArray(raw.challengeRewards)))throw Error('无限挑战奖励记录无效');
+      for(const [id,value] of Object.entries(raw.challengeRewards||{})){
+        if(C.challenges[id]?.resetLevel!=='infinity'||value!==true)throw Error('未知无限挑战奖励');n.challengeRewards[id]=true;
+      }
       if(!raw.upgrades||typeof raw.upgrades!=='object'||Array.isArray(raw.upgrades)||!Array.isArray(raw.purchaseLedger))throw Error('无限强化记录无效');
       for(const [id,v] of Object.entries(raw.upgrades)){if(!C.nodes[id]||v!==true)throw Error('未知无限强化');n.upgrades[id]=true;}
       const paid=new Set();n.purchaseLedger=raw.purchaseLedger.map(e=>{
@@ -20,14 +24,7 @@
       for(const id of paid){const node=C.nodes[id];if(!prerequisites(n,node))throw Error('无限强化前置不满足');
         if(node.exclusiveGroup&&Object.values(C.nodes).some(o=>o.id!==id&&o.exclusiveGroup===node.exclusiveGroup&&n.upgrades[o.id]))throw Error('无限强化路线互斥');}
     }
-    // One-time compatibility refund using the validated actual payment ledger.
-    // Removing both the flag and payment makes subsequent load/respec idempotent.
-    if(n.upgrades.C1){
-      const payment=n.purchaseLedger.find(e=>e.nodeId==='C1');
-      n.points=B.add(n.points,payment.pricePaid);
-      delete n.upgrades.C1;
-      n.purchaseLedger=n.purchaseLedger.filter(e=>e.nodeId!=='C1');
-    }
+    if(legacyFastReward)n.challengeRewards.infinityFast=true;
     n.unlocked=achievement||raw?.unlocked===true||n.rebirthCount>0;
     n.upgradesUnlocked=raw?.version===1&&(raw.upgradesUnlocked===true||n.rebirthCount>0);
     return n;
@@ -46,7 +43,7 @@
   const ledgerTotal=n=>(n?.purchaseLedger||[]).reduce((v,e)=>B.add(v,e.pricePaid),B.BN(0));
   const invested=s=>ledgerTotal(get(s));
   const completed=(s,id)=>(s.challengeCompletions?.[id]||0)>0;
-  const rewardUnlocked=(s,id)=>WIS.Meta.Achievements.has(s,C.challenges[id].achievementKey);
+  const rewardUnlocked=(s,id)=>C.challenges[id]?.rewardKey?get(s).challengeRewards?.[C.challenges[id].rewardKey]===true:WIS.Meta.Achievements.has(s,C.challenges[id]?.achievementKey);
   function tempoValue(s,table,prefix){const t=get(s)?.runElapsed||0;
     if(has(s,prefix+'1'))return table.online.floor+table.online.amplitude*Math.pow(2,-t/table.online.halfLife);
     if(has(s,prefix+'2'))return table.steady;
@@ -63,11 +60,29 @@
     let m=B.BN(rewardUnlocked(s,'trueG1')?C.fractalReward:1);
     if(order>0&&has(s,'D2-1'))m=B.mul(m,factor(order-1));
     if(s.activeChallenge==='trueG1')for(let i=0;i<order;i++)m=B.div(m,factor(i));return m;}
-  function gBaseRequirement(s,g){return B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?1+C.gChallengeCoefficient*g:(!s.activeChallenge&&rewardUnlocked(s,'trueGraham')?C.gRewardExponent:1));}
-  function gRequirement(s,g){
+  function gBaseRequirement(s,g){
+    const base=B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?1+C.gChallengeCoefficient*g:1);
+    return rewardUnlocked(s,'trueGraham')?B.pow(base,C.gRewardExponent):base;
+  }
+  function gRequirementBeforeRank(s,g){
     const capacity=B.pow(B.add(1,B.div(Math.max(g-C.gCapacityStart,0),C.gCapacityDivisor)),C.gCapacityPower);
     const treeReduction=has(s,'D4')?B.pow(C.treeGBase,Math.max(0,WIS.Meta.BigNumbers.get(s).tree.rank-C.treeGStart)):B.ONE;
     return B.div(B.mul(gBaseRequirement(s,g),capacity),treeReduction);
+  }
+  // For constant-base G capacity, write f(G) = (G-h)^2/L - G.
+  // Near the high-G floor exit, (G-h)-L stays small; this form avoids
+  // subtracting two ~G values, and supplies the same polynomial to batching.
+  function gRankPolynomial(s,g){
+    if(g<C.gCapacityStart||s.activeChallenge==='trueGraham'||C.gCapacityPower!==2)return null;
+    const reduction=has(s,'D4')?B.pow(C.treeGBase,Math.max(0,WIS.Meta.BigNumbers.get(s).tree.rank-C.treeGStart)):B.ONE;
+    const h=C.gCapacityStart-C.gCapacityDivisor,a=B.sub(g,h);
+    const length=B.mul(B.div(reduction,gBaseRequirement(s,g)),B.mul(C.gCapacityDivisor,C.gCapacityDivisor));
+    const offset=B.div(B.sub(a,length),length);
+    return {constant:B.sub(B.mul(a,offset),h),linear:B.add(1,B.mul(2,offset)),quadratic:B.div(1,length)};
+  }
+  function gRequirement(s,g){
+    if(!has(s,'D6'))return gRequirementBeforeRank(s,g);
+    return B.max(C.gRankMinimum,gRankPolynomial(s,g)?.constant??B.sub(gRequirementBeforeRank(s,g),g));
   }
   const gSpeedMultiplier=_s=>B.ONE;
   const treeGainMultiplier=s=>B.mul(has(s,'D2-2')?B.pow(B.add(1,B.div(WIS.Meta.BigNumbers.get(s).gIndex,C.gTreeDivisor)),C.gTreePower):1,rewardUnlocked(s,'trueTree3')?C.treeReward:1);
@@ -76,28 +91,47 @@
     {id:'infinityPower',name:'无限节奏',group:'无限',target:'power',layer:'regionMultiplier',value:tempoMultiplier(s)},
     {id:'infinityGoogol',name:'古戈尔适应',group:'无限',target:'googolPenalty',layer:'strengthMultiplier',value:has(s,'B4')?1-C.googolWeakening:1}
   ];}
-  function previewRebirth(s,{respec=false}={},n=get(s)) {
+  const isInfinityChallenge=id=>C.challenges[id]?.resetLevel==='infinity';
+  function challengeEntryAllowed(s,id){const def=C.challenges[id],n=get(s);return isInfinityChallenge(id)&&n.unlocked&&n.upgradesUnlocked&&has(s,def.infinityUpgrade)&&!s.activeChallenge;}
+  function recordChallengeReward(s,id){
+    WIS.Core.Runtime.assertMutable();if(!isInfinityChallenge(id))throw Error('不是无限挑战');
+    if(rewardUnlocked(s,id))return false;const n=get(s);s.meta.infinity={...n,challengeRewards:{...n.challengeRewards,[id]:true}};WIS.Core.Effects.invalidate();return true;
+  }
+  function rapidChallengeStepSeconds(s,seconds) {
+    const remaining=C.fastSeconds-s.activeChallengeElapsedSeconds,cadence=WIS.Core.Config.fixedSettlement.discreteCadenceSeconds;
+    return Math.min(seconds,cadence,remaining>1e-9?remaining:cadence);
+  }
+  function rapidPointMultiplier(s) {
+    if(!rewardUnlocked(s,'infinityFast'))return B.ONE;
+    const stock=WIS.Meta.Treasures.count(s,'cosmicWill');
+    return B.add(1,B.log10(B.add(C.fastLogOffset,B.log10(B.add(stock,C.fastStockOffset)))));
+  }
+  function previewRebirth(s,{respec=false,challengeKey=null}={},n=get(s)) {
     const rank=WIS.Meta.BigNumbers.get(s).tree.rank;
     let multiplier=B.BN(has(s,'B2')?C.pointMultiplier:1);
-    if((s.challengeCompletions.infinityFast||0)>0){const stock=WIS.Meta.Treasures.count(s,'cosmicWill');
-      multiplier=B.mul(multiplier,B.add(1,B.log10(B.add(C.fastLogOffset,B.log10(B.add(stock,C.fastStockOffset))))));}
+    multiplier=B.mul(multiplier,rapidPointMultiplier(s));
     const points=rank<C.minimumTree?B.BN(0):B.mul(rank,multiplier).floor();
     const earned=B.add(n.totalPointsEarned,points),cap=has(s,'B1-1')?B.max(C.treasureCap,B.mul(C.treasureCap,earned)):B.BN(C.treasureCap);
-    return {allowed:n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
+    return {allowed:challengeKey!=null?(!respec&&challengeEntryAllowed(s,challengeKey)):n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
   }
   function prepareRebirth(s,options={}) {
     WIS.Core.Runtime.assertMutable();const old=normalize(get(s),s.unlockedAchievements.tree3===true),v=previewRebirth(s,options,old);
     if(!v.allowed)throw Error('当前不能无限转生');
     if(options.expectedRebirthCount!=null&&options.expectedRebirthCount!==old.rebirthCount)throw Error('无限周目已改变');
     if(old.rebirthCount>=Number.MAX_SAFE_INTEGER)throw Error('无限转生次数超出安全范围');
-    const next=WIS.Core.Reset.apply('infinity',s,()=>WIS.Core.State.fresh());
-    for(const key of WIS.Meta.Treasures.keys){const amount=B.min(WIS.Meta.Treasures.count(s,key),v.cap);WIS.Meta.TreasureLedger.write(next,key,[amount],true);}
+    const challengeEntry=options.challengeKey!=null;
+    const next=WIS.Core.Reset.apply('infinity',s,()=>WIS.Core.State.fresh(),{context:{infinityChallenge:challengeEntry}});
+    const retained=!challengeEntry&&WIS.Core.Reset.preservesContent('infinity',s);
+    if(!retained)for(const key of WIS.Meta.Treasures.keys){const amount=B.min(WIS.Meta.Treasures.count(s,key),v.cap);WIS.Meta.TreasureLedger.write(next,key,[amount],true);}
     if(has(s,'B1-2'))for(const key of C.retainedChallenges)next.challengeCompletions[key]=s.challengeCompletions[key]||0;
-    next.meta.infinity={...old,points:B.add(old.points,v.points),totalPointsEarned:B.add(old.totalPointsEarned,v.points),rebirthCount:old.rebirthCount+1,unlocked:true,upgradesUnlocked:true,runElapsed:0};
+    for(const [id,keys] of Object.entries(C.retainedChallengeGroups))if(has(s,id))
+      for(const key of keys)next.challengeCompletions[key]=s.challengeCompletions[key]||0;
+    next.meta.infinity={...old,points:B.add(old.points,v.points),totalPointsEarned:B.add(old.totalPointsEarned,v.points),rebirthCount:old.rebirthCount+1,unlocked:true,upgradesUnlocked:true,runElapsed:retained?old.runElapsed:0};
+    if(challengeEntry){next.activeChallenge=options.challengeKey;next.activeChallengeElapsedSeconds=0;}
     if(options.respec){next.meta.infinity.points=B.add(next.meta.infinity.points,v.refund);next.meta.infinity.upgrades={};next.meta.infinity.purchaseLedger=[];}
     // Old time and pending work belong to the old run. Runtime cancels their generations on install.
-    next.core.runtime.timeLedger=WIS.Core.State.fresh().core.runtime.timeLedger;
-    next.core.runtime.compensation=WIS.Core.State.fresh().core.runtime.compensation;
+    if(!retained)next.core.runtime.timeLedger=WIS.Core.State.fresh().core.runtime.timeLedger;
+    if(!retained)next.core.runtime.compensation=WIS.Core.State.fresh().core.runtime.compensation;
     return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(next));
   }
   function commitRebirth(options,host) {
@@ -108,5 +142,5 @@
     return next;
   }
   WIS.Meta.Infinity=Object.freeze({fresh,normalize,get,has,hasInfinityUpgrade:has,status,purchase,invested,previewRebirth,prepareRebirth,
-    commitRebirth,completed,rewardUnlocked,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gBaseRequirement,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
+    commitRebirth,completed,rewardUnlocked,isInfinityChallenge,challengeEntryAllowed,recordChallengeReward,rapidChallengeStepSeconds,rapidPointMultiplier,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gBaseRequirement,gRequirementBeforeRank,gRankPolynomial,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
 }(window.WIS));

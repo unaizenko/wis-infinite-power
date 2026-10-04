@@ -246,7 +246,8 @@
   // Explicit load/player-action boundary. Simulation retains its existing
   // event checks; rendering must never be required to activate rewards.
   function playerAction(work) {
-    return (...args) => { const result = work(...args); completePlayerAction(); return result; };
+    return (...args) => { if(simulationLoop?.isDeferredActionPending?.()||offlineSimulation?.getCatchUpStatus().locked)return false;
+      const result = work(...args); completePlayerAction(); return result; };
   }
 
   function completePlayerAction() {
@@ -335,10 +336,11 @@
   }
 
   function infinityRebirth(options) {
+    if(options?.challengeKey&&(simulationLoop.isDeferredActionPending()||offlineSimulation.getCatchUpStatus().locked))throw Error('当前结算尚未完成');
     const next=WIS.Meta.Infinity.commitRebirth(options,{
       getState:()=>state,capture:captureImportStateSnapshot,
       cancel:()=>{cancelCatchUp();simulationLoop.resetAccumulators();},
-      install:next=>{setStateDirect(next);simulationLoop.resetAccumulators();WIS.Power.Scale.resetTransient?.();WIS.Cultivation.Immortal.resetTransient?.();},
+      install:next=>{setStateDirect(next);simulationLoop.resetAccumulators({preservePending:WIS.Core.Reset.preservesContent("infinity",next)&&!WIS.Meta.Infinity.isInfinityChallenge(next.activeChallenge)});WIS.Power.Scale.resetTransient?.();WIS.Cultivation.Immortal.resetTransient?.();},
       save:()=>saveState({importCommit:true}),restore:restoreImportStateSnapshot
     });
     UI.dismissOfflineSummary();UI.resetCultivationPage();requestRender();return next;
@@ -379,7 +381,10 @@
     planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages,
     achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
     challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt,
-    captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0
+    captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0,
+    requestDeferredAction:job=>simulationLoop?.requestDeferredAction(job),
+    isDeferredActionPending:()=>simulationLoop?.isDeferredActionPending?.()===true,
+    cancelDeferredAction:()=>simulationLoop?.cancelDeferredAction?.()
   });
   ({
     render, renderResourceDebugPanel, ensureAdvancedRealmAbilityGroups, applyTheme, switchPage, showNotice,
@@ -463,6 +468,7 @@
     errorTolerance: OFFLINE_ERROR_TOLERANCE
   });
   offlineSimulation = WIS.Simulation.Offline.create({
+    useWorker: true,
     planOfflineMacro: stepSimulation.planOfflineMacro,
     prepareFixedWork: stepSimulation.prepareFixedWork,
     prepareOnlineWork: stepSimulation.prepareOnlineWork,
@@ -481,7 +487,9 @@
     recordCurrentAchievements,
     notifyNewAchievements,
     markAchievementsDirty,
-    showNotice,
+    showNotice: (message, duration) => {
+      if (state.autoCloseOfflineDialogEnabled === false) showNotice(message, duration);
+    },
     requestRender,
     formatElapsedTime,
     format,
@@ -507,6 +515,11 @@
     },
     restoreState: (snapshot) => {
       setStateDirect(WIS.Core.State.cloneForSimulation(snapshot.domain));
+      WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(snapshot.powerTransient);
+      WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivationTransient);
+    },
+    installWorkerSnapshot: (snapshot) => {
+      setStateDirect(snapshot.domain);
       WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(snapshot.powerTransient);
       WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivationTransient);
     },
@@ -558,6 +571,9 @@
     save: saveState,
     infinityRebirth,
     requestQiBatch:shouldRender=>simulationLoop.requestQiBatch(shouldRender),
+    requestDeferredAction:job=>simulationLoop.requestDeferredAction(job),
+    isDeferredActionPending:()=>simulationLoop.isDeferredActionPending(),
+    cancelDeferredAction:()=>simulationLoop.cancelDeferredAction(),
     render: requestRender,
     renderImmediately: (pageName) => {
       requestRender(pageName);
@@ -686,11 +702,13 @@
     markCostGroupsDirty();
     requestRender();
     flushRender(Date.now(), { force: true });
-    saveState();
+    // A transient first write failure must not abort startup before autosave is
+    // installed. The pending status remains visible until a real write succeeds.
+    try { saveState(); } catch(error) { WIS.Core.Save.noteFailure(error); }
     if (!offlineSimulation.isCatchUpPaused() && !WIS.Core.Save.getLoadError())
       notifyNewAchievements(initialAchievementStates);
     if (WIS.Core.Save.getLoadError()) showNotice("原存档读取失败，已进入临时未保存会话。原文件仍保留，自动保存已停用；请导入有效存档、恢复备份，或重置后重新开始。" + WIS.Core.Save.getLoadError(), 60000);
-    else if (initialOfflineReport) showNotice(initialOfflineReport, 6000);
+    else if (initialOfflineReport && state.autoCloseOfflineDialogEnabled === false) showNotice(initialOfflineReport, 6000);
     window.setInterval(() => {
       // A periodic save does not change production rules. Keeping its confirmed
       // model avoids resampling at wall-clock-dependent save times. Real player

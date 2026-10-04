@@ -6,7 +6,7 @@
     let mounted = false, lastRealm = -1;
     const f = value => context.format(value, 4);
     const effectLabels = Object.freeze({ body: "J获取", materialSpirit: "仙力获取",
-      crystal: "元力获取", worldAura: "元力获取", rules: "仙灵力、仙力获取", divineArt: "战力获取" });
+      crystal: "元力获取", worldAura: "元力获取", rules: "仙灵力、仙力获取", divineArt: "战力获取", innerWorld:"N获取", spiritualGod:"涅力获取", spokenLaw:"J与战力获取", mergeHeaven:"涅力获取", followLaw:"J与战力获取指数", zunYang:"N获取", originBody:"本源进度" });
     function el(tag, text, className) {
       const n = document.createElement(tag); if (text) n.textContent = text; if (className) n.className = className; return n;
     }
@@ -47,7 +47,7 @@
       const note = el("p", "", "big-number-note"); note.id = "xiuzhen-unlock-note"; realms.append(note);
       X.realms.forEach(r => rows.push({ type: "realm", definition: r, ...row(realms, r.name,
         r.level < 4 ? r.level === 2 ? "开放仙力。" : r.level === 3 ? "开放元力体系。" : "完成挑战·化凡后解锁；开放意境、元神。"
-          : `永久取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。`, r.cost, r.resource,
+          : r.level < 7 ? `永久取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。` : r.level === 7 ? "完成天人五衰并购买无限强化·体系无限后突破；自动获得能力·涅力，按当前元力生成涅力，不持续扣除元力。" : "解锁本境界的付费能力。", r.cost, r.resource,
         state => X.get(state).realm === r.level - 1 && X.breakthrough(state), "realm-" + r.level) }));
       const abilitiesPanel = $("immortal-abilities-panel"), oldContent = abilitiesPanel.querySelector(".upgrade-groups");
       const oldAbilities = fold("仙道·炼气道能力", "qi-path-abilities");
@@ -58,9 +58,17 @@
         X.abilities.filter(a => a.realm === r.level).forEach(a => rows.push({ type: "ability", definition: a,
           ...row(group, a.name, a.description, a.cost, a.resource, state => X.buy(state, a.key), "buy-" + a.key) }));
       });
+      const innate=el("p","能力·涅力：突破空涅自动获得。每秒产出（当前元力 / 1e16）^0.25 涅力；灵神、神融天地进一步提升产出。","big-number-note");
+      innate.id="xiuzhen-innate-nie"; $("xiuzhen-ability-group-7").prepend(innate);
+      const origin=el("article","","item-row"); origin.id="xiuzhen-origin-treasure";origin.dataset.catalogSystem="仙道";
+      const originContent=el("div","","item-content");
+      originContent.append(el("h2","烙印·本源"),el("p","每实际获得1e5涅力积累1点进度；每次获取需求为100×3^持有数。本源真身使进度×3。"));
+      const originStatus=el("p");originStatus.id="xiuzhen-origin-status";originContent.append(originStatus);origin.append(originContent);
+      $("treasure-list").querySelector('[data-catalog-system-group="仙道"] > .item-list').append(origin);
       for (const [key, description, reward] of [
         ["mortalTransformation", "禁用探寻及已获得的仙道能力、倍率、指数和特殊效果，保留吐纳、其他法力来源及炼气道基础突破，重新抵达炼气道·化神。", "可突破修真道·化神"],
-        ["yinVoidYangReal", "使J、战力获取变为^0.85；同时受到福、禄、寿最高档挑战限制，重新抵达第一步·问鼎。", "可突破第二步·窥涅。"]
+        ["yinVoidYangReal", "使J、战力获取变为^0.85；同时受到福、禄、寿最高档挑战限制，重新抵达第一步·问鼎。", "可突破第二步·窥涅。"],
+        ["heavenlyFiveDeclines", "当前达到碎涅可开启。J、战力已解除的量级软上限逐段保留50%原始削弱，并可继续被量级软上限弱化效果降低；未解除的部分按原规则生效。通关需同时持有1e20元力、3e68 J、3e68战力。", "解锁第三步·空涅的突破资格。"]
       ]) {
         const card = el("article", "", "item-row"); card.id = "xiuzhen-challenge-" + key;
         card.dataset.challengeKey = key; card.dataset.catalogSystem = "仙道";
@@ -77,7 +85,7 @@
     function renderChallenges() {
       if (!mounted) return;
       const s = R.getState();
-      for (const key of ["mortalTransformation", "yinVoidYangReal"]) {
+      for (const key of ["mortalTransformation", "yinVoidYangReal", "heavenlyFiveDeclines"]) {
         const running = s.activeChallenge === key, count = s.challengeCompletions[key] || 0;
         $("xiuzhen-challenge-" + key).hidden = !WIS.Meta.Challenges.challengeVisible(key);
         $("xiuzhen-challenge-status-" + key).textContent = running ? "挑战进行中" : `完成：${count}/1`;
@@ -107,10 +115,10 @@
         r.item.classList.toggle("purchased", done); r.price.hidden = done;
         r.item.classList.toggle("xiuzhen-locked", !unlocked || (r.type === "ability" && n.realm < d.realm));
         r.button.textContent = done ? r.type === "ability" ? "已强化" : "已突破"
-          : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : "突破") : "强化";
+          : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : d.level === 7 && !s.challengeCompletions.heavenlyFiveDeclines ? "需要完成天人五衰" : d.level === 7 && !WIS.Meta.Infinity.has(s, "C1") ? "需要体系无限" : "突破") : "强化";
         r.button.disabled = locked || done || !available;
         if (r.effectPreview) {
-          const text = `当前：${effectLabels[d.key]} ×${f(X.abilityMultiplier(s, d.key))}`;
+          const text = `当前：${effectLabels[d.key]} ${d.key === "followLaw" ? "^" : "×"}${f(X.abilityMultiplier(s, d.key))}`;
           if (r.effectPreview.textContent !== text) r.effectPreview.textContent = text;
         }
         if (r.preview) {
@@ -129,6 +137,16 @@
       if (X.qiPathSealed(s)) $("qi-path-abilities").querySelectorAll("button").forEach(b => { b.disabled = true; });
       }
     }
-    return { bind, render, renderChallenges };
+    function renderTreasures() {
+      if (!mounted) return;
+      const s=R.getState(), count=WIS.Meta.Treasures.count(s,"originImprint");
+      $("xiuzhen-origin-treasure").hidden=!X.has(s,"virtualOrigin") && !B.gt(count,0);
+      if (!$("xiuzhen-origin-treasure").hidden) {
+        const info=WIS.Meta.TreasureProgress.view(s,"originImprint");
+        $("xiuzhen-origin-status").textContent=`持有 ${f(count)} · N获取 ×${f(B.pow(B.add(1,count),.25))}（需虚本源生效）
+${WIS.UI.Treasures.acquisition("originImprint",info,context.format)}`;
+      }
+    }
+    return { bind, render, renderChallenges, renderTreasures };
   } });
 }(window.WIS));

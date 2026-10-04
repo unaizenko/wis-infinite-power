@@ -58,7 +58,7 @@
     Object.assign(cultivation, { mana:plan.gains.mana, immortalPower:plan.gains.immortalPower,
       completed:true, processedSeconds:seconds, elapsedSeconds:seconds, remainingSeconds:0,
       immortalPowerActiveSeconds:B.gt(plan.gains.immortalPower,0)?seconds:0,
-      xiuzhen:{xianForce:plan.gains.xianForce,yuanForce:plan.gains.yuanForce},
+      xiuzhen:Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>[k,plan.gains[k]])),
       finalExplorationLoad:B.add(snapshot.minorTribulationExplorationLoad,cultivation.explorationAmount) });
     // Use the public tribulation preview for its actual load law (including
     // realm restrictions); its changed exponent is only used next segment.
@@ -181,9 +181,9 @@
     unit.options.onPhase?.("progress-settlement");
     let gainedPearls=B.ZERO;
     if(!unit.options.skipTreasureRolls) {
-      for(const reward of sources.rewards) if(reward.eligible&&(B.gt(reward.units,0)||WIS.Meta.TreasureProgress.hasUnsettled(state,reward.key))) {
+      for(const reward of sources.rewards) if(reward.eligible&&(B.gt(reward.key==="originImprint" ? plan.gains.nieForce||0 : reward.units,0)||WIS.Meta.TreasureProgress.hasUnsettled(state,reward.key))) {
         const began=clock();
-        const progress=unit.options.mapPlan?.progressTotals?.[reward.key];
+        const progress=reward.key==="originImprint" ? B.mul(plan.gains.nieForce||0,reward.gain) : unit.options.mapPlan?.progressTotals?.[reward.key];
         const gained=WIS.Simulation.Profiler.measure('treasure.'+reward.key,()=>WIS.Meta.TreasureProgress.advanceFixed(state,reward.key,progress??B.mul(reward.units,seconds),progress===undefined?reward:{...reward,gain:B.ONE}));
         if(reward.key==="tianNiPearl") gainedPearls=gained;
         const rewardMs=clock()-began;statistics.rewardMs+=rewardMs;recordCost("treasure:"+reward.key,rewardMs);
@@ -213,6 +213,12 @@
       WIS.Meta.BigNumbers?.syncMilestones(state);
       unit.options.beforeEndEvents?.(state,seconds);
     }
+    // Martial progression belongs to the private fixed-step candidate.
+    // Its conversions get at most one real 0.1s opportunity, never an offline purchase loop.
+    if (WIS.Cultivation.Martial?.active(state)) {
+      WIS.Cultivation.Martial.advance(state, seconds);
+      WIS.Cultivation.Martial.automate(state);
+    }
     const operations=yield* runAutomations(state,unit);
     if(!unit.options.offline&&unit.bigNumbers) state.meta.bigNumbers=unit.bigNumbers;
     E.invalidate();
@@ -235,13 +241,28 @@
     return next.value;
   }
   function createWork(state,seconds,options) {
+    let evolved=null;
+    function failed(error) {
+      // Calibration already ran in the planner. A later private settlement
+      // failure spends that work too; only accept/fail changes the budget.
+      const stats=evolved?.stats||options.evolutionPlan?.localPlan?.stats;
+      if(stats) {
+        if(!error.evolutionStats)error.evolutionStats={...stats};
+        else if(stats.calibrationMicroSteps)error.evolutionStats={...error.evolutionStats,
+          calibrationMicroSteps:Math.max(error.evolutionStats.calibrationMicroSteps||0,stats.calibrationMicroSteps),
+          realMicroSteps:Math.max(error.evolutionStats.realMicroSteps||0,stats.realMicroSteps||0)};
+      }
+      return error;
+    }
+    try {
     const candidate=S.cloneForSimulation(state), roots=[state.core,state.powerSystem,state.cultivation,state.meta];
     const mathPolicy=options.offline===true ? R.MathPolicy.OFFLINE_APPROX : R.MathPolicy.ONLINE_EXACT;
     R.withMathPolicy(mathPolicy,()=>R.withState(candidate,()=>R.withOfflineExecution(()=>E.withIsolatedState(candidate,()=>WIS.Cultivation.ExplorationProgress.settleRetained(candidate)))));
     let unit, parts, closed=false, workMs=0;
-    const evolution=options.evolutionPlan?WIS.Simulation.ContinuousExecutor.create(seconds,options.evolutionPlan).prepare(candidate):null;let evolved=null;
+    const evolution=options.evolutionPlan?WIS.Simulation.ContinuousExecutor.create(seconds,options.evolutionPlan).prepare(candidate):null;
     return {
       advance(deadline) {
+        try {
         if(closed) throw Error("固定段候选已失效");
         let next;
         do {
@@ -273,9 +294,11 @@
           }
         } while(clock()<deadline);
         return {done:false};
+        } catch(error) {throw failed(error);}
       },
       close(){if(!closed)evolution?.discard();closed=true;}
     };
+    } catch(error) {throw failed(error);}
   }
   function takePrepared(token,state) {
     const value=prepared.get(token);

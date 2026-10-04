@@ -10,10 +10,11 @@
     Object.freeze({ base: denominator === 1 ? numerator : BN(numerator).div(denominator),
       scale, exponent, coefficient: 1, immortal, type: "power", baseChance: denominator / numerator });
   const rules = Object.freeze({
+    originImprint: exponential(100, 1/3, "1e-5", true),
     fitnessMembershipCard: exponential(200, .97), superLollipop: exponential(2000, .98),
     skyCrystal: power(200, 10, .5), fiveSpiritStone: exponential(2000, .99),
     baLingChi: exponential(500, .9, 1, true), fiveElementsTreasure: exponential(50, .99, 1, true),
-    immortalCrystal: power(20, 100, .5, true), cosmicFiber: power(1000, 20, .65, false, 3),
+    immortalCrystal: power(20, 100, .5, true), yuanCrystal: power(25, 100, .5, true), cosmicFiber: power(1000, 20, .65, false, 3),
     cosmicWill: power(1000, 10, .85),
     tianNiPearl: exponential(1, .99, .01, true), mysteriousGreenBottle: exponential(1, .85, .02, true),
     fuBao: exponential(1, .7, .02, true), xuTianDing: exponential(1, .75, .0002, true),

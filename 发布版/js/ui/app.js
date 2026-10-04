@@ -318,6 +318,7 @@
       Object.freeze({ key: "general", label: "通用" }),
       Object.freeze({ key: "scale", label: "量级" }),
       Object.freeze({ key: "immortal", label: "仙道" }),
+      Object.freeze({ key: "martial", label: "武道" }),
       Object.freeze({ key: "challenge", label: "挑战" }),
       Object.freeze({ key: "other", label: "其他" })
     ]);
@@ -376,7 +377,21 @@
         description: "自动突破曾手动突破过的炼气道、修真道境界，包含已手动完成的修真道入门。",
         unlockAchievement: "bodyIntegration",
         stateKey: "immortalRealmAutomationEnabled"
-      })
+      }),
+      ...["qi", "body", "heart", "soul"].map((key, index) => Object.freeze({
+        id: "martial-" + key,
+        name: ["自动凝气", "自动锻体", "自动炼心", "自动神魂"][index],
+        group: "martial",
+        description: ["将可用J转为气。", "将可用战力转为体。", "将可用气、体转为心。", "将可用气、体、心转为神魂。"][index],
+        isUnlocked: () => state.cultivation.active === "martial" && WIS.Cultivation.Martial.automaticUnlocked(state, key),
+        isEnabled: () => Boolean(WIS.Cultivation.Martial.get(state).automation[key]),
+        isDisabled: () => Boolean(getCatchUpStatus().locked),
+        toggle: () => {
+          const enabled = !WIS.Cultivation.Martial.get(state).automation[key];
+          WIS.Cultivation.Martial.setAutomation(state, key, enabled);
+          return Boolean(WIS.Cultivation.Martial.get(state).automation[key]);
+        }
+      }))
     ]);
     const AUTOMATION_BY_ID = new Map(AUTOMATION_DEFINITIONS.map((definition) => [definition.id, definition]));
 
@@ -388,7 +403,7 @@
     if (!groupsRoot || !emptyState) return;
 
     const signature = AUTOMATION_DEFINITIONS
-      .map((definition) => `${definition.id}:${definition.isUnlocked() ? 1 : 0}:${definition.isEnabled() ? 1 : 0}`)
+      .map((definition) => `${definition.id}:${definition.isUnlocked() ? 1 : 0}:${definition.isEnabled() ? 1 : 0}:${definition.isDisabled?.() ? 1 : 0}`)
       .join("|");
     if (!force && signature === automationRenderSignature) return;
     automationRenderSignature = signature;
@@ -453,6 +468,7 @@
         }
         const enabled = definition.isEnabled();
         const toggle = view.toggle;
+        toggle.disabled = Boolean(definition.isDisabled?.());
         toggle.setAttribute("aria-pressed", String(enabled));
         toggle.setAttribute("aria-label", `${definition.name}：${enabled ? "已开启" : "已关闭"}`);
         const statusText = enabled ? "已开启" : "已关闭";
@@ -639,7 +655,7 @@
     } else {
       title.textContent = online?"正在追赶在线进度":offline?"正在结算离线收益":"正在恢复游戏进度";
       detail.textContent = online?"在线积压按当前可安全结算区间追赶；系统会在境界、自动化、宝物等状态变化点自动切段。在线时间不可转换为离线补偿。":
-        "离线每段最多60游戏秒，在线积压按可安全结算区间推进；状态变化时重新计算后续来源。此阻塞窗口期间暂不产生新增在线收益。";
+        "离线按当前可安全结算区间推进；武道稳定阶段会加速结算，遇到能力、软上限、宝物或挑战变化时重新分段。此阻塞窗口期间暂不产生新增在线收益。";
     }
   }
 
@@ -650,11 +666,8 @@
   }
 
   const offlineSummarySeen = new Set();
-  let offlineSummaryTimer = null, offlineSummaryFrame = null;
+  let offlineSummaryFrame = null;
   const offlineSessionId = status => `${status?.sessionSource}|${status?.startedAt}|${status?.originalClockSeconds}`;
-  function shouldShowOfflineResult(status) {
-    return status?.sessionSource === 'offline' && Number(status.originalClockSeconds) >= CONFIG.offlineNoticeMinSeconds;
-  }
   function shouldShowOfflineProgress(status) {
     return status?.phase === 'running' && status.presentation === 'blocking' &&
       Date.now() - (Number(status.startedAt) || Date.now()) >= offlineDialogWaitMs(status);
@@ -670,7 +683,6 @@
       offlineDialogWaitMs(status) <= 300;
   }
   function clearOfflineSummaryPresentation() {
-    window.clearTimeout(offlineSummaryTimer); offlineSummaryTimer = null;
     window.cancelAnimationFrame(offlineSummaryFrame); offlineSummaryFrame = null;
   }
   function dismissOfflineSummary() {
@@ -693,10 +705,9 @@
       dialog.classList.add('offline-completed-presentation');
     }
     if (!dialog.open) dialog.show();
-    if (offlineSummaryFrame !== null || offlineSummaryTimer !== null) return;
+    if (offlineSummaryFrame !== null) return;
     const summary = offlineCompletedSummary, id = offlineSessionId(summary);
-    // Let the completed panel paint before starting any auto-close countdown.
-    // This delays presentation only; simulation and online income keep running.
+    // Mark the manual report as seen after paint; game simulation keeps running.
     offlineSummaryFrame = window.requestAnimationFrame(() => {
       offlineSummaryFrame = window.requestAnimationFrame(() => {
         offlineSummaryFrame = null;
@@ -704,11 +715,6 @@
             !rawById('offline-progress-dialog')?.open || rawById('offline-complete-panel')?.hidden) return;
         offlineSummarySeen.add(id);
         if (offlineSummarySeen.size > 32) offlineSummarySeen.delete(offlineSummarySeen.values().next().value);
-        if (state.autoCloseOfflineDialogEnabled !== false) offlineSummaryTimer = window.setTimeout(() => {
-          offlineSummaryTimer = null;
-          if (offlineCompletedSummary !== summary || getCatchUpStatus().locked || document.hidden || state.autoCloseOfflineDialogEnabled === false) return;
-          dismissOfflineSummary();
-        }, 1500);
       });
     });
   }
@@ -753,6 +759,43 @@
   }
 
   let offlineProgressRenderedAt=-Infinity, offlineProgressRenderKey=null;
+  function renderCatchUpNotice(offlineCatchUpStatus) {
+    const notice = rawById("catch-up-notice");
+    if (!notice) return;
+    // Foreground debt is owned by Loop, not the recovery runner. Display its
+    // ledger read-only; do not transfer time or change settlement precision.
+    if (!(offlineCatchUpStatus.pendingGameSeconds > 0) && !offlineCatchUpStatus.locked &&
+        offlineCatchUpStatus.phase !== 'paused' && !offlineCatchUpStatus.treasureRecovery?.active) {
+      let clock = 0, game = 0;
+      for (const part of state.core.runtime.timeLedger.pendingContinuousTime || []) {
+        if (part.source !== 'online') continue;
+        clock += part.clock; game += part.clock * part.speed;
+      }
+      if (clock >= 1) {
+        notice.hidden = false;
+        rawById('show-paused-catch-up').hidden = true;
+        rawById('convert-quiet-catch-up').hidden = true;
+        rawById('catch-up-notice-text').textContent = '正在追赶在线进度 · 待处理 ' + formatElapsedTime(game);
+        return;
+      }
+    }
+    const quiet = offlineCatchUpStatus.presentation !== 'blocking' && offlineCatchUpStatus.phase !== 'paused' &&
+      offlineCatchUpStatus.awaitingStart !== true;
+    const catchUpNotice = rawById("catch-up-notice");
+    if (catchUpNotice) {
+      const delayed = Number(offlineCatchUpStatus.recoveryElapsedSeconds) >= 1;
+      const paused = offlineCatchUpStatus.phase === 'paused';
+      const smallOnline=offlineCatchUpStatus.sessionSource==='online'&&!offlineCatchUpStatus.clockSuspended&&offlineCatchUpStatus.pendingClockSeconds<1;
+      catchUpNotice.hidden = !paused && (!quiet || !delayed || smallOnline || !(offlineCatchUpStatus.pendingGameSeconds > 0) || offlineCatchUpStatus.waitingForFrame);
+      rawById('show-paused-catch-up').hidden = !paused;
+      rawById('convert-quiet-catch-up').hidden = paused || !(offlineCatchUpStatus.convertibleClockSeconds > 0);
+      const text = rawById("catch-up-notice-text");
+      if (text) text.textContent = `${offlineCatchUpStatus.sessionSource==='online'?'正在追赶在线进度':offlineCatchUpStatus.sessionSource==='offline'?'正在结算离线收益':'正在恢复游戏进度'} · 待处理 ${formatElapsedTime(offlineCatchUpStatus.pendingGameSeconds || 0)}`;
+      if (text && !paused && offlineCatchUpStatus.sessionSource==='online' && offlineCatchUpStatus.clockSuspended) text.textContent += ' · 处理期间暂不新增在线时间';
+      if (text && paused) text.textContent = '追赶已暂停，剩余时间已保留。';
+    }
+  }
+
   function handleOfflineCatchUpStatus(status, force=true) {
     offlineCatchUpStatus = status || Object.freeze({ phase: "idle", locked: false });
     if (status?.awaitingStart !== true || status.phase === "paused" ||
@@ -776,11 +819,15 @@
     }
     const completedOnline=offlineCatchUpStatus.phase==='completed'&&offlineCatchUpStatus.sessionSource==='online';
     const autoCloseCompleted=state.autoCloseOfflineDialogEnabled!==false;
+    if (autoCloseCompleted && offlineCompletedSummary) {
+      clearOfflineSummaryPresentation();
+      offlineCompletedSummary = null;
+    }
     // Source is session provenance, never inferred from duration or presentation.
     // A newer non-online report replaces the previous report. Online-only work
     // may temporarily cover it but cannot replace it, even when blocking.
     if(offlineCatchUpStatus.phase==='completed'&&!completedOnline&&
-        (shouldShowOfflineResult(offlineCatchUpStatus)||!autoCloseCompleted)&&
+        !autoCloseCompleted&&
         !offlineSummarySeen.has(offlineSessionId(offlineCatchUpStatus))&&
         offlineSessionId(offlineCompletedSummary)!==offlineSessionId(offlineCatchUpStatus)) {
       clearOfflineSummaryPresentation();
@@ -793,19 +840,7 @@
     if(offlineCatchUpStatus.treasureRecovery?.active){openOfflineProgressDialog();return;}
     const quiet = offlineCatchUpStatus.presentation !== "blocking" && offlineCatchUpStatus.phase !== "paused" &&
       offlineCatchUpStatus.awaitingStart !== true;
-    const catchUpNotice = rawById("catch-up-notice");
-    if (catchUpNotice) {
-      const delayed = Number(offlineCatchUpStatus.recoveryElapsedSeconds) >= 1;
-      const paused = offlineCatchUpStatus.phase === 'paused';
-      const smallOnline=offlineCatchUpStatus.sessionSource==='online'&&!offlineCatchUpStatus.clockSuspended&&offlineCatchUpStatus.pendingClockSeconds<1;
-      catchUpNotice.hidden = !paused && (!quiet || !delayed || smallOnline || !(offlineCatchUpStatus.pendingGameSeconds > 0) || offlineCatchUpStatus.waitingForFrame);
-      rawById('show-paused-catch-up').hidden = !paused;
-      rawById('convert-quiet-catch-up').hidden = paused;
-      const text = rawById("catch-up-notice-text");
-      if (text) text.textContent = `${offlineCatchUpStatus.sessionSource==='online'?'正在追赶在线进度':offlineCatchUpStatus.sessionSource==='offline'?'正在结算离线收益':'正在恢复游戏进度'} · 待处理 ${formatElapsedTime(offlineCatchUpStatus.pendingGameSeconds || 0)}`;
-      if (text && !paused && offlineCatchUpStatus.sessionSource==='online' && offlineCatchUpStatus.clockSuspended) text.textContent += ' · 处理期间暂不新增在线时间';
-      if (text && paused) text.textContent = '追赶已暂停，剩余时间已保留。';
-    }
+    renderCatchUpNotice(offlineCatchUpStatus);
     if (offlineCompletedSummary && !settlementLocked) {
       presentOfflineSummary();
       // Small online steps still finish/acknowledge normally beneath the report.
@@ -1219,6 +1254,7 @@
 
   function switchCultivationPage(pageName) {
     if (state.cultivation.active !== "immortal" || !["realms", "abilities"].includes(pageName)) return;
+    if(pageName!==activeCultivationPage){runtime.call('cancelDeferredAction','route');cancelExplorationPreviewWorks();}
     activeCultivationPage = pageName;
     renderCultivationPage();
     structuralPages.add("cultivation");
@@ -1237,6 +1273,7 @@
   }
 
   function switchPage(pageName, { deferRender = false } = {}) {
+    if(pageName!==activePage){runtime.call('cancelDeferredAction','route');cancelExplorationPreviewWorks();}
     if (pageName === "upgrades" && !upgradesUnlocked()) {
       showNotice("达成「战力 1」后解锁强化");
       return;
@@ -1519,6 +1556,7 @@
       const card = byId(`achievement-${achievement.key}`);
       card.classList.toggle("completed", achievement.completed);
       card.querySelector(".achievement-state").textContent = achievement.completed ? "已达成" : "未达成";
+      setTextIfChanged(card.querySelector(".achievement-reward strong"),achievement.reward);
       card.hidden = state.hideUnlockedAchievements && achievement.completed;
     });
     byId("achievement-unlocked-count").textContent = String(unlockedCount);
@@ -1644,8 +1682,8 @@
           ? "奖励：所有接入动态读取的当前J、战力分别视为 J^1.10、战力^1.10"
         : challengeKey === "blackHole"
           ? completed > 0
-            ? "奖励已生效：超星系团之后的量级需求按相对跨度 ^0.95 压缩"
-            : "奖励：降低超星系团之后的量级突破需求"
+            ? "奖励已生效：爆砖至宇宙结构的基础量级需求 ^0.95"
+            : "奖励：爆砖至宇宙结构的基础量级需求 ^0.95"
         : challengeKey === "severEvilCorpse"
         ? `当前奖励：仙灵力 ×${WIS.Core.Effects.value("severEvilReward", state).toFixed(3)}`
         : challengeKey === "severGoodCorpse"
@@ -1689,6 +1727,7 @@
     filter.setAttribute("aria-pressed", String(state.hideCompletedChallenges));
     infinityPage.renderChallenges();
     xiuzhenPage.renderChallenges();
+    martialPage.renderChallenges();
     byId("challenge-active-state").textContent = state.activeChallenge
       ? `当前挑战：${CHALLENGE_DEFINITIONS[state.activeChallenge].name}`
       : "当前未进行挑战";
@@ -1735,7 +1774,7 @@
     const paused = status.phase === "paused";
     const settlement = state.core.runtime.lastSettlement;
     for (const key of X.resourceKeys) {
-      const visible = active && (n.abilities[key] || n.realm >= (key === "xianForce" ? 2 : 3));
+      const visible = active && (n.abilities[key] || n.realm >= ({xianForce:2,yuanForce:3,nieForce:7,universeCoefficient:7}[key]));
       setHiddenIfChanged(byId(key + "-resource"), !visible);
       if (visible) {
         setTextIfChanged(byId(key), format(X.amount(state, key)));
@@ -1751,7 +1790,7 @@
           : rate == null ? "尚无结算速率" : committedRateText(key, X.amount(state, key), rate, status));
       }
     }
-    setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys]
+    setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys.filter(key => key !== "universeCoefficient")]
       .every(key => byId(key + "-resource").hidden));
   }
 
@@ -1775,10 +1814,12 @@
     setTextIfChanged(byId("game-version"), `v${GAME_VERSION}`);
     setTextIfChanged(byId("joules"), format(state.joules));
     setTextIfChanged(byId("power"), format(state.power));
-    setTextIfChanged(byId("current-scale"), SCALE_THRESHOLDS[state.highestScaleIndex].name);
+    const thirdStepScale = WIS.Cultivation.Xiuzhen.thirdStepActive(state);
+    setTextIfChanged(byId("current-scale"), thirdStepScale ? "单体宇宙" : SCALE_THRESHOLDS[state.highestScaleIndex].name);
+    setHiddenIfChanged(byId("next-scale-progress"), thirdStepScale);
     const nextScale = SCALE_THRESHOLDS[state.highestScaleIndex + 1];
     const nextScaleDetails = nextScale ? scaleRequirementDetails(state.highestScaleIndex + 1, state) : null;
-    setTextIfChanged(byId("next-scale-progress"), nextScaleDetails
+    setTextIfChanged(byId("next-scale-progress"), thirdStepScale ? "" : nextScaleDetails
       ? `下一量级：${nextScale.name}（基础 ${format(nextScaleDetails.baseRequirement, 0)}${!eqBN(nextScaleDetails.rewardMultiplier, ONE) ? `；黑洞挑战奖励 ×${format(nextScaleDetails.rewardMultiplier, 5)}` : ""}${!eqBN(nextScaleDetails.blackHoleMultiplier, ONE) ? `；黑洞倍率 ×${format(nextScaleDetails.blackHoleMultiplier, 3)}` : ""}；实际需求 ${format(nextScaleDetails.actualRequirement, 0)} 战力）`
       : "已达到当前量级系统上限");
     setTextIfChanged(byId("joules-rate"), committedRateText("joules",state.joules,gain,rateStatus));
@@ -1798,6 +1839,8 @@
 
   // Local presentation snapshots only. Never used by explore()/settlement.
   const explorationPreviews = new Map();
+  const explorationPreviewWorks = new Map();
+  let explorationPreviewGeneration = 0;
   let explorationPreviewRefreshPending = false;
   const firstExplorationPreviewPending = new Set();
   let firstExplorationPreviewReady = null;
@@ -1832,7 +1875,37 @@
   ];
   let explorationStructureState = null, explorationStructureKey = null;
   function markExplorationPreviewDirty() {
+    cancelExplorationPreviewWorks();
     for (const snapshot of explorationPreviews.values()) snapshot.dirty = true;
+  }
+  function cancelExplorationPreviewWorks() {
+    explorationPreviewGeneration++;
+    for(const entry of explorationPreviewWorks.values())entry.scope.cancel();
+    explorationPreviewWorks.clear();
+  }
+  function startExplorationPreviewWork(key,element) {
+    const original=runtime.getState(),snapshot=WIS.Core.State.cloneForSimulation(original);
+    const entry={original,snapshot,generation:explorationPreviewGeneration,scope:WIS.Power.ScaleLogic.createDeferredDynamicRateScope(),startedAt:Date.now()};
+    explorationPreviewWorks.set(key,entry);
+    const cancel=()=>{entry.scope.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
+    const run=()=>{
+      if(explorationPreviewWorks.get(key)!==entry||entry.generation!==explorationPreviewGeneration||
+        runtime.getState()!==original||document.hidden||!previewVisible(element)||explorationHoldActive){cancel();return;}
+      try {
+        const progress=entry.scope.advance(performance.now()+3);
+        if(!progress.done){window.setTimeout(run,0);return;}
+        const attempt=entry.scope.attempt(()=>runtime.withState(snapshot,()=>{
+          const value=explorationPreviewValues({includeFinal:key==='action'});
+          const records=key==='action'?WIS.UI.SourcePreview.query(['exploration'],snapshot,{actionFinals:{exploration:value.mana}}):null;
+          return {value,records,calculatedAt:entry.startedAt,dirty:false};
+        }));
+        if(!attempt.done){window.setTimeout(run,0);return;}
+        explorationPreviews.set(key,attempt.value);cancel();runtime.call('renderImmediately',activePage);
+      }catch(error){cancel();runtime.call('showNotice',`收益预览暂未完成：${error.message}`);}
+    };
+    // Even cheap previews start in another host task. Long integrations yield
+    // inside their work and never retain an Evaluation across callbacks.
+    window.setTimeout(run,0);
   }
   function syncExplorationPreviewStructure() {
     const current = runtime.getState();
@@ -1854,18 +1927,14 @@
     // The formal action still settles exactly; only its presentation is merged.
     if (explorationHoldActive) return null;
     let snapshot = explorationPreviews.get(key);
+    if(explorationPreviewWorks.has(key))return snapshot||null;
     if (explorationPreviewRefreshPending) return snapshot || null;
     if (!snapshot && firstExplorationPreviewReady !== key) {
       requestFirstExplorationPreview(key, element);
       return null;
     }
     if (!snapshot || snapshot.dirty) {
-      const value = explorationPreviewValues({ includeFinal: key === "action" });
-      // Source text and final action gain come from the same synchronous state.
-      const records = key === "action" ? WIS.UI.SourcePreview.query(["exploration"], runtime.getState(),
-        { actionFinals: { exploration: value.mana } }) : null;
-      snapshot = { value, records, calculatedAt: Date.now(), dirty: false };
-      explorationPreviews.set(key, snapshot);
+      startExplorationPreviewWork(key,element);
     }
     return snapshot;
   }
@@ -2141,8 +2210,8 @@
     if (snapshot) {
       setTextIfChanged(byId("exploration-preview"), WIS.UI.SourcePreview.text(snapshot.records, format));
       toggleClassIfChanged(byId("exploration-preview"), "source-gain-preview", true);
-      setTextIfChanged(byId("exploration-preview-status"), "当前状态精确预览；实际结果以探寻时为准");
-    } else if (explorationHoldActive || firstExplorationPreviewPending.has("action")) {
+      setTextIfChanged(byId("exploration-preview-status"), "计算开始时状态的精确预览；实际结果以探寻时为准");
+    } else if (explorationHoldActive || firstExplorationPreviewPending.has("action") || explorationPreviewWorks.has('action')) {
       setTextIfChanged(byId("exploration-preview"), "收益预览：计算中…");
       setTextIfChanged(byId("exploration-preview-status"), explorationHoldActive ? "松开后更新精确预览" : "正在计算首次精确预览");
     }
@@ -2167,11 +2236,17 @@
       toggleClassIfChanged(cultivationCard, "selected", immortalSelected);
       setTextIfChanged(cultivationButton, immortalSelected ? "已选择" : cultivationSelected ? "已选择其他体系" : cultivationBlocked ? "五弊挑战中不可选择" : "选择仙道");
       setDisabledIfChanged(cultivationButton, cultivationSelected || cultivationBlocked);
+      const martialSelected = state.cultivation.active === "martial";
+      const martialCard = document.querySelector('[data-cultivation-card="武道"]');
+      const martialButton = document.querySelector('[data-cultivation="武道"]');
+      toggleClassIfChanged(martialCard, "selected", martialSelected);
+      setTextIfChanged(martialButton, martialSelected ? "已选择" : cultivationSelected ? "已选择其他体系" : cultivationBlocked ? "五弊挑战中不可选择" : "选择武道");
+      setDisabledIfChanged(martialButton, cultivationSelected || cultivationBlocked);
     }
     setHiddenIfChanged(byId("cultivation-choices"), cultivationSelected);
     setTextIfChanged(byId("cultivation-status"), immortalSelected
       ? "已选择：仙道（转世重修不会重置体系）"
-      : cultivationSelected ? `已选择：${state.cultivation.active}`
+      : cultivationSelected ? `已选择：${state.cultivation.active === "martial" ? "武道" : state.cultivation.active}`
         : cultivationBlocked ? "五弊挑战中无法选择体系" : "尚未选择体系");
     setHiddenIfChanged(byId("immortal-progress"), !immortalSelected);
     if (renderRealms) {
@@ -2625,6 +2700,11 @@
     setTextIfChanged(byId("immortal-crystal-count"), `×${format(currentImmortalCrystalCount, 0)}`);
     setTextIfChanged(byId("immortal-crystal-chance"), treasureProgressText("immortalCrystal"));
     setTextIfChanged(byId("immortal-crystal-effect"), `仙灵力倍率 ×${format(immortalCrystalMultiplier(), 6)}`);
+    const yuanCrystalCount=WIS.Meta.Treasures.count(state,"yuanCrystal");
+    setHiddenIfChanged(byId("yuan-crystal-treasure"),!hasAchievement("yuan") && !gtBN(yuanCrystalCount,ZERO));
+    setTextIfChanged(byId("yuan-crystal-count"),`×${format(yuanCrystalCount,0)}`);
+    setTextIfChanged(byId("yuan-crystal-chance"),treasureProgressText("yuanCrystal"));
+    setTextIfChanged(byId("yuan-crystal-effect"),`元力倍率 ×${format(WIS.Cultivation.Xiuzhen.yuanCrystalMultiplier(state),6)}`);
     setHiddenIfChanged(byId("five-spirit-stone-treasure"), !state.fiveSpiritStonePurchased && !gtBN(currentFiveSpiritStoneCount, ZERO));
     setTextIfChanged(byId("five-spirit-stone-count"), `×${format(currentFiveSpiritStoneCount, 0)}`);
     setTextIfChanged(byId("five-spirit-stone-chance"), treasureProgressText("fiveSpiritStone"));
@@ -2812,20 +2892,23 @@
   const infinityPage = WIS.UI.Infinity.create({ ...context, performSavedAction });
   const bigNumberPage = WIS.UI.BigNumbers.create({ ...context, performSavedAction });
   const xiuzhenPage = WIS.UI.Xiuzhen.create({ ...context, performSavedAction });
+  const martialPage = WIS.UI.Martial.create({ ...context, performSavedAction });
   function renderActionsPage() {
     bigNumberPage.render();
     if (!infinityPage.renderActions() && !bigNumberPage.isSelected()) renderPageContent("actions");
+    martialPage.renderActions();
   }
   function renderUpgradesPage() { if (!infinityPage.renderUpgrades()) renderPageContent("upgrades"); }
   function renderCultivationContentPage() {
     renderPageContent("cultivation");
     xiuzhenPage.render({ page: activeCultivationPage, writePreview: writeSourcePreview });
+    martialPage.renderCultivation();
   }
   function treasureProgressText(key) {
     return WIS.UI.Treasures.acquisition(key, WIS.Meta.TreasureProgress.view(state, key), format);
   }
 
-  function renderTreasuresPage() { renderPageContent("treasures"); }
+  function renderTreasuresPage() { renderPageContent("treasures"); xiuzhenPage.renderTreasures(); }
   function renderAchievementsPage() { renderAchievements(); }
   function switchStatisticsView(view) {
     const showCurrent = view === "current";
@@ -2857,6 +2940,7 @@
   }
   function renderNow({ forceGlobal = false, forcePage = false } = {}) {
     if (!WIS.Core.Runtime.canPresentState()) return;
+    renderCatchUpNotice(getCatchUpStatus());
     syncExplorationPreviewStructure();
     const nextStructureKey = [state.cultivation.active, state.powerSystem.active, state.advancedRealmLevel,
       state.highestScaleIndex, state.activeChallenge, state.permanentRootLevel, state.scatterRetentionLevel].join("|");
@@ -2886,16 +2970,24 @@
       const reward = rawById("achievement-beyondFractal")?.querySelector(".achievement-reward strong");
       const current = WIS.Meta.Achievements.beyondFractalReward();
       if (reward && reward.textContent !== current) reward.textContent = current;
+      for (const achievement of achievementDefinitions().filter(a=>["greatHeavenlyVenerable","universe"].includes(a.key))) {
+        const row=rawById(`achievement-${achievement.key}`)?.querySelector(".achievement-reward strong");
+        if(row)setTextIfChanged(row,achievement.reward);
+      }
     }
+    martialPage.renderSummary();
     if (rawById("automation-dialog")?.open) renderAutomationManager();
   }
 
   function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true, cooperative = false } = {}) {
     const commit = work => () => {
       const result = work();
-      context.completePlayerAction();
-      runtime.call(cooperative && isHolding ? "render" : "renderImmediately", activePage);
-      return result;
+      const completed=value=>{
+        if(value!==false)context.completePlayerAction();
+        runtime.call(cooperative && isHolding ? "render" : "renderImmediately", activePage);
+        return value;
+      };
+      return result&&typeof result.then==='function'?result.then(completed):completed(result);
     };
     action = commit(action);
     repeatAction = commit(repeatAction);
@@ -2947,6 +3039,7 @@
         try { stopRepeat(); } catch { /* Preserve the action failure and suppress the gesture click. */ }
         throw error;
       }
+      const afterCompletion=result=>{
       if (cooperative && result === false) { stopRepeat(); return; }
       if (offlineCatchUpStatus.locked === true || !isHolding || button.disabled || !canRepeat()) {
         if (offlineCatchUpStatus.locked === true) suppressNextClick = false;
@@ -2966,6 +3059,9 @@
           }, 0);
         });
       }, 110);
+      };
+      if(result&&typeof result.then==='function')result.then(afterCompletion,error=>{stopRepeat();runtime.call('showNotice',error.message);});
+      else afterCompletion(result);
     };
 
     button.addEventListener("pointerdown", (event) => {
@@ -2992,11 +3088,15 @@
         try { stopRepeat(); } catch { /* Preserve the action failure and suppress the gesture click. */ }
         throw error;
       }
+      const afterCompletion=result=>{
       if (!isHolding || cooperative && result === false) { stopRepeat(); return; }
       delayTimer = window.setTimeout(() => {
         delayTimer = null;
         runRepeat();
       }, 420);
+      };
+      if(result&&typeof result.then==='function')result.then(afterCompletion,error=>{stopRepeat();runtime.call('showNotice',error.message);});
+      else afterCompletion(result);
     });
 
     button.addEventListener("pointerup", (event) => {
@@ -3040,7 +3140,8 @@
         suppressNextClick = false;
         return;
       }
-      action();
+      const result=action();
+      if(result&&typeof result.then==='function')result.catch(error=>runtime.call('showNotice',error.message));
     });
     return cancelRepeat;
   }
@@ -3081,7 +3182,12 @@
       // events must reach the real handlers even while settlement owns the UI.
       if (importControl) return;
       const importing = importTransaction !== null;
-      if (!importing && offlineCatchUpStatus.locked !== true) return;
+      const deferred=context.isDeferredActionPending?context.isDeferredActionPending():runtime.call('isDeferredActionPending')===true;
+      if(deferred&&event.target?.closest?.('[data-page], [data-cultivation-page], #reset-game')){
+        runtime.call('cancelDeferredAction','navigation');cancelExplorationPreviewWorks();return;
+      }
+      if(deferred&&event.target?.closest?.('#open-settings, #close-settings, #close-automation-manager, #export-save, #export-unsaved-progress, #export-protected-save, #retry-failed-save'))return;
+      if (!importing && offlineCatchUpStatus.locked !== true && !deferred) return;
       if (!importing && event.target?.closest?.("#offline-progress-dialog")) return;
       if (!importing && offlineCatchUpStatus.phase === "paused" &&
           event.target?.closest?.("#settings-dialog, #automation-dialog, #catch-up-notice")) return;
@@ -3097,6 +3203,10 @@
     };
     ["pointerdown", "click", "keydown", "input", "change", "submit"].forEach((eventName) => {
       document.addEventListener(eventName, blockInteractionDuringCatchUp, true);
+    });
+    document.addEventListener('visibilitychange',()=>{
+      if(!document.hidden)return;
+      runtime.call('cancelDeferredAction','hidden');cancelExplorationPreviewWorks();
     });
     subscribeCatchUpStatus(status=>handleOfflineCatchUpStatus(status,false));
     document.querySelectorAll(".nav-item").forEach((button) => {
@@ -3191,9 +3301,13 @@
     bindHoldButton("breathing-button", breathe);
     cancelExplorationHold = bindHoldButton("exploration-button", () => {
       const powerBefore = state.power;
-      const result = explore();
-      if (state.power !== powerBefore) markExplorationPreviewDirty();
-      return state.power !== powerBefore ? result : false;
+      const finish=result=>{if(state.power!==powerBefore)markExplorationPreviewDirty();return state.power!==powerBefore?result:false;};
+      // The browser always uses the cooperative owner. The synchronous domain
+      // API remains available to compatibility callers and reference tests.
+      const result=context.requestDeferredAction
+        ?context.requestDeferredAction(snapshot=>Immortal.createExplorationActionWork(snapshot))
+        :runtime.call('requestDeferredAction',snapshot=>Immortal.createExplorationActionWork(snapshot));
+      return result&&typeof result.then==='function'?result.then(finish):finish(result);
     }, { cooperative: true, canRepeat: () => Immortal.explorationEnabled() &&
       gteBN(explorationPowerCost(), EXPLORATION_MINIMUM_POWER_COST) });
     bindManualImmortalAbility("unlock-immortal-life", "immortalLifeUnlocked", unlockImmortalLife);
@@ -3349,8 +3463,20 @@
       markAchievementsDirty();
       renderAchievements();
     });
-    window.addEventListener("beforeunload", () => saveState({ closing: true }));
-    window.addEventListener("pagehide", () => saveState({ closing: true }));
+    const saveBeforeLeaving = () => {
+      try { saveState({ closing: true }); }
+      catch(error) { WIS.Core.Save.noteFailure(error); }
+    };
+    window.addEventListener("beforeunload", event => {
+      saveBeforeLeaving();
+      if (WIS.Core.Save.status().unsaved) {
+        // Hosts that support beforeunload require both forms; do not interrupt
+        // ordinary refresh when the final save has actually succeeded.
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    });
+    window.addEventListener("pagehide", saveBeforeLeaving);
 
     const settingsDialog = byId("settings-dialog");
     const automationDialog = byId("automation-dialog");
@@ -3436,7 +3562,7 @@
     byId("automation-groups").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-automation-id]");
       const definition = button ? AUTOMATION_BY_ID.get(button.dataset.automationId) : null;
-      if (!definition || !definition.isUnlocked()) return;
+      if (!definition || !definition.isUnlocked() || definition.isDisabled?.()) return;
       const enabled = definition.toggle();
       saveState();
       renderAutomationManager(true);
@@ -3528,7 +3654,8 @@
     });
     byId("reset-game").addEventListener("click", resetGame);
 
-    
+
+
     }
 
     function resetCultivationPage() {
@@ -3540,9 +3667,6 @@
 
     return Object.freeze({
       requestExplorationPreviewRefresh,
-      __test: Object.freeze({markExplorationPreviewDirty, explorationPreviewState: () => [...explorationPreviews].map(([key, s]) => ({ key, calculatedAt:s.calculatedAt, dirty:s.dirty })), renderOnlineCompensation,handleOfflineCatchUpStatus,dismissOfflineSummary,
-        closeOfflineProgressDialog,status:()=>offlineCatchUpStatus,importSave,readSaveFileText,
-        importPhases:()=>lastImportPhases}),
       render, renderResourceDebugPanel, renderAchievements, renderChallenges, renderCultivationPage,
       ensureAchievementCards, applyTheme, switchPage, switchCultivationPage,
       showNotice, showAchievementNotice, showScaleNotice, bindEvents,

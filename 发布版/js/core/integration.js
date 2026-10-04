@@ -98,6 +98,7 @@
     let trialSamples=null,failedTrial=null,previousCycle=null;
     let skippedEvaluations=0,skippedAccepted=0,skippedRejected=0;
     let cycleFastForwardCount=0,cycleFastForwardLogicalCycles=0;
+    let workOperations=0,cycleBookkeepingOperations=0;
     const clearCycle=()=>{failedTrial=null;previousCycle=null;};
     class TrialError extends Error {}
     const stocks=z=>Object.fromEntries(keys.map((k,i)=>[k,B.max(0,expm1(z[i]))]));
@@ -181,7 +182,7 @@
         diagnostics:{evaluations,accepted,rejected,slices,diagnosis,arc:String(arc),
           actualEvaluations:evaluations,logicalEvaluations:evaluations+skippedEvaluations,
           logicalAccepted:accepted+skippedAccepted,logicalRejected:rejected+skippedRejected,
-          cycleFastForwardCount,cycleFastForwardLogicalCycles}};
+          cycleFastForwardCount,cycleFastForwardLogicalCycles,workOperations,cycleBookkeepingOperations}};
     }
     function* solve(){
       // Embedded midpoint/Euler predictor is cheap when this whole logical
@@ -303,7 +304,11 @@
           if(Number.isSafeInteger(limit) && Number.isSafeInteger(limit*(failedTrial.count+evaluations-trialEvaluations)))for(let i=0;i<limit && B.gt(remaining,reserve);i++){
             const nextRemaining=B.max(0,B.sub(remaining,time));
             if(!B.lt(nextRemaining,remaining))break;
-            remaining=nextRemaining;count++;
+            remaining=nextRemaining;count++;cycleBookkeepingOperations++;
+            // Preserve EACH represented subtraction; never replace it by N*time.
+            // Yield inside the loop so a no-sample cycle cannot evade the caller's
+            // independent work/deadline budget for one iterator.next().
+            yield;
           }
           if(count){cycleFastForwardCount++;cycleFastForwardLogicalCycles+=count;
             skippedEvaluations+=count*(failedTrial.count+evaluations-trialEvaluations);
@@ -314,9 +319,12 @@
       return result();
     }
     const iterator=solve();let finished=false;
-    return {advance({maximumEvaluations=48,deadline=Infinity}={}){
+    return {advance({maximumEvaluations=48,maximumOperations=256,deadline=Infinity}={}){
       const begin=evaluations;slices++;
-      while(!finished && evaluations-begin<maximumEvaluations && performance.now()<deadline){
+      const operationsAtStart=workOperations;
+      if(!(maximumOperations>0)||(!Number.isFinite(maximumOperations)&&maximumOperations!==Infinity))throw Error('积分工作预算无效');
+      while(!finished && evaluations-begin<maximumEvaluations && workOperations-operationsAtStart<maximumOperations && performance.now()<deadline){
+        workOperations++;
         const step=iterator.next();finished=step.done;
       }
       return result();

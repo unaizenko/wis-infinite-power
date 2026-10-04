@@ -8,6 +8,22 @@
   }
 
   let loadError = null;
+  // Last storage value acknowledged by this page, independent of game progress.
+  // A stale/background page must not replace a save written by another page.
+  let acknowledgedText;
+  function assertStorageUnchanged() {
+    const current = localStorage.getItem(storageKey());
+    if (acknowledgedText !== undefined && current !== acknowledgedText) {
+      const error = Error("另一游戏页面已更新或移除了本地存档，本页面已停止覆盖保存。请先导出需要保留的进度，再重新打开游戏。");
+      error.code = "SAVE_CONFLICT";
+      throw error;
+    }
+  }
+  function persistText(text) {
+    assertStorageUnchanged();
+    localStorage.setItem(storageKey(), text);
+    acknowledgedText = text;
+  }
   // Runtime-only persistence status. Only a successful storage write clears it.
   let saveStatus = { unsaved:false, message:"", revision:0 };
   const statusListeners = new Set(), diagnostics = [];
@@ -21,7 +37,7 @@
   function resetStatus() { saveStatus={unsaved:false,message:"",revision:saveStatus.revision};publishStatus(); }
   function markPending() {saveStatus={...saveStatus,unsaved:true,message:"进度已生效，等待保存确认。"};publishStatus();}
   function noteFailure(error, message="存在未保存进度。请勿刷新或关闭页面。") {
-    diagnose("save",error);saveStatus={...saveStatus,unsaved:true,message};publishStatus();
+    diagnose("save",error);saveStatus={...saveStatus,unsaved:true,message:error?.code === "SAVE_CONFLICT" ? error.message : message};publishStatus();
   }
   function subscribeStatus(listener) {statusListeners.add(listener);return ()=>statusListeners.delete(listener);}
   const storageKey = () => WIS.Core.Config.saveKey;
@@ -33,6 +49,10 @@
       throw Error("离线任务格式无效");
     WIS.Simulation.Offline.validateConfirmedSources(recovery.confirmedSources);
     WIS.Simulation.FixedSegment.validateBudget(recovery.segmentBudget);
+    if(recovery.workerRecovery!=null){const w=recovery.workerRecovery;
+      if(!isRecord(w)||w.version!==1||!Number.isSafeInteger(w.retries)||w.retries<0||w.retries>2||!Number.isSafeInteger(w.sequence)||w.sequence<0)
+        throw Error('离线线程恢复记录无效');
+    }
     const ids = new Set();
     for (const task of recovery.tasks) {
       if (recovery.version === 2) {
@@ -61,6 +81,10 @@
     if (!isRecord(parsed) || (parsed.game !== undefined && parsed.game !== "WIS-无限战力系统"))
       throw Error("不是WIS存档");
     const schemaVersion = Number(parsed.schemaVersion ?? parsed.version ?? 36);
+    // Explicit imports from the known martial lab are compatible. Never read
+    // its localStorage key or accept unknown test formats as official saves.
+    if (parsed.testVariant != null && (parsed.testVariant !== "martial-test-20261002" || schemaVersion !== 70))
+      throw Error("不支持的测试版存档");
     let data = unwrap(parsed);
     if(parsed.encoding!=null) {
       if(parsed.encoding!=='sparse-v1'||schemaVersion<61||!data?.core?.resources||!data.powerSystem||!data.cultivation||!data.meta)throw Error('稀疏存档格式无效');
@@ -82,7 +106,13 @@
           throw Error("存档资源含非法数值");
       }
     const candidate = WIS.Core.State.migrate(schemaVersion, data);
-    const validatedRecovery = validateRecovery(parsed.offlineRecovery);
+    // v71 changes black-hole scale requirements; v70 added martial coordinates.
+    // Older predictors are disposable numerical caches;
+    // preserve confirmed resources, tasks, debt, frames and work accounting.
+    const recoveryInput = schemaVersion < 71 && parsed.offlineRecovery?.segmentBudget?.predictor
+      ? { ...parsed.offlineRecovery, segmentBudget: { ...parsed.offlineRecovery.segmentBudget, predictor: null } }
+      : parsed.offlineRecovery;
+    const validatedRecovery = validateRecovery(recoveryInput);
     if (validatedRecovery?.settlementRule != null &&
         (validatedRecovery.settlementRule !== WIS.Core.Config.fixedSettlement.version ||
          validatedRecovery.offlineSegmentSeconds !== WIS.Core.Config.fixedSettlement.offlineSeconds))
@@ -104,9 +134,10 @@
   function read() {
     try {
       const value = localStorage.getItem(storageKey());
-      if (!value) return null;
+      if (!value) { acknowledgedText = value; return null; }
       const saved = prepare(JSON.parse(value));
       loadError = null;
+      acknowledgedText = value;
       return saved;
     } catch (error) {
       loadError = String(error.message || error);
@@ -116,8 +147,10 @@
   }
   function storageSnapshot() { return { text: localStorage.getItem(storageKey()), loadError, saveStatus:{...saveStatus} }; }
   function restoreStorage(snapshot) {
+    assertStorageUnchanged();
     if (snapshot.text === null) localStorage.removeItem(storageKey());
     else localStorage.setItem(storageKey(), snapshot.text);
+    acknowledgedText = snapshot.text;
     loadError = snapshot.loadError;
     saveStatus = snapshot.saveStatus ? {...snapshot.saveStatus} : {unsaved:false,message:"",revision:saveStatus.revision};
     publishStatus();
@@ -151,11 +184,23 @@
   }
   function writeSnapshot(state, options) {
     if (loadError) throw Error("原存档读取失败，自动保存已停用：" + loadError);
-    localStorage.setItem(WIS.Core.Config.saveKey, JSON.stringify(envelope(state, false, options)));
+    persistText(JSON.stringify(envelope(state, false, options)));
+  }
+
+  // Only the version-checked offline Worker coordinator calls this boundary.
+  // Serialization is performed in the Worker; storage success is its durable ACK.
+  function writePrepared(text) {
+    try {
+      if(loadError)throw Error('原存档读取失败，自动保存已停用：'+loadError);
+      if(typeof text!=='string'||!text.length)throw Error('离线检查点存档为空');
+      persistText(text);
+      saveStatus={unsaved:false,message:'',revision:saveStatus.revision+1};publishStatus();
+    }catch(error){noteFailure(error);throw error;}
   }
 
   function remove() {
     localStorage.removeItem(WIS.Core.Config.saveKey);
+    acknowledgedText = null;
     loadError = null;
     resetStatus();
   }
@@ -232,5 +277,5 @@
     return parsed?.data ?? parsed;
   }
 
-  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, backup, backupKey, storageSnapshot, restoreStorage, persistLive, getLoadError: () => loadError, acceptLoaded: () => { loadError = null; resetStatus(); }, read, readRaw, write, remove, envelope, unwrap, bindOfflineRecovery });
+  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, backup, backupKey, storageSnapshot, restoreStorage, persistLive, getLoadError: () => loadError, acceptLoaded: () => { acknowledgedText = localStorage.getItem(storageKey()); loadError = null; resetStatus(); }, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
 }(window.WIS));

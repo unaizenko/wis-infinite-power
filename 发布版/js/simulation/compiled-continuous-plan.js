@@ -86,7 +86,20 @@
     });
     return cached;
   }
-  W.Simulation.CompiledContinuousPlan=Object.freeze({compile,compare,exact,
+  // A private work may reuse formula descriptors while recomputing ALL numeric
+  // rates on each snapshot. Caller owns non-resource branch invalidation.
+  function createInterval(state) {
+    const binding=G.compile();
+    const effects=W.Core.Effects.compileInterval(state,{dynamicResources:binding.keys,refreshProviders:true});
+    const groups=R.withEvaluationState(state,()=>effects.run(()=>Object.fromEntries(binding.groups.map(group=>[group.id,group.compileFastProfile?.(state)||null]))));
+    const profile={effects,groups};
+    return Object.freeze({evaluate(snapshot){
+      if(snapshot!==state)throw Error('Compiled interval candidate state changed');
+      if(!binding.valid())throw Error('Compiled interval resource membership changed');
+      return binding.evaluate(snapshot,{factor:W.Simulation.Compensation.factor(),fastProfile:profile});
+    },run:callback=>effects.run(callback)});
+  }
+  W.Simulation.CompiledContinuousPlan=Object.freeze({compile,createInterval,compare,exact,
     isCapabilityError:error=>capabilityCodes.has(error?.code),
     recordFallback(code){fallbacks[code]=(fallbacks[code]||0)+1;},
     metrics:()=>({...counters,fallbacks:{...fallbacks}})});

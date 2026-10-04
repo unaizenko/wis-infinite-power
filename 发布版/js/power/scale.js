@@ -209,5 +209,5 @@
   WIS.Core.Sources.register("scaleTreasures", () => [
     { id: "fiveSpiritStoneJ", name: "五灵石", group: "宝物", target: "joules", value: WIS.Power.ScaleLogic.fiveSpiritStoneJSource() },
     { id: "fiveSpiritStonePower", name: "五灵石", group: "宝物", target: "power", value: WIS.Power.ScaleLogic.fiveSpiritStonePowerSource() }
-  ], { highestPowerIndependent: true });
+  ], { highestPowerIndependent: true, descriptorContextIndependent: true });
 }(window.WIS));

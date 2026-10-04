@@ -7,7 +7,7 @@
   function signature(snapshot){
     return JSON.stringify(Object.fromEntries(Object.getOwnPropertyNames(snapshot).filter(k=>!roots.has(k)&&!dynamicKeys.includes(k)).map(k=>[k,snapshot[k]])));
   }
-  function supported(s){return s.powerSystem.active==='scale'&&!s.activeChallenge&&W.Core.Sources.providerIds().every(id=>['scaleTreasures','immortal'].includes(id));}
+  function supported(s){return s.powerSystem.active==='scale'&&!s.activeChallenge&&W.Core.Sources.providerIds().every(id=>(['scaleTreasures','immortal'].includes(id)||id==='martial'&&s.cultivation.active!=='martial'));}
   function supportsOffline(s,profile){
     // A shared evaluator is exact with fixed external inputs. It is NOT a
     // proof that freezing a growing B/C or reward feedback loop is accurate.
@@ -22,7 +22,7 @@
     const state=Object.fromEntries(Object.getOwnPropertyNames(snapshot).map(k=>[k,snapshot[k]]));
     state.core={...snapshot.core,resources:{...snapshot.core.resources},runtime:{...snapshot.core.runtime}};
     const profile=Object.freeze({version:1,signature:signature(snapshot),config:W.Core.Config,factor,
-      dynamicKeys,externalResources:Object.freeze(['mana','immortalPower','xianForce','yuanForce'])});
+      dynamicKeys,externalResources:Object.freeze(['mana','immortalPower',...W.Cultivation.Xiuzhen.resourceKeys])});
     R.withState(state,()=>L.withScaleState(state,()=>{
       const effects=E.compileInterval(state);
       const rates=effects.run(()=>({joules:L.createAutomaticJRateProfile(),power:L.createAutomaticPowerRateProfile({interval:true})}));

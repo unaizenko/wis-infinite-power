@@ -3395,7 +3395,13 @@
   }
 
   function chooseCultivation(systemName) {
-    if (!cultivationUnlocked() || state.cultivation.active || state.activeChallenge === "fiveMisfortunes" || systemName !== "仙道") return;
+    if (!cultivationUnlocked() || state.cultivation.active || state.activeChallenge === "fiveMisfortunes" || !["仙道", "武道"].includes(systemName)) return;
+    if (systemName === "武道") {
+      state.cultivation.active = "martial";
+      WIS.Core.Effects.invalidate();
+      runtime.call("resetCultivationPage"); saveState(); render(); showNotice("已选择武道");
+      return;
+    }
     state.cultivation.active = "immortal";
     state.immortalSelectionCount += 1;
     const grantedMahayanaReincarnation = grantMahayanaReincarnationEffects();
@@ -3872,7 +3878,49 @@
       WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();throw error;}
   }
 
-  function performExploration() {
+  function createExplorationActionWork(original = runtime.getState()) {
+    const R=WIS.Core.Runtime,S=WIS.Core.State,scope=WIS.Power.ScaleLogic.createDeferredDynamicRateScope();
+    let status='pending';
+    // The owner may enqueue time while this action is private. Nothing else
+    // may change gameplay inputs; the latest ledger is copied at final commit.
+    const inputKey=s=>{const value=S.toSerializable(s);delete value.core.runtime.timeLedger;delete value.core.preferences;return JSON.stringify(value);};
+    const originalKey=inputKey(original);
+    function valid(){return status!=='cancelled'&&R.getState()===original;}
+    const inputsCurrent=()=>valid()&&inputKey(original)===originalKey;
+    return Object.freeze({
+      advance(deadline=Infinity,options={}){
+        if(status!=='pending')return {done:status==='ready'};
+        if(!valid())throw Error('探寻候选输入改变，旧候选失效');
+        const stepped=scope.advance(deadline,options);if(!stepped.done)return {done:false};
+        if(!inputsCurrent())throw Error('探寻候选输入改变，旧候选失效');
+        const candidate=S.cloneForSimulation(original);
+        const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
+        try {
+          const attempt=scope.attempt(()=>R.withState(candidate,()=>performExploration(true)));
+          if(attempt.done)status='ready';
+          return {done:attempt.done};
+        } finally {WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);}
+      },
+      commit(){
+        if(status!=='ready')throw Error('探寻候选尚未完成或已提交/取消');
+        if(!inputsCurrent())throw Error('探寻候选输入改变，旧候选失效');
+        const candidate=S.cloneForSimulation(original);
+        const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
+        try {
+          const value=R.atomic(()=>{
+            const attempt=scope.attempt(()=>R.withState(candidate,performExploration));
+            if(!attempt.done)throw Error('探寻候选重放输入改变，未提交');
+            R.setState(candidate);return attempt.value;
+          });
+          status='committed';scope.cancel();return value;
+        }catch(error){R.setState(original);WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();throw error;}
+      },
+      cancel(){if(status==='committed')return;status='cancelled';scope.cancel();},
+      valid
+    });
+  }
+
+  function performExploration(prepareOnly = false) {
     if (!explorationEnabled()) return;
     const powerCost = explorationPowerCost();
     if (!state.goldenCoreUnlocked || lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return;
@@ -3895,6 +3943,7 @@
       () => {},
       { linearBudget: true, googolPenalty: true, prepareRate: () => prepareExplorationManaRate(explorationAmount, tribulationPreview.manaExponent) }
     );
+    if(prepareOnly)return gained;
     state.lifetimeTotalMana = add(state.lifetimeTotalMana, gained);
     state.currentRebirthTotalMana = add(state.currentRebirthTotalMana, gained);
 
@@ -3961,7 +4010,7 @@
     const currentEffectLevel = effectiveScatterRebuildLevel();
     const nextScatterLevel = currentEffectLevel + 1;
     const retainedTier = SCATTER_RETAINED_UPGRADE_TIERS[nextScatterLevel];
-    if (!window.confirm(`第${nextScatterLevel}次散功重修将保留${retainedTier}强化；更高量级强化、J、战力、法力、仙灵力、量级和境界会重置，仙道能力、成就与宝物烙印继续保留。确定继续吗？`)) return false;
+    if (!window.confirm(WIS.Core.Reset.preservesContent("scatter",state) ? `一证永证已生效：第${nextScatterLevel}次散功重修保留全部内容，并获得本次重修效果。确定继续吗？` : `第${nextScatterLevel}次散功重修将保留${retainedTier}强化；更高量级强化、J、战力、法力、仙灵力、量级和境界会重置，仙道能力、成就与宝物烙印继续保留。确定继续吗？`)) return false;
     updateLifetimeStatistics();
     runtime.setState(WIS.Core.Reset.apply("scatter", state, freshDefaultState, {
       context: { nextScatterLevel },
@@ -3987,7 +4036,7 @@
     const rootChangeText = nextPermanentRootLevel > state.permanentRootLevel
       ? `获得${nextRoot.name}`
       : `灵根保持${nextRoot.name}`;
-    if (!window.confirm(`本轮第${nextLevel}次转世重修将${rootChangeText}，并重置强化、资源、量级、境界与仙道能力。挑战完成次数、永久成就、宝物烙印、灵根和统计记录保留。确定继续吗？`)) return false;
+    if (!window.confirm(WIS.Core.Reset.preservesContent("reincarnation",state) ? `一证永证已生效：本轮第${nextLevel}次转世重修将${rootChangeText}，保留全部内容。确定继续吗？` : `本轮第${nextLevel}次转世重修将${rootChangeText}，并重置强化、资源、量级、境界与仙道能力。挑战完成次数、永久成就、宝物烙印、灵根和统计记录保留。确定继续吗？`)) return false;
 
     updateLifetimeStatistics();
     runtime.setState(WIS.Core.Reset.apply("reincarnation", state, freshDefaultState, { overrides: {
@@ -3995,8 +4044,7 @@
       reincarnationLevel: nextLevel,
       permanentRootLevel: nextPermanentRootLevel,
       reincarnationEffectLevel: nextLevel,
-      scatterRebuildLevel: 0,
-      scatterRetentionLevel: 0,
+      ...(WIS.Core.Reset.preservesContent("reincarnation",state) ? {} : { scatterRebuildLevel:0,scatterRetentionLevel:0 }),
       lastUpdateAt: Date.now()
     } }));
     runtime.call("resetTransientAccumulators");
@@ -4138,12 +4186,14 @@
     ].map(([id,target,dynamicResources])=>({id,target,dynamicResources,operationType:'additive',valueAt:(_s,c={})=>fixedAutomaticSources(c.factor??1)[id]})),
     fixedAutomaticSources, foregroundAutomaticGains, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
     unlockBodyIntegrationAbility, unlockMahayanaAbility, scatterAndRebuild, reincarnate,
-    explorationEnabled,
+    explorationEnabled, createExplorationActionWork,
     getManaPerSecond: automaticManaPerSecond,
     autoUpgrade: autoUpgradeImmortalAbilities,
     autoBreakthrough: autoBreakthroughImmortalRealms,
     performAction, buyAbility, getActionIds, getAbilityIds
   });
   WIS.Cultivation.ImmortalLogic = api;
-  WIS.Core.Sources.register("immortal", externalSources, { highestPowerIndependent: true });
+  // The provider constructs descriptors without reading collection context;
+  // every descriptor's valueAt still receives its original dynamic context.
+  WIS.Core.Sources.register("immortal", externalSources, { highestPowerIndependent: true, descriptorContextIndependent: true });
 }(window.WIS));

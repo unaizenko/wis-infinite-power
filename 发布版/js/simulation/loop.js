@@ -8,6 +8,7 @@
     let importHold=null,importHoldSequence=0;
     let continuationHandle=null,schedulerGeneration=0;
     let manualQi=null;
+    let deferredAction=null;
     const onlineIntervals=(getState().core.runtime.timeLedger.pendingContinuousTime||[]).map(p=>({...p}));
     onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);
     const stepSeconds=context.simulationStepSeconds||0.1;
@@ -24,7 +25,48 @@
       if(continuationHandle!==null){window.clearTimeout(continuationHandle);continuationHandle=null;}
     }
     function cancelQiWork(){manualQi?.scope.work?.cancel();manualQi=null;context.invalidateDeferredQi?.();}
-    function invalidateOnlineScheduler(){schedulerGeneration++;cancelOnlineContinuation();cancelQiWork();}
+    function cancelDeferredAction(reason='cancelled'){
+      const owner=deferredAction;if(!owner)return false;
+      deferredAction=null;
+      try{owner.job.cancel?.(reason);}finally{owner.resolve(false);}
+      return true;
+    }
+    function invalidateOnlineScheduler(){schedulerGeneration++;cancelOnlineContinuation();cancelQiWork();cancelDeferredAction('scheduler-invalidated');}
+    function deferredActionBlocked(status=offline.getCatchUpStatus()){
+      return onlineBlocked(status)||importHold||document.hidden||!ready()||ledger().awaySince!==null||
+        status.awaitingStart===true&&status.presentation==='blocking';
+    }
+    function requestDeferredAction(factory){
+      if(deferredAction||manualQi||context.hasDeferredQi?.()||deferredActionBlocked())return Promise.resolve(false);
+      const original=getState(),generation=schedulerGeneration;
+      let job;
+      try{job=typeof factory==='function'?factory(original):factory;
+        if(!job||typeof job.advance!=='function'||typeof job.commit!=='function')throw Error('动作工作接口无效');
+      }catch(error){return Promise.reject(error);}
+      return new Promise((resolve,reject)=>{
+        deferredAction={job,original,generation,resolve,reject};
+        // The first slice also belongs to a later host task. The requesting UI
+        // can show its pending state before any expensive candidate work starts.
+        scheduleOnlineContinuation();
+      });
+    }
+    function advanceDeferredAction(){
+      const owner=deferredAction;
+      if(!owner)return false;
+      try{
+        if(owner.original!==getState()||owner.generation!==schedulerGeneration||owner.job.valid?.()===false){cancelDeferredAction('stale-action');return false;}
+        if(!owner.job.advance(monotonicNow()+3).done)return false;
+        if(owner.original!==getState()||owner.job.valid?.()===false){cancelDeferredAction('stale-action');return false;}
+        // Resolve only after an atomic candidate commit. No registered clock is
+        // consumed by the action owner; the ordinary ledger drain follows later.
+        const value=owner.job.commit();deferredAction=null;owner.resolve(value);
+        return true;
+      }catch(error){
+        deferredAction=null;
+        try{owner.job.cancel?.('action-failed');}finally{owner.reject(error);}
+        return false;
+      }
+    }
     function reportQiFailure(){
       if(WIS.Core.Runtime.has('showNotice'))WIS.Core.Runtime.call('showNotice','炼气计算未完成，本次购买未提交；进度时间已保留。');
     }
@@ -52,7 +94,7 @@
     function requestQiBatch(shouldRender=true){
       // Manual and automatic work share the same owner; repeated clicks do not
       // queue purchases or steal another slice from a pending automatic step.
-      if(manualQi||context.hasDeferredQi?.()||importHold||document.hidden||!isInitialLoadComplete()||onlineBlocked())return 0;
+      if(deferredAction||manualQi||context.hasDeferredQi?.()||importHold||document.hidden||!isInitialLoadComplete()||onlineBlocked())return 0;
       const job={original:getState(),generation:schedulerGeneration,
         key:WIS.Cultivation.ImmortalLogic.qiBatchStateKey(getState()),scope:{},shouldRender,value:0};
       manualQi=job;processOnline();return job.value;
@@ -64,9 +106,12 @@
       // A hidden interval still belongs to registerReturn and stays untouched.
       if(ledger().awaySince===null)writeLedger({boundaryAt:Math.max(ledger().boundaryAt||0,lastTickAt)});
     }
-    function resetAccumulators(){
+    function resetAccumulators({preservePending=false}={}){
       invalidateOnlineScheduler();
-      lastTickAt=Date.now();onlineAccumulator=0;onlineIntervals.length=0;tickRemaining=0;writeLedger({pendingContinuousTime:[]});
+      const pending=preservePending ? (ledger().pendingContinuousTime||[]).map(p=>({...p})) : [];
+      lastTickAt=Date.now();onlineIntervals.splice(0,onlineIntervals.length,...pending);
+      onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);tickRemaining=0;
+      writeLedger({pendingContinuousTime:pending});
     }
     function eligible(){return WIS.Simulation.Compensation?.eligibleAtEnqueue?.(getState())===true;}
     function enqueueForegroundAt(now,{leaving=false}={}){
@@ -114,6 +159,7 @@
     function hasRunnableOnlineWork(flush=false){
       if(importHold||document.hidden||!isInitialLoadComplete())return false;
       if(onlineBlocked())return false;
+      if(deferredAction)return true;
       if(manualQi)return true;
       dropEmptyOnlineHeads();
       if(!onlineIntervals.length)return false;
@@ -127,7 +173,17 @@
     }
     function drainOnlineSlice(flush=false){
       const status=offline.getCatchUpStatus();
-      if(onlineBlocked(status))return {progressed:false,blocked:true,needsContinuation:false,hitOfflineBarrier:false,steps:0};
+      if(deferredAction&&deferredActionBlocked(status))cancelDeferredAction('action-blocked');
+      if(onlineBlocked(status)){cancelDeferredAction('online-blocked');return {progressed:false,blocked:true,needsContinuation:false,hitOfflineBarrier:false,steps:0};}
+      if(deferredAction){
+        let progressed=false;
+        stepping=true;context.beginTransaction?.();
+        try{progressed=advanceDeferredAction();}
+        finally{try{context.endTransaction?.();}finally{stepping=false;}}
+        // Keep action resolution/render and the next formal online step in
+        // separate host tasks, even when this candidate finished very quickly.
+        return {progressed,blocked:false,needsContinuation:hasRunnableOnlineWork(flush),hitOfflineBarrier:false,steps:0};
+      }
       const previousAchievements=context.achievementStates?.();
       const sliceStartedAt=monotonicNow();
       let progressed=false,hitOfflineBarrier=false,blocked=false,steps=0;
@@ -202,8 +258,11 @@
       if(continuationHandle!==null||!hasRunnableOnlineWork(false))return false;
       const generation=schedulerGeneration;
       continuationHandle=window.setTimeout(()=>{
+        // A cancelled callback may already be queued. It must not clear the
+        // current generation's handle or cancel a newly acquired action owner.
+        if(generation!==schedulerGeneration)return;
         continuationHandle=null;
-        if(generation!==schedulerGeneration||importHold||document.hidden)return;
+        if(importHold||document.hidden){cancelDeferredAction('inactive-host');return;}
         const result=drainOnlineSlice(false);
         requestRender();flushRender(Date.now());
         if(result.needsContinuation&&generation===schedulerGeneration)scheduleOnlineContinuation();
@@ -226,13 +285,19 @@
     }
     function registerReturn(now,{start=true,presentation='quiet',fallbackClosedAt=null}={}){
       const p=ledger(),left=p.awaySince??fallbackClosedAt;
-      if(left==null){lastTickAt=now;offline.returnFromAway(false);return 0;}
+      if(left==null){
+        if(onlineIntervals.some(part=>part.source==='offline'))handoffPendingRecovery();
+        lastTickAt=now;offline.returnFromAway(false);return 0;
+      }
       const from=Math.max(left,p.registeredUntil||0),seconds=Math.max(0,now-from)/1000;
       offline.invalidateSourceModels();
       if(seconds>0){const speed=effectiveDevSpeed();
         if(onlineIntervals.length){onlineIntervals.push({source:'offline',clock:seconds,speed,compensationEligible:false});syncPendingLedger();}
         else offline.appendCatchUpTask(seconds*speed,seconds,{source:'offline',compensationEligible:false,
           randomMode:'state',speed,sealed:true,presentation,external:true});}
+      // A saved online prefix must not hide the offline barrier behind it.
+      // Recovery owns the entire FIFO; online entries retain ONLINE_EXACT.
+      if(onlineIntervals.some(part=>part.source==='offline'))handoffPendingRecovery();
       writeLedger({awaySince:null,registeredUntil:Math.max(from,now),boundaryAt:now});lastTickAt=now;
       if(document.hidden){writeLedger({awaySince:now});offline.suspendForAway();}
       else offline.returnFromAway(start);
@@ -274,10 +339,12 @@
       if(!isInitialLoadComplete()){lastTickAt=now;return;}
       if(importHold){lastTickAt=now;return;}
       if(document.hidden)return;
+      if(deferredAction&&deferredActionBlocked())cancelDeferredAction('action-blocked');
       if(onlineBlocked()&&(manualQi||context.hasDeferredQi?.()))invalidateOnlineScheduler();
       // Recovery publishes its own small progress view. Re-rendering every
       // ability/ledger here repeatedly traverses the still-uncommitted backlog.
-      if(offline.getCatchUpStatus().treasureRecovery?.active){lastTickAt=now;return;}
+      const ownedStatus=offline.getCatchUpStatus();
+      if(ownedStatus.treasureRecovery?.active||ownedStatus.worker?.running){lastTickAt=now;return;}
       // The visibility event normally handles this. Recover a missed event
       // through the SAME watermark, without inferring offline from duration.
       if(ledger().awaySince!==null)registerReturn(now);
@@ -290,6 +357,7 @@
         }else if(continuationHandle===null)processOnline();
       }
       const finalStatus=offline.getCatchUpStatus();
+      if(finalStatus.worker?.running){lastTickAt=now;return;}
       // A blocking wait owns a modal status view and the game state is frozen.
       // Do not repeatedly rebuild the full high-number page while nothing changes.
       if((finalStatus.awaitingStart===true||finalStatus.phase==='paused')&&finalStatus.presentation==='blocking'){
@@ -312,7 +380,7 @@
         if(options.closing===true||document.hidden)markAway(Date.now());
         else if(!importHold) {
           enqueueForegroundAt(Date.now());
-          if(options.captureOnly!==true)processOnline();
+          if(options.captureOnly!==true&&!deferredAction)processOnline();
         }
       }finally{syncPendingLedger();preparingSave=false;}
       return true;
@@ -334,7 +402,11 @@
     function handoffImportRecovery(){
       // Installation owns the hold and the caller has established the recovery
       // gate. Transfer ordered metadata only; a save slice is not a drain proof.
-      if(!importHold||stepping||preparingSave)return {complete:false};
+      if(!importHold)return {complete:false};
+      return handoffPendingRecovery();
+    }
+    function handoffPendingRecovery(){
+      if(stepping||preparingSave)return {complete:false};
       invalidateOnlineScheduler();
       while(onlineIntervals.length){
         const part=onlineIntervals[0];
@@ -357,7 +429,8 @@
     }
     return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,
       prepareSave,restoreClosedTime,handoffImportRecovery,enqueueForegroundAt,captureForegroundTime,beginImportHold,finishImportHold,
-      invalidateOnlineScheduler,requestQiBatch,
+      invalidateOnlineScheduler,requestQiBatch,requestDeferredAction,cancelDeferredAction,
+      isDeferredActionPending:()=>!!deferredAction,
       isImportHoldActive:()=>!!importHold,
       snapshot:()=>({lastTickAt,onlineAccumulator,tickRemaining,onlineIntervals:onlineIntervals.map(part=>({...part}))}),
       restore:snapshot=>{

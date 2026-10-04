@@ -146,8 +146,10 @@
     return compatibleSoftcapExponent(div(ONE, add(ONE, pressure)));
   }
 
-  function softcapStageExponent(amount, stage) {
-    const exponent = baseSoftcapStageExponent(amount, stage);
+  function softcapStageExponent(amount, stage, retainedPressure = 1) {
+    const base = baseSoftcapStageExponent(amount, stage);
+    const exponent = retainedPressure === 1 ? base
+      : compatibleSoftcapExponent(sub(ONE, mul(retainedPressure, sub(ONE, base))));
     if (stage.name !== "爆星" || !state.spaceQuakePurchased) return exponent;
     return compatibleSoftcapExponent(sub(
       ONE,
@@ -158,15 +160,21 @@
     ));
   }
 
-  function resourceSoftcapStageActive(stage, realmLevel = resourceSoftcapRealmLevel(), normalLayer = true) {
+  function resourceSoftcapStageActive(stage, realmLevel = resourceSoftcapRealmLevel(), normalLayer = true, sourceKind = "normal") {
+    const martial = WIS.Cultivation.Martial;
+    if (normalLayer && sourceKind === "normal" && martial?.active(state) && state.activeChallenge !== "martialStealHeaven" &&
+        gte(martial.amount(state, "heart"), martial.heartRequirement(stage))) return false;
     if (normalLayer && WIS.Cultivation.Xiuzhen?.softcapRemoved(state, stage)) return false;
     return stage.removedAtRealm === null || realmLevel < stage.removedAtRealm;
   }
 
-  function adjustedNormalStageExponent(currentAmount, stage, applySpaceQuake, sourceKind = "normal") {
+  function adjustedNormalStageExponent(currentAmount, stage, applySpaceQuake, sourceKind = "normal", retainedPressure = 1) {
     const base = applySpaceQuake
-      ? softcapStageExponent(currentAmount, stage)
-      : baseSoftcapStageExponent(currentAmount, stage);
+      ? softcapStageExponent(currentAmount, stage, retainedPressure)
+      : retainedPressure === 1 ? baseSoftcapStageExponent(currentAmount, stage)
+      : sub(ONE, mul(retainedPressure, sub(ONE, baseSoftcapStageExponent(currentAmount, stage))));
+    const martial = WIS.Cultivation.Martial;
+    if (sourceKind === "normal" && martial?.active(state)) return martial.heartExponent(state, stage, base);
     const immortal = WIS.Cultivation?.ImmortalLogic;
     const daoAdjusted = typeof immortal?.daoAdjustedSoftcapExponent === "function"
       ? immortal.daoAdjustedSoftcapExponent(base)
@@ -179,17 +187,20 @@
   function resourceSoftcapStageExponents(currentAmount, sourceKind = "normal", applySpaceQuake = true, applyRealmAdjustments = true) {
     const amount = maxBN(ZERO, currentAmount);
     const realmLevel = resourceSoftcapRealmLevel();
+    const restoreRemoved = applyRealmAdjustments && state.activeChallenge === "heavenlyFiveDeclines";
     return RESOURCE_SOFTCAP_STAGES
-      .filter((stage) => resourceSoftcapStageActive(stage, realmLevel, applyRealmAdjustments) && gt(amount, stage.threshold))
+      .filter((stage) => gt(amount, stage.threshold) && (restoreRemoved || resourceSoftcapStageActive(stage, realmLevel, applyRealmAdjustments, sourceKind)))
       .map((stage) => ({
         name: stage.name,
         exponent: applyRealmAdjustments
-          ? adjustedNormalStageExponent(amount, stage, applySpaceQuake, sourceKind)
+          ? adjustedNormalStageExponent(amount, stage, applySpaceQuake, sourceKind,
+            restoreRemoved && !resourceSoftcapStageActive(stage, realmLevel, true, sourceKind)
+              ? CONFIG.challenges.heavenlyFiveDeclines.softcapPressure : 1)
           : applySpaceQuake ? softcapStageExponent(amount, stage) : baseSoftcapStageExponent(amount, stage)
       }));
   }
 
-  function normalResourceSoftcapExponent(currentAmount, applySpaceQuake, sourceKind = "normal", applyRealmAdjustments = true, omit = null) {
+  function originalNormalResourceSoftcapExponent(currentAmount, applySpaceQuake, sourceKind = "normal", applyRealmAdjustments = true, omit = null) {
     const amount = maxBN(ZERO, currentAmount);
     const baseExponent = resourceSoftcapStageExponents(amount, sourceKind, applySpaceQuake, applyRealmAdjustments)
       .filter(stage => !omit || !omit(stage.name))
@@ -292,20 +303,28 @@
     return infinitySoftcapGain(gain, currentAmount);
   }
 
-  function infinitySoftcapGain(gain, amount, kind="normal", special=false) {
+  function originalInfinitySoftcapGain(gain, amount, kind="normal", special=false) {
     const I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig;
     const early=I.softcapWeakening(state,C.earlyLastStage),late=I.softcapWeakening(state,"宇宙结构");
-    const base=applySoftcapExponent(gain,normalResourceSoftcapExponent(amount,true,kind,!special));
+    const base=applySoftcapExponent(gain,originalNormalResourceSoftcapExponent(amount,true,kind,!special));
     if((!early&&!late)||!gt(gain,ZERO))return base;
     const cutoff=CONFIG.scales.findIndex(x=>x.name===C.earlyLastStage);
     const isEarly=name=>CONFIG.scales.findIndex(x=>x.name===name)<=cutoff;
-    const without=(a,b)=>applySoftcapExponent(gain,normalResourceSoftcapExponent(amount,true,kind,!special,name=>isEarly(name)?a:b));
+    const without=(a,b)=>applySoftcapExponent(gain,originalNormalResourceSoftcapExponent(amount,true,kind,!special,name=>isEarly(name)?a:b));
       // Shared weakening interpolates the whole scale result. Only the excess
       // weakening belongs to one group; tensor interpolation would cross-mix it.
       const shared=Math.min(early,late),strongest=Math.max(early,late);
       const scoped=strongest>shared?without(early>late,late>early):base;
       const partial=I.interpolate(base,scoped,shared<1?(strongest-shared)/(1-shared):0);
       return I.interpolate(partial,gain,shared);
+  }
+  // Restored challenge stages enter the ordinary weakening pipeline before
+  // achievement adjustments and Infinity interpolation; there is no hard floor.
+  function normalResourceSoftcapExponent(amount,spaceQuake,kind="normal",realm=true,omit=null) {
+    return originalNormalResourceSoftcapExponent(amount,spaceQuake,kind,realm,omit);
+  }
+  function infinitySoftcapGain(gain,amount,kind="normal",special=false) {
+    return originalInfinitySoftcapGain(gain,amount,kind,special);
   }
   function infinitySoftcapInverse(actual, amount) {
     const I=WIS.Meta.Infinity;
@@ -394,12 +413,15 @@
     return infinitySoftcapGain(rawRate, currentAmount, "normal", true);
   }
 
+  function effectiveResourceSoftcapStageActive(stage, realmLevel) {
+    return state.activeChallenge === "heavenlyFiveDeclines" || resourceSoftcapStageActive(stage,realmLevel);
+  }
   function nextResourceSoftcapThreshold(currentAmount) {
     const amount = maxBN(ZERO, currentAmount);
     const realmLevel = resourceSoftcapRealmLevel();
     const nextStage = RESOURCE_SOFTCAP_STAGES.find((stage) =>
       gt(stage.threshold, amount)
-      && resourceSoftcapStageActive(stage, realmLevel)
+      && effectiveResourceSoftcapStageActive(stage, realmLevel)
     );
     return nextStage?.threshold ?? null;
   }
@@ -410,7 +432,7 @@
     const realmLevel = resourceSoftcapRealmLevel();
     return RESOURCE_SOFTCAP_STAGES.some((stage) =>
       lte(stage.threshold, amount)
-      && resourceSoftcapStageActive(stage, realmLevel)
+      && effectiveResourceSoftcapStageActive(stage, realmLevel)
     );
   }
 
@@ -436,7 +458,7 @@
     const realmLevel = resourceSoftcapRealmLevel();
     return RESOURCE_SOFTCAP_STAGES.reduce((latestThreshold, stage) => {
       if (gt(stage.threshold, amount)) return latestThreshold;
-      if (!resourceSoftcapStageActive(stage, realmLevel)) return latestThreshold;
+      if (!effectiveResourceSoftcapStageActive(stage, realmLevel)) return latestThreshold;
       return maxBN(latestThreshold, stage.threshold);
     }, ZERO);
   }
@@ -624,7 +646,51 @@
   // Integrate a raw rate with an explicit settlement callback. Callers whose
   // provider already applies penalties must pass the identity callback. Every
   // sample, including after normal caps are removed, uses this same contract.
-  function applyResourceSoftcapDynamicRateOverTime(
+  // A scope belongs to one immutable action/preview. Its replay only replaces
+  // an already completed integration, never a provider, event or RNG call.
+  let deferredDynamicRateScope = null;
+  function createDeferredDynamicRateScope() {
+    const records=[];let cursor=0,pending=null,cancelled=false;
+    const scope={
+      attempt(callback){
+        if(cancelled)throw Error("积分候选已取消");
+        const previous=deferredDynamicRateScope;cursor=0;deferredDynamicRateScope=scope;
+        try{return {done:true,value:callback()};}
+        catch(error){if(error!==pending)throw error;return {done:false};}
+        finally{deferredDynamicRateScope=previous;}
+      },
+      acquire(args){
+        const initial=BN(args[1]),signature=[initial.sign,initial.layer,initial.mag,Number(args[2]),args[4]?.foreground===true].join(':');
+        let record=records[cursor++];
+        if(record&&record.signature!==signature)throw Error("积分候选输入改变，旧候选失效");
+        if(!record){
+          const evaluationState=runtime.getState();
+          if(!runtime.isEvaluating())throw Error("可续算积分需要只读候选作用域");
+          record={signature,evaluationState,policy:runtime.getMathPolicy(),work:createResourceSoftcapDynamicRateWork(...args)};
+          records.push(record);
+        }
+        const result=record.work.snapshot();
+        if(result.done)return result.gains.amount;
+        pending=record;throw record;
+      },
+      advance(deadline=Infinity,options={}){
+        if(cancelled)throw Error("积分候选已取消");
+        if(!pending)return {done:true};
+        const record=pending;
+        const result=runtime.withMathPolicy(record.policy,()=>runtime.withEvaluationState(record.evaluationState,
+          ()=>record.work.advance({maximumEvaluations:48,maximumOperations:4096,...options,deadline})));
+        if(result.status==='finite-time-singularity'){
+          const error=Error("动态积分具有有限时间发散证明；结算未提交");error.code=result.status;error.diagnostics=result.diagnostics;throw error;
+        }
+        if(result.done)pending=null;
+        return result;
+      },
+      cancel(){cancelled=true;for(const record of records)record.work.cancel();records.length=0;pending=null;}
+    };
+    return Object.freeze(scope);
+  }
+
+  function createResourceSoftcapDynamicRateWork(
     rawRateAtAmount, currentAmount, elapsedSeconds,
     settleRateAtAmount = applyResourceSoftcapSettlement,
     { foreground = false, memoizeSamples = false } = {}
@@ -651,14 +717,24 @@
     },{logTolerance:foreground?1e-4:1e-6,
       autonomous:!!evaluationState,
       cycleContextCurrent:()=>runtime.isEvaluating() && runtime.getState()===evaluationState});
-    try { for(;;){
+    let cancelled=false;
+    return Object.freeze({
+      advance(options){if(cancelled)throw Error("积分候选已取消");const result=work.advance(options);if(result.done)samples?.clear();return result;},
+      snapshot:()=>work.snapshot(),clearMemo(){samples?.clear();},cancel(){cancelled=true;samples?.clear();}
+    });
+  }
+
+  function applyResourceSoftcapDynamicRateOverTime(...args) {
+    if(deferredDynamicRateScope)return deferredDynamicRateScope.acquire(args);
+    const work=createResourceSoftcapDynamicRateWork(...args);
+    try {for(;;){
       const result=work.advance({maximumEvaluations:256});
       if(result.done)return result.gains.amount;
-        if(result.status==="finite-time-singularity"){
-          const error=Error("动态积分具有有限时间发散证明；未处理时间和数值检查点保留");
+      if(result.status==='finite-time-singularity'){
+        const error=Error("动态积分具有有限时间发散证明；未处理时间和数值检查点保留");
         error.code=result.status;error.continuation=work;error.diagnostics=result.diagnostics;throw error;
       }
-    } } finally { samples?.clear(); }
+    }}finally{work.clearMemo();}
   }
 
   function applyResourceSoftcapOverTime(rawRate, currentAmount, elapsedSeconds) {
@@ -689,7 +765,7 @@
     const realmLevel = resourceSoftcapRealmLevel();
     const names = RESOURCE_SOFTCAP_STAGES
       .filter((stage) => gt(amount, stage.threshold)
-        && resourceSoftcapStageActive(stage, realmLevel))
+        && effectiveResourceSoftcapStageActive(stage, realmLevel))
       .map((stage) => stage.name);
     return names.length > 0 ? names.join("、") : "未触发";
   }
@@ -697,7 +773,7 @@
   function removedSoftcapStages() {
     const realmLevel = resourceSoftcapRealmLevel();
     const names = RESOURCE_SOFTCAP_STAGES
-      .filter((stage) => !resourceSoftcapStageActive(stage, realmLevel))
+      .filter((stage) => !effectiveResourceSoftcapStageActive(stage, realmLevel))
       .map((stage) => stage.name);
     return names.length > 0 ? names.join("、") : "无";
   }
@@ -2585,6 +2661,7 @@
     applySpecialResourceSoftcapRate,
     applyResourceSoftcapEffectiveRate,
     applyResourceSoftcapOverTime, applyResourceSoftcapDynamicRateOverTime,
+    createResourceSoftcapDynamicRateWork, createDeferredDynamicRateScope,
     applyResourceSoftcapProgressive,
     nextResourceSoftcapIntegrationBoundary, resourceSoftcapIntegrationEvaluationAmount,
     formatSoftcapExponent,
@@ -2637,4 +2714,5 @@
   });
   WIS.Power.ScaleLogic = api;
 }(window.WIS));
+
 

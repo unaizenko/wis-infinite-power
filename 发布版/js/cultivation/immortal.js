@@ -64,7 +64,10 @@
   function buildEffects(state) {
     if (state.cultivation?.active !== "immortal") return [];
     if (WIS.Cultivation.Xiuzhen?.qiPathSealed(state)) state = WIS.Cultivation.Xiuzhen.abilityView(state);
+    const achievement=WIS.Meta.Achievements?.greatHeavenlyVenerableMultiplier(state) ?? ONE;
     const list = [
+      { id:"greatHeavenlyVenerableMana", name:"大天尊", group:"仙道成就", target:"mana", layer:"regionMultiplier", value:achievement },
+      { id:"greatHeavenlyVenerablePower", name:"大天尊", group:"仙道成就", target:"immortalPower", layer:"regionMultiplier", value:achievement },
       { id: "immortalLife", name: "仙道贵生", group: "仙道", target: "power", layer: "regionMultiplier", value: state.immortalLifeUnlocked ? 0.95 : 1 },
       { id: "techniqueJoules", name: "功法", group: "仙道", target: "joules", layer: "regionMultiplier", value: state.techniqueUnlocked ? 1.5 : 1 },
       { id: "qiSpell", name: "炼气法术", group: "仙道", target: "power", layer: "regionMultiplier", value: levelMultiplier(state.qiSpellLevel, 1.08) },
@@ -131,7 +134,7 @@
       ,{ id: "lawCrystalFilament", name: "法则晶丝", group: "大罗", target: "power", layer: "regionExponent", dynamic: true, dynamicResources: ['mana'], value: (current) => WIS.Cultivation.ImmortalLogic.lawCrystalFilamentPowerExponent(current.mana) }
     ];
     return WIS.Cultivation.Xiuzhen?.qiPathSealed(state)
-      ? list.filter(e => ["宝物", "灵根", "境界", "炼气十万年", "仙道挑战"].includes(e.group) || e.id === "minorTribulationPower")
+      ? list.filter(e => ["宝物", "灵根", "境界", "炼气十万年", "仙道挑战", "仙道成就"].includes(e.group) || e.id === "minorTribulationPower")
       : list;
   }
 
@@ -183,6 +186,7 @@
       WIS.Cultivation.ImmortalLogic.commitAutomaticManaGain(plan, options),
       plan?.instantEvent ? { ...options, writeRates: false } : options
     );
+    if (!options.skipTreasureRolls) WIS.Cultivation.Xiuzhen?.awardOrigin(state,plan.xiuzhen);
     if (xiuzhen && xiuzhen !== state.cultivation.systems.immortal.xiuzhen) {
       state.cultivation.systems.immortal.xiuzhen = xiuzhen; WIS.Core.Effects.invalidate();
     }

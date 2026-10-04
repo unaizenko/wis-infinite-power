@@ -19,7 +19,7 @@
       });
     } else registry.register(base);
   }
-  for (const shortName of ["xianForce", "yuanForce"]) {
+  for (const shortName of ["xianForce", "yuanForce", "nieForce", "universeCoefficient"]) {
     const entry = s => s.cultivation?.systems?.immortal?.xiuzhen?.resources?.[shortName];
     const requireEntry = s => {
       const e = entry(s);

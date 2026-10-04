@@ -42,7 +42,9 @@
   }
 
   function challengesUnlocked() {
-    return hasAchievement("scale4");
+    return hasAchievement("scale4") || state.cultivation.active === "martial" &&
+      ["stealHeaven", "innerHarmony", "innate"].some(key=>state.meta.martialQualifications?.[key] === true ||
+        (WIS.Cultivation.Martial.get(state).abilities[key] || 0)>0);
   }
 
   function statisticsUnlocked() {
@@ -73,8 +75,25 @@
     return true;
   }
 
+  function greatHeavenlyVenerableMultiplier(current) {
+    return WIS.Meta.Achievements.has(current, "greatHeavenlyVenerable")
+      ? WIS.Core.BigNum.pow(WIS.Core.BigNum.add(1, WIS.Meta.Treasures.count(current,"originImprint")), .5)
+      : WIS.Core.BigNum.ONE;
+  }
+  function ordinaryTreasureRequirementDivisor(current) {
+    const B=WIS.Core.BigNum;
+    return WIS.Meta.Achievements.has(current,"universe")
+      ? B.pow(B.add(1,B.log10(B.add(1,WIS.Meta.Treasures.count(current,"cosmicWill")))),.5) : B.ONE;
+  }
   function achievementDefinitions() {
     const definitions = [
+      { key:"martialHarmony", system:"武道", name:"内三合", description:"完成意与气合、心与意合、气与力合三项武道挑战。", reward:"炼心保留相当于炼心前当前心的气、体，不足时按现有数量保留；解锁自动神魂", completed:completedAchievement("martialHarmony",["martialIntentQi","martialHeartIntent","martialQiPower"].every(key=>challengeCompletionCount(key)>0)) },
+      { key:"martialInnate", system:"武道", name:"先天", description:"完成任督二脉挑战。", reward:"气获取×2", completed:completedAchievement("martialInnate",challengeCompletionCount("martialMeridians")>0) },
+      { key:"yuan", system:"仙道", name:"元", description:"突破仙道境界·第二步·碎涅。", reward:"解锁仙道宝物烙印·元晶", completed:completedAchievement("yuan",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=6) },
+      { key:"greatHeavenlyVenerable", system:"仙道", name:"大天尊", description:"突破第三步·空劫。", reward:`根据本源数量提升法力、仙灵力、仙力、元力、涅力获取；当前 ×${format(greatHeavenlyVenerableMultiplier(state),4)}`, completed:completedAchievement("greatHeavenlyVenerable",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=10) },
+      { key:"universe", name:"宇宙", description:"抵达单体宇宙量级。", reward:`根据宇宙意志数量降低普通宝物进度需求；当前 ÷${format(ordinaryTreasureRequirementDivisor(state),4)}`, completed:completedAchievement("universe",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=7) },
+      // Reserved tier: existing TREE/G progress never stands in for infiniteBox.
+      { key:"eternalWitness", name:"一证永证", description:"抵达无限盒子量级（后续开放）。", reward:"无限转生及以下不再重置任何内容；挑战仍重置，强化重选仍清空强化并退款", completed:completedAchievement("eternalWitness",state.meta.milestones.infiniteBox===true) },
       { key: "infantTransformationImmortal", system: "仙道", name: "婴变为仙", description: "解锁仙道·修真道·婴变。", reward: "解锁仙道挑战·阴虚阳实", completed: completedAchievement("infantTransformationImmortal", (WIS.Cultivation.Xiuzhen?.get(state).highestRealm || 0) >= 2) },
       { key: "powerOne", name: "战力 1", description: "获得至少 1 战力。", reward: "解锁强化界面", completed: completedAchievement("powerOne", gte(state.totalPower, 1)) },
       { key: "five", name: "战五渣", description: "累计获得 5 战力。", reward: "战力获取 ×1.05", completed: completedAchievement("five", gte(state.totalPower, 5)) },
@@ -179,11 +198,21 @@
       { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
       { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", state.meta.bigNumbers?.tree?.rank >= 3) },
       { key: "trueG1", name: "真 G1", description: "首次完成大数挑战·真 G1。", reward: "所有分形获取 ×10", completed: hasAchievement("trueG1") },
-      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "正常状态G提升需求变为原需求^0.95", completed: hasAchievement("trueGraham") },
+      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G基础提升需求变为原需求^0.95，挑战中及G64后同样生效", completed: hasAchievement("trueGraham") },
       { key: "trueTree3", name: "真 TREE3", description: "首次完成大数挑战·真 TREE3。", reward: "树构造点获取 ×3", completed: hasAchievement("trueTree3") }
     );
 
-    return definitions;
+    // Keep catalog presentation in progression order, independent of declaration placement.
+    const order=[
+      "powerOne","five","brick","trueBrick","lightningFiveWhip","trainingUp",
+      ...SCALE_THRESHOLDS.slice(2).flatMap((_scale,i)=>[`scale${i+2}`,`trueScale${i+2}`]),
+      "threeDeficiencies","fiveMisfortunesThreeDeficiencies","beyondFractal","googol","trueG1","graham64","trueGraham","tree3","trueTree3",
+      "universe","eternalWitness",
+      "aspireImmortality","daoFoundation","seizeFoundation","goldenCore","infantSpirit","humanRealmDominance","refineTheVoid","bodyIntegration","mahayana",
+      "ascendImmortal","goldenNature","utmostPurity","greatLuo","selfSeveringSlash","qiPathComplete","infantTransformationImmortal","yuan","greatHeavenlyVenerable"
+    ];
+    const positions=new Map(order.map((key,i)=>[key,i]));
+    return definitions.sort((a,b)=>(positions.get(a.key)??order.length)-(positions.get(b.key)??order.length));
   }
 
   function achievementStates() {
@@ -239,6 +268,7 @@
   }
 
   WIS.Meta.Achievements = Object.freeze({
+    greatHeavenlyVenerableMultiplier, ordinaryTreasureRequirementDivisor,
     has(state, key) {
       return state.meta.achievements?.[key] === true;
     },

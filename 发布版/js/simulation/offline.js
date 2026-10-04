@@ -25,6 +25,7 @@
   WIS.Simulation.Offline = Object.freeze({
     validateConfirmedSources, createPauseNotices,
     create(context) {
+      if(context.useWorker===true)return WIS.Simulation.OfflineWorker.create(context);
       const {
         getState, advanceGameStep, nextKnownSimulationBoundarySeconds,
         adaptiveOfflineStepSeconds, nextEffectiveTreasureEventSeconds,
@@ -100,6 +101,7 @@
         probes: 0, rejectedBatches: 0, verification: "not-evaluated" };
       let sessionProcessedGameSeconds = 0;
       let offlineSegmentBudget = null;
+      let workerRecovery = null;
       let fastForwardUsed = false;
       let fastForwardMetrics = null;
       let throughputSample = null, recentThroughput = null, estimateStable = false;
@@ -376,6 +378,7 @@
         sessionErrorEstimates = resourceKeys.map(() => ZERO);
         sessionProcessedGameSeconds = 0;
         offlineSegmentBudget = null;
+        workerRecovery = null;
         sessionErrorTerms = resourceKeys.map(() => []);
         discreteMetrics = { logicalTicks: 0, exactTicks: 0, batches: 0, largestBatch: 0,
           probes: 0, rejectedBatches: 0, verification: "not-evaluated" };
@@ -820,7 +823,15 @@
         // The shared session budget also covers restored/multiple offline tasks.
         // A mapped gain must never cover time in the next queue entry while
         // only the current entry's shorter clock is committed.
-        const plan=context.planOfflineMacro(task.remainingGameSeconds,{budget:offlineSegmentBudget,forceMicro:task.optimizationDisabled,productionReplay:task.productionReplay===true,clockRatio:task.remainingClockSeconds/task.remainingGameSeconds});
+        let plan;
+        try {
+          plan=context.planOfflineMacro(task.remainingGameSeconds,{budget:offlineSegmentBudget,forceMicro:task.optimizationDisabled,productionReplay:task.productionReplay===true,clockRatio:task.remainingClockSeconds/task.remainingGameSeconds});
+        } catch(error) {
+          // A planner may run bounded calibration probes before it can create
+          // an executor. Failed probes spend work, never assets or game time.
+          offlineSegmentBudget=WIS.Simulation.CheckpointStrategy.fail(offlineSegmentBudget,error);
+          throw error;
+        }
         const fallback=task.capabilityFallback,kind=plan.evolutionPlan?.selection?.kind;
         if(fallback&&kind===fallback.blockedExecutor)
           return WIS.Simulation.CheckpointStrategy.microPlan(task.remainingGameSeconds,{budget:offlineSegmentBudget,hardBoundary:plan.seconds});
@@ -957,6 +968,7 @@
           discreteMetrics,
           processedGameSeconds: sessionProcessedGameSeconds,
           segmentBudget:WIS.Simulation.CheckpointStrategy.snapshot(offlineSegmentBudget),
+          ...(workerRecovery ? {workerRecovery:{...workerRecovery}} : {}),
           transient: context.snapshotTransient?.() ?? null,
           treasureProgressVersion: 1,
           fastForwardUsed, fastForwardMetrics,
@@ -1005,6 +1017,7 @@
           task.fastForward = null; // obsolete prediction cursor; confirmed assets/debt already restored
         }
         offlineSegmentBudget = WIS.Simulation.FixedSegment.validateBudget(snapshot.segmentBudget);
+        workerRecovery = snapshot.workerRecovery ? {...snapshot.workerRecovery} : null;
         fastForwardUsed = false;
         fastForwardMetrics = null;
         const processed = Math.max(0, Number(snapshot.processedClockSeconds) || 0);
@@ -1070,7 +1083,7 @@
       }
 
       function checkpointCatchUp(force = true) {
-        if (!force && Date.now() - lastCheckpointAt < 1000) return;
+        if (!force && Date.now() - lastCheckpointAt < (context.checkpointIntervalMs||1000)) return;
         const started=catchUpClockNow();
         const previousInternalWork=internalWork;internalWork=true;
         try {
@@ -1250,7 +1263,7 @@
               }
               if (task.source === "offline" && context.prepareFixedWork ) {
                 try {
-                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds,{clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,compiledMicro:task.macroPlan.compiledMicro,sourceProfile:task.macroPlan.sourceProfile,mapPlan:task.macroPlan.mapPlan,evolutionPlan:task.macroPlan.evolutionPlan});
+                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds,{clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,martialIntervals:task.macroPlan.martialIntervals,martialCheckpoint:task.macroPlan.martialCheckpoint,compiledMicro:task.macroPlan.compiledMicro,sourceProfile:task.macroPlan.sourceProfile,mapPlan:task.macroPlan.mapPlan,evolutionPlan:task.macroPlan.evolutionPlan});
                   const work=WIS.Simulation.Profiler.withScope('offline',()=>WIS.Simulation.Profiler.measure('checkpointWork',()=>task.fixedWork.advance(frameStartedAt+frameBudgetMs)));
                   if(!work.done) {planningYieldRequested=true;break;}
                   task.fixedToken=work.token;task.fixedWork=null;
@@ -1373,7 +1386,7 @@
                   // at this same unit boundary. A failed write is handled by the
                   // surrounding unit rollback, before the task can be removed.
                   if (typeof context.checkpoint === "function" &&
-                      (pendingCatchUpSeconds <= epsilon || Date.now()-lastCheckpointAt >= 1000)) {
+                      (pendingCatchUpSeconds <= epsilon || Date.now()-lastCheckpointAt >= (context.checkpointIntervalMs||1000))) {
                     const saveStarted=catchUpClockNow();
                     context.checkpoint();
                     settlementCosts.checkpointMs+=catchUpClockNow()-saveStarted;

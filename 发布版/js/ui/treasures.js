@@ -7,12 +7,12 @@
     "有效探寻量": "探寻", "周天；成功吐纳另计": "周天、吐纳", "实际产生仙灵力": "仙灵力获取"
   });
   const sourcesByKey = Object.freeze({
-    fitnessMembershipCard: "健身", superLollipop: "健身", skyCrystal: "打岩", fiveSpiritStone: "极意",
+    originImprint:"涅力获取", fitnessMembershipCard: "健身", superLollipop: "健身", skyCrystal: "打岩", fiveSpiritStone: "极意",
     cosmicFiber: "当前量级停留时间", cosmicWill: "当前量级停留时间",
     tianNiPearl: "探寻、周天、吐纳", baLingChi: "周天、吐纳",
     mysteriousGreenBottle: "探寻", fuBao: "探寻", xuTianDing: "探寻", wanYaoFan: "探寻",
     phantomHeavenMirror: "探寻", mysticHeavenSacredTree: "探寻", mysticHeavenSpiritSlayingSword: "探寻",
-    fiveElementsTreasure: "仙灵力获取", immortalCrystal: "仙灵力获取"
+    fiveElementsTreasure: "仙灵力获取", immortalCrystal: "仙灵力获取", yuanCrystal:"仙力获取"
   });
   const reported = new Map();
   function time(seconds, format, conservative = false) {
@@ -42,13 +42,14 @@
     if (!reason) return "";
     if (reason.startsWith("来源暂无实际产出")) {
       if (["immortalCrystal", "fiveElementsTreasure"].includes(key)) return "当前无仙灵力产出";
+      if (key === "yuanCrystal") return "当前无仙力产出";
       if (["fitnessMembershipCard", "superLollipop"].includes(key)) return "当前无健身产出";
       if (key === "skyCrystal") return "当前无打岩产出";
       if (key === "fiveSpiritStone") return "当前无极意产出";
       return "当前无持续产出";
     }
     // Show player-facing prerequisites only; never echo arbitrary engine errors.
-    if (/^(当前未选择仙道|尚未取得对应成就|宝物界面尚未解锁|尚未取得五灵石获取资格|尚未解锁五行至宝|尚未达到超星系团量级|尚未达到宇宙结构量级|尚未解锁(?:通天|玄天)灵宝\d+)$/.test(reason))
+    if (/^(当前未选择仙道|尚未取得对应成就|宝物界面尚未解锁|尚未取得五灵石获取资格|尚未解锁五行至宝|尚未取得虚本源|尚未达到超星系团量级|尚未达到宇宙结构量级|尚未解锁(?:通天|玄天)灵宝\d+)$/.test(reason))
       return reason.replace("获取资格", "");
     return "当前无法获取";
   }

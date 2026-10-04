@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="WIS-无限战力系统网页试玩版" />
     <title>WIS-无限战力系统</title>
-    <link rel="stylesheet" href="styles.css?v=release-0.1.6.4-20260930" />
+    <link rel="stylesheet" href="styles.css?v=release-0.1.7.0-20261004" />
   </head>
   <body>
     <aside id="save-failure-panel" class="save-failure-panel" role="status" hidden>
@@ -18,7 +18,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.6.4</small>
+          <small id="game-version" class="game-version">v0.1.7.0</small>
         </div>
         <div class="header-actions">
           <small id="online-compensation-balance" hidden></small>
@@ -26,7 +26,8 @@
             <p>量级论 · 当前量级：<b id="current-scale">普通人</b></p>
             <small id="next-scale-progress">下一量级：爆砖（需要 200 战力）</small>
           </div>
-                    <button id="open-settings" class="settings-button" type="button" aria-label="打开设置" title="设置">⚙</button>
+          
+          <button id="open-settings" class="settings-button" type="button" aria-label="打开设置" title="设置">⚙</button>
         </div>
       </header>
 
@@ -54,6 +55,7 @@
             <span>大数</span>
             <div class="resource-value"><strong id="big-number-dominant">0 Y</strong><small id="big-number-rate"></small></div>
           </div>
+          <div class="resource-row" id="universeCoefficient-resource" hidden><span>单体宇宙（N）</span><div class="resource-value"><strong id="universeCoefficient">0</strong><small id="universeCoefficient-rate"></small></div></div>
         </div>
         <div class="resource-items resource-special" id="special-resources" aria-label="特殊资源" hidden>
           <div class="resource-row" id="mana-resource" hidden>
@@ -78,10 +80,12 @@
             <span>元力</span>
             <div class="resource-value"><strong id="yuanForce">0</strong><small id="yuanForce-rate"></small></div>
           </div>
+          <div class="resource-row" id="nieForce-resource" hidden><span>涅力</span><div class="resource-value"><strong id="nieForce">0</strong><small id="nieForce-rate"></small></div></div>
         </div>
       </section>
 
       
+
         <aside class="sidebar">
           <nav class="navigation" aria-label="功能界面">
             <button class="nav-item active" data-page="actions" type="button">
@@ -392,13 +396,14 @@
                 <p>当前可选择的体系。</p>
                 <button class="primary-button" type="button" data-cultivation="仙道">选择仙道</button>
               </article>
-              <article class="cultivation-card unavailable"><h2>武道</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
+              <article class="cultivation-card" data-cultivation-card="武道"><h2>武道</h2><p>气、体、心、神魂四线发展。通过不同武道路线的能力提升实力。</p><button class="primary-button" type="button" data-cultivation="武道">选择武道</button></article>
               <article class="cultivation-card unavailable"><h2>科技</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
               <article class="cultivation-card unavailable"><h2>异能</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
               <article class="cultivation-card unavailable"><h2>职业者</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
               <article class="cultivation-card unavailable"><h2>神秘学</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
             </div>
 
+            <div id="martial-progress" hidden></div>
             <div id="immortal-progress" hidden>
               <div class="cultivation-tabs" role="tablist" aria-label="仙道界面">
                 <button class="cultivation-tab active" data-cultivation-page="realms" type="button" role="tab" aria-selected="true">境界</button>
@@ -619,6 +624,11 @@
               <article class="item-row" id="immortal-crystal-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content"><h2>仙晶</h2><p>达成仙道成就“登仙”后，实际获取仙灵力时持续积累进度，达到需求获得奖励。</p></div>
                 <div class="purchase-control"><span id="immortal-crystal-count">数量：0</span><small id="immortal-crystal-chance">等待计算进度</small><small id="immortal-crystal-effect">仙灵力倍率 ×1.000；下一枚 +0.001000</small></div>
+              </article>
+
+              <article class="item-row" id="yuan-crystal-treasure" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>烙印·元晶</h2><p>达成仙道成就“元”后，实际获取仙力时持续积累进度，达到需求获得奖励。</p></div>
+                <div class="purchase-control"><span id="yuan-crystal-count">数量：0</span><small id="yuan-crystal-chance">等待计算进度</small><small id="yuan-crystal-effect">元力倍率 ×1.000</small></div>
               </article>
 
               <article class="item-row" id="five-spirit-stone-treasure" hidden>
@@ -953,7 +963,7 @@
         </section>
 
         <section class="settings-row">
-          <div><h3>自动关闭离线弹窗</h3><p>结算完成后自动返回游戏；关闭后保留收益汇总，等待确认。暂停或异常时仍显示窗口。</p></div>
+          <div><h3>自动关闭离线弹窗</h3><p>开启后，结算完成直接返回游戏，不显示收益汇总小窗；关闭后保留汇总，等待确认。暂停或异常时仍显示窗口。</p></div>
           <button id="auto-close-offline-toggle" class="secondary-button settings-toggle" type="button" role="switch" aria-label="自动关闭离线弹窗" aria-checked="true">已开启</button>
         </section>
         <section class="settings-row">
@@ -1001,7 +1011,7 @@
       </div>
     </dialog>
 
-    <aside id="catch-up-notice" role="status" hidden style="position:fixed;bottom:1rem;right:1rem;z-index:50;padding:.8rem;background:var(--panel-bg,#20232b);color:var(--text-color,#fff);border:1px solid currentColor;border-radius:.6rem">
+    <aside id="catch-up-notice" role="status" hidden>
       <span id="catch-up-notice-text"></span>
       <button id="show-paused-catch-up" type="button" hidden>查看暂停／重试追赶</button>
       <button id="convert-quiet-catch-up" type="button">放弃剩余结算，转为 2 倍在线收益</button>
@@ -1067,76 +1077,87 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" popover="manual" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/vendor/break_eternity.min.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/namespace.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/bignum.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/finite-progress.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/signed-ledger.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/treasure-rules.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/infinity-config.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/infinity.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/config.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/big-numbers.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/registry.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/formulas.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/penalties.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/integration.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/runtime.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/cultivation/xiuzhen.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/probability.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/compensation.js?v=release-0.1.6.4-20260930"></script>
-  <script src="js/core/state.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/save.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/resources.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/cultivation/resources.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/big-number-resources.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/effects.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/sources.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/core/reset.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/power/scale-logic.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/power/scale.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/cultivation/immortal-logic.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/cultivation/immortal.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/achievements.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/crystal-interval.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/accuracy.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/fast-forward.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/treasure-ledger.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/treasures.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/cultivation/exploration-progress.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/meta/challenges.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/automation.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/profiler.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/power/scale-kernel.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/resource-groups.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/resource-dependencies.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/coupled-resource-kernel.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/coordinate-coupled-kernel.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/fixed-sources.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/discrete-map.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/offline-strategy.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/predictor-groups.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/continuous-predictor.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/continuous-executor.js?v=release-0.1.6.4-20260930"></script>
-  <script src="js/simulation/resource-evolution.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/checkpoint-strategy.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/fixed-segment.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/compiled-continuous-plan.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/step.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/treasure-events.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/projection.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/discrete-batch.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/offline.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/simulation/loop.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/ui/source-preview.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/ui/format.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/ui/cards.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/ui/big-numbers.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/ui/xiuzhen.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/ui/treasures.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/ui/infinity.js?v=release-0.1.6.4-20260930"></script>
-    <script src="js/ui/app.js?v=release-0.1.6.4-20260930"></script>
-    <script src="game.js?v=release-0.1.6.4-20260930"></script>
+    <script src="js/core/build-config.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/vendor/break_eternity.min.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/namespace.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/bignum.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/finite-progress.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/signed-ledger.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/treasure-rules.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/infinity-config.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/infinity.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/cultivation/martial-config.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/config.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/big-numbers.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/registry.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/formulas.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/penalties.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/integration.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/runtime.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/cultivation/xiuzhen.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/probability.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/compensation.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/cultivation/martial.js?v=release-0.1.7.0-20261004"></script>
+  <script src="js/core/state.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/save.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/resources.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/cultivation/resources.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/big-number-resources.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/effects.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/sources.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/core/reset.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/power/scale-logic.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/power/scale.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/cultivation/immortal-logic.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/cultivation/immortal.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/cultivation/martial-system.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/achievements.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/crystal-interval.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/accuracy.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/fast-forward.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/treasure-ledger.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/treasures.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/cultivation/exploration-progress.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/meta/challenges.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/automation.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/profiler.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/power/scale-kernel.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/resource-groups.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/resource-dependencies.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/coupled-resource-kernel.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/coordinate-coupled-kernel.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/fixed-sources.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/discrete-map.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/offline-strategy.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/predictor-groups.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/continuous-predictor.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/local-discrete-macro.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/continuous-executor.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/resource-evolution.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/strong-feedback-kernel.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/checkpoint-strategy.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/fixed-segment.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/compiled-continuous-plan.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/martial-interval.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/step.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/treasure-events.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/projection.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/discrete-batch.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/offline.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/worker-protocol.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/worker-client.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/offline-worker-bundle.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/offline-worker.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/simulation/loop.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/source-preview.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/format.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/cards.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/big-numbers.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/xiuzhen.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/treasures.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/infinity.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/martial.js?v=release-0.1.7.0-20261004"></script>
+    <script src="js/ui/app.js?v=release-0.1.7.0-20261004"></script>
+    <script src="game.js?v=release-0.1.7.0-20261004"></script>
   </body>
 </html>

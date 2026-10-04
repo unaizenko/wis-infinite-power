@@ -121,6 +121,7 @@ button { font: inherit; }
 .scale-progress small { color: var(--muted); font-size: 10px; }
 
 
+
 .settings-button {
   width: 36px;
   height: 36px;
@@ -141,7 +142,7 @@ button { font: inherit; }
   min-height: calc(100vh - 98px);
   display: grid;
   grid-template-columns: 164px minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   grid-template-areas:
     "sidebar resources"
     "sidebar main";
@@ -185,12 +186,15 @@ button { font: inherit; }
 .resource-items > .resource-row:first-child { border-left: 0; padding-left: 0; }
 .resource-special .resource-value strong { font-size: 20px; }
 #big-number-rate { white-space: normal; }
+#universeCoefficient-resource { flex-wrap: wrap; gap: 6px 12px; }
+#universeCoefficient { white-space: nowrap; }
 .resource-row { min-width: 0; display: flex; align-items: center; gap: 18px; padding: 5px 24px; border-left: 1px solid var(--border); }
 .resource-row > span { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
 .resource-value { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; }
 .resource-value strong { font-size: 24px; overflow-wrap: anywhere; }
 .resource-value small { color: var(--accent); font-size: 12px; font-weight: 700; white-space: nowrap; }
 #immortal-power-source-note { flex-basis: 100%; color: var(--muted); font-size: 9px; font-weight: 400; line-height: 1.3; white-space: normal; }
+
 
 
 .navigation { position: sticky; top: 20px; display: grid; gap: 4px; }
@@ -568,6 +572,39 @@ button { font: inherit; }
 .automation-toggle[aria-pressed="true"]::after { transform: translate(11px, -50%); background: #fff; }
 .automation-empty { margin: 0; padding: 42px 18px; color: var(--muted); background: var(--subtle); border: 1px dashed var(--border); border-radius: var(--radius); font-size: 13px; text-align: center; }
 
+#catch-up-notice {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: var(--layer-notification);
+  width: min(420px, calc(100% - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right))));
+  max-height: calc(100dvh - 24px - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, .18);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+#catch-up-notice button {
+  min-height: 44px;
+  padding: 8px 12px;
+  color: var(--text);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  cursor: pointer;
+}
+#catch-up-notice button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .offline-progress-dialog {
   width: min(620px, calc(100% - 32px));
   max-height: min(78vh, 680px);
@@ -581,7 +618,7 @@ button { font: inherit; }
   max-height: min(55dvh, 420px);
   pointer-events: none;
 }
-.offline-progress-dialog.offline-completed-presentation #continue-after-offline { pointer-events: auto; }
+.offline-progress-dialog.offline-completed-presentation .offline-progress-content { pointer-events: auto; }
 .offline-progress-content {
   min-height: 0;
   display: grid;
@@ -675,9 +712,7 @@ button { font: inherit; }
     white-space: nowrap;
   }
   .app-header p { display: block; font-size: 11px; }
-  .scale-progress small { font-size: 9px; }
-
-  .settings-button { width: 32px; height: 32px; font-size: 17px; }
+  .scale-progress small { font-size: 9px; }  .settings-button { width: 32px; height: 32px; font-size: 17px; }
   .app-body { min-height: calc(100vh - 111px); display: flex; flex-direction: column; }
   .sidebar { padding: 14px 16px; }
   .resource-panel { width: 100%; min-height: 0; display: block; padding: 12px 16px; }
@@ -687,9 +722,7 @@ button { font: inherit; }
   .resource-row:first-child { padding-left: 0; border-left: 0; }
   .resource-value { display: flex; margin-top: 3px; gap: 5px; }
   .resource-value strong { font-size: 18px; }
-  .resource-value small { font-size: 10px; }
-
-  .navigation { position: static; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); margin-top: 12px; }
+  .resource-value small { font-size: 10px; }  .navigation { position: static; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); margin-top: 12px; }
   .nav-item { justify-content: center; gap: 8px; }
   .nav-item small { display: none; }
   .main-panel { padding: 24px 16px; }
@@ -725,9 +758,7 @@ button { font: inherit; }
   .brand-title { gap: 5px; }
   .app-header .game-version { padding: 2px 5px; font-size: 9px; }
   .header-actions { gap: 6px; }
-  .scale-progress small { display: block; font-size: 9px; white-space: normal; line-height: 1.3; }
-
-  .resource-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scale-progress small { display: block; font-size: 9px; white-space: normal; line-height: 1.3; }  .resource-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resource-row { padding: 4px 8px; }
   .resource-row:nth-child(odd) { padding-left: 0; border-left: 0; }
   .resource-value strong { font-size: 16px; }
@@ -807,6 +838,7 @@ button { font: inherit; }
   .resource-panel .resource-value strong { max-width: 100%; font-size: 15px; line-height: 1.2; }
   .resource-panel .resource-value small { max-width: 100%; font-size: 10px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; }
   .resource-panel #big-number-resource { grid-column: 1 / -1; }
+  .resource-panel #universeCoefficient-resource { grid-column: 1 / -1; grid-template-columns: max-content minmax(0, 1fr); }
   .resource-panel #big-number-resource .resource-value { flex-direction: row; justify-content: flex-end; align-items: baseline; gap: 6px; }
 }
 
@@ -821,9 +853,7 @@ button { font: inherit; }
 .resource-panel.resources-collapsed > .resource-items { display: none !important; }
 
 /* Consistent two-line previews for independent resource sources. */
-.source-gain-preview { white-space: pre-line; line-height: 1.55; overflow-wrap: anywhere; }
-
-
+.source-gain-preview { white-space: pre-line; line-height: 1.55; overflow-wrap: anywhere; }
 /* Separate each mobile resource while retaining the compact two-column layout. */
 @media (max-width: 900px) {
   .resource-panel .resource-items { gap: 8px; }
@@ -869,3 +899,22 @@ button { font: inherit; }
 .infinity-node { position:relative; cursor:pointer; }
 .infinity-child::before { content:""; position:absolute; height:17px; border-left:1px solid currentColor; left:50%; top:-19px; opacity:.35; }
 .infinity-node.available { border-color:var(--accent); }.infinity-node.purchased { background:var(--accent-soft); }
+
+/* Martial pages share the existing cultivation, action, challenge and settings components. */
+.martial-section { margin-top: 18px; min-width: 0; }
+.martial-section[hidden], .martial-summary[hidden], #martial-progress[hidden], #martial-progress [hidden] { display: none !important; }
+#martial-progress .cultivation-tabs { flex-wrap: wrap; }
+#martial-progress .cultivation-tab { flex: 1 0 auto; }
+.martial-note { color: var(--muted); font-size: 12px; line-height: 1.65; margin: 10px 0; }
+.martial-overview { margin-top: 16px; }
+.martial-overview > .upgrade-group { margin-top: 12px; }
+.martial-heart-table { display: grid; gap: 8px; padding: 16px; color: var(--muted); font-size: 12px; }
+.martial-reason { color: var(--muted); }
+#martial-challenges > .martial-note { margin: 12px 24px; }
+.martial-summary { display: contents; }
+#martial-progress .purchase-control small, #martial-actions .action-control small { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  #martial-progress .cultivation-tab { flex: 1 0 calc(50% - 6px); min-width: 0; }
+}
+
+#martial-progress .martial-ability-effect { color: var(--text); font-weight: 600; }

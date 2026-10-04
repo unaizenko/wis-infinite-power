@@ -10,7 +10,7 @@
   } = WIS.Core.BigNum;
   const stellarThreshold = scaleThresholds[11].power;
   const solarPowerProgressLogSpan = log10(add(ONE, stellarThreshold));
-  const superclusterThreshold = scaleThresholds[13].power;
+
   const cosmicStructureThreshold = scaleThresholds[14].power;
   const blackHoleProgressLogSpan = log10(add(ONE, cosmicStructureThreshold));
   const resourceMagnitude = (value, scale = ONE) =>
@@ -132,8 +132,8 @@
     return pow(10, mul("0.08", maxBN(ZERO, lossOrders)));
   }
   function blackHoleRewardRequirement(state, scaleIndex, baseRequirement) {
-    if (completionCount(state, "blackHole") < 1 || scaleIndex <= 13) return BN(baseRequirement);
-    return mul(superclusterThreshold, pow(div(baseRequirement, superclusterThreshold), "0.95"));
+    if (completionCount(state, "blackHole") < 1 || scaleIndex < 1 || scaleIndex > 14) return BN(baseRequirement);
+    return pow(baseRequirement, "0.95");
   }
   function effects(state) {
     const longevityReward = reward(state, "longevity", "rewardMultipliers");
@@ -195,9 +195,17 @@
   }
   function challengeUnlocked(challengeKey) {
     const challenge = definitions[challengeKey];
-    if (!challenge || (challenge.infinityUpgrade && !WIS.Meta.Infinity.has(state, challenge.infinityUpgrade))) return false;
+    if(!challenge)return false;
+    if (challenge.system === "martial") {
+      const prerequisite = challenge.martialPrerequisite;
+      return state.cultivation.active === "martial" && (state.activeChallenge === challengeKey || completionCount(state, challengeKey) > 0 ||
+        state.meta.martialQualifications?.[prerequisite] === true || (WIS.Cultivation.Martial.get(state).abilities[prerequisite] || 0) > 0);
+    }
+    if(challenge.resetLevel==='infinity')return state.activeChallenge===challengeKey||(WIS.Meta.Infinity.get(state).unlocked&&WIS.Meta.Infinity.has(state,challenge.infinityUpgrade));
+    if(challenge.infinityUpgrade&&!WIS.Meta.Infinity.has(state,challenge.infinityUpgrade))return false;
     if (challengeKey === "mortalTransformation" && (state.activeChallenge === challengeKey || completionCount(state, challengeKey) > 0)) return true;
     if (challengeKey === "yinVoidYangReal") return WIS.Meta.Achievements.has(state, "infantTransformationImmortal");
+    if (challengeKey === "heavenlyFiveDeclines") return state.activeChallenge === challengeKey || WIS.Cultivation.Xiuzhen.get(state).realm >= 6;
     const challengesAvailable = WIS.Meta.Achievements.has(state, "scale4");
     return Boolean(challenge && challengesAvailable && (
       !challenge.unlockAchievementKey || WIS.Meta.Achievements.has(state, challenge.unlockAchievementKey)
@@ -209,13 +217,14 @@
   }
   function challengeVisible(challengeKey) {
     const challenge = definitions[challengeKey];
-    const conquered = challenge?.achievementKey
+    const conquered = challenge?.rewardKey ? WIS.Meta.Infinity.rewardUnlocked(state,challengeKey) : challenge?.achievementKey
       ? WIS.Meta.Achievements.has(state, challenge.achievementKey)
       : isCompletionLimitReached(challenge, completionCount(state, challengeKey));
     return challengeUnlocked(challengeKey) && (state.activeChallenge === challengeKey || !state.hideCompletedChallenges || !conquered);
   }
   function challengeStartable(challengeKey) {
-    return challengeUnlocked(challengeKey) && !state.activeChallenge;
+    return challengeUnlocked(challengeKey) && !state.activeChallenge &&
+      (definitions[challengeKey]?.resetLevel!=='infinity'||WIS.Meta.Infinity.challengeEntryAllowed(state,challengeKey));
   }
   function challengeRequiredScaleIndex(challengeKey) {
     const challenge = definitions[challengeKey];
@@ -232,6 +241,10 @@
   function resetForChallenge(challengeKey) {
     updateLifetimeStatistics();
     const requiredCultivationSystem = definitions[challengeKey]?.system;
+    if (requiredCultivationSystem === "martial") {
+      const prerequisite = definitions[challengeKey].martialPrerequisite;
+      state.meta.martialQualifications = {...state.meta.martialQualifications, [prerequisite]:true};
+    }
     const nextState = WIS.Core.Reset.apply("challenge", state, freshDefaultState, { overrides: {
       activeChallenge: challengeKey,
       activeChallengeElapsedSeconds: 0,
@@ -251,9 +264,16 @@
     runtime.call("resetCultivationPage");
   }
 
+  const formatInfinityPoints=value=>runtime.call("format",value,0);
   function startChallenge(challengeKey) {
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
     if (!challenge || !challengeStartable(challengeKey)) return;
+    if(challenge.resetLevel==='infinity') {
+      const I=WIS.Meta.Infinity,v=I.previewRebirth(state,{challengeKey});if(!v.allowed)return false;
+      if(!window.confirm(`开启无限挑战「${challenge.name}」将进行一次无限转生，获得 ${formatInfinityPoints(v.points)} 无限点数，重置行动、强化与体系进度，并按无限转生规则保留宝物和强化。挑战计时从0开始。确定开启吗？`))return false;
+      try {runtime.call('infinityRebirth',{challengeKey,expectedRebirthCount:v.rebirthCount});switchPage('challenges');render();showNotice(`已开启无限挑战：${challenge.name}`);return true;}
+      catch(error){console.error(`WIS infinite challenge start failed: ${challengeKey}`,error);showNotice('无限挑战启动失败，进度已保留');return false;}
+    }
     const completed = challengeCompletionCount(challengeKey);
     const rewardlessRepeat = challenge.achievementKey
       ? WIS.Meta.Achievements.has(state, challenge.achievementKey)
@@ -315,7 +335,10 @@
     const challengeKey = state.activeChallenge;
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
     if (!challenge || !systemActive(state, challengeKey) || challenge.manualCompletion) return false;
-    const targetReached = challenge.targetG ? WIS.Meta.BigNumbers.get(state).gIndex >= challenge.targetG
+    const targetReached = challenge.system === "martial" ? martialGoalReached(state, challenge)
+      : challenge.targetYuanForce ?
+      gte(WIS.Cultivation.Xiuzhen.amount(state,"yuanForce"),challenge.targetYuanForce) && gte(state.joules,challenge.targetJAndPower) && gte(state.power,challenge.targetJAndPower)
+      : challenge.targetG ? WIS.Meta.BigNumbers.get(state).gIndex >= challenge.targetG
       : challenge.targetTree ? WIS.Meta.BigNumbers.get(state).tree.rank >= challenge.targetTree
       : challenge.targetXiuzhenRealm
       ? WIS.Cultivation.Xiuzhen.get(state).realm >= challenge.targetXiuzhenRealm
@@ -324,6 +347,8 @@
         gte(state.power, scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power)
       : Number.isFinite(challenge.targetAdvancedRealmLevel)
         ? state.advancedRealmLevel >= challenge.targetAdvancedRealmLevel
+        : challenge.resetLevel==='infinity'
+        ? gte(state.power,scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power)
         : state.highestScaleIndex >= challengeRequiredScaleIndex(challengeKey);
     if (challenge.deadlineSeconds && (state.activeChallengeElapsedSeconds > challenge.deadlineSeconds + 1e-9 ||
         (!targetReached && state.activeChallengeElapsedSeconds >= challenge.deadlineSeconds - 1e-9))) {
@@ -331,9 +356,10 @@
     }
     if (!targetReached) return false;
     const previousCompletions = challengeCompletionCount(challengeKey);
-    const achievementAlreadyEarned = challenge.achievementKey && WIS.Meta.Achievements.has(state, challenge.achievementKey);
+    const achievementAlreadyEarned = challenge.rewardKey?WIS.Meta.Infinity.rewardUnlocked(state,challengeKey):challenge.achievementKey && WIS.Meta.Achievements.has(state, challenge.achievementKey);
     state.challengeCompletions[challengeKey] = Math.min(challenge.maxCompletions, previousCompletions + 1);
     if (challenge.achievementKey) WIS.Meta.Achievements.record(state, challenge.achievementKey);
+    if (challenge.rewardKey) WIS.Meta.Infinity.recordChallengeReward(state,challengeKey);
     state.activeChallenge = null;
     state.activeChallengeElapsedSeconds = 0;
     WIS.Core.Effects.invalidate();
@@ -341,6 +367,19 @@
     showNotice(previousCompletions >= challenge.maxCompletions || achievementAlreadyEarned
       ? `重复挑战成功：${challenge.name}（无额外奖励）`
       : `挑战成功：${challenge.name} ${state.challengeCompletions[challengeKey]} / ${challenge.maxCompletions}`);
+    return true;
+  }
+
+  function martialGoalReached(current, definition) {
+    const M=WIS.Cultivation.Martial, B=WIS.Core.BigNum;
+    for (const [field,key] of [["targetMartialQi","qi"],["targetMartialBody","body"],["targetMartialHeart","heart"]])
+      if (definition[field] !== undefined && !B.gte(M.amount(current,key),definition[field])) return false;
+    if (definition.targetMartialJ !== undefined && !B.gte(current.joules,definition.targetMartialJ)) return false;
+    if (definition.targetMartialPower !== undefined && !B.gte(current.power,definition.targetMartialPower)) return false;
+    if (definition.martialRatioTolerance !== undefined) {
+      const d=B.sub(B.log10(B.add(1,B.div(current.joules,10))),B.log10(B.add(1,current.power)));
+      if (B.gt(B.BN(d).abs(),definition.martialRatioTolerance)) return false;
+    }
     return true;
   }
 

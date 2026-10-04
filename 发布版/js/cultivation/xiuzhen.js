@@ -4,7 +4,9 @@
   const realms = Object.freeze([
     ["第一步·化神", "mana", "1e50"], ["第一步·婴变", "mana", "1e60"],
     ["第一步·问鼎", "xianForce", "1e8"], ["第二步·窥涅", "yuanForce", "1e5"],
-    ["第二步·净涅", "yuanForce", "1e8"], ["第二步·碎涅", "yuanForce", "1e12"]
+    ["第二步·净涅", "yuanForce", "1e8"], ["第二步·碎涅", "yuanForce", "1e12"],
+    ["第三步·空涅", "yuanForce", "1e24"], ["第三步·空灵", "nieForce", "1e6"],
+    ["第三步·空玄", "nieForce", "1e9"], ["第三步·空劫", "nieForce", "1e13"]
   ].map(([name, resource, cost], i) => Object.freeze({ name, resource, cost: B.BN(cost), level: i + 1 })));
   const abilities = Object.freeze([
     ["intent", "意境", 1, "mana", "2e50", "战力获取 ^1.05"],
@@ -16,10 +18,19 @@
     ["crystal", "问鼎之晶", 3, "yuanForce", "1e4", "根据当前元力提升元力获取。"],
     ["worldAura", "天地元气", 4, "yuanForce", "3e5", "根据当前元力提升元力获取。"],
     ["rules", "规则掌控", 5, "yuanForce", "3e8", "根据当前元力提升仙灵力、仙力获取。"],
-    ["divineArt", "自创神通", 6, "yuanForce", "3e12", "根据当前元力提升战力获取。"]
+    ["divineArt", "自创神通", 6, "yuanForce", "3e12", "根据当前元力提升战力获取。"],
+    ["emptyGate", "空门之力", 7, "nieForce", "1e4", "依据当前涅力增长单体宇宙系数N；N仅通过能力产生效果。"],
+    ["innerWorld", "内天地", 8, "nieForce", "2e5", "根据当前涅力提升N获取。"],
+    ["spiritualGod", "灵神", 8, "nieForce", "3e5", "涅力获取×5。"],
+    ["virtualOrigin", "虚本源", 9, "nieForce", "1e8", "每实际获得1e5涅力积累1点烙印·本源进度；需求100×3^持有数，提升N获取。"],
+    ["spokenLaw", "言出法随", 9, "nieForce", "3e8", "根据当前涅力提升J与战力获取倍率。"],
+    ["mergeHeaven", "神融天地", 10, "nieForce", "1e12", "根据当前N提升涅力获取。"],
+    ["followLaw", "法随身动", 10, "nieForce", "2e12", "根据当前N提升J与战力获取指数，最高^1.2。"],
+    ["zunYang", "尊阳", 10, "nieForce", "2e12", "根据当前N提升N获取。"],
+    ["originBody", "本源真身", 10, "nieForce", "3e12", "烙印·本源进度获取×3。"]
   ].map(([key, name, realm, resource, cost, description]) => Object.freeze({ key, name, realm, resource, cost: B.BN(cost), description })));
-  const resourceKeys = Object.freeze(["xianForce", "yuanForce"]);
-  const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力" });
+  const resourceKeys = Object.freeze(["xianForce", "yuanForce", "nieForce", "universeCoefficient"]);
+  const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N" });
   const entry = () => ({ amount: B.ZERO, residual: [], total: B.ZERO, totalResidual: [],
     spent: B.ZERO, spentResidual: [], peak: B.ZERO });
   const fresh = () => ({ version: 1, entered: false, realm: 0, highestRealm: 0,
@@ -35,7 +46,7 @@
     if (!Array.isArray(values)) throw Error("修真道残差账本格式无效");
     return values.map(String);
   };
-  const rank = value => Math.min(6, Math.max(0, Math.floor(Number(value) || 0)));
+  const rank = value => Math.min(realms.length, Math.max(0, Math.floor(Number(value) || 0)));
   function normalize(raw) {
     const n = fresh();
     if (!raw || typeof raw !== "object") return n;
@@ -140,7 +151,9 @@
   function canBreakthrough(state) {
     const n = get(state), next = realms[n.realm];
     return active(state) && unlocked(state) && !sealed(state) && !!next &&
-      (next.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0) && canSpend(state, next.resource, next.cost);
+      (next.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0) &&
+      (next.level < 7 || (state.challengeCompletions?.heavenlyFiveDeclines || 0) > 0) &&
+      (next.level !== 7 || WIS.Meta.Infinity.has(state, "C1")) && canSpend(state, next.resource, next.cost);
   }
   function breakthrough(state, manual = true) {
     if (!canBreakthrough(state)) return false;
@@ -165,14 +178,43 @@
     rules: ["yuanForce", .18], divineArt: ["yuanForce", .25]
   });
   function abilityMultiplier(state, key) {
+    if (!has(state, key)) return 1;
+    const pLog = () => B.add(1, B.log10(B.add(1, B.div(amount(state,"nieForce"),"1e4"))));
+    const nLog = () => B.log10(B.add(1, amount(state,"universeCoefficient")));
+    if (key === "innerWorld") return B.pow(pLog(),1.2);
+    if (key === "spiritualGod") return 5;
+    if (key === "spokenLaw") return B.pow(pLog(),1.5);
+    if (key === "mergeHeaven") return B.pow(B.add(1,nLog()),.5);
+    if (key === "followLaw") return B.add(1,B.min(.2,B.mul(.015,nLog())));
+    if (key === "zunYang") return B.pow(B.add(1,nLog()),.35);
+    if (key === "originBody") return 3;
     const rule = abilityMultiplierRules[key];
     if (!rule || !has(state, key)) return 1;
     return B.pow(B.add(1, amount(state, rule[0])), rule[1]);
   }
+  const yuanCrystalMultiplier = state => B.add(1,B.mul(WIS.Meta.Treasures.count(state,"yuanCrystal"),.002));
+  const immortalAchievementMultiplier = state => WIS.Meta.Achievements?.greatHeavenlyVenerableMultiplier(state) ?? B.ONE;
   const yuanFromXian = x => B.pow(B.add(1, B.div(x, "1e8")), .75);
+  const thirdStepActive = state => active(state) && !sealed(state) && get(state).realm >= 7;
+  function thirdStepRates(state) {
+    let nieForce = B.ZERO, universeCoefficient = B.ZERO;
+    if (!thirdStepActive(state)) return { nieForce, universeCoefficient };
+    nieForce = B.mul(B.pow(B.div(amount(state,"yuanForce"),"1e16"),.25),
+      B.mul(abilityMultiplier(state,"spiritualGod"),abilityMultiplier(state,"mergeHeaven")));
+    if (has(state,"emptyGate")) universeCoefficient = B.mul(B.div(B.pow(B.div(amount(state,"nieForce"),"1e4"),.25),300),
+      B.mul(B.mul(abilityMultiplier(state,"innerWorld"),abilityMultiplier(state,"zunYang")),
+        has(state,"virtualOrigin") ? B.pow(B.add(1,WIS.Meta.Treasures.count(state,"originImprint")),.25) : 1));
+    return { nieForce:B.mul(nieForce,immortalAchievementMultiplier(state)), universeCoefficient };
+  }
+  function originProgressGain(state) { return B.mul("1e-5",abilityMultiplier(state,"originBody")); }
+  function awardOrigin(state, gains) {
+    if (!has(state,"virtualOrigin") || !B.gt(gains?.nieForce ?? 0,0)) return;
+    WIS.Meta.TreasureProgress.advanceFixed(state,"originImprint",gains.nieForce,
+      { eligible:true, gain:originProgressGain(state), award:1 });
+  }
   function rawRates(state) {
     let xianForce = B.ZERO, yuanForce = B.ZERO;
-    if (!has(state, "xianForce") && !has(state, "yuanForce")) return { xianForce, yuanForce };
+    if (!has(state, "xianForce") && !has(state, "yuanForce")) return { xianForce, yuanForce, ...thirdStepRates(state) };
     const x = amount(state, "xianForce");
     if (has(state, "xianForce")) {
       xianForce = B.mul("2e4", B.add(1, B.log10(B.add(1, B.div(state.immortalPower, "1e40")))));
@@ -184,16 +226,19 @@
       if (has(state, "crystal")) yuanForce = B.mul(yuanForce, abilityMultiplier(state, "crystal"));
       if (has(state, "worldAura")) yuanForce = B.mul(yuanForce, abilityMultiplier(state, "worldAura"));
     }
-    return { xianForce, yuanForce };
+    const achievement=immortalAchievementMultiplier(state);
+    return { xianForce:B.mul(xianForce,achievement), yuanForce:B.mul(B.mul(yuanForce,achievement),yuanCrystalMultiplier(state)), ...thirdStepRates(state) };
   }
   function rates(state) {
     const raw = rawRates(state);
     return {
       xianForce: WIS.Core.Penalties.applyGoogolPenalty("xianForce", amount(state, "xianForce"), raw.xianForce, state),
-      yuanForce: WIS.Core.Penalties.applyGoogolPenalty("yuanForce", amount(state, "yuanForce"), raw.yuanForce, state)
+      yuanForce: WIS.Core.Penalties.applyGoogolPenalty("yuanForce", amount(state, "yuanForce"), raw.yuanForce, state),
+      nieForce:raw.nieForce, universeCoefficient:raw.universeCoefficient
     };
   }
   function intervalSupport(state) {
+    if (thirdStepActive(state)) return { supported:false, code:"third-step-coupled-sources" };
     if (!has(state, "xianForce") && !has(state, "yuanForce")) return { supported: true, code: "no-xiuzhen-source" };
     // Existing one-way interval models do not represent stock-dependent Googol feedback.
     if (resourceKeys.some(key => has(state, key) && B.gte(amount(state, key), WIS.Core.Config.googolPenalty.threshold)))
@@ -217,6 +262,7 @@
     if(!support.discreteYuan)return null;
     if(!B.isFiniteBN(term)||B.lt(term,0))throw Error("invalid-xian-repeat");
     const initial=words(get(state).resources.xianForce), cache=new Map(), sums=new Map();
+    const multiplier=B.mul(yuanCrystalMultiplier(state),immortalAchievementMultiplier(state));
     const diagnostics={evaluations:0,blocks:0,maxRelativeBound:0};
     function at(n) {
       if(!Number.isSafeInteger(n)||n<1||n>maxFrames+1)throw Error("discrete-yuan-index");
@@ -225,7 +271,7 @@
       // visible only to n=2. Count ledger words, including signed residuals.
       const x=L().value(n===1?initial:L().add(initial,[`${term}*${n-1}`]));
       if(!B.isFiniteBN(x)||B.lt(x,0)||B.gt(x,"1e12"))throw Error("discrete-yuan-domain");
-      const value=B.mul(yuanFromXian(x),.1);diagnostics.evaluations++;cache.set(n,value);return value;
+      const value=B.mul(B.mul(yuanFromXian(x),multiplier),.1);diagnostics.evaluations++;cache.set(n,value);return value;
     }
     function bounds(a,b) {
       const count=b-a+1;
@@ -276,17 +322,22 @@
   }
   function commit(state, gains) {
     const n = prepare(state, gains);
+    awardOrigin(state,gains);
     if (n !== get(state)) { state.cultivation.systems.immortal.xiuzhen = n; WIS.Core.Effects?.invalidate(); }
   }
   function effects(state) {
     if (!active(state) || sealed(state) || (!get(state).entered && !yinYang(state))) return [];
     const effect = (id, target, layer, value) => ({ id: "xiuzhen-" + id, name: abilities.find(a => a.key === id)?.name || "阴虚阳实",
-      group: "修真道", target, layer, value:typeof value==="function"?value(state):value, valueAt:typeof value==="function"?value:null, dynamicResources:({body:["xianForce"],rules:["yuanForce"],divineArt:["yuanForce"]})[id]||[] });
+      group: "修真道", target, layer, value:typeof value==="function"?value(state):value, valueAt:typeof value==="function"?value:null, dynamicResources:({body:["xianForce"],rules:["yuanForce"],divineArt:["yuanForce"],spokenLaw:["nieForce"],followLaw:["universeCoefficient"]})[id]||[] });
     const result = [effect("intent", "power", "regionExponent", has(state, "intent") ? 1.05 : 1),
       effect("spirit", "mana", "regionExponent", has(state, "spirit") ? 1.05 : 1),
       effect("body", "joules", "regionMultiplier", current=>abilityMultiplier(current, "body")),
       effect("rules", "immortalPower", "regionMultiplier", current=>abilityMultiplier(current, "rules")),
       effect("divineArt", "power", "regionMultiplier", current=>abilityMultiplier(current, "divineArt"))];
+    for (const target of ["joules","power"]) {
+      result.push(effect("spokenLaw",target,"regionMultiplier",current=>abilityMultiplier(current,"spokenLaw")));
+      result.push(effect("followLaw",target,"regionExponent",current=>abilityMultiplier(current,"followLaw")));
+    }
     if (yinYang(state)) for (const key of ["joules", "power"])
       result.push(effect("yinYang-" + key, key, "regionExponent", .85));
     return result;
@@ -333,7 +384,9 @@
       : state.immortalAbilityAutomationEnabled && state.unlockedAchievements?.infantSpirit)) return 0;
     const candidates = isRealm ? realms.map(r => ({ id: "realm-" + r.level, resourceKey: r.resource, cost: r.cost,
         available: unlocked(state) && n.realm === r.level - 1 && n.history.realm >= r.level &&
-          (r.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0), run: () => breakthrough(state, false) }))
+          (r.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0) &&
+          (r.level < 7 || (state.challengeCompletions?.heavenlyFiveDeclines || 0) > 0) &&
+          (r.level !== 7 || WIS.Meta.Infinity.has(state, "C1")), run: () => breakthrough(state, false) }))
     : abilities.map(a => ({ id: a.key, resourceKey: a.resource, cost: a.cost,
       available: n.entered && n.realm >= a.realm && !n.abilities[a.key] && !!n.history.abilities[a.key], run: () => buy(state, a.key, false) }));
     if (WIS.Simulation.FixedSegment?.collectCandidates?.("xiuzhen-" + kind,
@@ -351,7 +404,7 @@
   }
   WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
     sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
-    canBuy, buy, abilityMultiplier, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
+    canBuy, buy, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
     spendResource(state, key, cost) { return transaction(state, () => debit(state, key, cost)); } });
 }(window.WIS));

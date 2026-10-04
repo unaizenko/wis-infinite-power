@@ -25,8 +25,8 @@
     ["skyCrystal", "天晶"], ["fiveSpiritStone", "五灵石"], ["xuTianDing", "虚天鼎"],
     ["baLingChi", "八灵尺"], ["wanYaoFan", "万妖幡"], ["phantomHeavenMirror", "幻天镜"],
     ["mysticHeavenSacredTree", "玄天圣树"], ["mysticHeavenSpiritSlayingSword", "玄天斩灵剑"],
-    ["fiveElementsTreasure", "五行至宝"], ["immortalCrystal", "仙晶"],
-    ["cosmicFiber", "宇宙纤维"], ["cosmicWill", "宇宙意志"]
+    ["fiveElementsTreasure", "五行至宝"], ["immortalCrystal", "仙晶"], ["yuanCrystal", "烙印·元晶"],
+    ["cosmicFiber", "宇宙纤维"], ["cosmicWill", "宇宙意志"], ["originImprint", "烙印·本源"]
   ].map(([key, name]) => [key, Object.freeze({ key, name, stackable: true })])));
 
   WIS.Meta.Treasures = Object.freeze({
@@ -38,6 +38,7 @@
       return WIS.Power.ScaleLogic?.treasureChanceMultiplier?.(state) ?? 1;
     },
     getTreasureAwardMultiplier(state, key = null) {
+      if (key === "originImprint") return 1;
       if (key !== null && !this.isStackable(key)) return 1;
       return WIS.Power.ScaleLogic?.treasureAwardMultiplier?.(state) ?? 1;
     },
@@ -186,13 +187,20 @@
       throw new PrecisionError("batch-cost", "相邻批次的累计需求无法可靠区分；未确认奖励暂停，输入已保留");
     return {cost,next,nextCost};
   }
+  function requirementDivisor(state,key) {
+    return rules[key].immortal ? ONE : WIS.Meta.Achievements.ordinaryTreasureRequirementDivisor(state);
+  }
+  function effectiveRequirement(state,key,count=held(state,key)) {
+    return requirement(key,count).div(requirementDivisor(state,key));
+  }
   function unitGain(state, key) {
+    if (key === "originImprint") return WIS.Cultivation.Xiuzhen.originProgressGain(state);
     const r = rules[key];
     let multiplier = r.immortal ? WIS.Cultivation.ImmortalLogic.immortalTreasureChanceMultiplier()
       : T.getTreasureChanceMultiplier(state);
     if (key === "skyCrystal") multiplier = BN(multiplier).mul(ONE.add(
       ONE.add(BN(WIS.Power.ScaleLogic.effectiveRockLevel()).div(1000)).log10()));
-    return BN(multiplier).mul(r.coefficient);
+    return BN(multiplier).mul(r.coefficient).mul(requirementDivisor(state,key));
   }
   function rememberQualifications(state) {
     const q = state.meta.treasureQualifications ||= {};
@@ -236,11 +244,12 @@
     for (const key of explorationKeys) if (qualification(state, key) === null) addOld(key, state.explorationProgress);
   }
   function qualification(state, key) {
+    if (key === "originImprint" && !WIS.Cultivation.Xiuzhen.has(state,"virtualOrigin")) return "尚未取得虚本源";
     const has = k => state.unlockedAchievements?.[k] === true;
     if (rules[key].immortal && state.cultivation?.active !== "immortal") return "当前未选择仙道";
     const achievements = { fitnessMembershipCard: "scale5", superLollipop: "scale8", skyCrystal: "scale9",
       cosmicFiber: "scale13", cosmicWill: "scale14", tianNiPearl: "daoFoundation", mysteriousGreenBottle: "goldenCore",
-      fuBao: "trueScale3", immortalCrystal: "ascendImmortal" };
+      fuBao: "trueScale3", immortalCrystal: "ascendImmortal", yuanCrystal: "yuan" };
     if (achievements[key] && !has(achievements[key])) return "尚未取得对应成就";
     if (["tianNiPearl", "mysteriousGreenBottle"].includes(key) && WIS.Meta.Achievements.treasuresUnlocked &&
       !WIS.Meta.Achievements.treasuresUnlocked()) return "宝物界面尚未解锁";
@@ -530,6 +539,8 @@
       sources.push(name); rate = rate.add(nonnegative(units).mul(B.min(unitGain(state, key), requirement(key, held(state, key)))));
     };
     if (!reason) {
+      if (key === "yuanCrystal") addSource("实际产生仙力", WIS.Cultivation.Xiuzhen.rates(state).xianForce.gt(0) ? 1 : 0);
+      if (key === "originImprint") addSource("涅力获取", WIS.Cultivation.Xiuzhen.rates(state).nieForce);
       if (explorationKeys.includes(key)) addSource("有效探寻量", I.automaticExplorationAmountPerSecond());
       if (["tianNiPearl", "baLingChi"].includes(key)) addSource("周天；成功吐纳另计", I.circulationManaPerSecond().gt(0) ? 1 : 0);
       if (["fitnessMembershipCard", "superLollipop"].includes(key)) addSource("健身实际产生 J", S.fitnessJBonus().gt(0) ? 1 : 0);
@@ -563,7 +574,8 @@
       : remainingSign<=0 ? ZERO : remainingValue.div(rate);
     if(displayRemainingSeconds!==null&&!B.isFiniteBN(displayRemainingSeconds))displayRemainingSeconds=null;
     const remainingSeconds=certainty==='exact'?displayRemainingSeconds:null;
-    return { progress, demand, rate, sources, precision, pendingInputs:pending.length,
+    const divisor=requirementDivisor(state,key);
+    return { progress:progress.div(divisor), demand:demand.div(divisor), rate:rate.div(divisor), sources, precision, pendingInputs:pending.length,
       remainingPositive:remainingSign>0, award: T.getTreasureAwardMultiplier(state, key),
       remainderCertainty:certainty, remainingSeconds, displayRemainingSeconds,
       displayEtaMode:displayRemainingSeconds===null?'unavailable':certainty==='exact'?'exact':'conservative',
@@ -589,12 +601,13 @@
       if(key==='skyCrystal')units=units.add(produced('rock',()=>S.rockPowerPerSecond()));
       if(key==='fiveSpiritStone')units=units.add(produced('intent',()=>S.ultimateIntentPowerSource()));
       if(['immortalCrystal','fiveElementsTreasure'].includes(key))units=units.add(produced('immortalPower',()=>I.immortalPowerPerSecond()));
+      if(key==='yuanCrystal')units=units.add(produced('xianForce',()=>WIS.Cultivation.Xiuzhen.rates(state).xianForce));
       if(['cosmicFiber','cosmicWill'].includes(key))units=units.add(ONE);
       if(!units.gt(0)||state.meta.treasureProgressStatus?.[key]?.state==='blocked')
         return {key,pausedReason:'inactive-or-protected',remainingSeconds:null};
       const r=rules[key],demand=requirement(key,held(state,key));
       let gain=once(r.immortal?'immortalMultiplier':'ordinaryMultiplier',()=>BN(r.immortal?
-        I.immortalTreasureChanceMultiplier():T.getTreasureChanceMultiplier(state))).mul(r.coefficient);
+        I.immortalTreasureChanceMultiplier():T.getTreasureChanceMultiplier(state))).mul(r.coefficient).mul(requirementDivisor(state,key));
       if(key==='skyCrystal')gain=gain.mul(ONE.add(ONE.add(BN(S.effectiveRockLevel()).div(1000)).log10()));
       const rate=nonnegative(units).mul(B.min(gain,demand));
       let remaining;
@@ -685,7 +698,7 @@
       }};
   }
   const Recovery=Object.freeze({needed:needsRecovery,create:createRecovery});
-  WIS.Meta.TreasureProgress = Object.freeze({ rules, explorationKeys, requirement, cumulative, affordable, unitGain,
+  WIS.Meta.TreasureProgress = Object.freeze({ rules, explorationKeys, requirement, effectiveRequirement, requirementDivisor, cumulative, affordable, unitGain,
     Recovery, Pending, receipt, ledgerSummary, ensure, advance, advanceFixed, hasUnsettled, settle, qualification, rememberQualifications, importLegacyTransient, view, boundarySnapshot,
     diagnostics:state=>({evaluations:{...evaluatedEvents},committed:state.meta.treasureDiagnostics||null}) });
 }(window.WIS));

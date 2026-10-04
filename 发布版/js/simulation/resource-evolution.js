@@ -24,7 +24,11 @@
   }
   // Historical directWork remains diagnostic accounting; eligibility is
   // determined by the existing state, signature and capability checks below.
+  function sameFrames(a,b){return Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=1e-8&&Math.round(a/W.Core.Config.offlineHierarchy.microSeconds)===Math.round(b/W.Core.Config.offlineHierarchy.microSeconds);}
   function create(initial,seconds,options){
+    if(options.executorKind==='local-discrete-macro'){const p=options.localPlan;if(!p?.supported||!sameFrames(p.seconds,seconds))throw Error('局部离散宏步与结算区间不符');let done=false;return {advance(){if(done)throw Error('局部离散宏步已完成');done=true;return {done:true,result:{gains:p.gains,progressTotals:p.progressTotals,approximation:p.approximation,predictor:null,stats:p.stats,endpoint:p.endpoint}};}};}
+    if(options.executorKind==='strong-feedback'){const p=options.certifiedPlan;if(!p?.supported||!sameFrames(p.seconds,seconds))throw Error('强反馈宏步证书与结算区间不符');let done=false;return {advance(){if(done)throw Error('强反馈宏步已完成');done=true;const progressTotals=Object.fromEntries(Object.entries(flux(options.sourceProfile)).map(([k,v])=>[k,B.mul(v,seconds)]));return {done:true,result:{gains:p.gains,progressTotals,certificate:p.certificate,predictor:null,stats:{realMicroSteps:0,virtualSteps:p.certificate.virtualFrames,fallbackMicroSteps:0,maximumBlockSteps:p.certificate.virtualFrames},endpoint:null}};}};}
+
     const s=S.createDraft(initial).state,dt=W.Core.Config.offlineHierarchy.microSeconds;
     const infinityStart=initial.meta.infinity.runElapsed,dynamicTempo=W.Meta.Infinity.dynamicTempo(initial);
     function sampleClock(at){if(dynamicTempo)s.meta.infinity={...s.meta.infinity,runElapsed:infinityStart+at};}
@@ -39,14 +43,16 @@
     for(const group of W.Simulation.PredictorGroups.all())policy.groups[group.id]||={cooldown:0,anchors:0,shocks:0,window:[]};
     const anchoring=()=>Object.values(policy.groups).some(g=>g.anchors>0);
     const cooling=()=>Object.values(policy.groups).some(g=>g.cooldown>0&&!g.anchors);
-    const stats={realMicroSteps:0,mapAccepted:0,mapRejected:0,coldModelBuilds:0,hardInvalidations:0,hardReasons:{},softRebases:0,endpointValidations:0,sentinelValidations:0,blockHistogram:{},virtualSteps:0,maximumBlockSteps:0,mapEligible:0,mapConsidered:0,shockRebases:0,dualDisagreements:0,fixedFallbacks:0,validationSkipped:0,cadenceMicroSteps:0,frozenDirectSteps:0,mapCooldowns:0,shockAnchors:0,progressQueries:0};
+    const stats={fallbackMicroSteps:0,realMicroSteps:0,mapAccepted:0,mapRejected:0,coldModelBuilds:0,hardInvalidations:0,hardReasons:{},softRebases:0,endpointValidations:0,sentinelValidations:0,blockHistogram:{},virtualSteps:0,maximumBlockSteps:0,mapEligible:0,mapConsidered:0,shockRebases:0,dualDisagreements:0,fixedFallbacks:0,validationSkipped:0,cadenceMicroSteps:0,frozenDirectSteps:0,mapCooldowns:0,shockAnchors:0,progressQueries:0};
     const gains=Object.fromEntries(G().keys.map(k=>[k,B.ZERO])),progress=Object.fromEntries(Object.keys(flux(initialProfile)).map(k=>[k,B.ZERO]));
     const bins=options.strong?Math.min(cfg().progressSamples-1,Math.max(1,Math.floor(seconds/dt+1e-8))):1;
     const nodes=Array.from({length:bins+1},(_,i)=>i===bins?seconds:Math.floor(seconds/dt*i/bins+1e-8)*dt);
     const cadence=Object.fromEntries(G().groups.map(g=>[g.id,{interval:1,stable:0,count:0,...saved?.validation?.[g.id]}]));
     let sample=0,lastFlux=flux(initialProfile),sampleAt=0,queryCosts=[],special=null;
     stats.scaleKernelSteps=0;stats.scaleIntervals=0;stats.coupledKernelSteps=0;stats.coupledIntervals=0;
+    function consumeFallback(){try{W.Simulation.FallbackWorkBudget.require(options.fallbackBudget,stats.fallbackMicroSteps+1);stats.fallbackMicroSteps++;}catch(error){error.evolutionStats=stats;throw error;}}
     function advanceScale(){
+      consumeFallback();
       const K=W.Power.ScaleKernel,part=Math.min(dt,special.seconds-special.elapsed);
       if(!special.coupled&&special.elapsed>=special.nextSample-1e-9){
         const span=Math.min(special.sampleSeconds,special.seconds-special.elapsed),view=Object.create(s);
@@ -205,9 +211,9 @@
           advanceScale();return;
         }
         const K=W.Power.ScaleKernel,policy=W.Core.Config.scaleKernel;
-        const compiled=!dynamicTempo&&policy?.enabled&&(policy.diagnosticCoupledIntervals||K?.supportsOffline(s,source(s,profile)))?K.compileScaleFastProfile(s):null;
+        const compiled=!W.Cultivation.Xiuzhen.thirdStepActive(s)&&!dynamicTempo&&policy?.enabled&&(policy.diagnosticCoupledIntervals||K?.supportsOffline(s,source(s,profile)))?K.compileScaleFastProfile(s):null;
         if(compiled){
-          const duration=seconds-elapsed,externalKeys=G().keys.filter(k=>['mana','immortalPower','xianForce','yuanForce'].includes(k));
+          const duration=seconds-elapsed,externalKeys=G().keys.filter(k=>['mana','immortalPower',...W.Cultivation.Xiuzhen.resourceKeys].includes(k));
           special={profile:compiled,dynamic:K.read(s),seconds:duration,elapsed:0,flux:elapsed===sampleAt?lastFlux:flux(source(s,profile)),externalKeys,externalGains:Object.fromEntries(externalKeys.map(k=>[k,B.ZERO])),nextSample:0,sampleSeconds:Math.max(dt,Math.ceil(duration/dt/policy.trajectorySamples)*dt)};
           advanceScale();return;
         }
@@ -222,6 +228,7 @@
         for(const k of Object.keys(progress))progress[k]=B.add(progress[k],B.add(prior[k],B.mul(current[k],step)));
         sampleAt=elapsed+step;lastFlux=null;stats.fixedFallbacks++;P().record('fixedFallbacks');
       }
+      if(step<=dt+1e-8)consumeFallback();
       const values=Object.fromEntries(G().keys.map(k=>[k,B.mul(profile.rates[k],step)]));
       for(const k of G().keys){G().write(s,k,B.add(G().read(s,k),values[k]));gains[k]=B.add(gains[k],values[k]);}
       elapsed=Math.min(seconds,elapsed+step);if(fixed)while(sample+1<nodes.length-1&&nodes[sample+1]<elapsed-1e-8)sample++;position+=step/dt;stats.realMicroSteps++;stats[step<=dt+1e-8?"cadenceMicroSteps":"frozenDirectSteps"]++;P().record('realMicroSteps');
@@ -248,3 +255,7 @@
   }
   W.Simulation.ResourceEvolution=Object.freeze({create,fluxSum,profitability});
 })(window.WIS);
+
+
+
+

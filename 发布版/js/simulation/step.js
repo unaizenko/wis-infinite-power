@@ -524,9 +524,10 @@
       const onlineMetrics={segments:0,gameSeconds:0,compatibilitySubsteps:0,continuousSegments:0,domainClones:0,workMs:0,maxWorkMs:0};
       function createOnlineWork(seconds, timeSegment={}) {
         const R=WIS.Core.Runtime,S=WIS.Core.State,E=WIS.Core.Effects,F=WIS.Simulation.FixedSegment,C=WIS.Simulation.Compensation;
-        // The five-second challenge shares discrete ordering across sources;
+        // The five-second infinite challenge shares discrete ordering across sources;
         // true offline retains its numeric policy, source and clock accounting.
         const offlineSource=timeSegment.source==='offline';
+        const martialBatch=offlineSource&&getState().cultivation.active==='martial'&&seconds>simulationStepSeconds;
         const original=getState(), roots=['core','powerSystem','cultivation','meta'].map(k=>original[k]);
         let candidate=S.cloneForSimulation(original), closed=false, workMs=0, remaining=seconds;
         onlineMetrics.domainClones++;
@@ -538,16 +539,59 @@
         const transients=()=>[WIS.Core.Registries.getActivePower(candidate)?.snapshotTreasureTransient?.(),WIS.Core.Registries.getActiveCultivation(candidate)?.snapshotTreasureTransient?.()];
         let transient=transients();
         function restoreTransient(values){WIS.Core.Registries.getActivePower(candidate)?.restoreTreasureTransient?.(values[0]);WIS.Core.Registries.getActiveCultivation(candidate)?.restoreTreasureTransient?.(values[1]);}
+        let effectInterval=null,effectSignature=null,effectState=null;
+        const partitionReplay=offlineSource&&getState().cultivation.active==='martial'&&(timeSegment.martialIntervals||timeSegment.martialReplayPartitions);
+        let partitionRemaining=simulationStepSeconds;
+        let martialCheckpoint=WIS.Simulation.MartialInterval.validateCheckpoint(timeSegment.martialCheckpoint),intervalCooldown=0,uncertaintyShadows=null;
+        const intervalStats={realMicroSteps:0,mapAccepted:0,mapRejected:0,virtualSteps:0,maximumBlockSteps:0};
+        function formalMartial(state,dt){
+          const before=getState();try{R.setState(state);const work=createOnlineWork(dt,{source:'offline',clockRatio:timeSegment.clockRatio,compensationEligible:timeSegment.compensationEligible,martialReplayPartitions:true});
+          let outcome;do{outcome=work.advance(Infinity);}while(!outcome.done);
+          const value=onlinePrepared.get(outcome.token);onlinePrepared.delete(outcome.token);return value;
+          }finally{R.setState(before);E.invalidate();}
+        }
+        function prepareCadence(dt,defer,boundary,covered){
+          const prepare=()=>C.withFactor(covered?2:1,()=>F.prepare(candidate,dt,{borrowSources:true,
+            runAchievementAutomations:defer?undefined:runAchievementAutomations,automationOpportunities:boundary.continuous?Math.max(1,Math.ceil(dt/simulationStepSeconds-1e-9)):1,offline:false,compiledResources:effectInterval?.evaluate}));
+          if(!martialBatch)return prepare();
+          // Only descriptors with unchanged non-resource inputs are reusable.
+          // Numeric sources, heart pressure and dynamic effects are freshly
+          // evaluated every cadence. The cache belongs to this private work.
+          const scale=candidate.powerSystem.systems.scale,meta=candidate.meta;
+          const {runElapsed,...infinity}=meta.infinity;
+          const signature=JSON.stringify([candidate.powerSystem.active,scale.actions,scale.upgrades,scale.history,
+            scale.progress.highestScaleIndex,scale.progress.brickUnlocked,scale.progress.wallUnlocked,
+            candidate.cultivation.systems.immortal,candidate.cultivation.systems.martial.abilities,
+            meta.achievements,meta.challenges.activeChallenge,meta.challenges.challengeCompletions,
+            CHALLENGE_DEFINITIONS[candidate.activeChallenge]?.timeToLimitSeconds?candidate.activeChallengeElapsedSeconds:0,
+            meta.treasures,meta.treasureStockResidual,meta.treasureCredits,infinity,WIS.Meta.Infinity.dynamicTempo(candidate)?runElapsed:0]);
+          if(effectState!==candidate||effectSignature!==signature){
+            effectInterval=WIS.Simulation.CompiledContinuousPlan.createInterval(candidate);
+            effectSignature=signature;effectState=candidate;
+          }
+          return effectInterval.run(prepare);
+        }
         function* run(){
           while(remaining>epsilon){
+            if(martialBatch&&timeSegment.martialIntervals&&partitionRemaining===simulationStepSeconds&&intervalCooldown--<=0){
+              const accelerated=WIS.Simulation.MartialInterval.advance(candidate,remaining,{formal:formalMartial,checkpoint:martialCheckpoint,compensationEligible:timeSegment.compensationEligible===true});
+              for(const key of Object.keys(intervalStats))intervalStats[key]=key==='maximumBlockSteps'?Math.max(intervalStats[key],accelerated.stats[key]||0):intervalStats[key]+(accelerated.stats[key]||0);
+              if(accelerated.supported){candidate=accelerated.candidate;R.setState(candidate);E.invalidate();
+                martialCheckpoint=accelerated.checkpoint;uncertaintyShadows=null;Object.assign(WIS.tmp.rates,accelerated.rates);restoreTransient(accelerated.transient);
+                const value=accelerated.result,dt=accelerated.seconds;
+                remaining=Math.max(0,Number((remaining-dt).toPrecision(14)));result.processedSeconds+=dt;
+                for(const key of fixedKeys())result.resourceGains[key]=add(result.resourceGains[key],value.resourceGains[key]);
+                result.operations+=value.operations;result.gainedPearls=add(result.gainedPearls,value.gainedPearls);yield;continue;
+              }intervalCooldown=40;
+            }
             const boundary=findNextSimulationBoundary(candidate,remaining,{cadence,clockRatio:timeSegment.clockRatio});
-            let dt=boundary.seconds;
+            let dt=partitionReplay?Math.min(boundary.seconds,partitionRemaining):boundary.seconds;
             const covered=timeSegment.compensationEligible&&timeSegment.clockRatio>0&&C.get(candidate).balance>0;
             if(covered)dt=Math.min(dt,C.get(candidate).balance/timeSegment.clockRatio);
             const defer=!boundary.continuous&&dt+epsilon<cadence;
+            if(offlineSource&&timeSegment.martialIntervals&&martialCheckpoint&&!martialCheckpoint.disabled&&!uncertaintyShadows)uncertaintyShadows=WIS.Simulation.MartialInterval.shadows(candidate,martialCheckpoint);
             const amounts=Object.fromEntries(fixedKeys().map(k=>[k,WIS.Simulation.ResourceGroups.read(candidate,k)]));
-            const unit=C.withFactor(covered?2:1,()=>F.prepare(candidate,dt,{borrowSources:true,
-              runAchievementAutomations:defer?undefined:runAchievementAutomations,automationOpportunities:boundary.continuous?Math.max(1,Math.ceil(dt/simulationStepSeconds-1e-9)):1,offline:false}));
+            const unit=prepareCadence(dt,defer,boundary,covered);
             yield;
             // Only automation needs to retain the pre-income domain. With no
             // eligible candidates, all remaining inputs are already captured
@@ -575,6 +619,8 @@
               cadence=Math.abs(tail)<epsilon||Math.abs(tail-simulationStepSeconds)<epsilon?simulationStepSeconds:simulationStepSeconds-tail;
             }else cadence-=dt;
             candidate.core.runtime.onlineCadenceRemaining=cadence;
+            if(partitionReplay){partitionRemaining=Math.max(0,Number((partitionRemaining-dt).toPrecision(14)));if(partitionRemaining<=epsilon)partitionRemaining=simulationStepSeconds;}
+            if(uncertaintyShadows){const propagated=WIS.Simulation.MartialInterval.propagate(candidate,dt,value,uncertaintyShadows,{formal:formalMartial,checkpoint:martialCheckpoint});martialCheckpoint=propagated.checkpoint;uncertaintyShadows=propagated.states;intervalStats.realMicroSteps+=propagated.realMicroSteps;}
             result.processedSeconds+=dt;result.operations+=value.operations;
             result.gainedPearls=add(result.gainedPearls,value.gainedPearls);
             for(const k of fixedKeys())result.resourceGains[k]=add(result.resourceGains[k],value.resourceGains[k]);
@@ -583,12 +629,28 @@
           }
           result.processedSeconds=seconds;result.remainingSeconds=0;
           result.logicalTickRemaining=cadence===simulationStepSeconds?0:cadence;
+          if(martialBatch||offlineSource&&timeSegment.martialIntervals)result.evolution={stats:{...intervalStats,realMicroSteps:intervalStats.realMicroSteps+result.compatibilitySubsteps+(result.continuousSegments||0)},martialInterval:martialCheckpoint};
           return result;
         }
         const iterator=run();
         return {advance(deadline){
           if(closed)throw Error('在线结算段已失效');
           let next;
+          if(martialBatch){
+            // Keep the private candidate bound for one cooperative slice. Every
+            // generator part and 0.1s event still runs in its isolated Effects scope.
+            const before=getState(),liveRates={...WIS.tmp.rates},tick=WIS.tmp.tick,liveTransient=transients(),began=monotonicNow();
+            try{R.setState(candidate);restoreTransient(transient);WIS.tmp.tick=candidateTick;
+              R.withMathPolicy(R.MathPolicy.OFFLINE_APPROX,()=>R.withProjection(()=>R.withOfflineExecution(()=>R.withRandomSource(()=>{
+                let v=(candidate.core.runtime.randomState>>>0)||0x6d2b79f5;v^=v<<13;v^=v>>>17;v^=v<<5;candidate.core.runtime.randomState=v>>>0;return (v>>>0)/4294967296;
+              },()=>{do{next=E.withIsolatedState(candidate,()=>iterator.next());E.invalidate();}while(!next.done&&monotonicNow()<deadline);}))));
+              transient=transients();candidateTick=WIS.tmp.tick;rates={...WIS.tmp.rates};
+            }finally{restoreTransient(liveTransient);R.setState(before);WIS.tmp.tick=tick;E.invalidate();Object.assign(WIS.tmp.rates,liveRates);}
+            const cost=monotonicNow()-began;workMs+=cost;onlineMetrics.workMs+=cost;onlineMetrics.maxWorkMs=Math.max(onlineMetrics.maxWorkMs,cost);
+            if(next.done){closed=true;const token=Object.freeze({kind:'online-segment-v1',seconds});
+              onlinePrepared.set(token,{candidate,roots,result,rates,candidateTick,transient,workMs,offlineSource});return {done:true,token};}
+            return {done:false};
+          }
           do {
             const before=getState(),liveRates={...WIS.tmp.rates},tick=WIS.tmp.tick,liveTransient=transients(),began=monotonicNow();
             try{R.setState(candidate);restoreTransient(transient);WIS.tmp.tick=candidateTick;
@@ -605,6 +667,13 @@
         },close(){closed=true;}};
       }
       const fixedKeys=()=>WIS.Simulation.ResourceGroups.keys;
+      function martialOfflineSpan(seconds,intervals=false){
+        const cadence=getState().core.runtime.onlineCadenceRemaining;
+        // Interval works preserve historical 0.1-second partitions internally,
+        // including both pieces of a partial cadence. Batch the transactions,
+        // not the source sampling or automation opportunities.
+        return Math.min(seconds,(intervals||!cadence||cadence===simulationStepSeconds)&&getState().activeChallenge!=='infinityFast'?(intervals?300:20):simulationStepSeconds);
+      }
       function installOnlineSegment(token) {
         const value=onlinePrepared.get(token),state=getState();
         if(!value||value.roots.some((root,i)=>root!==[state.core,state.powerSystem,state.cultivation,state.meta][i]))throw Error('在线段起始状态已改变');
@@ -845,15 +914,15 @@
         prepareOnlineWork:createOnlineWork, findNextSimulationBoundary, onlineMetrics:()=>({...onlineMetrics}),
         restoreOnlineMetrics(point){if(point)for(const k of ['segments','gameSeconds','compatibilitySubsteps','continuousSegments'])onlineMetrics[k]=point[k];},
         planOfflineMacro(seconds,options={}) {
-          const fast=getState().activeChallenge==='infinityFast';
-          const bound=nextChallengeTimeBoundarySeconds(fast?Math.min(seconds,simulationStepSeconds):seconds);
+          const fast=getState().activeChallenge==='infinityFast', martial=getState().cultivation.active==='martial';
+          const bound=nextChallengeTimeBoundarySeconds(martial?martialOfflineSpan(seconds,options.martialIntervals!==false):fast?WIS.Meta.Infinity.rapidChallengeStepSeconds(getState(),seconds):seconds);
           const R=WIS.Core.Runtime;
           return R.withMathPolicy(R.MathPolicy.OFFLINE_APPROX,()=>WIS.Simulation.FixedSegment.planOffline(getState(),seconds,{...options,hardBoundary:bound}));
         },
         prepareFixedWork(seconds, options={}) {
-          if(getState().activeChallenge==='infinityFast')return createOnlineWork(
-            nextChallengeTimeBoundarySeconds(Math.min(seconds,simulationStepSeconds)),
-            {source:'offline',clockRatio:options.clockRatio});
+          if(getState().activeChallenge==='infinityFast'||getState().cultivation.active==='martial')return createOnlineWork(
+            nextChallengeTimeBoundarySeconds(getState().cultivation.active==='martial'?martialOfflineSpan(seconds,options.martialIntervals===true):WIS.Meta.Infinity.rapidChallengeStepSeconds(getState(),seconds)),
+            {source:'offline',clockRatio:options.clockRatio,martialIntervals:options.martialIntervals,martialCheckpoint:options.martialCheckpoint});
           return WIS.Simulation.FixedSegment.createWork(getState(),
             findNextSimulationBoundary(getState(),seconds,{source:'offline',clockRatio:options.clockRatio}).seconds,
             {offline:true,runAchievementAutomations,compiledResources:options.compiledMicro?WIS.Simulation.CompiledContinuousPlan.compile().prepareResources:null,clockRatio:options.clockRatio,sourceProfile:options.sourceProfile,mapPlan:options.mapPlan,evolutionPlan:options.evolutionPlan,

@@ -249,7 +249,8 @@
     return B.mul(B.mul(seconds, BASE_SUPER_SPEED), B.add(1, B.div(meanLog, 10)));
   }
   const treeState = state => get(state).tree || freshTree();
-  const treeUnlocked = state => WIS.Meta.Achievements.has(state, "googol") && get(state).gIndex >= 64;
+  const treeUnlocked = state => I.has(state, 'D5') && get(state).gIndex >= 1
+    || WIS.Meta.Achievements.has(state, "googol") && get(state).gIndex >= 64;
   const targetTreeRank = state => treeState(state).rank < 3 ? 3 : treeState(state).rank + 1;
   const treeSuperThresholdWork = (state, _target) => B.pow(IC.treeWork,state.activeChallenge==='trueTree3'?IC.treeChallengeExponent:1);
   const treeDecayThresholdWork = (state, _target) => B.mul(IC.treeDecayWork, treeEffect(state, "label"));
@@ -392,16 +393,18 @@
       const q = amount(state, 4);
       const oldIndex = n.gIndex;
       const startingRates = options.fixedSources ? rates(state) : null;
-      const modified = I.has(state,'D1-1') || I.has(state,'D2-1') || I.has(state,'D4') || I.rewardUnlocked(state,'trueG1') || I.rewardUnlocked(state,'trueGraham') || ['trueG1','trueGraham'].includes(state.activeChallenge);
+      const modified = I.has(state,'D1-1') || I.has(state,'D2-1') || I.has(state,'D4') || I.has(state,'D6') || I.rewardUnlocked(state,'trueG1') || I.rewardUnlocked(state,'trueGraham') || ['trueG1','trueGraham'].includes(state.activeChallenge);
+      const earlyTree=I.has(state,'D5') && oldIndex>=1;
       let crossingSeconds=seconds;
-      if(modified && oldIndex>0 && oldIndex<64){
+      if(modified && !earlyTree && oldIndex>0 && oldIndex<64){
         const probe={...n};advanceGrahamInfinity(probe,seconds,q,state,options,64);
         if(probe.gIndex>=64){let lo=0,hi=seconds;for(let j=0;j<52;j++){const mid=(lo+hi)/2,p={...n};advanceGrahamInfinity(p,mid,q,state,options,64);if(p.gIndex>=64)hi=mid;else lo=mid;}crossingSeconds=hi;}
       }
       const milestoneCrossings = modified ? advanceGrahamInfinity(n,seconds,q,state,options) : options.fixedSources
         ? advanceGrahamFixed(n, seconds, q) : advanceGraham(n, seconds, q);
       let treeSeconds = 0;
-      if (n.gIndex >= 64 && treeUnlocked(state)) {
+      if (earlyTree) treeSeconds = seconds;
+      else if (n.gIndex >= 64 && treeUnlocked(state)) {
         if (oldIndex >= 64) treeSeconds = seconds;
         else if (modified) treeSeconds=Math.max(0,seconds-crossingSeconds);
         else if (options.fixedSources) {
@@ -435,20 +438,23 @@
       B.eq(qRate,1)?exposure(q,seconds,n.beyondFractal):B.div(exposure(q,B.mul(seconds,qRate),n.beyondFractal),qRate);
     if(!B.isFiniteBN(work))throw Error('无限超分形时间无法表示');
     let available=B.add(B.div(n.superProgress,milestoneMultiplier(n.gIndex)),B.mul(work,speed));
-    const ratio=state.activeChallenge==='trueGraham'?B.pow(IC.gRequirement,IC.gChallengeCoefficient):B.BN(1);
+    let ratio=state.activeChallenge==='trueGraham'?B.pow(IC.gRequirement,IC.gChallengeCoefficient):B.ONE;
+    if(state.activeChallenge==='trueGraham'&&I.rewardUnlocked(state,'trueGraham'))ratio=B.pow(ratio,IC.gRewardExponent);
     for(const end of [...MILESTONES.filter(x=>x>n.gIndex&&x<cap),cap]){
       if(n.gIndex>=end)continue;
       const k=milestoneMultiplier(n.gIndex),req=I.gRequirement(state,n.gIndex),maxLevels=end-n.gIndex;
       const capacity=n.gIndex>=IC.gCapacityStart;
+      const rankCost=I.has(state,'D6')?gRankCost(state,n.gIndex,maxLevels,ratio):null;
       const cost=count=>{
+        if(rankCost)return B.div(rankCost(count),k);
         if(capacity&&count<=32){let exact=B.ZERO;for(let j=0;j<count;j++)exact=B.add(exact,I.gRequirement(state,n.gIndex+j));return B.div(exact,k);}
         return B.div(B.mul(req,capacity?gCapacitySum(n.gIndex,count,ratio):
           B.eq(ratio,1)?count:B.div(B.sub(B.pow(ratio,count),1),B.sub(ratio,1))),k);
       };
       let levels;
-      if(capacity){
+      if(capacity||rankCost){
         if(B.lt(available,cost(1)))levels=0;
-        else {let lo=0,hi=Math.min(maxLevels,Math.max(1,Math.floor(B.toNumber(B.div(B.mul(available,k),req),maxLevels))+1));
+        else {let lo=0,hi=Math.min(maxLevels,Math.max(1,Math.floor(B.toNumber(B.div(B.mul(available,k),rankCost?IC.gRankMinimum:req),maxLevels))+1));
           while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
           levels=lo;
         }
@@ -463,6 +469,53 @@
     }
     n.superProgress=B.mul(available,milestoneMultiplier(n.gIndex));n.superResidual=[];
     return MILESTONES.filter(g=>g>old&&g<=n.gIndex).length;
+  }
+  // On each side of G64 the old requirement is convex (geometric times
+  // quadratic). Subtracting G preserves convexity, so its floor is one interval.
+  // Find that interval lazily only for large batches; sum its two outer pieces
+  // analytically and its middle as 42 per rank. Never iterate over high G ranks.
+  function gRankCost(state,start,limit,ratio){
+    let floorRange=null;
+    const raw=g=>I.gRequirementBeforeRank(state,g);
+    const belowFloor=i=>{const polynomial=I.gRankPolynomial(state,start+i);return polynomial
+      ?B.lte(polynomial.constant,IC.gRankMinimum):B.lte(raw(start+i),B.add(start+i,IC.gRankMinimum));};
+    const ascending=i=>{
+      const g=start+i,polynomial=I.gRankPolynomial(state,g);
+      if(polynomial)return B.gte(B.add(polynomial.linear,polynomial.quadratic),0);
+      const delta=g>=IC.gCapacityStart
+        ?B.add(B.div(2,g-IC.gCapacityStart+IC.gCapacityDivisor),B.pow(B.div(1,g-IC.gCapacityStart+IC.gCapacityDivisor),2)):B.ZERO;
+      return B.gte(B.mul(raw(g),B.add(B.sub(ratio,1),B.mul(ratio,delta))),1);
+    };
+    const rawSum=(offset,count)=>{
+      if(count<=0)return B.ZERO;
+      const g=start+offset,polynomial=I.gRankPolynomial(state,g);
+      if(polynomial){
+        const pairs=B.mul(count,B.sub(count,1)),sumJ=B.div(pairs,2),sumJ2=B.div(B.mul(pairs,B.sub(B.mul(2,count),1)),6);
+        return B.add(B.add(B.mul(count,polynomial.constant),B.mul(sumJ,polynomial.linear)),B.mul(sumJ2,polynomial.quadratic));
+      }
+      const factor=g>=IC.gCapacityStart?gCapacitySum(g,count,ratio):
+        B.eq(ratio,1)?B.BN(count):B.div(B.sub(B.pow(ratio,count),1),B.sub(ratio,1));
+      const ranks=B.div(B.mul(count,B.add(B.mul(2,g),count-1)),2);
+      return B.sub(B.mul(raw(g),factor),ranks);
+    };
+    return count=>{
+      if(count<=32){let sum=B.ZERO;for(let j=0;j<count;j++)sum=B.add(sum,I.gRequirement(state,start+j));return sum;}
+      if(!floorRange){
+        let lo=0,hi=limit-1;
+        while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(ascending(mid))hi=mid;else lo=mid+1;}
+        const minimum=lo;
+        if(!belowFloor(minimum))floorRange=[limit,limit];
+        else{
+          lo=0;hi=minimum;
+          while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(belowFloor(mid))hi=mid;else lo=mid+1;}
+          const first=lo;lo=minimum;hi=limit;
+          while(lo<hi){const mid=lo+Math.floor((hi-lo)/2);if(belowFloor(mid))lo=mid+1;else hi=mid;}
+          floorRange=[first,lo];
+        }
+      }
+      const first=Math.min(count,floorRange[0]),end=Math.min(count,floorRange[1]);
+      return B.add(B.add(rawSum(0,first),B.mul(end-first,IC.gRankMinimum)),rawSum(end,count-end));
+    };
   }
   function gCapacitySum(g,count,ratio){
     if(count===0)return B.ZERO;

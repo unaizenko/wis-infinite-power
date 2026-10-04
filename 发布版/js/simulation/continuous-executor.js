@@ -46,7 +46,7 @@
     const profitable=windows.length>0&&windows.some(v=>v[0]>0)&&W.Simulation.ResourceEvolution.profitability(windows)===null;
     const kernelSupported=!W.Meta.Infinity.dynamicTempo(s)&&!!W.Core.Config.coupledKernel?.enabled&&!s.activeChallenge&&
       G().groups.every(g=>groups.includes(g.id)||g.outputs.every(k=>B.lte(profile.rates[k]||0,0)));
-    const mediumValidated=!extreme&&G().groups.every(g=>['scale','immortal','xiuzhen'].includes(g.id)||g.executionProfile?.fixedFallback===true);
+    const mediumValidated=!extreme&&G().groups.every(g=>['scale','immortal','xiuzhen'].includes(g.id)||g.id==='martial'&&s.cultivation.active!=='martial'||g.executionProfile?.fixedFallback===true);
     const result=Object.freeze({previousKind,executionSignature:executionSignature(s),strong,extreme,mediumValidated,kernelSupported,kernelBackend:W.Simulation.CoordinateCoupledKernel.supported(s)?'coordinate':'formal',advanceValidated:CoupledAdvance.validated&&kernelSupported,
       mapEligible:!!W.Core.Config.offlineHierarchy.mapEnabled&&((!!predictor?.model&&profitable)||G().groups.some(g=>g.executionProfile?.mapEligible===true&&g.outputs.some(k=>B.gt(profile.rates[k]||0,0)))),
       mapCooldown:policy.some(g=>g.cooldown>0)});
@@ -55,7 +55,7 @@
   function create(seconds,options){
     if(!Number.isFinite(seconds)||seconds<=0)throw Error('Executor 区间必须为有限正时长');
     let state,driver,selection,status='new',result,stopReason=null;
-    const label=()=>selection.kind==='opportunistic-map'?'map':selection.kind==='coupled-kernel'?'kernel':selection.kind==='coupled-advance'?'advance':'fixed';
+    const label=()=>selection.kind==='strong-feedback'?'certifiedMacro':selection.kind==='local-discrete-macro'?'localDiscreteMacro':selection.kind==='opportunistic-map'?'map':selection.kind==='coupled-kernel'?'kernel':selection.kind==='coupled-advance'?'advance':'fixed';
     const api={
       prepare(snapshot){
         if(status!=='new')throw Error('Executor 已准备');state=snapshot;
@@ -86,3 +86,5 @@
   W.Simulation.StrategySelector=Object.freeze({cache,select});
   W.Simulation.ContinuousExecutor=Object.freeze({create});
 })(window.WIS);
+
+

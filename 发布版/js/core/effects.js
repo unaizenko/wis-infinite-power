@@ -429,10 +429,10 @@
   // Private interval state: providers/constant descriptors are compiled once.
   // Each resource step invalidates all stock-dependent buckets, preserving
   // descriptor order and the normal value/product/group arithmetic.
-  function compileInterval(state, {dynamicResources=["joules","power"],fast=false}={}) {
+  function compileInterval(state, {dynamicResources=["joules","power"],fast=false,refreshProviders=false}={}) {
     let compiled;
     withFrozenState(state,()=>{compiled=ensureSnapshot(state);});
-    if(compiled.all.some(effect=>effect.requiresProviderRefresh||(effect.dynamicResources||[]).some(k=>dynamicResources.includes(k)&&!(k==='immortalPower'&&effect.celestialFiveDecline))&&typeof(effect.valueAt||effect._valueProvider)!=='function')){
+    if(!refreshProviders&&compiled.all.some(effect=>effect.requiresProviderRefresh||(effect.dynamicResources||[]).some(k=>dynamicResources.includes(k)&&!(k==='immortalPower'&&effect.celestialFiveDecline))&&typeof(effect.valueAt||effect._valueProvider)!=='function')){
       // Metadata without a reusable dynamic function is still correct: rebuild
       // the real provider each micro-step instead of freezing its numeric value.
       return Object.freeze({compiled:false,run:(callback,memo)=>withFrozenState(state,callback,memo)});

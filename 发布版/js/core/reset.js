@@ -43,10 +43,19 @@
     return profiles.get(id) || null;
   }
 
+  function preservesContent(id,state) {
+    return ["scatter","reincarnation","infinity"].includes(id) && WIS.Meta.Achievements.has(state,"eternalWitness");
+  }
   function apply(id, currentState, createFreshState, { context = {}, overrides = {} } = {}) {
     const profile = profiles.get(id);
     if (!profile) throw new Error(`未注册重置配置：${id}`);
     const currentDomain = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(currentState));
+    if (preservesContent(id,currentDomain) && !(id==="infinity"&&context.infinityChallenge===true)) {
+      Object.entries(overrides).forEach(([key,value])=>{
+        if(key.includes("."))setPath(currentDomain,key,value);else currentDomain[key]=clone(value);
+      });
+      return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(currentDomain));
+    }
     const freshDomain = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(createFreshState()));
     const current = WIS.Core.State.toFlat(currentDomain);
     const fresh = WIS.Core.State.toFlat(freshDomain);
@@ -88,6 +97,9 @@
       else result[key] = clone(value);
     });
     WIS.Cultivation.Xiuzhen?.reset(result, currentDomain, id, overrides.activeChallenge);
+    // Every rebirth rebuilds the four temporary balances and purchased martial
+    // abilities; permanent qualifications remain in the preserved meta branch.
+    if (profile.rebirthLevel) result.cultivation.systems.martial = WIS.Cultivation.Martial.fresh();
     return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(result));
   }
 
@@ -154,8 +166,8 @@
     rebirthLevel: REBIRTH_LEVEL.INFINITE,
     rebirthType: "infinite",
     preserve: metaAndStatistics.filter(key => !["treasureImprints", "challengeCompletions", "bestQiLayer"].includes(key)),
-    preservePaths: ["meta.infinity", "powerSystem.systems.scale.history", "cultivation.systems.immortal.history"]
+    preservePaths: ["meta.infinity", "meta.martialQualifications", "powerSystem.systems.scale.history", "cultivation.systems.immortal.history"]
   });
 
-  WIS.Core.Reset = Object.freeze({ REBIRTH_LEVEL, register, describe, apply });
+  WIS.Core.Reset = Object.freeze({ REBIRTH_LEVEL, register, describe, apply, preservesContent });
 }(window.WIS));
