@@ -142,7 +142,7 @@ button { font: inherit; }
   min-height: calc(100vh - 98px);
   display: grid;
   grid-template-columns: 164px minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
     "sidebar resources"
     "sidebar main";

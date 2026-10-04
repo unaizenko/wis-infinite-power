@@ -1,6 +1,6 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.0，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.7.1，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,9 +22,9 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.0` | 玩家可见发布版本 |
+| gameVersion | `0.1.7.1` | 玩家可见发布版本 |
 | schemaVersion | `71` | Save envelope/State schema |
-| buildId | `dev-0.1.7.0-20261004-martial` | 开发构建与静态缓存标识 |
+| buildId | `dev-0.1.7.1-20261004` | 开发构建与静态缓存标识 |
 | settlementRuleVersion | `1` | 持久化固定结算规则版本 |
 
 Build mode 为 development，调速和公式详情入口开启。
