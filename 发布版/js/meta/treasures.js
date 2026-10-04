@@ -143,7 +143,7 @@
     }
     return B.max(ZERO, sum.mul(factor));
   }
-  function affordable(key, n, progress, award) {
+  function affordableEstimate(key, n, progress, award) {
     const p = nonnegative(progress), r = rules[key], a = BN(award), first = requirement(key, n);
     if (p.lt(first)) return ZERO;
     let estimate;
@@ -155,7 +155,12 @@
       const v = p.mul(a).mul(e).div(BN(r.base).div(BN(r.scale).pow(r.exponent))).div(z.pow(e));
       estimate = z.mul(expm1(log1p(v).div(e))).div(a).floor();
     }
-    estimate = B.max(1, estimate);
+    return B.max(1, estimate);
+  }
+  function affordable(key, n, progress, award) {
+    const p = nonnegative(progress), a = BN(award);
+    let estimate = affordableEstimate(key, n, p, a);
+    if (!estimate.gt(0)) return ZERO;
     for (let i = 0; i < 12; i++) {
       const {cost,next,nextCost} = rewardBoundary(key,n,estimate,a);
       if (cost.gt(p)) {
@@ -698,7 +703,7 @@
       }};
   }
   const Recovery=Object.freeze({needed:needsRecovery,create:createRecovery});
-  WIS.Meta.TreasureProgress = Object.freeze({ rules, explorationKeys, requirement, effectiveRequirement, requirementDivisor, cumulative, affordable, unitGain,
+  WIS.Meta.TreasureProgress = Object.freeze({ rules, explorationKeys, requirement, effectiveRequirement, requirementDivisor, cumulative, affordable, affordableEstimate, unitGain,
     Recovery, Pending, receipt, ledgerSummary, ensure, advance, advanceFixed, hasUnsettled, settle, qualification, rememberQualifications, importLegacyTransient, view, boundarySnapshot,
     diagnostics:state=>({evaluations:{...evaluatedEvents},committed:state.meta.treasureDiagnostics||null}) });
 }(window.WIS));

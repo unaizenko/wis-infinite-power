@@ -1,6 +1,6 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.1，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.7.2，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,12 +22,12 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.1` | 玩家可见发布版本 |
+| gameVersion | `0.1.7.2` | 玩家可见发布版本 |
 | schemaVersion | `71` | Save envelope/State schema |
-| buildId | `dev-0.1.7.1-20261004` | 开发构建与静态缓存标识 |
+| buildId | `release-0.1.7.2-20261004` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `1` | 持久化固定结算规则版本 |
 
-Build mode 为 development，调速和公式详情入口开启。
+Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
 
 ## 3. 脚本装配
 
@@ -250,7 +250,7 @@ hold 中间不计算 Preview，只保持 dirty；释放/取消后最多一次最
 
 - `meta/treasure-rules.js` 是 requirement / compatibility chance 参数权威来源；
 - `treasure-ledger.js` 负责状态适配和兼容数学 API；
-- Treasure `high-geometric-batch` / precision-limited / pending 等保持当前语义；
+- Treasure `high-geometric-batch` / `high-power-batch` / precision-limited / pending 等保持当前语义；
 - BigNumbers 正式进度/里程碑在 `meta/big-numbers.js`；普通 progress 可以批量，但改变规则的事件仍由正式外围结算语义决定。
 
 不要把 Treasure progress 机制解释成真实掉落概率。

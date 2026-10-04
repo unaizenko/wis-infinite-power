@@ -186,7 +186,7 @@
       }
       const previousAchievements=context.achievementStates?.();
       const sliceStartedAt=monotonicNow();
-      let progressed=false,hitOfflineBarrier=false,blocked=false,steps=0;
+      let progressed=false,hitOfflineBarrier=false,blocked=false,treasureRecoveryRequired=false,steps=0;
       stepping=true;context.beginTransaction?.();
       try {
         if(manualQi)progressed=advanceManualQi();
@@ -226,7 +226,7 @@
             blocked=true;break;
           }
           if(!(processed>0)){
-            if(result?.treasureRecoveryRequired)offline.queueCatchUpNotice(0,0);
+            treasureRecoveryRequired=result?.treasureRecoveryRequired===true;
             blocked=true;break;
           }
           progressed=true;steps++;
@@ -250,6 +250,13 @@
         // prepareSave may record elapsed time, but cannot reenter this step loop.
         const rates={...WIS.tmp.rates};
         try{context.endTransaction?.();}finally{Object.assign(WIS.tmp.rates,rates);stepping=false;}
+      }
+      // Recovery needs an actual FIFO task. A zero-time notice alone cannot
+      // own the pending online clock. Hand off only after the atomic step and
+      // deferred-save transaction have returned; preserve source and precision.
+      if(treasureRecoveryRequired){
+        handoffPendingRecovery();
+        offline.queueCatchUpNotice(0,0);
       }
       const needsContinuation=!hitOfflineBarrier&&!blocked&&hasRunnableOnlineWork(flush);
       return {progressed,blocked,needsContinuation,hitOfflineBarrier,steps};

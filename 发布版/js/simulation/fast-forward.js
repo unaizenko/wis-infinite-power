@@ -320,12 +320,24 @@ function create(){
   function inverse(key,n,p,a){count('bulk.inverseRequests');if(!BN(p).gt(0)){count('bulk.zeroProgress');return ZERO;}
     const id=[key,String(n),String(p),String(a)].join('|');
     if(inverses.has(id)){count('bulk.inverseReused');return inverses.get(id);}
-    const result=timed('bulk.inverse',()=>{const c=context(key,a),logD=c.k.mul(n).add(c.logBase),logP=BN(p).ln();
+    const result=timed('bulk.inverse',()=>{
+      // Use the ordinary power-law inverse; only high-count boundary handling
+      // differs. A power demand must never pass through geometric q.
+      if(P.rules[key].type==='power')return P.affordableEstimate(key,n,p,a);
+      const c=context(key,a),logD=c.k.mul(n).add(c.logBase),logP=BN(p).ln();
       return logP.lt(logD)?ZERO:logAddOneExp(logP.sub(logD).add(c.logDen)).div(c.step).floor();});
     if(inverses.size>=4096)inverses.delete(inverses.keys().next().value);inverses.set(id,result);return result;
   }
-  function logCost(key,n,m,a){const c=context(key,a),z=c.step.mul(m);
+  function logCost(key,n,m,a){
+    if(P.rules[key].type==='power')return P.cumulative(key,n,m,a).ln();
+    const c=context(key,a),z=c.step.mul(m);
     return c.logBase.add(c.k.mul(n)).add(z.gt(40)?z.add(ONE.sub(z.neg().exp()).ln()):z.exp().sub(1).ln()).sub(c.logDen);}
+  function capLevel(key,g,a){
+    const r=P.rules[key];
+    if(r.type==='power')return BN(g).div(r.base).pow(1/r.exponent).sub(1).mul(r.scale);
+    const c=context(key,a);return BN(g).ln().sub(c.logBase).div(c.k);
+  }
+  const batchCode=key=>P.rules[key].type==='power'?'high-power-batch':'high-geometric-batch';
   function unresolvable(m){return m.gt(0)&&(m.add(1).eq(m)||m.sub(1).eq(m));}
   function uncertainBounds(m){const {nextUp,nextDown}=require('../precision-analysis');let lo=m.mag,hi=m.mag;
     // Representation sensitivity, not a rigorous bound on the whole game chain.
@@ -340,7 +352,7 @@ function create(){
       unresolvedRemainderUpper:String(B.add(old.unresolvedRemainderUpper||0,receipt.remainderUpper||0)),
       boundScope:'16-coordinate-ulp representation sensitivity only; NOT a certified mathematical reward/remainder bound',
       policy:'close-high-inverse-once; known low words retained; unknown phase projected to lower bound 0, NOT exact zero',last:P.receipt(receipt)};
-    state.meta.treasureProgressStatus[key]={state:'approximate',code:'high-geometric-batch',
+    state.meta.treasureProgressStatus[key]={state:'approximate',code:batchCode(key),
       message:'高数量近似奖励已入库；不可分辨余量以区间记录，非精确归零；误差预算不是待发奖励',approximation};
   }
   // Coalesce only adjacent sources with identical saved gain/award. Exact
@@ -354,7 +366,7 @@ function create(){
     if(unresolvable(inverse(key,n,p,L.project(entries[0]?.award??a))))return true;
     for(const e of entries){const u=L.value(e.units),g=L.project(e.gain),award=L.project(e.award??a),d=P.requirement(key,n);
       if(g.gte(d)){
-        const cap=context(key,award),capM=g.ln().sub(cap.logBase).div(cap.k).sub(n).div(award).floor().add(1);
+        const capM=capLevel(key,g,award).sub(n).div(award).floor().add(1);
         if(unresolvable(B.min(u,capM)))return true;
       }
       if(unresolvable(inverse(key,n,p.add(u.mul(g)),award)))return true;
@@ -363,7 +375,7 @@ function create(){
   }
   function* steps(s,key,units,gain,original,fixedAward){
     const oldStatus=s.meta.treasureProgressStatus[key];
-    if(P.rules[key].type!=='exponential'||!(yield* sourcePotential(s,key,units,gain,fixedAward))){
+    if(!(yield* sourcePotential(s,key,units,gain,fixedAward))){
       const value=original(),result=value?.next?yield* value:value;
       if(oldStatus?.approximation&&!s.meta.treasureProgressStatus[key]?.approximation)
         s.meta.treasureProgressStatus[key]={...(s.meta.treasureProgressStatus[key]||oldStatus),approximation:oldStatus.approximation};
@@ -380,7 +392,7 @@ function create(){
       // A successful replay replaces the old transient blockage, while earlier
       // approximation receipts remain attached to the same ledger.
       if(oldStatus?.state==='blocked')s.meta.treasureProgressStatus[key]=oldStatus.approximation
-        ? {...oldStatus,state:'approximate',code:'high-geometric-batch'} : null;
+        ? {...oldStatus,state:'approximate',code:batchCode(key)} : null;
       const grant=m=>{const delta=L.scale([m],a);stock=L.add(stock,delta);rewards=L.add(rewards,delta);};
       function* settle(){
         if(L.sign(p)<=0)return;const n=L.value(stock).floor(),pv=L.value(p),m=inverse(key,n,pv,a);
@@ -458,7 +470,7 @@ function create(){
         // Source-unit cap: first consume event credits only until the current
         // formula's cap transition. Do NOT apply an uncapped geometric sum to
         // this part. Reward multiplier changes the next inventory by A each time.
-        const c=context(key,a),capN=g.ln().sub(c.logBase).div(c.k),capM=B.max(0,capN.sub(n).div(a).floor().add(1));
+        const capN=capLevel(key,g,a),capM=B.max(0,capN.sub(n).div(a).floor().add(1));
         let credits,retained=[];
         try {credits=L.add(L.scale(p,ONE.div(d)),input.units);}
         catch(error){
