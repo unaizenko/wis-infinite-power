@@ -5,6 +5,7 @@
   function create(initial,host) {
     const S=WIS.Core.State,R=WIS.Core.Runtime,I=WIS.Cultivation.ImmortalLogic,A=WIS.Meta.Achievements,Scale=WIS.Power.ScaleLogic;
     let state=S.cloneForSimulation(initial.domain),offline;
+    const maximumOfflineSpan=Number.isFinite(host.maxOfflineSegmentSeconds)&&host.maxOfflineSegmentSeconds>0?host.maxOfflineSegmentSeconds:Infinity;
     const noop=()=>{},setState=next=>{state=next;WIS.Core.Effects.invalidate();};
     const statistics=()=>S.updateLifetimeStatistics(R.getState(),I.cultivationRealmLevel());
     const resetTransient=()=>{WIS.Power.Scale.resetTransient();WIS.Cultivation.Immortal.resetTransient();};
@@ -36,7 +37,9 @@
       recordCurrentAchievements:A.recordCurrent,markAchievementsDirty:noop,markCostGroupsDirty:noop,
       checkActiveChallengeCompletion:WIS.Meta.Challenges.checkActiveChallengeCompletion,autoBreakthroughImmortalRealms:I.autoBreakthroughImmortalRealms,
       runAchievementAutomations:automation.runAchievementAutomations,showScaleNotice:noop,scaleRequirement:Scale.scaleRequirement});
-    offline=WIS.Simulation.Offline.create({...common,...step,useWorker:false,achievementStates:A.states,recordCurrentAchievements:A.recordCurrent,
+    offline=WIS.Simulation.Offline.create({...common,...step,useWorker:false,
+      planOfflineMacro:(seconds,options)=>step.planOfflineMacro(Math.min(seconds,maximumOfflineSpan),options),
+      achievementStates:A.states,recordCurrentAchievements:A.recordCurrent,
       notifyNewAchievements:noop,markAchievementsDirty:noop,showNotice:noop,requestRender:noop,
       formatElapsedTime:WIS.UI.Format.elapsedTime,format:WIS.UI.Format.number,resetOnlineAccumulators:noop,
       checkpoint:()=>host.checkpoint(),checkpointIntervalMs:100,yieldToHost:()=>host.yield(),snapshotState:snapshot,restoreState:restore,

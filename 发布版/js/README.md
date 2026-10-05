@@ -1,6 +1,6 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.4，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.7.5，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,9 +22,9 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.4` | 玩家可见发布版本 |
+| gameVersion | `0.1.7.5` | 玩家可见发布版本 |
 | schemaVersion | `71` | Save envelope/State schema |
-| buildId | `release-0.1.7.4-20261005` | 发布构建与静态缓存标识 |
+| buildId | `release-0.1.7.5-20261005` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `1` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
@@ -360,3 +360,5 @@ G64 后需求与 TREE/D4 规则由 `meta/infinity-config.js` 和 `meta/infinity.
 武道模块：cultivation/martial-config、martial、martial-system 为配置/领域/注册；ui/martial 为原框架子界面；simulation/martial-interval 仅处理武道离线区间。非武道执行器允许休眠武道，活跃武道保留离散路径。兼容说明见 ../docs/martial-sync-20261004.md。
 
 武道离线高值区间（2026-10-05）：martial-interval 对 layer 0/1 使用可表示的 log1p 坐标，不再用 1e300 拒绝；更高层仍由结构签名监测实际变化。只有正式探测确认没有可表示支出时，高值 J/战力才采用归一化收入外推；Y 复用 BigNumbers.prepare 的实际采样相位。其他状态仍需粗细步、累计误差、下游扰动与事件检查；失败缩短或回放。Y 新增收益误差的 origin 随现有 version2 区间检查点保存，旧记录兼容。正式在线路径不使用此模块。
+
+慢设备Worker重试：offline-worker-entry将第1/2次重试的离线规划跨度上限设为30/3秒，offline-headless在正式planner入口使用该上限。普通Worker无此限制；不修改在线桥接或现有停滞保护。上限是当前Worker的宿主调度选项，不是资源或持久字段。

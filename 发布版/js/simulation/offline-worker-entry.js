@@ -33,7 +33,11 @@
     void(async()=>{
       if(message.protocol!==1||message.build!==WIS.Core.Build.buildId)throw Error('离线线程版本不匹配');
       const initial=P.decode(message.payload);
-      engine=WIS.Simulation.OfflineHeadless.create(initial.snapshot,{checkpoint(){dirty=true;},async yield(){await flush();await hostYield();}});
+      // A healthy but slow candidate may exceed the no-commit watchdog. Retry
+      // the same confirmed state with smaller atomic spans, not the same work.
+      // Keep this cap for this Worker lifetime even after retries reset on commit.
+      const retrySpan=message.retries>0?WIS.Core.Config.offlineHierarchy.macroMaxSeconds/Math.pow(10,Math.min(2,message.retries)):null;
+      engine=WIS.Simulation.OfflineHeadless.create(initial.snapshot,{maxOfflineSegmentSeconds:retrySpan,checkpoint(){dirty=true;},async yield(){await flush();await hostYield();}});
       if(initial.confirmed)WIS.Simulation.FixedSegment.restoreConfirmed(initial.confirmed);
       if(initial.onlineConfirmed)engine.step.restoreOnlineMetrics(initial.onlineConfirmed);
       if(initial.tick!=null)WIS.tmp.tick=initial.tick;
