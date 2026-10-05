@@ -60,10 +60,13 @@
       });
       const innate=el("p","能力·涅力：突破空涅自动获得。每秒产出（当前元力 / 1e16）^0.25 涅力；灵神、神融天地进一步提升产出。","big-number-note");
       innate.id="xiuzhen-innate-nie"; $("xiuzhen-ability-group-7").prepend(innate);
-      const origin=el("article","","item-row"); origin.id="xiuzhen-origin-treasure";origin.dataset.catalogSystem="仙道";
+      const origin=el("article","","item-row treasure-card"); origin.id="xiuzhen-origin-treasure";origin.dataset.catalogSystem="仙道";
       const originContent=el("div","","item-content");
-      originContent.append(el("h2","烙印·本源"),el("p","每实际获得1e5涅力积累1点进度；每次获取需求为100×3^持有数。本源真身使进度×3。"));
-      const originStatus=el("p");originStatus.id="xiuzhen-origin-status";originContent.append(originStatus);origin.append(originContent);
+      const originTitle=el("h2","烙印·本源"),originCount=el("span");originCount.id="xiuzhen-origin-count";
+      originTitle.append(" ",originCount);
+      const originEffect=el("div","","treasure-effect");originEffect.id="xiuzhen-origin-effect";
+      const originStatus=el("div","","treasure-acquisition");originStatus.id="xiuzhen-origin-status";
+      originContent.append(originTitle,originEffect,originStatus);origin.append(originContent);
       $("treasure-list").querySelector('[data-catalog-system-group="仙道"] > .item-list').append(origin);
       for (const [key, description, reward] of [
         ["mortalTransformation", "禁用探寻及已获得的仙道能力、倍率、指数和特殊效果，保留吐纳、其他法力来源及炼气道基础突破，重新抵达炼气道·化神。", "可突破修真道·化神"],
@@ -143,8 +146,9 @@
       $("xiuzhen-origin-treasure").hidden=!X.has(s,"virtualOrigin") && !B.gt(count,0);
       if (!$("xiuzhen-origin-treasure").hidden) {
         const info=WIS.Meta.TreasureProgress.view(s,"originImprint");
-        $("xiuzhen-origin-status").textContent=`持有 ${f(count)} · N获取 ×${f(B.pow(B.add(1,count),.25))}（需虚本源生效）
-${WIS.UI.Treasures.acquisition("originImprint",info,context.format)}`;
+        $("xiuzhen-origin-count").textContent=`×${f(count)}`;
+        $("xiuzhen-origin-effect").textContent=`N获取 ×${f(B.pow(B.add(1,count),.25))}（需虚本源生效）`;
+        $("xiuzhen-origin-status").textContent=WIS.UI.Treasures.acquisition("originImprint",info,context.format);
       }
     }
     return { bind, render, renderChallenges, renderTreasures };

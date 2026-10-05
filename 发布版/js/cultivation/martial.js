@@ -261,17 +261,38 @@
     if (lv(s,"shenDao")) result.push(effect("shenDao","ghostBrain",abilityMultiplier(s,"shenDao"),"sourceMultiplier"));
     return result;
   }
-  function heartRequirement(stage) {
+  function computeHeartRequirement(stage) {
     const name = typeof stage === "string" ? stage : stage?.name || "";
     for (const [label,value] of Object.entries(C.heartThresholds)) if (name.includes(label)) return B.BN(value);
     let threshold = typeof stage === "number" || B.isDecimal(stage) ? stage : stage?.power ?? stage?.threshold ?? stage?.requirement ?? stage?.start ?? stage?.startPower;
     if (threshold == null && WIS.Core.Config?.softcaps) threshold = WIS.Core.Config.softcaps.find(x => x.name === name)?.power;
     return threshold == null ? B.BN(1000) : B.mul(1000,B.pow(B.div(nonnegative(threshold),"3.033e15"),.25));
   }
+  // Only immutable configuration inputs are shared across states. Custom
+  // stages and the coordinate arithmetic backend retain their original path.
+  const configuredHeartRequirements = new Map((WIS.Core.Config?.softcaps || []).map(stage =>
+    [stage,Object.freeze(computeHeartRequirement(stage))]));
+  function heartRequirement(stage) {
+    const constant = !B.coordinateArithmetic.active() && configuredHeartRequirements.get(stage);
+    return constant ? new B.Decimal(constant) : computeHeartRequirement(stage);
+  }
+  function heartWeight(s,stage) {
+    const calculate = () => { const req = heartRequirement(stage);
+      return B.eq(req,0) ? B.ONE : B.min(1,B.sqrt(B.div(amount(s,"heart"),req))); };
+    const memo = configuredHeartRequirements.has(stage) && WIS.Core.Effects?.scopeMemo(s);
+    if (!memo) return calculate();
+    // Weight depends on this frozen candidate's heart amount, not on the
+    // resource being softened or its base exponent. Never retain it past scope.
+    const key = B.coordinateArithmetic.active() ? "martial.heartWeights.coordinate" : "martial.heartWeights";
+    if (!memo.has(key)) memo.set(key,new Map());
+    const weights = memo.get(key);
+    if (!weights.has(stage)) weights.set(stage,calculate());
+    return weights.get(stage);
+  }
   function heartExponent(s,stage,exponent) {
     const e = nonnegative(exponent,1);
     if (!active(s) || challenge(s) === "martialStealHeaven") return e;
-    const req = heartRequirement(stage), w = B.eq(req,0) ? B.ONE : B.min(1,B.sqrt(B.div(amount(s,"heart"),req)));
+    const w = heartWeight(s,stage);
     return B.add(e,B.mul(B.sub(1,e),w));
   }
   function automaticUnlocked(s,key) {

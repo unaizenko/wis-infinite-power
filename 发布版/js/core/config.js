@@ -108,7 +108,7 @@
     martialStealHeaven: Object.freeze({ name:"盗天机", system:"martial", catalogSystem:"武道", martialPrerequisite:"stealHeaven", maxCompletions:1, targetMartialHeart:30, resourceName:"关闭全部心对普通J/战力软上限的解除与弱化", rewardDescription:"依据当前心指数提升气、体获取，指数渐近上限1.15；解锁自动炼心" }),
     martialIntentQi: Object.freeze({ name:"意与气合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialQi:100, targetMartialJ:1e9, resourceName:"禁用气的独立J来源", rewardDescription:"气的独立J来源×3；完成成就·内三合的条件之一" }),
     martialHeartIntent: Object.freeze({ name:"心与意合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialHeart:40, resourceName:"心转换效率×0.5", rewardDescription:"心转换效率×2；完成成就·内三合的条件之一" }),
-    martialQiPower: Object.freeze({ name:"气与力合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialQi:200, targetMartialBody:200, targetMartialJ:4.184e9, targetMartialPower:4.184e8, martialRatioTolerance:.5, resourceName:"按J/10与战力的对数差压低领先侧气或体获取，最低×0.1", rewardDescription:"完成成就·内三合的条件之一" }),
+    martialQiPower: Object.freeze({ name:"气与力合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialQi:200, targetMartialBody:200, targetMartialJ:4.184e9, targetMartialPower:4.184e8, resourceName:"按J/10与战力的对数差压低领先侧气或体获取，最低×0.1", rewardDescription:"完成成就·内三合的条件之一" }),
     martialMeridians: Object.freeze({ name:"任督二脉", system:"martial", catalogSystem:"武道", martialPrerequisite:"innate", maxCompletions:1, targetMartialQi:500, targetMartialBody:500, targetMartialHeart:120, resourceName:"内功仅有1槽", rewardDescription:"内功槽位+2；获得成就·先天，气获取×2" }),
     ...WIS.Meta.InfinityConfig.challenges,
     mortalTransformation: Object.freeze({ name: "化凡", maxCompletions: 1, targetAdvancedRealmLevel: 2,
@@ -170,7 +170,7 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.7.3", saveVersion: 71,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.7.4", saveVersion: 71,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
