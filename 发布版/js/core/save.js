@@ -11,17 +11,27 @@
   // Last storage value acknowledged by this page, independent of game progress.
   // A stale/background page must not replace a save written by another page.
   let acknowledgedText;
-  function assertStorageUnchanged() {
+  function assertStorageUnchanged(expected = acknowledgedText) {
     const current = localStorage.getItem(storageKey());
-    if (acknowledgedText !== undefined && current !== acknowledgedText) {
+    if (expected !== undefined && current !== expected) {
       const error = Error("另一游戏页面已更新或移除了本地存档，本页面已停止覆盖保存。请先导出需要保留的进度，再重新打开游戏。");
       error.code = "SAVE_CONFLICT";
       throw error;
     }
+    return current;
   }
-  function persistText(text) {
-    assertStorageUnchanged();
+  function persistText(text, snapshot) {
+    const receipt = snapshot?.transaction;
+    if (receipt && !receipt.active) throw Error("存储事务已结束");
+    const beforeText = assertStorageUnchanged();
     localStorage.setItem(storageKey(), text);
+    // A failed setItem owns no disk write. Explicit receipts are scoped to the
+    // import/rebirth save and never follow subsequent ordinary saves.
+    if (receipt) {
+      if (!receipt.written) receipt.beforeText = beforeText;
+      receipt.written = true;
+      receipt.text = text;
+    }
     acknowledgedText = text;
   }
   // Runtime-only persistence status. Only a successful storage write clears it.
@@ -145,15 +155,49 @@
       throw error;
     }
   }
-  function storageSnapshot() { return { text: localStorage.getItem(storageKey()), loadError, saveStatus:{...saveStatus} }; }
+  function storageSnapshot({ transaction = false } = {}) {
+    return { text: localStorage.getItem(storageKey()), acknowledgedText, loadError, saveStatus:{...saveStatus},
+      ...(transaction ? { transaction: { active: true, written: false } } : {}) };
+  }
+  function finishStorageTransaction(snapshot) {
+    if (snapshot?.transaction) snapshot.transaction.active = false;
+  }
   function restoreStorage(snapshot) {
-    assertStorageUnchanged();
-    if (snapshot.text === null) localStorage.removeItem(storageKey());
-    else localStorage.setItem(storageKey(), snapshot.text);
-    acknowledgedText = snapshot.text;
+    const receipt = snapshot.transaction;
+    if (receipt && !receipt.active) return false;
     loadError = snapshot.loadError;
     saveStatus = snapshot.saveStatus ? {...snapshot.saveStatus} : {unsaved:false,message:"",revision:saveStatus.revision};
-    publishStatus();
+    try {
+      if (receipt && !receipt.written) {
+        // No successful transaction write: restore page authority only, never
+        // write the earlier disk snapshot over another page's newer save.
+        acknowledgedText = snapshot.acknowledgedText;
+        assertStorageUnchanged();
+        assertStorageUnchanged(snapshot.text);
+      } else {
+        assertStorageUnchanged(receipt ? receipt.text : acknowledgedText);
+        const text = receipt ? receipt.beforeText : snapshot.text;
+        if (text === null) localStorage.removeItem(storageKey());
+        else localStorage.setItem(storageKey(), text);
+        acknowledgedText = text;
+      }
+      publishStatus();
+      return true;
+    } catch (error) {
+      noteFailure(error, "原进度已恢复到内存，但本地存档恢复失败，存在未保存进度。请勿刷新或关闭页面。");
+      throw error;
+    } finally {
+      finishStorageTransaction(snapshot);
+    }
+  }
+  function acceptLoaded(snapshot) {
+    if (snapshot?.transaction) {
+      assertStorageUnchanged();
+      assertStorageUnchanged(snapshot.text);
+    }
+    acknowledgedText = localStorage.getItem(storageKey());
+    loadError = null;
+    resetStatus();
   }
   function backup(state, options = {}) {
     const saved = WIS.Core.State.cloneForSimulation(state);
@@ -184,7 +228,7 @@
   }
   function writeSnapshot(state, options) {
     if (loadError) throw Error("原存档读取失败，自动保存已停用：" + loadError);
-    persistText(JSON.stringify(envelope(state, false, options)));
+    persistText(JSON.stringify(envelope(state, false, options)), options?.storageTransaction);
   }
 
   // Only the version-checked offline Worker coordinator calls this boundary.
@@ -277,5 +321,5 @@
     return parsed?.data ?? parsed;
   }
 
-  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, backup, backupKey, storageSnapshot, restoreStorage, persistLive, getLoadError: () => loadError, acceptLoaded: () => { acknowledgedText = localStorage.getItem(storageKey()); loadError = null; resetStatus(); }, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
+  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
 }(window.WIS));

@@ -610,6 +610,16 @@
         publishCatchUpStatus();return task;
       }
 
+      function onlineBridgeSeconds(task) {
+        const limit=pendingCatchUpSeconds>2?CONFIG.fixedSettlement.onlineBacklogSeconds:CONFIG.fixedSettlement.onlineSeconds;
+        // A task end is a real source/speed/compensation boundary. Only the
+        // scheduler's internal bridge ends move to an existing cadence edge.
+        if(task.remainingGameSeconds<=limit)return task.remainingGameSeconds;
+        const cadence=task.logicalTickRemaining>epsilon?task.logicalTickRemaining:
+          getState().core.runtime.onlineCadenceRemaining>epsilon?getState().core.runtime.onlineCadenceRemaining:simulationStepSeconds;
+        return cadence+Math.max(0,Math.floor((limit-cadence+epsilon)/simulationStepSeconds))*simulationStepSeconds;
+      }
+
       function prepareQueueHead() {
         const task=catchUpTasks[0];if(!task)return false;
         // Offline queue records are debt, not event opportunities. Adjacent
@@ -1249,13 +1259,14 @@
               // but preserve its already committed partial-tick position.
               const bridgeSeconds = Math.min(task.remainingGameSeconds, task.source === "offline"
                 ? (task.macroPlan ||= planOfflineMacro(task)).seconds
-                : context.prepareOnlineWork&&task.randomMode==="state" ? (pendingCatchUpSeconds>2?CONFIG.fixedSettlement.onlineBacklogSeconds:CONFIG.fixedSettlement.onlineSeconds)
+                : context.prepareOnlineWork&&task.randomMode==="state" ? onlineBridgeSeconds(task)
                 : task.logicalTickRemaining > epsilon ? task.logicalTickRemaining : simulationStepSeconds);
               if (!(bridgeSeconds > epsilon)) { catchUpTasks.shift(); continue; }
               if(task.source==='online'&&context.prepareOnlineWork&&task.randomMode==='state'){
                 try{
                   task.onlineWork ||= context.prepareOnlineWork(bridgeSeconds,{source:'online',compensationEligible:task.compensationEligible,
-                    clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,logicalTickRemaining:task.logicalTickRemaining});
+                    clockRatio:task.remainingClockSeconds>0?1/task.speed:0,logicalTickRemaining:task.logicalTickRemaining,
+                    queueClockSeconds:task.remainingClockSeconds,queueSpeed:task.speed,cadenceEnd:bridgeSeconds<task.remainingGameSeconds});
                   const work=task.onlineWork.advance(frameStartedAt+frameBudgetMs);
                   if(!work.done){planningYieldRequested=true;break;}
                   task.onlineToken=work.token;task.onlineWork=null;
@@ -1364,7 +1375,9 @@
                   const clockRatio = task.currentOuterStepGameSeconds > 0
                     ? task.currentOuterStepClockSeconds / task.currentOuterStepGameSeconds
                     : 0;
-                  const acceptedClockSeconds = Math.min(task.currentClockRemaining, acceptedSeconds * clockRatio);
+                  const queuedClock=result.queueRemainingClockSeconds;
+                  const acceptedClockSeconds = queuedClock!==undefined?task.remainingClockSeconds-queuedClock:
+                    Math.min(task.currentClockRemaining, acceptedSeconds * clockRatio);
                   if(!result.clockCommitted)getState().totalElapsedSeconds += acceptedClockSeconds;
                   if (!getState().unlockedAchievements?.trainingUp &&
                       getState().totalElapsedSeconds >= 600 && recordCurrentAchievements()) {
@@ -1373,8 +1386,8 @@
                   }
                   task.currentStepRemaining = Math.max(0, task.currentStepRemaining - acceptedSeconds);
                   task.currentClockRemaining = Math.max(0, task.currentClockRemaining - acceptedClockSeconds);
-                  task.remainingGameSeconds = subtractFixedTime(task.remainingGameSeconds, acceptedSeconds);
-                  task.remainingClockSeconds = subtractFixedTime(task.remainingClockSeconds, acceptedClockSeconds);
+                  task.remainingGameSeconds = queuedClock!==undefined?queuedClock*task.speed:subtractFixedTime(task.remainingGameSeconds, acceptedSeconds);
+                  task.remainingClockSeconds = queuedClock!==undefined?queuedClock:subtractFixedTime(task.remainingClockSeconds, acceptedClockSeconds);
                   pendingCatchUpSeconds = subtractFixedTime(pendingCatchUpSeconds, acceptedSeconds);
                   pendingCatchUpClockSeconds = subtractFixedTime(pendingCatchUpClockSeconds, acceptedClockSeconds);
                   task.clockCursor+=acceptedClockSeconds;

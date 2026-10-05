@@ -331,8 +331,7 @@
         return finish(work.upper);
       }
 
-      function nextChallengeTimeBoundarySeconds(maxSeconds) {
-        const state = getState();
+      function nextChallengeTimeBoundarySeconds(maxSeconds, state = getState()) {
         const challenge = state.activeChallenge ? CHALLENGE_DEFINITIONS[state.activeChallenge] : null;
         const limit = Number(challenge?.deadlineSeconds || challenge?.timeToLimitSeconds) || 0;
         const current = Math.max(0, Number(state.activeChallengeElapsedSeconds) || 0);
@@ -514,7 +513,10 @@
         let seconds=continuous?maxDt:Math.min(maxDt,options.cadence||simulationStepSeconds);
         let reason=continuous?'none':'discrete-cadence';
         const limit=CHALLENGE_DEFINITIONS[state.activeChallenge]?.deadlineSeconds || CHALLENGE_DEFINITIONS[state.activeChallenge]?.timeToLimitSeconds;
-        if(limit>state.activeChallengeElapsedSeconds&&limit-state.activeChallengeElapsedSeconds<seconds){seconds=limit-state.activeChallengeElapsedSeconds;reason='challenge';}
+        if(options.source==='online') {
+          const challengeSeconds=nextChallengeTimeBoundarySeconds(seconds,state);
+          if(challengeSeconds<seconds){seconds=challengeSeconds;reason='challenge';}
+        } else if(limit>state.activeChallengeElapsedSeconds&&limit-state.activeChallengeElapsedSeconds<seconds){seconds=limit-state.activeChallengeElapsedSeconds;reason='challenge';}
         const clockRatio=options.clockRatio||0;
         if(options.source!=="offline"&&continuous&&!state.unlockedAchievements.trainingUp&&clockRatio>0&&state.totalElapsedSeconds<600&&
           (600-state.totalElapsedSeconds)/clockRatio<seconds){seconds=(600-state.totalElapsedSeconds)/clockRatio;reason='achievement';}
@@ -530,6 +532,12 @@
         const martialBatch=offlineSource&&getState().cultivation.active==='martial'&&seconds>simulationStepSeconds;
         const original=getState(), roots=['core','powerSystem','cultivation','meta'].map(k=>original[k]);
         let candidate=S.cloneForSimulation(original), closed=false, workMs=0, remaining=seconds;
+        // Recovery bridges share the same clock cursor as Loop's online part.
+        // Keep its per-step subtraction order across commits/save-resume; a
+        // rounded bridge budget must never become a new source-sampling tail.
+        const queueSpeed=!offlineSource&&timeSegment.queueClockSeconds>0&&timeSegment.queueSpeed>0?timeSegment.queueSpeed:0;
+        let queueClockRemaining=queueSpeed?timeSegment.queueClockSeconds:0;
+        const cadenceEnd=queueSpeed&&timeSegment.cadenceEnd===true;
         onlineMetrics.domainClones++;
         let cadence=timeSegment.logicalTickRemaining>epsilon?timeSegment.logicalTickRemaining:
           candidate.core.runtime.onlineCadenceRemaining>epsilon?candidate.core.runtime.onlineCadenceRemaining:simulationStepSeconds;
@@ -572,7 +580,8 @@
           return effectInterval.run(prepare);
         }
         function* run(){
-          while(remaining>epsilon){
+          while((queueSpeed&&!cadenceEnd?queueClockRemaining*queueSpeed:remaining)>epsilon){
+            if(queueSpeed&&!(cadence>epsilon))cadence=simulationStepSeconds;
             if(martialBatch&&timeSegment.martialIntervals&&partitionRemaining===simulationStepSeconds&&intervalCooldown--<=0){
               const accelerated=WIS.Simulation.MartialInterval.advance(candidate,remaining,{formal:formalMartial,checkpoint:martialCheckpoint,compensationEligible:timeSegment.compensationEligible===true});
               for(const key of Object.keys(intervalStats))intervalStats[key]=key==='maximumBlockSteps'?Math.max(intervalStats[key],accelerated.stats[key]||0):intervalStats[key]+(accelerated.stats[key]||0);
@@ -584,11 +593,24 @@
                 result.operations+=value.operations;result.gainedPearls=add(result.gainedPearls,value.gainedPearls);yield;continue;
               }intervalCooldown=40;
             }
-            const boundary=findNextSimulationBoundary(candidate,remaining,{cadence,clockRatio:timeSegment.clockRatio});
-            let dt=partitionReplay?Math.min(boundary.seconds,partitionRemaining):boundary.seconds;
+            // Internal bridge roundoff cannot shorten its final cadence. The
+            // real queue end, challenge and compensation boundaries still cap dt.
+            const horizon=queueSpeed?Math.min(queueClockRemaining*queueSpeed,
+              cadenceEnd?Math.max(remaining,cadence):Infinity):remaining;
             const covered=timeSegment.compensationEligible&&timeSegment.clockRatio>0&&C.get(candidate).balance>0;
-            if(covered)dt=Math.min(dt,C.get(candidate).balance/timeSegment.clockRatio);
-            const defer=!boundary.continuous&&dt+epsilon<cadence;
+            const compensationLimit=covered?C.get(candidate).balance/timeSegment.clockRatio:Infinity;
+            // Match advanceProfiledStep: compensation caps the requested span
+            // before the shared formal Step challenge-boundary calculation.
+            const onlineHorizon=offlineSource?horizon:Math.min(horizon,compensationLimit);
+            const boundary=findNextSimulationBoundary(candidate,onlineHorizon,{cadence,clockRatio:timeSegment.clockRatio,
+              source:offlineSource?undefined:'online'});
+            let dt=partitionReplay?Math.min(boundary.seconds,partitionRemaining):boundary.seconds;
+            if(covered)dt=Math.min(dt,compensationLimit);
+            // Loop assigns the source-tail opportunity before Step's challenge
+            // cutoff. Compensation can still defer it, even when its cutoff is
+            // later than the challenge deadline within this same cadence.
+            const deferSeconds=offlineSource?dt:Math.min(cadence,onlineHorizon);
+            const defer=!boundary.continuous&&deferSeconds+epsilon<cadence;
             if(offlineSource&&timeSegment.martialIntervals&&martialCheckpoint&&!martialCheckpoint.disabled&&!uncertaintyShadows)uncertaintyShadows=WIS.Simulation.MartialInterval.shadows(candidate,martialCheckpoint);
             const amounts=Object.fromEntries(fixedKeys().map(k=>[k,WIS.Simulation.ResourceGroups.read(candidate,k)]));
             const unit=prepareCadence(dt,defer,boundary,covered);
@@ -611,11 +633,14 @@
             // the end-unit effects, before preparing the next source snapshot.
             candidate.core.runtime.lastSettlement={seconds:dt,gains:value.resourceGains,
               mainChanged:Object.fromEntries(fixedKeys().map(k=>[k,!eq(amounts[k],WIS.Simulation.ResourceGroups.read(candidate,k))])),at:candidate.totalElapsedSeconds};
-            candidate.totalElapsedSeconds+=dt*(timeSegment.clockRatio||0);
+            const elapsedClock=queueSpeed?dt/queueSpeed:dt*(timeSegment.clockRatio||0);
+            candidate.totalElapsedSeconds+=elapsedClock;
+            if(queueSpeed)queueClockRemaining=Math.max(0,queueClockRemaining-elapsedClock);
             if(!candidate.unlockedAchievements?.trainingUp&&candidate.totalElapsedSeconds>=600)recordCurrentAchievements();
             if(draft)candidate=draft.finish();R.setState(candidate);E.invalidate();
             remaining=Math.max(0,Number((remaining-dt).toPrecision(14)));
-            if(dt+epsilon>=cadence){const tail=(dt-cadence)%simulationStepSeconds;
+            if(queueSpeed&&!boundary.continuous)cadence=Math.max(0,cadence-dt)||simulationStepSeconds;
+            else if(dt+epsilon>=cadence){const tail=(dt-cadence)%simulationStepSeconds;
               cadence=Math.abs(tail)<epsilon||Math.abs(tail-simulationStepSeconds)<epsilon?simulationStepSeconds:simulationStepSeconds-tail;
             }else cadence-=dt;
             candidate.core.runtime.onlineCadenceRemaining=cadence;
@@ -628,6 +653,7 @@
             yield;
           }
           result.processedSeconds=seconds;result.remainingSeconds=0;
+          if(queueSpeed)result.queueRemainingClockSeconds=queueClockRemaining;
           result.logicalTickRemaining=cadence===simulationStepSeconds?0:cadence;
           if(martialBatch||offlineSource&&timeSegment.martialIntervals)result.evolution={stats:{...intervalStats,realMicroSteps:intervalStats.realMicroSteps+result.compatibilitySubsteps+(result.continuousSegments||0)},martialInterval:martialCheckpoint};
           return result;

@@ -43,7 +43,30 @@
   const lv = (s,key) => active(s) ? get(s).abilities[key] || 0 : 0;
   const coreAmount = (s,key) => nonnegative(s?.core?.resources?.[key] ?? s?.[key]);
   const F = n => B.add(B.mul(B.pow(nonnegative(n),2),.25),B.mul(n,.75));
-  const inverseF = p => B.div(B.mul(p,4),B.add(B.sqrt(B.add(B.mul(p,4),2.25)),1.5));
+  function inverseF(p) {
+    const scaled = B.mul(p,4), root = B.sqrt(B.add(scaled,2.25));
+    // At extreme layers sqrt(4p) and 4p share one representable value;
+    // rationalizing then divides that value by itself and incorrectly yields 1.
+    // The equivalent quadratic root has no small-number cancellation here.
+    if (B.gt(p,1) && B.eq(root,scaled)) return B.sub(root,1.5);
+    return B.div(scaled,B.add(root,1.5));
+  }
+  function incrementalGain(current,unpowered,investment,exponent) {
+    // F(x+d)-F(x)=d*(2x+3+d)/4. Solve for d directly, so a rounded
+    // inverseF(F(x)) can never be mistaken for newly invested potential.
+    const anchor = B.add(unpowered,1.5), scaled = B.mul(investment,4);
+    const delta = B.div(scaled,B.add(B.sqrt(B.add(B.pow(anchor,2),scaled)),anchor));
+    if (B.eq(exponent,1)) return delta;
+    const ratio = B.div(delta,unpowered);
+    // Rounded F(x) and x can disagree near a layer boundary: investment <=
+    // F(x) alone does not prove the COMPUTED ratio is <= 1. Return null for
+    // the historical formula unless both actual Number inputs are bounded.
+    if (!B.gte(ratio,0) || !B.lte(ratio,1) || !B.gte(exponent,1) || !B.lte(exponent,1.15)) return null;
+    // A bounded nonzero-layer ratio is necessarily infinitesimal. Even the
+    // reward exponent cannot make it move this logarithmic current balance.
+    if (ratio.layer !== 0) return B.ZERO;
+    return B.mul(current,Math.expm1(exponent.toNumber()*Math.log1p(ratio.toNumber())));
+  }
   function commit(s,n,core=null) {
     const validated = normalize(n);
     s.cultivation = {...s.cultivation,systems:{...s.cultivation?.systems,martial:validated}};
@@ -143,11 +166,18 @@
     result.heartExponent = exponent;
     // Rebase cumulative potential at the current exponent before accepting new
     // input: changing the reward exponent never reissues already earned heart.
-    const current = n.resources[key].amount, base = F(B.pow(current,B.div(1,exponent)));
+    const current = n.resources[key].amount, unpowered = B.pow(current,B.div(1,exponent)), base = F(unpowered);
     const potential = B.add(base,B.mul(input,result.efficiency));
     result.potential = potential; result.investment = B.mul(input,result.efficiency);
-    result.gain = B.max(0,B.sub(B.pow(inverseF(potential),exponent),current));
-    if (B.eq(input,0)) result.gain = B.ZERO;
+    // Keep the historical operation order for ordinary balances and inputs
+    // that dominate existing potential (including extreme-layer conversions).
+    // Only logarithmic balances with stock-dominated input need cancellation-
+    // free evaluation of the increment instead of subtracting two huge roots.
+    result.gain = B.eq(input,0) ? B.ZERO : current.layer > 0 && B.gt(current,1) && B.lte(result.investment,base)
+      ? incrementalGain(current,unpowered,result.investment,exponent)
+      : null;
+    if (result.gain === null) result.gain = B.max(0,B.sub(B.pow(inverseF(potential),exponent),current));
+    if (!B.gt(B.add(current,result.gain),current)) result.gain = B.ZERO;
     result.allowed = B.gt(input,0) && B.gt(result.gain,0);
     result.reason = result.allowed ? "" : "投入不足或没有可表示的收益";
     return result;

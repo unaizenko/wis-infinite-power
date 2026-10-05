@@ -1025,20 +1025,31 @@
 
   function rollbackUIImportTransaction(transaction = importTransaction, reason = "import-cancel") {
     if (!transaction || transaction !== importTransaction || transaction.committed) return false;
-    const result = rollbackImportTransaction?.(transaction, reason);
+    let result;
+    try {
+      result = rollbackImportTransaction?.(transaction, reason);
+    } catch (error) {
+      transaction.rollbackError = error;
+      WIS.Core.Save.noteFailure(error, "原进度已恢复到内存，但本地存档恢复失败，存在未保存进度。请勿刷新或关闭页面。");
+    } finally {
+      importTransaction = null;
+    }
     traceImportLifecycle("hold-rollback", { token: transaction.token, reason, elapsedSeconds: result?.elapsedSeconds || 0 });
-    importTransaction = null;
     applyTheme();
     markGlobalDirty();
     markPagesDirty();
-    try { saveState(); } catch (error) {
-      WIS.Core.Save.diagnose("import-rollback-save", error);
-      showNotice("原进度已恢复，但取消导入期间的时间暂未保存，请勿立即刷新页面。", 6000);
+    try { if (!transaction.rollbackError) saveState(); } catch (error) {
+      transaction.rollbackError = error;
+      WIS.Core.Save.noteFailure(error, "原进度已恢复，但取消导入期间的时间暂未保存，请勿立即刷新页面。");
     }
     const status = getCatchUpStatus();
     handleOfflineCatchUpStatus(status);
     if (shouldPresentRecoveryBeforeStart(status)) openOfflineProgressDialog();
     if (!(status.awaitingStart === true || status.phase === "paused")) render({ forceGlobal: true, forcePage: true });
+    if (transaction.rollbackError) {
+      showNotice("导入未完成，原进度已恢复到内存，但存档恢复失败，存在未保存进度：" + (transaction.rollbackError.message || transaction.rollbackError), 6000);
+      return false;
+    }
     return true;
   }
 
@@ -1050,8 +1061,8 @@
       importPickerReturnTimer = null;
       if (!importTransaction || importTransaction.token !== token || importTransaction.phase !== "picking") return;
       if (importInput.files?.length) return;
-      rollbackUIImportTransaction(importTransaction, "import-picker-cancel");
-      showNotice("已取消导入，原进度已恢复。", 1800);
+      if (rollbackUIImportTransaction(importTransaction, "import-picker-cancel"))
+        showNotice("已取消导入，原进度已恢复。", 1800);
     }, 1200);
   }
 
@@ -1092,7 +1103,7 @@
       runtime.setState(prepared.state);
       WIS.Meta.TreasureProgress.ensure(runtime.getState());
       achievementPresentation.reset();
-      WIS.Core.Save.acceptLoaded();
+      WIS.Core.Save.acceptLoaded(previous.storage);
       configureBuildControlledUI();
       runtime.call("resetTransientAccumulators");
       markCostGroupsDirty();
@@ -1111,10 +1122,10 @@
       timer.step("prepareRecovery");
       setLastTickAt(Date.now());
       context.completePlayerAction();
-      saveState({ importCommit: true });
-      installed = true;
+      saveState({ importCommit: true, storageTransaction: previous.storage });
       timer.step("save");
       commitUIImportTransaction(transaction);
+      installed = true;
       stage = "present";
       // --- import transaction ends here; settlement is its own lifecycle ---
       applyTheme();
@@ -1160,7 +1171,8 @@
         offlineCompletedSummary = previousSummary;
         rollbackUIImportTransaction(transaction, switched ? "import-install-failed" : `import-${stage}-failed`);
         achievementPresentation.reset();
-        if (switched) showNotice(`导入失败，存档未完成安装，原进度和待结算时间已保留：${detail}`, 6000);
+        if (transaction.rollbackError) showNotice("导入失败，原进度已恢复到内存，但存档恢复失败，存在未保存进度：" + (transaction.rollbackError.message || transaction.rollbackError), 6000);
+        else if (switched) showNotice(`导入失败，存档未完成安装，原进度和待结算时间已保留：${detail}`, 6000);
         else if (stage === "read") showNotice(`导入失败，无法读取存档文件，原进度未改变：${detail}`, 6000);
         else showNotice(`导入失败，存档格式或内容无效，原进度未改变：${detail}`, 6000);
       }
@@ -3612,8 +3624,8 @@
       closeOfflineProgressDialog();
       traceImportLifecycle("picker-open", { token: transaction.token });
       try { importInput.click(); } catch (error) {
-        rollbackUIImportTransaction(transaction, "import-picker-open-failed");
-        showNotice(`无法打开文件选择器：${error?.message || error}`, 6000);
+        if (rollbackUIImportTransaction(transaction, "import-picker-open-failed"))
+          showNotice(`无法打开文件选择器：${error?.message || error}`, 6000);
       }
     };
     byId("import-save").addEventListener("click", beginImportSelection);
@@ -3626,8 +3638,8 @@
         traceImportLifecycle("file-change", { token: importTransaction?.token || null, name: file.name || "" });
         void importSave(file);
       } else if (importTransaction?.phase === "picking") {
-        rollbackUIImportTransaction(importTransaction, "import-picker-empty");
-        showNotice("已取消导入，原进度已恢复。", 1800);
+        if (rollbackUIImportTransaction(importTransaction, "import-picker-empty"))
+          showNotice("已取消导入，原进度已恢复。", 1800);
       }
       importInput.value = "";
     });
@@ -3635,8 +3647,8 @@
       if (importTransaction?.phase !== "picking") return;
       window.clearTimeout(importPickerReturnTimer); importPickerReturnTimer = null;
       importPickerAway = false;
-      rollbackUIImportTransaction(importTransaction, "import-picker-cancel");
-      showNotice("已取消导入，原进度已恢复。", 1800);
+      if (rollbackUIImportTransaction(importTransaction, "import-picker-cancel"))
+        showNotice("已取消导入，原进度已恢复。", 1800);
     });
     const notePickerReturn = () => {
       if (!importPickerAway) return;

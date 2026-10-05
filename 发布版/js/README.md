@@ -1,6 +1,6 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.2，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.7.3，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,9 +22,9 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.2` | 玩家可见发布版本 |
+| gameVersion | `0.1.7.3` | 玩家可见发布版本 |
 | schemaVersion | `71` | Save envelope/State schema |
-| buildId | `release-0.1.7.2-20261004` | 发布构建与静态缓存标识 |
+| buildId | `release-0.1.7.3-20261005` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `1` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
@@ -112,6 +112,8 @@ wall time enqueue
 - 尚有 runnable debt 时用单个 `setTimeout(0)` continuation；
 - online/offline barrier 按 time ledger 顺序处理。
 - recovery 的 Qi 计算复用已有私有 generator，不新增 runner；不跨 yield 保留 Runtime/Evaluation 作用域。
+
+在线恢复的内部桥接终点对齐既有余帧，使用瞬态 queue clock 按正式 Loop 的逐步减法消费；只持久化既有 task clock/gameSeconds。在线先按补偿上限裁剪，再调用正式 Step 的挑战时间判界；自动购买资格在挑战截短前确定，保持普通 Loop 的运算顺序。FixedSegment 准备前台大数私有事务前先物化 COW 域，避免 raw 写入被子副本遮蔽；候选仍在完整步骤后原子提交。
 
 重型玩家动作若连续执行，需要在动作之间 cooperative yield；不要把 0.1s cadence 理解成浏览器并行线程。
 
@@ -267,6 +269,8 @@ settlementRuleVersion = 1
 ```
 
 Offline recovery 保存 pending task、debt、segment budget、time ledger 等已提交状态。运行时临时 UI/hold/capability presentation 状态不进入 Save，除非现有 recovery 合同明确包含。
+
+导入和无限转生使用 `storageSnapshot({transaction:true})` 的临时 receipt。只有本事务成功写盘后才获得回滚其文本的资格；回滚以已写文本做 CAS，不覆盖其他标签的新内容。未写盘时只恢复当前页状态和 authority，不回写旧磁盘快照。成功/失败均结束 receipt，hold 与 UI 的释放不依赖存储回滚成功；失败保留明确未保存状态。receipt 不进入存档，也不参与后续普通 autosave。
 
 纯显示/缓存/调度重构不要提升 schema。
 

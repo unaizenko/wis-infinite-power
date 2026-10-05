@@ -66,9 +66,14 @@
       const preview=WIS.Cultivation.ImmortalLogic.minorTribulationPreviewForExploration(cultivation.explorationAmount);
       cultivation.finalExplorationLoad=preview.nextLoad;
     }));
-    const bigNumbers = R.withState(snapshot,()=>E.withFrozenState(snapshot,()=>
-      WIS.Meta.BigNumbers?.syncUnlock(snapshot) ? WIS.Meta.BigNumbers.prepare(snapshot,seconds,options.offline ? {fixedSources:true,offlineSnapshot:true} : {fixedSources:false,
-        powerAt:((offset)=>B.add(snapshot.power,B.mul(sources.rates.power,offset)))}) : null));
+    const bigNumbersUnlocked = R.withState(snapshot,()=>E.withFrozenState(snapshot,()=>WIS.Meta.BigNumbers?.syncUnlock(snapshot)));
+    // BigNumbers' private transaction both assigns a replacement and writes to
+    // that plain replacement. Materialize a foreground draft before preparing
+    // it so intervening tree reads cannot hide those writes behind a COW child.
+    const bigNumbersState=bigNumbersUnlocked&&options.foregroundSource?options.foregroundSource():snapshot;
+    const bigNumbers = bigNumbersUnlocked ? R.withState(bigNumbersState,()=>E.withFrozenState(bigNumbersState,()=>
+      WIS.Meta.BigNumbers.prepare(bigNumbersState,seconds,options.offline ? {fixedSources:true,offlineSnapshot:true} : {fixedSources:false,
+        powerAt:((offset)=>B.add(bigNumbersState.power,B.mul(sources.rates.power,offset)))}))) : null;
     const sourceMs=clock()-started;statistics.sourceMs+=sourceMs;recordCost("sourcePreparation",sourceMs);
     return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, options, started };
   }

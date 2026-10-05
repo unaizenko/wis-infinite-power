@@ -321,7 +321,7 @@
     return { state: WIS.Core.State.cloneForSimulation(state),
       recovery: offlineSimulation.getPersistenceSnapshot(), online: simulationLoop.snapshot(),
       power: WIS.Power.Scale.snapshotTreasureTransient(), cultivation: WIS.Cultivation.Immortal.snapshotTreasureTransient(),
-      rates: { ...WIS.tmp.rates }, storage: WIS.Core.Save.storageSnapshot() };
+      rates: { ...WIS.tmp.rates }, storage: WIS.Core.Save.storageSnapshot({ transaction: true }) };
   }
 
   function restoreImportStateSnapshot(snapshot) {
@@ -337,12 +337,14 @@
 
   function infinityRebirth(options) {
     if(options?.challengeKey&&(simulationLoop.isDeferredActionPending()||offlineSimulation.getCatchUpStatus().locked))throw Error('当前结算尚未完成');
+    let previous;
     const next=WIS.Meta.Infinity.commitRebirth(options,{
-      getState:()=>state,capture:captureImportStateSnapshot,
+      getState:()=>state,capture:()=>previous=captureImportStateSnapshot(),
       cancel:()=>{cancelCatchUp();simulationLoop.resetAccumulators();},
       install:next=>{setStateDirect(next);simulationLoop.resetAccumulators({preservePending:WIS.Core.Reset.preservesContent("infinity",next)&&!WIS.Meta.Infinity.isInfinityChallenge(next.activeChallenge)});WIS.Power.Scale.resetTransient?.();WIS.Cultivation.Immortal.resetTransient?.();},
-      save:()=>saveState({importCommit:true}),restore:restoreImportStateSnapshot
+      save:()=>saveState({importCommit:true,storageTransaction:previous.storage}),restore:restoreImportStateSnapshot
     });
+    WIS.Core.Save.finishStorageTransaction(previous.storage);
     UI.dismissOfflineSummary();UI.resetCultivationPage();requestRender();return next;
   }
 
@@ -359,13 +361,23 @@
 
   function commitImportTransaction(transaction) {
     if (!transaction?.token) return { released: false, elapsedSeconds: 0 };
-    return simulationLoop.finishImportHold(transaction.token, { accountElapsed: false });
+    const result = simulationLoop.finishImportHold(transaction.token, { accountElapsed: false });
+    if (result.released) WIS.Core.Save.finishStorageTransaction(transaction.previous.storage);
+    return result;
   }
 
   function rollbackImportTransaction(transaction, reason = "import-cancel") {
-    if (!transaction?.previous || !transaction?.token) return { released: false, elapsedSeconds: 0 };
-    restoreImportStateSnapshot(transaction.previous);
-    return simulationLoop.finishImportHold(transaction.token, { accountElapsed: true, reason });
+    if (!transaction?.previous || !transaction?.token || !transaction.previous.storage.transaction?.active)
+      return { released: false, elapsedSeconds: 0 };
+    let result;
+    try {
+      restoreImportStateSnapshot(transaction.previous);
+    } finally {
+      // Disk conflicts/quota failures cannot strand the old session in hold.
+      WIS.Core.Save.finishStorageTransaction(transaction.previous.storage);
+      result = simulationLoop.finishImportHold(transaction.token, { accountElapsed: true, reason });
+    }
+    return result;
   }
 
   const UI = WIS.UI.App.create({

@@ -3,7 +3,7 @@
 
   global.WIS_BUILD = Object.freeze({
     mode: "release",
-    id: "release-0.1.7.2-20261004",
+    id: "release-0.1.7.3-20261005",
     enableSpeedControls: false,
     enableFormulaDetails: false
   });
