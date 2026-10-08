@@ -57,6 +57,10 @@
     if (recovery == null) return null;
     if (!isRecord(recovery) || ![1,2].includes(recovery.version) || !Array.isArray(recovery.tasks) || !recovery.tasks.length)
       throw Error("离线任务格式无效");
+    const rule = WIS.Core.Config.fixedSettlement;
+    if (recovery.settlementRule != null &&
+        (![1, rule.version].includes(recovery.settlementRule) || recovery.offlineSegmentSeconds !== rule.offlineSeconds))
+      throw Error("不支持的固定分段规则");
     WIS.Simulation.Offline.validateConfirmedSources(recovery.confirmedSources);
     WIS.Simulation.FixedSegment.validateBudget(recovery.segmentBudget);
     if(recovery.workerRecovery!=null){const w=recovery.workerRecovery;
@@ -87,6 +91,24 @@
     }
     return recovery;
   }
+  // Rule 2 settles only the remaining true-offline debt from its confirmed
+  // start state. Old solver cursors are disposable; assets, RNG, clock cursors,
+  // online cadence and cumulative work accounting are never replayed or reset.
+  function migrateRecovery(recovery, schemaVersion = WIS.Core.Config.saveVersion) {
+    if (recovery == null) return null;
+    const rule = WIS.Core.Config.fixedSettlement;
+    const oldRule = recovery.settlementRule === 1 || recovery.settlementRule == null && schemaVersion < 72;
+    const segmentBudget = oldRule && recovery.segmentBudget
+      ? { ...recovery.segmentBudget, predictor: null, strongFeedback: null, localDiscrete: null, martialInterval: null }
+      // Schema 71 also invalidated older black-hole coordinate predictors,
+      // independently of the recovery rule recorded by the source envelope.
+      : schemaVersion < 71 && recovery.segmentBudget?.predictor
+        ? { ...recovery.segmentBudget, predictor: null } : recovery.segmentBudget;
+    const validated = validateRecovery({ ...recovery, segmentBudget });
+    return { ...validated, settlementRule: rule.version, offlineSegmentSeconds: rule.offlineSeconds,
+      fastForwardUsed: false, fastForwardMetrics: null,
+      tasks: validated.tasks.map(({ random, ...task }) => ({ ...task, fastForward: null })) };
+  }
   function prepare(parsed) {
     if (!isRecord(parsed) || (parsed.game !== undefined && parsed.game !== "WIS-无限战力系统"))
       throw Error("不是WIS存档");
@@ -116,20 +138,7 @@
           throw Error("存档资源含非法数值");
       }
     const candidate = WIS.Core.State.migrate(schemaVersion, data);
-    // v71 changes black-hole scale requirements; v70 added martial coordinates.
-    // Older predictors are disposable numerical caches;
-    // preserve confirmed resources, tasks, debt, frames and work accounting.
-    const recoveryInput = schemaVersion < 71 && parsed.offlineRecovery?.segmentBudget?.predictor
-      ? { ...parsed.offlineRecovery, segmentBudget: { ...parsed.offlineRecovery.segmentBudget, predictor: null } }
-      : parsed.offlineRecovery;
-    const validatedRecovery = validateRecovery(recoveryInput);
-    if (validatedRecovery?.settlementRule != null &&
-        (validatedRecovery.settlementRule !== WIS.Core.Config.fixedSettlement.version ||
-         validatedRecovery.offlineSegmentSeconds !== WIS.Core.Config.fixedSettlement.offlineSeconds))
-      throw Error("不支持的固定分段规则");
-    const offlineRecovery = validatedRecovery ? { ...validatedRecovery,
-      fastForwardUsed: false, fastForwardMetrics: null,
-      tasks: validatedRecovery.tasks.map(({ random, ...task }) => ({ ...task, fastForward: null })) } : null;
+    const offlineRecovery = migrateRecovery(parsed.offlineRecovery, schemaVersion);
     WIS.Core.Runtime.withState(candidate, () => WIS.Core.Effects.withIsolatedState(candidate, () => {
       WIS.Meta.TreasureProgress.ensure(candidate);
       WIS.Cultivation.ExplorationProgress?.validate?.(candidate);
@@ -321,5 +330,5 @@
     return parsed?.data ?? parsed;
   }
 
-  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
+  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
 }(window.WIS));

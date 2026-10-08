@@ -1,6 +1,6 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.5，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.7.6，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,10 +22,10 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.5` | 玩家可见发布版本 |
-| schemaVersion | `71` | Save envelope/State schema |
-| buildId | `release-0.1.7.5-20261005` | 发布构建与静态缓存标识 |
-| settlementRuleVersion | `1` | 持久化固定结算规则版本 |
+| gameVersion | `0.1.7.6` | 玩家可见发布版本 |
+| schemaVersion | `72` | Save envelope/State schema |
+| buildId | `release-0.1.7.6-20261008` | 发布构建与静态缓存标识 |
+| settlementRuleVersion | `2` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
 
@@ -117,39 +117,19 @@ wall time enqueue
 
 重型玩家动作若连续执行，需要在动作之间 cooperative yield；不要把 0.1s cadence 理解成浏览器并行线程。
 
-## 7. Offline 主路径
+## 7. Offline 主路径（rule2）
 
-当前正式链：
+正式链为 Offline task → prepareFixedWork(frozenOffline) → FixedSegment.createWork → 固定起点来源乘全段时间 → 批量宝物/G/TREE → token/root校验 → 原子install与clock/debt/checkpoint。
 
-```text
-Offline task
-→ CheckpointStrategy.plan
-→ FixedSegment.createWork
-→ ContinuousExecutor
-→ ResourceEvolution
-→ FixedSegment peripheral settlement
-→ token/root validation
-→ install
-→ accept + debt/clock/checkpoint
-```
+只对同速率时间映射与RNG模式的相邻离线队列合并；不能跨在线barrier。每段仅捕获一次来源，新增奖励不反哺本段，不执行任何自动化。完成后单独刷新一次在线速率。快速挑战只观察截止点前的冻结收入，不把超时后收益算入成功资格。
 
-### Checkpoint budget
+G/TREE的captureFrozen/prepareFrozen用起点进度速率和起点倍率，费用求和与二分有界；TREE跨阶段后不在同次离线启动新阶段。保留宝物库存、有限余量、signed tails、pending与precision记录，宝物由原正式批处理发放。
 
-Budget v3 持久化 frames/predictor/statistics/directWork。
+失败保留未结时间，不调用旧微步fallback。整个离线候选成功才提交，Worker重试从相同已确认起点重算；旧恢复缓存迁移丢弃，已提交数据和累计directWork不清零。CheckpointStrategy仍负责budget兼容/诊断accept，lastExecutorKind为frozen-offline；它的plan及下面的旧executor供兼容接口和诊断回归使用，已退出true offline生产选路。
 
-`directWork` 当前只做整个恢复会话的累计诊断/记账。Config 仍有 `maxDirectWork=8192`，但正式 `CheckpointStrategy` 与 `ResourceEvolution` 已取消“累计达到8192就强制 micro/拒绝正常执行”的门禁；真实数值继续累加，不能清零/取模伪造。
+未来新增自动来源必须注册到FixedSources，或提供冻结起点的有界进度适配；新限时挑战要定义截止观察。门禁必须验证常数来源查询、无逐帧fallback、宝物不反哺、Worker/local一致及失败原子性，不能靠提高超时替代。
 
-### Executor / capability
-
-- selector 依据 movement/strong/extreme/capability 选择路径；
-- true layer transition 保守；same-layer 高层使用实际 movement，不因 layer>=2 永久 extreme；
-- compiled-micro 是保守路径，但 previousKind 不会永久锁死它；
-- `scale-external-feedback-unvalidated` 仍可真实失败并完整回滚；Offline 对该 fixed-20s 组合使用 runtime-local temporary fallback，少量 micro 后正常 selector 若选择其他合法 executor 就恢复；
-- 失败 candidate 不 install/accept，不扣 debt。
-
-`offline-strategy.js` 保留历史策略/预算实现，但当前正式主 planner 是 `CheckpointStrategy`；不要把它的旧 8192 语义当成生产事实。
-
-## 8. ResourceEvolution / Predictor
+## 8. ResourceEvolution / Predictor（兼容/诊断路径）
 
 `ResourceEvolution` 在私有 candidate/COW 中推进六资源与 progress totals；FixedSources/ResourceGroups 是正式来源和读写入口。
 
@@ -264,8 +244,8 @@ hold 中间不计算 Preview，只保持 dirty；释放/取消后最多一次最
 当前：
 
 ```text
-schemaVersion = 71
-settlementRuleVersion = 1
+schemaVersion = 72
+settlementRuleVersion = 2
 ```
 
 Offline recovery 保存 pending task、debt、segment budget、time ledger 等已提交状态。运行时临时 UI/hold/capability presentation 状态不进入 Save，除非现有 recovery 合同明确包含。
@@ -312,7 +292,7 @@ Core/Power/Cultivation/Meta 正式模块；FastForward；Accuracy；Simulation �
 
 ## 16. 开发/发布边界
 
-当前 ZIP 是 development runtime。默认不修改发布版、不发布、不 commit、不 push。
+当前目录为 release runtime，由开发真源生成。
 
 完整开发工作区若有 manifest 工具：
 
@@ -361,4 +341,4 @@ G64 后需求与 TREE/D4 规则由 `meta/infinity-config.js` 和 `meta/infinity.
 
 武道离线高值区间（2026-10-05）：martial-interval 对 layer 0/1 使用可表示的 log1p 坐标，不再用 1e300 拒绝；更高层仍由结构签名监测实际变化。只有正式探测确认没有可表示支出时，高值 J/战力才采用归一化收入外推；Y 复用 BigNumbers.prepare 的实际采样相位。其他状态仍需粗细步、累计误差、下游扰动与事件检查；失败缩短或回放。Y 新增收益误差的 origin 随现有 version2 区间检查点保存，旧记录兼容。正式在线路径不使用此模块。
 
-慢设备Worker重试：offline-worker-entry将第1/2次重试的离线规划跨度上限设为30/3秒，offline-headless在正式planner入口使用该上限。普通Worker无此限制；不修改在线桥接或现有停滞保护。上限是当前Worker的宿主调度选项，不是资源或持久字段。
+历史planner的慢设备Worker重试选项（rule2冻结收益不使用该选路）：offline-worker-entry将第1/2次重试的离线规划跨度上限设为30/3秒，offline-headless在正式planner入口使用该上限。普通Worker无此限制；不修改在线桥接或现有停滞保护。上限是当前Worker的宿主调度选项，不是资源或持久字段。

@@ -6,7 +6,7 @@
     ["第一步·问鼎", "xianForce", "1e8"], ["第二步·窥涅", "yuanForce", "1e5"],
     ["第二步·净涅", "yuanForce", "1e8"], ["第二步·碎涅", "yuanForce", "1e12"],
     ["第三步·空涅", "yuanForce", "1e24"], ["第三步·空灵", "nieForce", "1e6"],
-    ["第三步·空玄", "nieForce", "1e9"], ["第三步·空劫", "nieForce", "1e13"]
+    ["第三步·空玄", "nieForce", "1e7"], ["第三步·空劫", "nieForce", "1e11"]
   ].map(([name, resource, cost], i) => Object.freeze({ name, resource, cost: B.BN(cost), level: i + 1 })));
   const abilities = Object.freeze([
     ["intent", "意境", 1, "mana", "2e50", "战力获取 ^1.05"],

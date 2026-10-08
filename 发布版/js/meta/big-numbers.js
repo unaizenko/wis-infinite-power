@@ -95,8 +95,8 @@
         spent: merge(e.spent,e.spentResidual), spentResidual: [],
         peak: nonnegative(e.peak) };
     });
-    n.superProgress = merge(raw.superProgress,raw.superResidual);
-    n.superResidual = [];
+    nonnegative(raw.superProgress);
+    writeGProgress(n,[raw.superProgress??0,...tails(raw.superResidual)]);
     n.gCapacityModel=raw.gCapacityModel===1?1:0;
     return n;
   }
@@ -106,6 +106,7 @@
     if(n.gIndex>=IC.gCapacityStart+1){
       const oldRequirement=I.gBaseRequirement(state,n.gIndex);
       n.superProgress=B.mul(B.div(n.superProgress,oldRequirement),I.gRequirement(state,n.gIndex));
+      if(n.superResidual.length)writeGProgress(n,[n.superProgress,...ledger().scale(n.superResidual,B.div(I.gRequirement(state,n.gIndex),oldRequirement))]);
     }
     n.gCapacityModel=1;
   }
@@ -361,7 +362,66 @@
   }
   // Only structural TREE changes invalidate predictors. Work/progress remains a fresh interval input.
   const treeSignature = state => { const t = treeState(state); return [treeUnlocked(state), t.rank, t.phase, t.upgrades.node, t.upgrades.branch, t.upgrades.label, t.superEntryMultiplier]; };
+  function writeGProgress(n,words) {
+    const L=ledger(),normalized=L.normalize(words);
+    if(L.sign(normalized)<0)throw Error('超分形进度余额不足，未提交');
+    n.superProgress=nonnegative(L.value(normalized));
+    n.superResidual=L.subtract(normalized,[n.superProgress]);
+  }
+  // Only states that already carry signed progress use this path. Empty-tail
+  // online states retain every operation in the original algorithms below.
+  // Stay in progress points: dividing a high-layer atom by k and multiplying
+  // it back cannot preserve that atom. Milestone ratios are exact integers.
+  function advanceGrahamLedger(n,seconds,q,state=null,options={},cap=64) {
+    if(!n.gIndex)return 0;
+    const L=ledger(),modified=state!==null,fixedOnly=!modified&&options.fixedSources===true;
+    let progress=L.normalize([n.superProgress,...n.superResidual]);
+    const affordable=(words,cost,limit)=>{
+      let lo=0,hi=limit;
+      while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(L.compare(words,[cost(mid)])>=0)lo=mid;else hi=mid-1;}
+      return lo;
+    };
+    // The original plain solver settles carried whole ranks before applying
+    // this interval's source; retain that order, including its milestone base.
+    if(!modified&&!fixedOnly&&n.gIndex<cap) {
+      const levels=affordable(progress,count=>count*100,cap-n.gIndex);
+      progress=L.subtract(progress,[levels*100]);n.gIndex+=levels;
+    }
+    const firstIndex=n.gIndex,initialK=milestoneMultiplier(n.gIndex);
+    const qRate=modified?I.fractalGainMultiplier(state,4):B.ONE,speed=modified?I.gSpeedMultiplier(state):B.ONE;
+    const work=options.fixedSources?B.mul(seconds,B.mul(BASE_SUPER_SPEED,fractalMultiplier(q,n.beyondFractal))):
+      B.eq(qRate,1)?exposure(q,seconds,n.beyondFractal):B.div(exposure(q,B.mul(seconds,qRate),n.beyondFractal),qRate);
+    if(!B.isFiniteBN(work))throw Error('超分形时间无法表示');
+    const income=fixedOnly?B.mul(B.mul(BASE_SUPER_SPEED,B.mul(initialK,fractalMultiplier(q,n.beyondFractal))),seconds):B.mul(B.mul(work,speed),initialK);
+    progress=L.add(progress,[income]);
+    if(fixedOnly) {
+      const levels=affordable(progress,count=>count*100,Math.max(0,cap-n.gIndex));
+      progress=L.subtract(progress,[levels*100]);n.gIndex+=levels;
+    } else {
+      let ratio=modified&&state.activeChallenge==='trueGraham'?B.pow(IC.gRequirement,IC.gChallengeCoefficient):B.ONE;
+      if(modified&&state.activeChallenge==='trueGraham'&&I.rewardUnlocked(state,'trueGraham'))ratio=B.pow(ratio,IC.gRewardExponent);
+      for(const end of [...MILESTONES.filter(g=>g>n.gIndex&&g<cap),cap]) {
+        const start=n.gIndex,limit=end-start;if(limit<=0)continue;
+        const k=milestoneMultiplier(start),req=modified?I.gRequirement(state,start):B.BN(100);
+        const rankCost=modified&&I.has(state,'D6')?gRankCost(state,start,limit,ratio):null;
+        const cost=count=>{
+          if(count===0)return B.ZERO;
+          if(rankCost)return rankCost(count);
+          if(modified&&start>=IC.gCapacityStart&&count<=32){let sum=B.ZERO;for(let j=0;j<count;j++)sum=B.add(sum,I.gRequirement(state,start+j));return sum;}
+          return B.mul(req,modified&&start>=IC.gCapacityStart?gCapacitySum(start,count,ratio):
+            B.eq(ratio,1)?count:B.div(B.sub(B.pow(ratio,count),1),B.sub(ratio,1)));
+        };
+        const levels=affordable(progress,cost,limit);
+        progress=L.subtract(progress,[cost(levels)]);n.gIndex+=levels;
+        const nextK=milestoneMultiplier(n.gIndex);if(!B.eq(nextK,k))progress=L.scale(progress,B.div(nextK,k));
+        if(n.gIndex<end)break;
+      }
+    }
+    writeGProgress(n,progress);
+    return MILESTONES.filter(g=>g>firstIndex&&g<=n.gIndex).length;
+  }
   function advanceGraham(n, seconds, q) {
+    if(n.superResidual?.length)return advanceGrahamLedger(n,seconds,q);
     if (!n.gIndex) return 0;
     let carried=B.BN(n.superProgress);
     if(n.gIndex<64&&carried.gte(100)) {
@@ -432,6 +492,7 @@
     return result;
   }
   function advanceGrahamInfinity(n,seconds,q,state,options={},cap=maximumG(state)) {
+    if(n.superResidual?.length)return advanceGrahamLedger(n,seconds,q,state,options,cap);
     if(!n.gIndex)return 0;
     const old=n.gIndex, qRate=I.fractalGainMultiplier(state,4), speed=I.gSpeedMultiplier(state);
     const work=options.fixedSources?B.mul(seconds,B.mul(BASE_SUPER_SPEED,fractalMultiplier(q,n.beyondFractal))):
@@ -559,6 +620,7 @@
     return elapsed;
   }
   function advanceGrahamFixed(n, seconds, q) {
+    if(n.superResidual?.length)return advanceGrahamLedger(n,seconds,q,null,{fixedSources:true});
     if (!n.gIndex) return 0;
     const oldIndex=n.gIndex, L=ledger();
     const rate=B.mul(BASE_SUPER_SPEED,B.mul(milestoneMultiplier(oldIndex),fractalMultiplier(q,n.beyondFractal)));
@@ -581,6 +643,90 @@
     state.meta.milestones = { ...milestones };
     try { advance(state, seconds, options); return get(state); }
     finally { state.meta.bigNumbers = before; state.meta.achievements = achievements; state.meta.milestones = milestones; state.meta.infinity = infinity; }
+  }
+  // True offline freezes income in its published units. Graham's stored
+  // progress and requirement are both progress points; the normalized work
+  // coordinate used by advanceGrahamInfinity must not amplify them at new G
+  // milestones. Only the cost of each next rank continues to escalate.
+  function captureFrozen(state) {
+    const n=get(state),unlocked=isUnlocked(state),t=n.tree||freshTree();
+    const rateState={power:state.power,activeChallenge:state.activeChallenge,
+      meta:{...state.meta,bigNumbers:{...n,unlocked}}};
+    // This detached, minimal read domain feeds the official requirement APIs.
+    // In particular a TREE rank earned below cannot reduce this batch's costs.
+    const requirementState={activeChallenge:state.activeChallenge,meta:{
+      infinity:{upgrades:{...I.get(state)?.upgrades},challengeRewards:{...I.get(state)?.challengeRewards}},
+      achievements:{...state.meta.achievements},bigNumbers:{resources:[],tree:{rank:t.rank}}}};
+    const activeTree=unlocked&&treeActive(state);
+    return {kind:'FrozenBigNumbersProfile',unlocked,rates:rates(rateState),
+      g:{active:unlocked&&n.gIndex>0,maximum:maximumG(state),requirementState,
+        rate:unlocked&&n.gIndex>0?B.mul(I.gSpeedMultiplier(state),B.mul(BASE_SUPER_SPEED,
+          B.mul(milestoneMultiplier(n.gIndex),fractalMultiplier(amount(state,4),n.beyondFractal)))):B.ZERO},
+      tree:{active:activeTree,phase:t.phase,rank:t.rank,target:targetTreeRank(state),
+        constructionRate:activeTree&&t.phase==='explicit'?treeConstructionRate(state):B.ZERO,
+        sequenceRate:activeTree&&t.phase==='explicit'?treeSequenceGain(state,treeConstructionRate(state)):B.ZERO,
+        superRate:activeTree&&t.phase==='super'?treeSuperSpeed(state):B.ZERO}};
+  }
+  function advanceFrozenGraham(n,seconds,profile) {
+    if(!profile.active)return;
+    const state=profile.requirementState,L=ledger(),startingIndex=n.gIndex;
+    const income=nonnegative(B.mul(nonnegative(profile.rate),seconds));
+    let available=L.add([n.superProgress,...n.superResidual],[income]);
+    if(L.sign(available)<0)throw Error('大数冻结进度余额无效');
+    let ratio=state.activeChallenge==='trueGraham'?B.pow(IC.gRequirement,IC.gChallengeCoefficient):B.ONE;
+    if(state.activeChallenge==='trueGraham'&&I.rewardUnlocked(state,'trueGraham'))ratio=B.pow(ratio,IC.gRewardExponent);
+    // Capacity begins at G64. These are the only two formula regions; each
+    // search takes at most 53 iterations even at Number.MAX_SAFE_INTEGER.
+    for(const end of [Math.min(IC.gCapacityStart,profile.maximum),profile.maximum]) {
+      const start=n.gIndex,limit=end-start;
+      if(limit<=0)continue;
+      const rankCost=I.has(state,'D6')?gRankCost(state,start,limit,ratio):null;
+      const first=I.gRequirement(state,start);
+      const cost=count=>{
+        if(count<=0)return B.ZERO;
+        if(rankCost)return rankCost(count);
+        if(count<=32){let sum=B.ZERO;for(let j=0;j<count;j++)sum=B.add(sum,I.gRequirement(state,start+j));return sum;}
+        return B.mul(first,start>=IC.gCapacityStart?gCapacitySum(start,count,ratio):
+          B.eq(ratio,1)?count:B.div(B.sub(B.pow(ratio,count),1),B.sub(ratio,1)));
+      };
+      let lo=0,hi=limit;
+      while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(L.compare([cost(mid)],available)<=0)lo=mid;else hi=mid-1;}
+      available=L.subtract(available,[cost(lo)]);n.gIndex+=lo;
+      if(n.gIndex<end)break;
+    }
+    // Keep represented income and payment debt below the Decimal main. A
+    // no-op retains the original words instead of needlessly rebasing them.
+    if(B.eq(income,0)&&n.gIndex===startingIndex)return;
+    if(L.sign(available)<0)throw Error('大数冻结进度余额不足');
+    n.superProgress=nonnegative(L.value(available));
+    n.superResidual=L.subtract(available,[n.superProgress]);
+  }
+  function prepareFrozen(state,seconds,profile=captureFrozen(state)) {
+    if(!Number.isFinite(seconds)||seconds<0)throw Error('大数冻结结算时间无效');
+    if(profile?.kind!=='FrozenBigNumbersProfile')throw Error('大数冻结来源无效');
+    const before=get(state),n={...before,purchases:before.purchases.slice(),
+      resources:before.resources.map(e=>({...e,residual:e.residual.slice(),totalResidual:e.totalResidual.slice(),spentResidual:e.spentResidual.slice()})),
+      superResidual:before.superResidual.slice(),tree:cloneTree(before.tree||freshTree()),ySample:before.ySample?{...before.ySample}:null};
+    if(!profile.unlocked)return n;
+    n.unlocked=true;
+    for(let i=0;i<5;i++)credit(n.resources[i],B.mul(nonnegative(profile.rates[i]),seconds));
+    advanceFrozenGraham(n,seconds,profile.g);
+    const t=n.tree,frozen=profile.tree;
+    if(frozen.active&&t.rank===frozen.rank&&t.phase===frozen.phase) {
+      if(frozen.phase==='explicit') {
+        const gain=B.mul(nonnegative(frozen.constructionRate),seconds);
+        t.construction=nonnegative(B.add(t.construction,gain));
+        t.totalConstruction=nonnegative(B.add(t.totalConstruction,gain));
+        t.sequenceWork=nonnegative(B.add(t.sequenceWork,B.mul(nonnegative(frozen.sequenceRate),seconds)));
+      } else if(frozen.phase==='super') {
+        t.superProgress=B.min(1,B.add(t.superProgress,B.mul(nonnegative(frozen.superRate),seconds)));
+        if(B.gte(t.superProgress,1)){t.rank=frozen.target;t.phase='complete';}
+      }
+    }
+    // Online will seed its next official one-second sample from the new state.
+    n.ySample=null;n.elapsedSeconds+=seconds;
+    if(!Number.isFinite(n.elapsedSeconds))throw Error('大数冻结结算累计时间无法表示');
+    return n;
   }
   function view(state) {
     const n = get(state), currentRates = rates(state), q = amount(state, 4);
@@ -609,7 +755,7 @@
   }
   WIS.Meta.BigNumbers = Object.freeze({ BASE_SUPER_SPEED, SYMBOLS, COSTS, MILESTONES, fresh, normalize, get, reconcileGCapacity, continueUnlockedTree, requirements, isUnlocked,
     syncUnlock, syncMilestones, baseYRate, currentBaseYRate, sampledYGain, rates, amount, canPurchase, purchase, milestoneMultiplier, fractalMultiplier,
-    exposure, advance, prepare, view, compareSymbolic, maximumGIndex: 64, maximumG, maximumTree,
+    exposure, advance, prepare, captureFrozen, prepareFrozen, view, compareSymbolic, maximumGIndex: 64, maximumG, maximumTree,
     MAX_TREE_RANK, TREE_UPGRADES, freshTree, normalizeTree, treeUnlocked, targetTreeRank, treeSuperThresholdWork, treeDecayThresholdWork, treeSuperRequirement, treeSuperSeconds,
     treeUpgradeCost, treeConstructionRate, treeConstructionGain, treeSequenceGain, treeSequenceIndex, treeSuperMultiplier, treeSuperSpeed,
     canPurchaseTreeUpgrade, purchaseTreeUpgrade, canEnterTreeSuper, enterTreeSuper, startNextTree, treeView, treeSignature });

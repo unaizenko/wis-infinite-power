@@ -14,7 +14,7 @@
   function snapshot(budget){return budget?C().copy(budget):null;}
   function validateBudget(value){if(value==null)return null;
     if(![1,2,3].includes(value.version)||!Number.isFinite(value.totalSeconds)||value.totalSeconds<=0)throw Error('离线预算版本无效');
-    if(value.lastExecutorKind!=null&&!['large-fixed','fixed-20s','opportunistic-map','coupled-kernel','coupled-advance','strong-feedback','local-discrete-macro','compiled-micro','production-replay','paused'].includes(value.lastExecutorKind))throw Error('离线 Executor 类型无效');
+    if(value.lastExecutorKind!=null&&!['large-fixed','fixed-20s','opportunistic-map','coupled-kernel','coupled-advance','strong-feedback','local-discrete-macro','compiled-micro','production-replay','frozen-offline','paused'].includes(value.lastExecutorKind))throw Error('离线 Executor 类型无效');
     const defaults=createBudget(value.totalSeconds),out=Object.fromEntries(Object.entries(defaults).map(([k,v])=>[k,value[k]??v]));out.version=3;out.fallbackBudget=validateFallback(value.fallbackBudget);out.strongFeedback=W.Simulation.StrongFeedbackKernel?.validateCheckpoint(value.strongFeedback)||null;if(value.solverVersion!=null&&value.solverVersion!==2)throw Error('离线求解器版本无效');out.solverVersion=2;out.localDiscrete=W.Simulation.LocalDiscreteMacro?.validateCheckpoint(value.localDiscrete)||null;out.martialInterval=W.Simulation.MartialInterval?.validateCheckpoint(value.martialInterval)||null;
     if(value.version===1)out.directWork=value.committedSegments||0;
     for(const k of ['committedSegments','directWork','mapBlocks','virtualSteps','rejections','invalidations','maxDepth','coldModelBuilds','hardInvalidations','softRebases','settlementCheckpoints','endpointValidations','sentinelValidations','maximumBlockSteps','mapEligible','mapConsidered','shockRebases','dualDisagreements','fixedFallbacks','validationSkipped','cadenceMicroSteps','frozenDirectSteps','mapCooldowns','shockAnchors','progressQueries','scaleKernelSteps','scaleIntervals','coupledKernelSteps','coupledIntervals','formulaFramesEvaluated','rateQueries'])if(!Number.isSafeInteger(out[k])||out[k]<0)throw Error('离线预算计数无效');
@@ -77,7 +77,12 @@
     return {kind:'checkpoint',seconds,frames,depth:head.depth,strength,sourceProfile:profile,signature:C().signature(s),hardBoundary:seconds===hardBoundary&&hardBoundary<remaining,
       evolutionPlan:{selection,selectionCache,strong,directWork:budget.directWork,predictor:budget.predictor,sourceProfile:profile,fallbackBudget:budget.fallbackBudget}};
   });}
-  function accept(budget,plan,seconds,state,result){const frames=plan.frames.map(f=>({...f}));let left=seconds;while(left>1e-8&&frames.length){const used=Math.min(left,frames[0].seconds);frames[0].seconds-=used;left-=used;if(frames[0].seconds<1e-8)frames.shift();}
+  function accept(budget,plan,seconds,state,result){
+    if(plan.frozenOffline)return {...budget,frames:[],predictor:null,strongFeedback:null,localDiscrete:null,martialInterval:null,
+      lastExecutorKind:'frozen-offline',committedSegments:budget.committedSegments+1,directWork:budget.directWork+1,
+      frozenDirectSteps:(budget.frozenDirectSteps||0)+1,rateQueries:(budget.rateQueries||0)+1,
+      settlementCheckpoints:(budget.settlementCheckpoints||0)+1};
+    const frames=plan.frames.map(f=>({...f}));let left=seconds;while(left>1e-8&&frames.length){const used=Math.min(left,frames[0].seconds);frames[0].seconds-=used;left-=used;if(frames[0].seconds<1e-8)frames.shift();}
     const data=result.evolution,stats=data?.stats||{realMicroSteps:1},predictor=data?.predictor?C().copy(data.predictor):null,signature=predictor?C().signature(state):null;let hard=0,soft=0;
     const reasons={...budget.hardReasons};
     if(predictor){if(predictor.mapSignature!==signature||!data.rebasedPoint?.delta){predictor.model=null;predictor.observations=[];delete predictor.policy;delete predictor.validation;predictor.blockSize=Q().initialMapSteps;hard=1;reasons.settlementBranch=(reasons.settlementBranch||0)+1;}

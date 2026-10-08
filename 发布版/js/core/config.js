@@ -170,7 +170,7 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.7.5", saveVersion: 71,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.7.6", saveVersion: 72,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
@@ -189,7 +189,7 @@
     coupledFastProfile:Object.freeze({policy:"NORMAL",policies:Object.freeze({STRICT:{additive:false,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:0},NORMAL:{additive:true,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:1e-8},AGGRESSIVE:{additive:true,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:1e-6}})}),
     coupledKernel:Object.freeze({enabled:true,groups:Object.freeze(["scale","immortal"])}),
     scaleKernel:Object.freeze({enabled:true,trajectorySamples:8,diagnosticCoupledIntervals:false}),
-    fixedSettlement: Object.freeze({ version: 1, offlineSeconds: 60, workBudgetMs: 9, discreteCadenceSeconds: 0.1, onlineSeconds: 1, onlineBacklogSeconds: 2, onlineCollectionSeconds: 0.2 }),
+    fixedSettlement: Object.freeze({ version: 2, offlineSeconds: 60, workBudgetMs: 9, discreteCadenceSeconds: 0.1, onlineSeconds: 1, onlineBacklogSeconds: 2, onlineCollectionSeconds: 0.2 }),
     googolPenalty: Object.freeze({
       threshold: BN("1e100"),
       defaultStrength: BN(1),

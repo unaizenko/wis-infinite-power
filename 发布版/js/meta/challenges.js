@@ -196,6 +196,7 @@
   function challengeUnlocked(challengeKey) {
     const challenge = definitions[challengeKey];
     if(!challenge)return false;
+    if (state.cultivation.active && !systemRequirementSatisfied(state, challenge)) return false;
     if (challenge.system === "martial") {
       const prerequisite = challenge.martialPrerequisite;
       return state.cultivation.active === "martial" && (state.activeChallenge === challengeKey || completionCount(state, challengeKey) > 0 ||
@@ -330,12 +331,12 @@
     showNotice(`已退出挑战：${challengeName}`);
   }
 
-  function checkActiveChallengeCompletion() {
+  function checkActiveChallengeCompletion({ offlineIncome } = {}) {
     if (!state.activeChallenge) return false;
     const challengeKey = state.activeChallenge;
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
     if (!challenge || !systemActive(state, challengeKey) || challenge.manualCompletion) return false;
-    const targetReached = challenge.system === "martial" ? martialGoalReached(state, challenge)
+    let targetReached = challenge.system === "martial" ? martialGoalReached(state, challenge)
       : challenge.targetYuanForce ?
       gte(WIS.Cultivation.Xiuzhen.amount(state,"yuanForce"),challenge.targetYuanForce) && gte(state.joules,challenge.targetJAndPower) && gte(state.power,challenge.targetJAndPower)
       : challenge.targetG ? WIS.Meta.BigNumbers.get(state).gIndex >= challenge.targetG
@@ -350,8 +351,22 @@
         : challenge.resetLevel==='infinity'
         ? gte(state.power,scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power)
         : state.highestScaleIndex >= challengeRequiredScaleIndex(challengeKey);
-    if (challenge.deadlineSeconds && (state.activeChallengeElapsedSeconds > challenge.deadlineSeconds + 1e-9 ||
-        (!targetReached && state.activeChallengeElapsedSeconds >= challenge.deadlineSeconds - 1e-9))) {
+    let observedElapsed=state.activeChallengeElapsedSeconds;
+    if(offlineIncome && challenge.deadlineSeconds) {
+      // Frozen income continues for the whole absence, but a deadline only
+      // observes resources earned before its cutoff. Never reprice income
+      // using the challenge reward or post-deadline treasure effects.
+      const start=offlineIncome.frozenStart;
+      if(start.activeChallenge!==challengeKey || challengeKey!=="infinityFast")
+        throw Error("离线限时挑战尚未定义固定收益判定；进度保留");
+      const remaining=Math.max(0,challenge.deadlineSeconds-start.activeChallengeElapsedSeconds);
+      const elapsed=Math.min(offlineIncome.seconds,remaining);
+      observedElapsed=start.activeChallengeElapsedSeconds+elapsed;
+      const deadlinePower=add(start.power,mul(offlineIncome.sources.rates.power,elapsed));
+      targetReached=gte(deadlinePower,scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power);
+    }
+    if (challenge.deadlineSeconds && (observedElapsed > challenge.deadlineSeconds + 1e-9 ||
+        (!targetReached && observedElapsed >= challenge.deadlineSeconds - 1e-9))) {
       state.activeChallenge=null;state.activeChallengeElapsedSeconds=0;WIS.Core.Effects.invalidate();saveState();showNotice(`挑战失败：${challenge.name}（超时）`);return true;
     }
     if (!targetReached) return false;

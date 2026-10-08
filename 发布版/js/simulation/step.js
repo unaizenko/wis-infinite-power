@@ -865,7 +865,10 @@
       function advanceFixedStep(elapsedSeconds, silentTreasureRolls, options) {
         const state = getState(), requested = Math.max(0, Number(elapsedSeconds) || 0);
         const isOffline = options.timeSegment?.source === "offline";
-        const seconds = nextChallengeTimeBoundarySeconds(Math.min(requested,
+        const frozenOffline=isOffline&&options.fixedCandidate?.unit.options.frozenOffline===true;
+        // Rule 2 freezes income for the whole absence. Clocks and challenge
+        // outcomes are observed after that private income has been prepared.
+        const seconds = frozenOffline ? options.fixedCandidate.unit.seconds : nextChallengeTimeBoundarySeconds(Math.min(requested,
           isOffline ? (options.fixedCandidate?.unit.seconds ?? options.macroSeconds ?? CONFIG.fixedSettlement.offlineSeconds) : simulationStepSeconds));
         if (!(seconds > 0)) return { processedSeconds: 0, remainingSeconds: requested };
         const unit = options.fixedCandidate ? null : WIS.Simulation.FixedSegment.prepare(state, seconds, {
@@ -893,7 +896,7 @@
         if (recordCurrentAchievements() && !options.projection) markAchievementsDirty();
         WIS.Meta.BigNumbers?.syncUnlock(state);
         if (result.operations && !options.projection) markCostGroupsDirty();
-        checkActiveChallengeCompletion();
+        checkActiveChallengeCompletion(frozenOffline ? {offlineIncome:options.fixedCandidate.unit} : undefined);
         return { ...result, processedSeconds: seconds, remainingSeconds: Math.max(0, requested-seconds),
           requiresReplan: seconds + epsilon < requested, formulaChanged: result.operations > 0 };
       }
@@ -946,6 +949,17 @@
           return R.withMathPolicy(R.MathPolicy.OFFLINE_APPROX,()=>WIS.Simulation.FixedSegment.planOffline(getState(),seconds,{...options,hardBoundary:bound}));
         },
         prepareFixedWork(seconds, options={}) {
+          if(options.frozenOffline===true)return WIS.Simulation.FixedSegment.createWork(getState(),seconds,{
+            offline:true,frozenOffline:true,clockRatio:options.clockRatio,
+            beforeEndEvents(candidate,dt,unit) {
+              projectStepTimes(candidate,dt);
+              if(CHALLENGE_DEFINITIONS[candidate.activeChallenge]?.deadlineSeconds)
+                checkActiveChallengeCompletion({offlineIncome:unit});
+              WIS.Core.Registries.getActivePower(candidate)?.afterStep?.(candidate,dt);
+              updateLifetimeStatistics();
+              recordCurrentAchievements();
+            }
+          });
           if(getState().activeChallenge==='infinityFast'||getState().cultivation.active==='martial')return createOnlineWork(
             nextChallengeTimeBoundarySeconds(getState().cultivation.active==='martial'?martialOfflineSpan(seconds,options.martialIntervals===true):WIS.Meta.Infinity.rapidChallengeStepSeconds(getState(),seconds)),
             {source:'offline',clockRatio:options.clockRatio,martialIntervals:options.martialIntervals,martialCheckpoint:options.martialCheckpoint});

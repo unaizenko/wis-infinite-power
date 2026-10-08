@@ -560,7 +560,7 @@
     setText('offline-complete-title',mixed?'混合恢复结果':offline?'离线收益汇总':'游戏进度恢复结果');
     setText('retry-offline-progress',online?'重试追赶':'重试结算');
     setText('offline-progress-intro',online?'这是前台在线计算积压，不是离开游戏产生的离线时间。阻塞追赶期间暂不产生新增在线收益。':
-      offline?'结算实际离开游戏期间的收益，自动操作沿用已保存的开关。阻塞结算期间暂不产生新增在线收益。':
+      offline?'按离开时的速率结算资源与宝物进度，新增宝物效果在返回后生效，离线不执行自动操作。结算期间暂不产生新增在线收益。':
       mixed?'本次包含在线积压和实际离线时间，各自按原规则处理。阻塞恢复期间暂不产生新增在线收益。':
       '部分历史时间来源无法完整确认，按存档原任务恢复。阻塞恢复期间暂不产生新增在线收益。');
     const pendingTime = seconds => seconds > 0 && seconds < 1
@@ -1759,6 +1759,13 @@
     renderChallenge("blackHole", "black-hole");
     renderChallenge("qiRefiningHundredThousandYears", "qi-refining-hundred-thousand-years");
     WIS.UI.Cards.updateCatalogGroupCounts(byId("challenge-list"), "挑战");
+    byId("challenge-list").querySelectorAll(":scope > [data-catalog-system-group]").forEach(group => {
+      const cards = [...group.querySelectorAll("[data-challenge-key]")];
+      group.hidden = Boolean(state.cultivation.active) && cards.length > 0 && cards.every(card => {
+        const challenge = WIS.Meta.Challenges.get(card.dataset.challengeKey);
+        return challenge?.system && challenge.system !== state.cultivation.active;
+      });
+    });
   }
 
   function renderResourceDebugPanel() { return false; }

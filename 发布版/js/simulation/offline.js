@@ -327,7 +327,7 @@
           // Bounded snapshots do not promise a raw-relative error tolerance.
           resourceErrorTarget: null,
           resourceErrorMetric: 'layer-aware-coordinate',
-          executionReference: "fixed-start-sources-v1",
+          executionReference: "frozen-offline-v2",
           fixedSettlementMetrics: WIS.Simulation.FixedSegment.metrics(),
           fastForwardEnabled: true,
           fastForwardMetrics,
@@ -935,7 +935,7 @@
         sessionErrorTerms = snapshot.sessionErrorTerms || resourceKeys.map(() => []);
         discreteMetrics = snapshot.discreteMetrics || discreteMetrics;
         fastForwardUsed = snapshot.fastForwardUsed ?? fastForwardUsed;
-        fastForwardMetrics = snapshot.fastForwardMetrics ?? fastForwardMetrics;
+        if(Object.hasOwn(snapshot,"fastForwardMetrics"))fastForwardMetrics = snapshot.fastForwardMetrics;
         sessionProcessedGameSeconds = snapshot.sessionProcessedGameSeconds;
         offlineSegmentBudget = snapshot.segmentBudget;
         pendingCatchUpSeconds = snapshot?.pendingGameSeconds ?? pendingCatchUpSeconds;
@@ -974,7 +974,7 @@
           gains: sessionGains,
           errors: sessionErrorEstimates,
           errorTerms: sessionErrorTerms,
-          executionReference: "fixed-start-sources-v1",
+          executionReference: "frozen-offline-v2",
           discreteMetrics,
           processedGameSeconds: sessionProcessedGameSeconds,
           segmentBudget:WIS.Simulation.CheckpointStrategy.snapshot(offlineSegmentBudget),
@@ -1002,8 +1002,7 @@
       }
 
       function restorePersistenceSnapshot(snapshot, newlyOfflineSeconds = 0, { checkpoint = true } = {}) {
-        if (snapshot?.settlementRule != null && (snapshot.settlementRule !== CONFIG.fixedSettlement.version ||
-            snapshot.offlineSegmentSeconds !== CONFIG.fixedSettlement.offlineSeconds)) throw Error("不支持的固定分段规则");
+        snapshot=WIS.Core.Save.migrateRecovery(snapshot);
         if (![1,2].includes(snapshot?.version) || !Array.isArray(snapshot.tasks) ||
             !snapshot.tasks.length || catchUpTasks.length || catchUpInProgress) return false;
         if (snapshot.tasks.some((task) => !Number.isFinite(task?.gameSeconds) ||
@@ -1020,7 +1019,7 @@
           // Historical random snapshots have no gameplay consumer. Preserve the
           // saved state and time metadata; never seed or overwrite state RNG here.
           const task = appendCatchUpTask(savedTask.gameSeconds, savedTask.clockSeconds,
-            { ...savedTask, sealed: true });
+            { ...savedTask, ...(!['online','offline'].includes(savedTask.source)?{source:'online',compensationEligible:false}:{}), sealed: true });
           task.logicalTickRemaining = Math.max(0, Math.min(simulationStepSeconds,
             Number(savedTask.logicalTickRemaining) || 0));
           task.unverifiableBatchPrecision = savedTask.unverifiableBatchPrecision === true;
@@ -1252,13 +1251,14 @@
             try {do {
               const task = catchUpTasks[0];
               if (!task||!prepareQueueHead()) break;
-              // Rule v1: actual offline sources use independent fixed segments;
-              // pre-existing online debt retains standard logical ticks.
+              // Rule 2 uses one immutable start profile for each offline task.
+              // Existing online debt retains its exact runner and FIFO barrier.
+              // Frozen work must never fall back to cadence replay.
               task.fastForward = null; task.fastDriver = null;
               // Exact local bridge only: discard obsolete scheduler plans,
               // but preserve its already committed partial-tick position.
               const bridgeSeconds = Math.min(task.remainingGameSeconds, task.source === "offline"
-                ? (task.macroPlan ||= planOfflineMacro(task)).seconds
+                ? (task.macroPlan ||= {kind:'checkpoint',frozenOffline:true,seconds:task.remainingGameSeconds,frames:[],depth:0,strength:0,hardBoundary:false}).seconds
                 : context.prepareOnlineWork&&task.randomMode==="state" ? onlineBridgeSeconds(task)
                 : task.logicalTickRemaining > epsilon ? task.logicalTickRemaining : simulationStepSeconds);
               if (!(bridgeSeconds > epsilon)) { catchUpTasks.shift(); continue; }
@@ -1272,14 +1272,20 @@
                   task.onlineToken=work.token;task.onlineWork=null;
                 }catch(error){task.onlineWork?.close?.();task.onlineWork=null;task.onlineToken=null;pauseCatchUp(catchUpDiagnostic('online-plan-failed',task,bridgeSeconds,null,error));break;}
               }
+              if(task.source==='offline'&&typeof context.prepareFixedWork!=='function') {
+                pauseCatchUp(catchUpDiagnostic('fixed-income-unavailable',task,bridgeSeconds,null,
+                  Error('固定离线结算适配器不可用；进度保留')));break;
+              }
               if (task.source === "offline" && context.prepareFixedWork ) {
                 try {
-                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds,{clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,martialIntervals:task.macroPlan.martialIntervals,martialCheckpoint:task.macroPlan.martialCheckpoint,compiledMicro:task.macroPlan.compiledMicro,sourceProfile:task.macroPlan.sourceProfile,mapPlan:task.macroPlan.mapPlan,evolutionPlan:task.macroPlan.evolutionPlan});
+                  offlineSegmentBudget ||= WIS.Simulation.CheckpointStrategy.createBudget(task.remainingGameSeconds);
+                  task.fixedWork ||= context.prepareFixedWork(bridgeSeconds,{frozenOffline:true,clockRatio:task.remainingClockSeconds/task.remainingGameSeconds,martialIntervals:task.macroPlan.martialIntervals,martialCheckpoint:task.macroPlan.martialCheckpoint,compiledMicro:task.macroPlan.compiledMicro,sourceProfile:task.macroPlan.sourceProfile,mapPlan:task.macroPlan.mapPlan,evolutionPlan:task.macroPlan.evolutionPlan});
                   const work=WIS.Simulation.Profiler.withScope('offline',()=>WIS.Simulation.Profiler.measure('checkpointWork',()=>task.fixedWork.advance(frameStartedAt+frameBudgetMs)));
                   if(!work.done) {planningYieldRequested=true;break;}
                   task.fixedToken=work.token;task.fixedWork=null;
                 } catch(error) {
                   task.fixedWork?.close?.();task.fixedWork=null;task.fixedToken=null;
+                  if(task.macroPlan?.frozenOffline){task.macroPlan=null;pauseCatchUp(catchUpDiagnostic("fixed-income-failed",task,bridgeSeconds,null,error));break;}
                   if(error.code==='discrete-map-rejected'&&typeof WIS.Simulation.CheckpointStrategy.reject==='function') {
                     offlineSegmentBudget=WIS.Simulation.CheckpointStrategy.reject(offlineSegmentBudget,task.macroPlan);
                     task.macroPlan=null;planningYieldRequested=true;break;
@@ -1353,13 +1359,13 @@
                       discreteMetrics.logicalTicks += 1;
                       if (task.source === "online") discreteMetrics.exactTicks += result.compatibilitySubsteps||1;
                       else { discreteMetrics.batches++; discreteMetrics.largestBatch = Math.max(discreteMetrics.largestBatch, acceptedSeconds); }
-                      discreteMetrics.verification = "fixed-start-sources-v1";
+                      discreteMetrics.verification = task.source==='offline'?'frozen-offline-v2':'fixed-start-sources-v1';
                     }
                   }
                   if(task.source==='offline') {
                     const plan=task.macroPlan;
                     fastForwardUsed=true;
-                    fastForwardMetrics ||= {algorithm:'hierarchical-discrete-map',macros:0,spanHistogram:{},maximumFeedbackStrength:0,hardTimeBoundaries:0};
+                    fastForwardMetrics ||= {algorithm:'frozen-offline-v2',macros:0,spanHistogram:{},maximumFeedbackStrength:0,hardTimeBoundaries:0};
                     fastForwardMetrics.macros++;
                     const span=String(acceptedSeconds);fastForwardMetrics.spanHistogram[span]=(fastForwardMetrics.spanHistogram[span]||0)+1;
                     fastForwardMetrics.maximumFeedbackStrength=Math.max(fastForwardMetrics.maximumFeedbackStrength,plan.strength);

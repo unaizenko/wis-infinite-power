@@ -40,7 +40,7 @@
     const started = clock();
     options.onPhase?.("retained-progress");
     WIS.Meta.TreasureProgress.ensure(state);
-    WIS.Cultivation.ExplorationProgress.settleRetained(state);
+    if(!options.frozenOffline)WIS.Cultivation.ExplorationProgress.settleRetained(state);
     options.onPhase?.("snapshot");
     const snapshot = options.borrowSources ? state : S.cloneForSimulation(state);
     options.onPhase?.("rates");
@@ -66,16 +66,18 @@
       const preview=WIS.Cultivation.ImmortalLogic.minorTribulationPreviewForExploration(cultivation.explorationAmount);
       cultivation.finalExplorationLoad=preview.nextLoad;
     }));
-    const bigNumbersUnlocked = R.withState(snapshot,()=>E.withFrozenState(snapshot,()=>WIS.Meta.BigNumbers?.syncUnlock(snapshot)));
+    const bigNumbersUnlocked = options.frozenOffline ? WIS.Meta.BigNumbers.get(snapshot).unlocked : R.withState(snapshot,()=>E.withFrozenState(snapshot,()=>WIS.Meta.BigNumbers?.syncUnlock(snapshot)));
     // BigNumbers' private transaction both assigns a replacement and writes to
     // that plain replacement. Materialize a foreground draft before preparing
     // it so intervening tree reads cannot hide those writes behind a COW child.
     const bigNumbersState=bigNumbersUnlocked&&options.foregroundSource?options.foregroundSource():snapshot;
-    const bigNumbers = bigNumbersUnlocked ? R.withState(bigNumbersState,()=>E.withFrozenState(bigNumbersState,()=>
+    const bigNumbers = options.frozenOffline ? WIS.Meta.BigNumbers.prepareFrozen(snapshot,seconds,WIS.Meta.BigNumbers.captureFrozen(snapshot)) : bigNumbersUnlocked ? R.withState(bigNumbersState,()=>E.withFrozenState(bigNumbersState,()=>
       WIS.Meta.BigNumbers.prepare(bigNumbersState,seconds,options.offline ? {fixedSources:true,offlineSnapshot:true} : {fixedSources:false,
         powerAt:((offset)=>B.add(bigNumbersState.power,B.mul(sources.rates.power,offset)))}))) : null;
     const sourceMs=clock()-started;statistics.sourceMs+=sourceMs;recordCost("sourcePreparation",sourceMs);
-    return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, options, started };
+    return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, options, started,
+      frozenStart:options.frozenOffline ? {activeChallenge:snapshot.activeChallenge,
+        activeChallengeElapsedSeconds:snapshot.activeChallengeElapsedSeconds,power:B.BN(snapshot.power)} : null };
   }
   // Apply only the fields changed by a real public purchase in its isolated
   // cost/qualification domain. Unrelated rewards, clocks and other purchases
@@ -188,7 +190,7 @@
     if(!unit.options.skipTreasureRolls) {
       for(const reward of sources.rewards) if(reward.eligible&&(B.gt(reward.key==="originImprint" ? plan.gains.nieForce||0 : reward.units,0)||WIS.Meta.TreasureProgress.hasUnsettled(state,reward.key))) {
         const began=clock();
-        const progress=reward.key==="originImprint" ? B.mul(plan.gains.nieForce||0,reward.gain) : unit.options.mapPlan?.progressTotals?.[reward.key];
+        const progress=unit.options.frozenOffline ? undefined : reward.key==="originImprint" ? B.mul(plan.gains.nieForce||0,reward.gain) : unit.options.mapPlan?.progressTotals?.[reward.key];
         const gained=WIS.Simulation.Profiler.measure('treasure.'+reward.key,()=>WIS.Meta.TreasureProgress.advanceFixed(state,reward.key,progress??B.mul(reward.units,seconds),progress===undefined?reward:{...reward,gain:B.ONE}));
         if(reward.key==="tianNiPearl") gainedPearls=gained;
         const rewardMs=clock()-began;statistics.rewardMs+=rewardMs;recordCost("treasure:"+reward.key,rewardMs);
@@ -216,15 +218,17 @@
     if(unit.options.offline) {
       if(unit.bigNumbers)state.meta.bigNumbers=unit.bigNumbers;
       WIS.Meta.BigNumbers?.syncMilestones(state);
-      unit.options.beforeEndEvents?.(state,seconds);
+      unit.options.beforeEndEvents?.(state,seconds,unit);
     }
     // Martial progression belongs to the private fixed-step candidate.
     // Its conversions get at most one real 0.1s opportunity, never an offline purchase loop.
     if (WIS.Cultivation.Martial?.active(state)) {
+      const automationTime=WIS.Cultivation.Martial.get(state).automationTime;
       WIS.Cultivation.Martial.advance(state, seconds);
-      WIS.Cultivation.Martial.automate(state);
+      if(unit.options.frozenOffline)WIS.Cultivation.Martial.get(state).automationTime=automationTime;
+      else WIS.Cultivation.Martial.automate(state);
     }
-    const operations=yield* runAutomations(state,unit);
+    const operations=unit.options.frozenOffline ? 0 : yield* runAutomations(state,unit);
     if(!unit.options.offline&&unit.bigNumbers) state.meta.bigNumbers=unit.bigNumbers;
     E.invalidate();
     for(const key of WIS.Simulation.FixedSources.keys) WIS.tmp.rates[key+"PerSecond"]=sources.rates[key];
@@ -262,7 +266,7 @@
     try {
     const candidate=S.cloneForSimulation(state), roots=[state.core,state.powerSystem,state.cultivation,state.meta];
     const mathPolicy=options.offline===true ? R.MathPolicy.OFFLINE_APPROX : R.MathPolicy.ONLINE_EXACT;
-    R.withMathPolicy(mathPolicy,()=>R.withState(candidate,()=>R.withOfflineExecution(()=>E.withIsolatedState(candidate,()=>WIS.Cultivation.ExplorationProgress.settleRetained(candidate)))));
+    if(!options.frozenOffline)R.withMathPolicy(mathPolicy,()=>R.withState(candidate,()=>R.withOfflineExecution(()=>E.withIsolatedState(candidate,()=>WIS.Cultivation.ExplorationProgress.settleRetained(candidate)))));
     let unit, parts, closed=false, workMs=0;
     const evolution=options.evolutionPlan?WIS.Simulation.ContinuousExecutor.create(seconds,options.evolutionPlan).prepare(candidate):null;
     return {
