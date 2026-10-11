@@ -2,7 +2,7 @@
   "use strict";
   const B = WIS.Core.BigNum, R = WIS.Core.Runtime, E = WIS.Core.Effects;
   const S = WIS.Power.ScaleLogic, I = WIS.Cultivation.ImmortalLogic;
-  const labels = { joules: "J", power: "战力", mana: "法力", immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力" };
+  const labels = { joules: "J", power: "战力", mana: "法力", immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N" };
   const unlocks = {
     focus: "focusPurchased", ghostBrain: "ghostBrainPurchased", killingIntent: "killingIntentPurchased",
     elementalization: "elementalizationPurchased", ultimateIntent: "ultimateIntentPurchased",
@@ -15,7 +15,7 @@
     training: "锻炼", focus: "集中", rock: "打岩", ghostBrain: "鬼脑", ultimateIntent: "极意",
     breathing: "吐纳", circulation: "周天", refineTheVoid: "炼化虚空", exploration: "探寻（合计）",
     explorationNormal: "普通探寻", explorationFuBao: "符宝探寻", automaticExploration: "纵横灵界",
-    immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力"
+    immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N"
   };
   const primary = Object.keys(names);
   const penalty = (resource, gain, state) => WIS.Core.Penalties.applyGoogolPenalty(resource, state[resource], gain, state);
@@ -77,7 +77,7 @@
         const exponent = (label, value) => { if (!B.eq(value, 1)) add(label, "power", value); };
         const time = () => exponent("时间法则", I.daoTimeLawExponent());
         const googol = () => {
-          const amount = ["xianForce", "yuanForce"].includes(resource) ? WIS.Cultivation.Xiuzhen.amount(state, resource) : state[resource];
+          const amount = WIS.Cultivation.Xiuzhen.resourceKeys.includes(resource) ? WIS.Cultivation.Xiuzhen.amount(state, resource) : state[resource];
           const value = WIS.Core.Penalties.googolPenaltyMultiplier(resource, amount, state);
           if (!B.eq(value, 1)) add("古戈尔惩罚", "multiply", value);
         };
@@ -175,7 +175,9 @@
           }
           case "immortalPower": raw = I.immortalPowerBasePerSecond(); final = I.immortalPowerPerSecond(); resource = id; break;
           case "xianForce":
-          case "yuanForce": {
+          case "yuanForce":
+          case "nieForce":
+          case "universeCoefficient": {
             resource = id;
             const X = WIS.Cultivation.Xiuzhen;
             raw = X.rawRates(state)[id]; final = X.rates(state)[id];

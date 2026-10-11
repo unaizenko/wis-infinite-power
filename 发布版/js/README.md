@@ -1,6 +1,6 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.6，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.7.7，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,16 +22,16 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.6` | 玩家可见发布版本 |
+| gameVersion | `0.1.7.7` | 玩家可见发布版本 |
 | schemaVersion | `72` | Save envelope/State schema |
-| buildId | `release-0.1.7.6-20261008` | 发布构建与静态缓存标识 |
+| buildId | `release-0.1.7.7-20261011` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `2` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
 
 ## 3. 脚本装配
 
-`index.html` 是唯一人工脚本成员/顺序真源，`js/script-manifest.json` 是生成结果。当前清单 82 个脚本。
+`index.html` 是唯一人工脚本成员/顺序真源，`js/script-manifest.json` 是生成结果。当前清单 78 个脚本。
 
 大致顺序：
 
@@ -123,11 +123,13 @@ wall time enqueue
 
 只对同速率时间映射与RNG模式的相邻离线队列合并；不能跨在线barrier。每段仅捕获一次来源，新增奖励不反哺本段，不执行任何自动化。完成后单独刷新一次在线速率。快速挑战只观察截止点前的冻结收入，不把超时后收益算入成功资格。
 
-G/TREE的captureFrozen/prepareFrozen用起点进度速率和起点倍率，费用求和与二分有界；TREE跨阶段后不在同次离线启动新阶段。保留宝物库存、有限余量、signed tails、pending与precision记录，宝物由原正式批处理发放。
+G/TREE的captureFrozen/prepareFrozen用起点进度速率和起点倍率，费用求和与二分有界；TREE离线不升阶、不换阶段，超额superProgress保存至在线消费。保留宝物库存、有限余量、signed tails、pending与precision记录，宝物由原正式批处理发放。
 
 失败保留未结时间，不调用旧微步fallback。整个离线候选成功才提交，Worker重试从相同已确认起点重算；旧恢复缓存迁移丢弃，已提交数据和累计directWork不清零。CheckpointStrategy仍负责budget兼容/诊断accept，lastExecutorKind为frozen-offline；它的plan及下面的旧executor供兼容接口和诊断回归使用，已退出true offline生产选路。
 
 未来新增自动来源必须注册到FixedSources，或提供冻结起点的有界进度适配；新限时挑战要定义截止观察。门禁必须验证常数来源查询、无逐帧fallback、宝物不反哺、Worker/local一致及失败原子性，不能靠提高超时替代。
+
+生产装配清理：offline-strategy.js、discrete-batch.js、projection.js、treasure-events.js不再列入index/manifest或Worker；game.js不再创建两个旧事件/投影实例。源文件保留供诊断加载器显式装配。Runtime.withProjection、FastForward宝物批处理和FixedSegment在线结算仍为正式共享功能。旧数值求解模块中的budget复制、checkpoint校验和capability恢复仍被共用，本轮未拆除这些依赖。
 
 ## 8. ResourceEvolution / Predictor（兼容/诊断路径）
 
@@ -277,18 +279,21 @@ Core/Power/Cultivation/Meta 正式模块；FastForward；Accuracy；Simulation �
 
 - `FixedSources.continuousWork`
 - Profiler
-- TreasureEvents 某些预测/测试 API
 
-### COMPATIBILITY / LEGACY-PRESENT
+### DIAGNOSTIC-ONLY（不进入生产页面/Worker装配）
 
 - `simulation/offline-strategy.js`
-- Projection 旧 API
+- `simulation/discrete-batch.js`
+- `simulation/projection.js`
+- `simulation/treasure-events.js`
+
+### COMPATIBILITY / LEGACY-PRESENT
 - State 旧访问器
 - TreasureLedger alias
 - Resources 旧 facade
 - legacy randomMode/recovery 兼容
 
-当前没有整模块 REMOVABLE 结论。
+以上四个诊断模块已退出生产装配，但仍有显式测试依赖，源码保留。其他共享模块无整文件删除结论。
 
 ## 16. 开发/发布边界
 
@@ -341,4 +346,32 @@ G64 后需求与 TREE/D4 规则由 `meta/infinity-config.js` 和 `meta/infinity.
 
 武道离线高值区间（2026-10-05）：martial-interval 对 layer 0/1 使用可表示的 log1p 坐标，不再用 1e300 拒绝；更高层仍由结构签名监测实际变化。只有正式探测确认没有可表示支出时，高值 J/战力才采用归一化收入外推；Y 复用 BigNumbers.prepare 的实际采样相位。其他状态仍需粗细步、累计误差、下游扰动与事件检查；失败缩短或回放。Y 新增收益误差的 origin 随现有 version2 区间检查点保存，旧记录兼容。正式在线路径不使用此模块。
 
-历史planner的慢设备Worker重试选项（rule2冻结收益不使用该选路）：offline-worker-entry将第1/2次重试的离线规划跨度上限设为30/3秒，offline-headless在正式planner入口使用该上限。普通Worker无此限制；不修改在线桥接或现有停滞保护。上限是当前Worker的宿主调度选项，不是资源或持久字段。
+历史planner的30/3秒Worker重试缩段选项已从生产宿主删除。rule2重试继续从确认起点准备完整冻结任务；真实超时、重试上限与ACK机制保持。
+
+
+天材地宝共用批量规则（2026-10-10）：Core.FiniteProgress提供geometric.cumulative/inverse/unresolvable与batchCount/batchBoundary，供宝物和ExplorationProgress共同调用。天材地宝保留分段需求和等级上限；已保存余量继续使用finite v2，精度受限时留存而非报错阻断在线。旧高精度math只供诊断/旧进度转换使用，不能把SignedLedger.normalize后的第一项当作精确最大项。版本/Schema72/rule2与在线时钟粒度保持。
+
+## D7 在线自动化（2026-10-11）
+
+BigNumbers.automate复用正式购买和进入入口；FixedSegment在安装本帧大数收益后调用一次，避免已准备的大数域覆盖购买结果。仍处于同一私有候选事务，异常整帧回滚。runAchievementAutomations缺省/延迟或offline时不执行D7。顺序为分形→节点/分枝/标签/已解锁的超构造增幅→超构造，单帧最多六个动作，无无限购买循环。core.preferences保存fractalAutomationEnabled、treeUpgradeAutomationEnabled、treeSuperAutomationEnabled和treeSuperAutomationMultiplier，旧档默认true/true/false/2，不提高Schema。
+
+树升级长按复用App.bindHoldButton，managedCommit由原有performSavedAction承担保存/动作完成，避免重复完成调用；可见性和手动购买条件控制重复。未购买D8时超构造点数产出为零，进入倍率始终锁定。
+
+## D8–D10 超构造扩展（2026-10-11）
+
+InfinityConfig配置节点、价格和前置。BigNumbers的产点/购买门槛统一供手动、长按和D7自动化使用：D8开放super阶段点数收入，D9开放升级；sequenceWork不随super产点增长。advanceContinuousTree只在线消费当前目标单位的superProgress，几何费用二分至多53次（未满一阶直接返回），D10完成后保留库存/序列/强化/倍率。captureFrozen冻结D8点数速率；prepareFrozen只累加superProgress、不升阶，normalizeTree允许super阶段进度>1；进度条显示满格，文本显示实际累计量。没有新增存档字段，Schema72/rule2不变。UI将构造点和强化从explicit容器中独立，按D8/D9资格显示，保留共用长按/支付事务。
+
+## D11 动态超构造倍率（2026-10-11）
+
+BigNumbers.treeSuperSources/ treeEffectiveSuperMultiplier供显示、即时速率与自动进入阈值共用；superEntryMultiplier仅保存入场基础，不覆盖动态加成。treeTimeExposure稳定计算1+sqrt(t/600)的积分。advanceBoostedTree先以原始需求消耗已入账进度（防止离线收益重新乘倍率），再以时间积分工作量和1.4/1.2递增费用有界求解在线升阶，0→3单独处理倍率跳跃。未购买D11时保留原推进路径。treeSignature包含第四强化等级和拥有D11-1时的计时。
+
+强化4的第L个已购等级对应下一费用：1000*10^L*1.1^(L*(L-1)/2)，沿用Resources支付与整帧候选回滚；无D11-2不能显示/购买/自动购买。tree.superElapsedSeconds是非负Decimal，upgrades.amplify是非负安全整数，旧档均补0。退出超构造/转生重置时间，D10连续升阶保留；离线prepareFrozen增加时间但沿用captureFrozen的起点倍率。UI预计耗时标明“按当前倍率”，不当作未来加速的精确预测。
+
+
+### C2 / B6 / C3 接入（2026-10-11）
+
+Infinity.prepareRebirth在完成重置/重洗节点后，通过ImmortalLogic.applyCultivationSelection选择C2设置体系；该函数与手动选择共享资格及奖励，不调用UI/保存。core.preferences.cultivationAutomationTarget为可选枚举，默认关闭。
+
+Infinity.fractalGainMultiplier的order0包含C3的(1+N)^4；BigNumbers在线、来源和captureFrozen一致使用该倍率，冻结样本保留cultivation以读取起点N。
+
+B6由Core.Penalties集中提供阶梯公式和下一档位边界。ScaleLogic动态积分通过googolResource选择对应边界；Core.Integration在边界用左侧速率积分、跨档重新取右侧速率，左极限仅在同步回调作用域内生效并在异常时恢复。普通玩家保持原连续公式与积分路径。

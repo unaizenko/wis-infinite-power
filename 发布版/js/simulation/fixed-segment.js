@@ -228,8 +228,12 @@
       if(unit.options.frozenOffline)WIS.Cultivation.Martial.get(state).automationTime=automationTime;
       else WIS.Cultivation.Martial.automate(state);
     }
-    const operations=unit.options.frozenOffline ? 0 : yield* runAutomations(state,unit);
+    let operations=unit.options.frozenOffline ? 0 : yield* runAutomations(state,unit);
     if(!unit.options.offline&&unit.bigNumbers) state.meta.bigNumbers=unit.bigNumbers;
+    // Big-number purchases use this frame's committed coefficients/construction.
+    // Running earlier would let the prepared domain overwrite the purchase.
+    if(!unit.options.offline && typeof unit.options.runAchievementAutomations==='function')
+      operations+=R.withState(state,()=>WIS.Meta.BigNumbers.automate(state));
     E.invalidate();
     for(const key of WIS.Simulation.FixedSources.keys) WIS.tmp.rates[key+"PerSecond"]=sources.rates[key];
     unit.options.onPhase?.("next-state");

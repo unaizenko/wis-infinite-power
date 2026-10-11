@@ -1836,7 +1836,7 @@
             amount => normalizeManaEvaluation(rate(1, amount)).mana,
             currentMana, budget,
             (gain, amount) => WIS.Core.Penalties.applyGoogolPenalty("mana", amount, gain, state),
-            { memoizeSamples: !!prepareRate }
+            { memoizeSamples: !!prepareRate, googolResource: "mana" }
           );
         };
         const mana = prepareRate
@@ -2640,9 +2640,9 @@
     return {
       mana: integrate(amount => withCoupledResourceState(amount, immortalPower, () =>
         add(applyGoogolPenalty("mana", amount, mul(automaticBaseManaPerSecond(amount), factor), state),
-          fixedAutomaticExplorationManaRate(context, factor))), mana, seconds, rate => rate, { foreground: true }),
+          fixedAutomaticExplorationManaRate(context, factor))), mana, seconds, rate => rate, { foreground: true, googolResource: "mana" }),
       immortalPower: integrate(amount => withCoupledResourceState(mana, amount, () =>
-        mul(immortalPowerPerSecond(), factor)), immortalPower, seconds, rate => rate, { foreground: true })
+        mul(immortalPowerPerSecond(), factor)), immortalPower, seconds, rate => rate, { foreground: true, googolResource: "immortalPower" })
     };
   }
 
@@ -3394,34 +3394,31 @@
     return breakthroughs;
   }
 
-  function chooseCultivation(systemName) {
-    if (!cultivationUnlocked() || state.cultivation.active || state.activeChallenge === "fiveMisfortunes" || !["仙道", "武道"].includes(systemName)) return;
-    if (systemName === "武道") {
-      state.cultivation.active = "martial";
-      WIS.Core.Effects.invalidate();
-      runtime.call("resetCultivationPage"); saveState(); render(); showNotice("已选择武道");
-      return;
-    }
-    state.cultivation.active = "immortal";
-    state.immortalSelectionCount += 1;
-    const grantedMahayanaReincarnation = grantMahayanaReincarnationEffects();
+  function applyCultivationSelection(current,systemName) {
+    if (!WIS.Meta.Achievements.has(current,"scale2") || current.cultivation.active || current.activeChallenge === "fiveMisfortunes" || !["仙道","武道"].includes(systemName)) return null;
+    runtime.assertMutable();
+    current.cultivation.active=systemName==="仙道"?"immortal":"martial";
+    let granted=false;
+    if(systemName==="仙道") { current.immortalSelectionCount+=1; granted=grantMahayanaReincarnationEffects(current); }
     WIS.Core.Effects.invalidate();
-    runtime.call("resetCultivationPage");
-    saveState();
-    render();
-    showNotice(grantedMahayanaReincarnation
-      ? "已选择仙道体系；大乘奖励：自动获得3次转世重修效果"
-      : "已选择仙道体系");
+    return {grantedMahayana:granted};
   }
 
-  function grantMahayanaReincarnationEffects() {
-    if (!hasAchievement("mahayana") && !hasReachedMahayanaThisRun()) return false;
-    const changed = state.reincarnationLevel < 3 || state.permanentRootLevel < 3 ||
-      state.reincarnationEffectLevel < 3 || state.reincarnationManaJRewardLevel < 3;
-    state.reincarnationLevel = Math.max(state.reincarnationLevel, 3);
-    state.permanentRootLevel = Math.max(state.permanentRootLevel, 3);
-    state.reincarnationEffectLevel = Math.max(state.reincarnationEffectLevel, 3);
-    state.reincarnationManaJRewardLevel = Math.max(state.reincarnationManaJRewardLevel, 3);
+  function chooseCultivation(systemName) {
+    const selected=applyCultivationSelection(state,systemName);
+    if(!selected)return;
+    runtime.call("resetCultivationPage");saveState();render();
+    showNotice(selected.grantedMahayana ? "已选择仙道体系；大乘奖励：自动获得3次转世重修效果" : `已选择${systemName}体系`);
+  }
+
+  function grantMahayanaReincarnationEffects(current = state) {
+    if (!WIS.Meta.Achievements.has(current,"mahayana") && !(current.cultivation.active === "immortal" && current.advancedRealmLevel >= MAHAYANA_ADVANCED_REALM_LEVEL)) return false;
+    const changed = current.reincarnationLevel < 3 || current.permanentRootLevel < 3 ||
+      current.reincarnationEffectLevel < 3 || current.reincarnationManaJRewardLevel < 3;
+    current.reincarnationLevel = Math.max(current.reincarnationLevel, 3);
+    current.permanentRootLevel = Math.max(current.permanentRootLevel, 3);
+    current.reincarnationEffectLevel = Math.max(current.reincarnationEffectLevel, 3);
+    current.reincarnationManaJRewardLevel = Math.max(current.reincarnationManaJRewardLevel, 3);
     if (changed) WIS.Core.Effects.invalidate();
     return changed;
   }
@@ -4179,7 +4176,7 @@
     immortalApertureCost, unlockTrueImmortalAbility, unlockAdvancedImmortalAbility,
     ultimateImmortalAperturePrerequisiteMet,
     unlockSeverThreeCorpses, buyImmortalAperture,
-    withImmortalState, isImmortalState: current => state === current, immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, rawBaseBreathingManaGain, baseBreathingManaGain, effectiveBaseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, descendRealmPotentialTreasureMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureRawManaMultiplier, naturalTreasureManaDiminishingExponent, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, phantomHeavenMirrorLoadMultiplier, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlRawManaMultiplier, tianNiPearlManaDiminishingExponent, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, nextBaseManaBoundary, offlineManaRounding, joulesForNextBaseMana, getAutomaticManaRates, getAutomaticExplorationManaRate, continuousSourceDescriptors:()=>[
+    applyCultivationSelection, withImmortalState, isImmortalState: current => state === current, immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, rawBaseBreathingManaGain, baseBreathingManaGain, effectiveBaseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, descendRealmPotentialTreasureMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureRawManaMultiplier, naturalTreasureManaDiminishingExponent, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, phantomHeavenMirrorLoadMultiplier, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlRawManaMultiplier, tianNiPearlManaDiminishingExponent, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, nextBaseManaBoundary, offlineManaRounding, joulesForNextBaseMana, getAutomaticManaRates, getAutomaticExplorationManaRate, continuousSourceDescriptors:()=>[
       ['passiveMana','mana',['joules','power','mana','immortalPower']],
       ['explorationMana','mana',['joules','power','mana','immortalPower']],
       ['immortalPower','immortalPower',['joules','mana','immortalPower','yuanForce']]

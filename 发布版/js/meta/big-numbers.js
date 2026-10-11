@@ -10,11 +10,12 @@
   const TREE_UPGRADES = Object.freeze({
     node: Object.freeze({ name: "节点构造", description: "提升有限根树的构造效率。", cost: 10, growth: 3, effect: 2 }),
     branch: Object.freeze({ name: "分枝构造", description: "扩大不同树形结构的搜索范围。", cost: 100, growth: 6, effect: 1.5 }),
-    label: Object.freeze({ name: "标签构造", description: "提高高阶坏序列中标记结构的搜索效率。", cost: 300, growth: 8, effect: 1.6 })
+    label: Object.freeze({ name: "标签构造", description: "提高高阶坏序列中标记结构的搜索效率。", cost: 300, growth: 8, effect: 1.6 }),
+    amplify: Object.freeze({ name: "超构造增幅", description: "树构造强化4：提升超构造倍率，费用倍率逐级增加。", cost: 1000, growth: 10, growthStep: 1.1, effect: 1.2, unlock: "D11-2" })
   });
   function freshTree() {
     return { rank: 0, phase: "explicit", construction: B.BN(0), totalConstruction: B.BN(0), sequenceWork: B.BN(0),
-      upgrades: { node: 0, branch: 0, label: 0 }, superEntryMultiplier: 1, superProgress: B.ZERO };
+      upgrades: { node: 0, branch: 0, label: 0, amplify: 0 }, superEntryMultiplier: 1, superProgress: B.ZERO, superElapsedSeconds: B.ZERO };
   }
   function normalizeTree(raw, legacyComplete = false) {
     const t = freshTree();
@@ -27,7 +28,7 @@
     if (raw) {
       t.rank = integer(raw.rank);
       if (t.rank > Number.MAX_SAFE_INTEGER || (t.rank > 0 && t.rank < 3)) throw Error("TREE 阶位未开放");
-      for (const key of ["construction", "totalConstruction", "sequenceWork"]) {
+      for (const key of ["construction", "totalConstruction", "sequenceWork", "superElapsedSeconds"]) {
         const value = B.parseFinite(raw[key] ?? 0);
         if (!value || value.lt(0)) throw Error("TREE 存档包含非法数值");
         t[key] = value;
@@ -37,7 +38,7 @@
       if (!multiplier || B.lt(multiplier, 1)) throw Error("TREE 超构造倍率无效");
       t.superEntryMultiplier=multiplier;
       const progress=B.parseFinite(raw.superProgress ?? 0);
-      if (!progress || B.lt(progress,0) || B.gt(progress,1)) throw Error("TREE 超构造进度无效");
+      if (!progress || B.lt(progress,0) || B.gt(progress,1) && raw.phase !== "super") throw Error("TREE 超构造进度无效");
       t.superProgress=progress;
       if (![undefined, "explicit", "super", "complete"].includes(raw.phase)) throw Error("TREE 阶段无效");
       t.phase = raw.phase || "explicit";
@@ -46,7 +47,7 @@
     if (t.rank >= 3 && t.phase === "complete") {
       t.phase = "complete"; t.superProgress = B.ONE;
     } else if (t.phase === "complete") throw Error("TREE 完成状态缺少阶位");
-    if (t.phase === "explicit") { t.superEntryMultiplier = 1; t.superProgress = B.ZERO; }
+    if (t.phase === "explicit") { t.superEntryMultiplier = 1; t.superProgress = B.ZERO; t.superElapsedSeconds = B.ZERO; }
     return t;
   }
   const cloneTree = t => ({ ...t, upgrades: { ...t.upgrades } });
@@ -261,7 +262,9 @@
   const treeUpgradeCost = (state, key) => {
     const rule = TREE_UPGRADES[key];
     if (!rule) throw Error("未知 TREE 强化");
-    return B.mul(rule.cost, B.pow(rule.growth, treeState(state).upgrades[key]));
+    const level=treeState(state).upgrades[key];
+    const base=B.mul(rule.cost, B.pow(rule.growth, level));
+    return rule.growthStep ? B.mul(base,B.pow(rule.growthStep,B.div(B.mul(level,B.sub(level,1)),2))) : base;
   };
   const treeConstructionRate = state => B.mul(B.mul(B.div(get(state).gIndex, 64), treeEffect(state, "node")), I.treeGainMultiplier(state));
   const treeConstructionGain = (state, seconds) => B.mul(treeConstructionRate(state), seconds);
@@ -280,10 +283,25 @@
     const raw = B.add(1, B.mul(0.5, B.log10(B.div(i, TREE_INDEX_BASE))));
     return B.lte(raw, 5) ? raw : B.mul(5, B.pow(B.div(raw, 5), 0.75));
   }
-  const treeSuperSpeed = state => B.div(treeState(state).superEntryMultiplier,treeSuperRequirement(state,targetTreeRank(state)));
+  function treeSuperSources(state) {
+    const t=treeState(state),sources=[{name:t.phase==="explicit"?"进入基础":"进入时锁定基础",multiplier:B.BN(t.phase==="explicit"?treeSuperMultiplier(state):t.superEntryMultiplier)}];
+    if(I.has(state,'D11-1'))sources.push({name:"超构造停留时间",multiplier:B.add(1,B.pow(B.div(t.superElapsedSeconds,IC.treeTimeBoostSeconds),.5))});
+    if(I.has(state,'D11-2'))sources.push({name:"超构造增幅",multiplier:treeEffect(state,"amplify")});
+    if(I.has(state,'D11-3'))sources.push({name:"TREE阶位",multiplier:B.pow(IC.treeRankBoost,t.rank)});
+    return sources;
+  }
+  const treeEffectiveSuperMultiplier = state => treeSuperSources(state).reduce((value,source)=>B.mul(value,source.multiplier),B.ONE);
+  const treeSuperSpeed = state => B.div(treeEffectiveSuperMultiplier(state),treeSuperRequirement(state,targetTreeRank(state)));
+  // Exact integral of 1+sqrt(t/600), using a stable difference of powers.
+  function treeTimeExposure(elapsed,seconds,enabled) {
+    if(!enabled || seconds===0)return B.BN(seconds);
+    const a=B.pow(B.div(elapsed,IC.treeTimeBoostSeconds),.5),b=B.pow(B.div(B.add(elapsed,seconds),IC.treeTimeBoostSeconds),.5);
+    const mean=B.mul(2/3,B.div(B.add(B.add(B.mul(a,a),B.mul(a,b)),B.mul(b,b)),B.add(a,b)));
+    return B.mul(seconds,B.add(1,mean));
+  }
   const treeActive = state => treeUnlocked(state) && targetTreeRank(state) <= maximumTree(state);
   function canPurchaseTreeUpgrade(state, key) {
-    return Object.hasOwn(TREE_UPGRADES, key) && treeActive(state) && treeState(state).phase === "explicit"
+    return Object.hasOwn(TREE_UPGRADES, key) && (!TREE_UPGRADES[key].unlock || I.has(state,TREE_UPGRADES[key].unlock)) && treeActive(state) && (treeState(state).phase === "explicit" || treeState(state).phase === "super" && I.has(state,"D9"))
       && (key !== "label" || B.gte(treeState(state).sequenceWork, treeDecayThresholdWork(state, targetTreeRank(state))))
       && treeState(state).upgrades[key] < Number.MAX_SAFE_INTEGER && B.gte(treeState(state).construction, treeUpgradeCost(state, key));
   }
@@ -301,21 +319,75 @@
   function enterTreeSuper(state) {
     if (!canEnterTreeSuper(state)) return false;
     WIS.Core.Runtime.assertMutable();
-    transaction(state, n => { n.tree.superEntryMultiplier = treeSuperMultiplier(state); n.tree.superProgress = B.ZERO; n.tree.phase = "super"; });
+    transaction(state, n => { n.tree.superEntryMultiplier = treeSuperMultiplier(state); n.tree.superProgress = B.ZERO; n.tree.superElapsedSeconds = B.ZERO; n.tree.phase = "super"; });
     return true;
   }
+  // One bounded pass per committed online frame. Reuse all manual gates and
+  // payments; entry is last so the current construction multiplier is locked.
+  function automate(state) {
+    const fractal=I.has(state,'D7-1') && state.fractalAutomationEnabled,
+      upgrades=I.has(state,'D7-2') && state.treeUpgradeAutomationEnabled,
+      enter=I.has(state,'D7-3') && state.treeSuperAutomationEnabled;
+    if(!fractal && !upgrades && !enter)return 0;
+    WIS.Core.Runtime.assertMutable();
+    let count=0;
+    if(fractal && purchase(state,get(state).fractalLevel+1))count++;
+    if(upgrades)for(const key of Object.keys(TREE_UPGRADES))if(purchaseTreeUpgrade(state,key))count++;
+    if(enter && canEnterTreeSuper(state) && B.gte(treeEffectiveSuperMultiplier(state),state.treeSuperAutomationMultiplier))
+      if(enterTreeSuper(state))count++;
+    return count;
+  }
   function resetRankProgress(t) {
-    t.phase="explicit";t.construction=B.ZERO;t.sequenceWork=B.ZERO;t.superProgress=B.ZERO;t.superEntryMultiplier=1;
+    t.phase="explicit";t.construction=B.ZERO;t.sequenceWork=B.ZERO;t.superProgress=B.ZERO;t.superEntryMultiplier=1;t.superElapsedSeconds=B.ZERO;
   }
   function continueUnlockedTree(state) {
     const t=treeState(state);
-    if(t.phase==="complete" && t.rank>=3 && I.has(state,"D1-2"))resetRankProgress(t);
+    if(t.phase==="complete" && t.rank>=3 && t.rank<maximumTree(state) && I.has(state,"D1-2"))resetRankProgress(t);
   }
   function startNextTree(state) {
     if (!treeActive(state) || treeState(state).phase !== "complete") return false;
     WIS.Core.Runtime.assertMutable();
     transaction(state, n => { resetRankProgress(n.tree); });
     return true;
+  }
+  // Stored progress uses the current target's requirement as one unit. Offline
+  // may bank more than one unit; online consumes geometric rank costs in at
+  // most 53 comparisons, even for extreme Decimal multipliers.
+  function advanceContinuousTree(t, seconds, speed, maximum) {
+    const target=t.rank<3?3:t.rank+1, limit=maximum-target+1;
+    const available=nonnegative(B.add(t.superProgress,B.mul(speed,seconds)));
+    if(B.lt(available,1)){t.superProgress=available;return;}
+    const cost=count=>count===0?B.ZERO:count===1?B.ONE:
+      B.div(B.sub(B.pow(IC.treeTimeGrowth,count),1),B.sub(IC.treeTimeGrowth,1));
+    let lo=0,hi=limit;
+    while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
+    if(lo===0){t.superProgress=available;return;}
+    t.rank=target+lo-1;
+    if(lo===limit){t.phase="complete";t.superProgress=B.ONE;return;}
+    t.superProgress=nonnegative(B.div(B.max(0,B.sub(available,cost(lo))),B.pow(IC.treeTimeGrowth,lo)));
+  }
+  function advanceBoostedTree(state,seconds) {
+    const t=treeState(state),maximum=maximumTree(state);
+    // Previously earned work (including frozen offline income) pays raw TREE
+    // requirements first. Never multiply it again by newly acquired boosts.
+    advanceContinuousTree(t,0,B.ZERO,maximum);
+    if(t.phase!=="super")return;
+    const target=targetTreeRank(state),limit=maximum-target+1;
+    const rankGrowth=I.has(state,'D11-3')?IC.treeRankBoost:1;
+    const exposure=treeTimeExposure(t.superElapsedSeconds,seconds,I.has(state,'D11-1'));
+    const multiplier=B.mul(B.mul(t.superEntryMultiplier,I.has(state,'D11-2')?treeEffect(state,'amplify'):1),B.pow(rankGrowth,t.rank));
+    const available=nonnegative(B.div(B.mul(exposure,multiplier),treeSuperRequirement(state,target)));
+    t.superElapsedSeconds=nonnegative(B.add(t.superElapsedSeconds,seconds));
+    const first=B.sub(1,t.superProgress);
+    if(B.lt(available,first)){t.superProgress=nonnegative(B.add(t.superProgress,available));return;}
+    // Rank 0 -> 3 is a three-rank boost; all later jumps are one rank.
+    const nextRatio=B.div(IC.treeTimeGrowth,B.pow(rankGrowth,target-t.rank)),ratio=B.div(IC.treeTimeGrowth,rankGrowth);
+    const cost=count=>count===0?B.ZERO:count===1?first:B.add(first,B.mul(nextRatio,B.div(B.sub(B.pow(ratio,count-1),1),B.sub(ratio,1))));
+    let lo=1,hi=limit;
+    while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
+    t.rank=target+lo-1;
+    if(lo===limit){t.phase="complete";t.superProgress=B.ONE;return;}
+    t.superProgress=nonnegative(B.div(B.max(0,B.sub(available,cost(lo))),B.mul(nextRatio,B.pow(ratio,lo-1))));
   }
   function advanceTree(state, seconds) {
     if (!treeActive(state)) return;
@@ -326,11 +398,22 @@
       t.totalConstruction = nonnegative(B.add(t.totalConstruction, gain));
       t.sequenceWork = nonnegative(B.add(t.sequenceWork, treeSequenceGain(state, gain)));
     } else if (t.phase === "super") {
-      const remaining=B.toNumber(B.div(B.mul(B.sub(1,t.superProgress),treeSuperRequirement(state,targetTreeRank(state))),t.superEntryMultiplier),Infinity);
+      const remaining=B.toNumber(B.div(B.mul(B.max(0,B.sub(1,t.superProgress)),treeSuperRequirement(state,targetTreeRank(state))),t.superEntryMultiplier),Infinity);
+      if(I.has(state,"D8")){
+        const gain=treeConstructionGain(state,I.has(state,"D10")?seconds:Math.min(seconds,remaining));
+        t.construction=nonnegative(B.add(t.construction,gain));
+        t.totalConstruction=nonnegative(B.add(t.totalConstruction,gain));
+      }
+      if(I.has(state,"D10")){
+        if(['D11-1','D11-2','D11-3'].some(id=>I.has(state,id)))advanceBoostedTree(state,seconds);
+        else {advanceContinuousTree(t,seconds,treeSuperSpeed(state),maximumTree(state));t.superElapsedSeconds=nonnegative(B.add(t.superElapsedSeconds,seconds));}
+        return;
+      }
+      t.superElapsedSeconds=nonnegative(B.add(t.superElapsedSeconds,Math.min(seconds,remaining)));
       t.superProgress=B.min(1,B.add(t.superProgress,B.mul(seconds,treeSuperSpeed(state))));
       if (B.gte(t.superProgress,1)) {
         t.rank=targetTreeRank(state);t.phase="complete";
-        if(I.has(state,"D1-2")){
+        if(I.has(state,"D1-2") && t.rank<maximumTree(state)){
           resetRankProgress(t);
           if(seconds>remaining)advanceTree(state,seconds-remaining);
         }
@@ -350,18 +433,19 @@
     return { ...cloneTree(t), unlocked, target, labels: target, available: target <= maximumTree(state),
       sequenceIndex, currentIndex, nextIndex: B.add(currentIndex, 1), sequenceProgress: B.toNumber(B.sub(sequenceIndex, currentIndex), 0),
       thresholdIndex, decayIndex, nextDecayIndex, unlockProgress: B.toNumber(B.min(1, B.max(0, B.div(sequenceIndex, thresholdIndex))), 0),
-      constructionRate: unlocked && t.phase === "explicit" && target <= maximumTree(state) ? treeConstructionRate(state) : B.ZERO,
-      superMultiplier: t.phase === "explicit" ? treeSuperMultiplier(state) : t.superEntryMultiplier,
+      constructionRate: unlocked && (t.phase === "explicit" || t.phase === "super" && I.has(state,"D8")) && target <= maximumTree(state) ? treeConstructionRate(state) : B.ZERO,
+      superMultiplier: treeEffectiveSuperMultiplier(state),
       superRequirement: requirement, superCompleted: B.mul(t.superProgress,requirement),
-      superProgressFraction: B.toNumber(t.superProgress,0),
-      superSources: [{name:"基础",multiplier:B.ONE},{name:"进入时锁定",multiplier:B.BN(t.phase==="explicit"?treeSuperMultiplier(state):t.superEntryMultiplier)}],
-      remainingSeconds: t.phase === "super" ? B.toNumber(B.div(B.mul(B.sub(1,t.superProgress),requirement),t.superEntryMultiplier),Infinity) : 0,
+      superProgressFraction: B.toNumber(B.min(1,t.superProgress),0),
+      superPointIncome: I.has(state,"D8"), superUpgrades: I.has(state,"D9"), continuousSuper: I.has(state,"D10"),
+      superSources: treeSuperSources(state),
+      remainingSeconds: t.phase === "super" ? B.toNumber(B.div(B.mul(B.max(0,B.sub(1,t.superProgress)),requirement),treeEffectiveSuperMultiplier(state)),Infinity) : 0,
       canEnter: canEnterTreeSuper(state), upgrades: Object.fromEntries(Object.entries(TREE_UPGRADES).map(([key, rule]) =>
-        [key, { ...rule, level: t.upgrades[key], multiplier: treeEffect(state, key), active: key !== "label" || labelActive,
+        [key, { ...rule, unlocked: !rule.unlock || I.has(state,rule.unlock), level: t.upgrades[key], multiplier: treeEffect(state, key), active: key !== "label" || labelActive,
           cost: treeUpgradeCost(state, key), canPurchase: canPurchaseTreeUpgrade(state, key) }])) };
   }
   // Only structural TREE changes invalidate predictors. Work/progress remains a fresh interval input.
-  const treeSignature = state => { const t = treeState(state); return [treeUnlocked(state), t.rank, t.phase, t.upgrades.node, t.upgrades.branch, t.upgrades.label, t.superEntryMultiplier]; };
+  const treeSignature = state => { const t = treeState(state); return [treeUnlocked(state), t.rank, t.phase, t.upgrades.node, t.upgrades.branch, t.upgrades.label, t.upgrades.amplify, t.superEntryMultiplier, I.has(state,"D11-1")?String(t.superElapsedSeconds):null]; };
   function writeGProgress(n,words) {
     const L=ledger(),normalized=L.normalize(words);
     if(L.sign(normalized)<0)throw Error('超分形进度余额不足，未提交');
@@ -481,7 +565,7 @@
       }
       advanceTree(state, treeSeconds);
       const currentRates = startingRates || rates(state);
-      if (options.endPower !== undefined) currentRates[0] = B.add(baseYRate(options.endPower), n.fractalLevel >= 1 ? 1 : 0);
+      if (options.endPower !== undefined) currentRates[0] = B.mul(B.add(baseYRate(options.endPower), n.fractalLevel >= 1 ? 1 : 0),I.fractalGainMultiplier(state,0));
       const yGain=options.offlineSnapshot ? B.mul(currentRates[0],seconds) : B.mul(sampledYGain(n,state,seconds,options),I.fractalGainMultiplier(state,0));
       if(options.offlineSnapshot)n.ySample=null;
       for (let i = 0; i < 5; i++) credit(n.resources[i], i === 0 ? yGain : B.mul(currentRates[i], seconds));
@@ -650,7 +734,7 @@
   // milestones. Only the cost of each next rank continues to escalate.
   function captureFrozen(state) {
     const n=get(state),unlocked=isUnlocked(state),t=n.tree||freshTree();
-    const rateState={power:state.power,activeChallenge:state.activeChallenge,
+    const rateState={power:state.power,activeChallenge:state.activeChallenge,cultivation:state.cultivation,
       meta:{...state.meta,bigNumbers:{...n,unlocked}}};
     // This detached, minimal read domain feeds the official requirement APIs.
     // In particular a TREE rank earned below cannot reduce this batch's costs.
@@ -663,7 +747,7 @@
         rate:unlocked&&n.gIndex>0?B.mul(I.gSpeedMultiplier(state),B.mul(BASE_SUPER_SPEED,
           B.mul(milestoneMultiplier(n.gIndex),fractalMultiplier(amount(state,4),n.beyondFractal)))):B.ZERO},
       tree:{active:activeTree,phase:t.phase,rank:t.rank,target:targetTreeRank(state),
-        constructionRate:activeTree&&t.phase==='explicit'?treeConstructionRate(state):B.ZERO,
+        constructionRate:activeTree&&(t.phase==='explicit'||t.phase==='super'&&I.has(state,'D8'))?treeConstructionRate(state):B.ZERO,
         sequenceRate:activeTree&&t.phase==='explicit'?treeSequenceGain(state,treeConstructionRate(state)):B.ZERO,
         superRate:activeTree&&t.phase==='super'?treeSuperSpeed(state):B.ZERO}};
   }
@@ -713,14 +797,15 @@
     advanceFrozenGraham(n,seconds,profile.g);
     const t=n.tree,frozen=profile.tree;
     if(frozen.active&&t.rank===frozen.rank&&t.phase===frozen.phase) {
+      const gain=B.mul(nonnegative(frozen.constructionRate),seconds);
+      t.construction=nonnegative(B.add(t.construction,gain));
+      t.totalConstruction=nonnegative(B.add(t.totalConstruction,gain));
       if(frozen.phase==='explicit') {
-        const gain=B.mul(nonnegative(frozen.constructionRate),seconds);
-        t.construction=nonnegative(B.add(t.construction,gain));
-        t.totalConstruction=nonnegative(B.add(t.totalConstruction,gain));
         t.sequenceWork=nonnegative(B.add(t.sequenceWork,B.mul(nonnegative(frozen.sequenceRate),seconds)));
       } else if(frozen.phase==='super') {
-        t.superProgress=B.min(1,B.add(t.superProgress,B.mul(nonnegative(frozen.superRate),seconds)));
-        if(B.gte(t.superProgress,1)){t.rank=frozen.target;t.phase='complete';}
+        // Bank all work; newly accrued time changes the multiplier only online.
+        t.superElapsedSeconds=nonnegative(B.add(t.superElapsedSeconds,seconds));
+        t.superProgress=nonnegative(B.add(t.superProgress,B.mul(nonnegative(frozen.superRate),seconds)));
       }
     }
     // Online will seed its next official one-second sample from the new state.
@@ -757,6 +842,6 @@
     syncUnlock, syncMilestones, baseYRate, currentBaseYRate, sampledYGain, rates, amount, canPurchase, purchase, milestoneMultiplier, fractalMultiplier,
     exposure, advance, prepare, captureFrozen, prepareFrozen, view, compareSymbolic, maximumGIndex: 64, maximumG, maximumTree,
     MAX_TREE_RANK, TREE_UPGRADES, freshTree, normalizeTree, treeUnlocked, targetTreeRank, treeSuperThresholdWork, treeDecayThresholdWork, treeSuperRequirement, treeSuperSeconds,
-    treeUpgradeCost, treeConstructionRate, treeConstructionGain, treeSequenceGain, treeSequenceIndex, treeSuperMultiplier, treeSuperSpeed,
-    canPurchaseTreeUpgrade, purchaseTreeUpgrade, canEnterTreeSuper, enterTreeSuper, startNextTree, treeView, treeSignature });
+    treeUpgradeCost, treeConstructionRate, treeConstructionGain, treeSequenceGain, treeSequenceIndex, treeSuperMultiplier, treeEffectiveSuperMultiplier, treeSuperSources, treeTimeExposure, treeSuperSpeed,
+    automate, canPurchaseTreeUpgrade, purchaseTreeUpgrade, canEnterTreeSuper, enterTreeSuper, startNextTree, treeView, treeSignature });
 }(window.WIS));

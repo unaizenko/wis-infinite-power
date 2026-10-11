@@ -83,6 +83,7 @@
     const smallGains=Object.fromEntries(keys.map(k=>[k,B.ZERO]));
     let y=initialLog.slice(),remaining=B.BN(seconds),arc=null,done=seconds===0;
     let midpointAccepted=false;
+    let boundaryAmount=null,boundaryLog=null;
     let evaluations=0,accepted=0,rejected=0,slices=0,last=null,classification='finite',diagnosis=null;
     let shrinkingTime=0, previousTail=null;
     const tolerance=options.logTolerance??1e-4;
@@ -103,7 +104,9 @@
     class TrialError extends Error {}
     const stocks=z=>Object.fromEntries(keys.map((k,i)=>[k,B.max(0,expm1(z[i]))]));
     function* sample(z){
-      const values=stocks(z),r=rateAt(values);evaluations++;
+      const values=stocks(z),leftLimit=boundaryLog!==null && B.gte(z[0],boundaryLog);
+      if(leftLimit)values[keys[0]]=boundaryAmount;
+      const r=rateAt(values,{leftLimit});evaluations++;
       if(trialSamples)trialSamples.push([vector(z),keys.map(k=>exact(values[k])),keys.map(k=>exact(r[k]??0))]);
       const speed=keys.map(k=>B.div(r[k]??0,B.mul(B.add(values[k],1),LN10)));
       if(speed.some(x=>!B.isFiniteBN(x)||B.lt(x,0)))throw new TrialError("连续积分速率无法表示");
@@ -197,7 +200,9 @@
           const end=keys.map(k=>log1p(B.add(start[k],B.mul(m.r[k]||0,seconds))));
           const error=end.reduce((n,v,i)=>B.max(n,B.div(B.abs(B.sub(v,prediction[i])),
             B.max(B.min(tolerance*.1,B.mul(gainTolerance,B.abs(B.sub(v,y[i])))),B.mul(Number.EPSILON*64,B.max(1,B.abs(v)))))),B.ZERO);
-          if(B.lte(error,1)){
+          const firstBoundary=options.nextBoundary?.(a.values);
+          const crossesBoundary=firstBoundary!=null && (B.gte(expm1(prediction[0]),firstBoundary)||B.gte(expm1(end[0]),firstBoundary));
+          if(B.lte(error,1) && !crossesBoundary){
             for(const k of keys)smallGains[k]=B.mul(m.r[k]||0,seconds);
             midpointAccepted=true;
             y=end;remaining=B.ZERO;done=true;accepted++;return result();
@@ -211,6 +216,11 @@
         if(!arc){
           // Initial linear prediction is only a bracket, never the settlement.
           arc=B.max('1e-300',log1p(B.div(remaining,a.inverse)));
+        }
+        if(options.nextBoundary && keys.length===1){
+          boundaryAmount=options.nextBoundary(a.values);
+          boundaryLog=boundaryAmount!==null && B.gt(boundaryAmount,a.values[keys[0]])?log1p(boundaryAmount):null;
+          if(boundaryLog!==null)arc=B.min(arc,B.sub(boundaryLog,y[0]));
         }
         const cycleCurrent=cycleEnabled && options.cycleContextCurrent();
         if(!cycleCurrent)clearCycle();
@@ -279,6 +289,7 @@
           const k=keys[i];smallGains[k]=B.add(smallGains[k],B.mul(time,B.mul(.5,B.add(a.r[k]||0,half2.end.r[k]||0))));
         }
         y=half2.y;last=half2.end;accepted++;
+        if(boundaryLog!==null && B.gte(y[0],boundaryLog)){y[0]=boundaryLog;last=null;boundaryLog=null;boundaryAmount=null;clearCycle();}
         if(diagnosis?.code==='singularity-suspected' && shrinkingTime===0)diagnosis=null;
         // Quadrature error is resource approximation, not lost host time: the
         // caller commits the full requested tick once its endpoint is located.

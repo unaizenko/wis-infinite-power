@@ -547,6 +547,8 @@
     const integrationBoundary = amount => {
       const normal = nextResourceSoftcapIntegrationBoundary(amount), stage = nextStage(amount);
       let boundary = normal && stage ? minBN(normal, stage) : normal || stage;
+      const penaltyBoundary=googolResource ? WIS.Core.Penalties.nextGoogolPenaltyBoundary(googolResource,amount,state) : null;
+      if(penaltyBoundary)boundary=boundary?minBN(boundary,penaltyBoundary):penaltyBoundary;
       // Keep sampling the penalty even when all resource softcaps were removed.
       if (googolResource && gte(amount, googol)) {
         const index = resourceSoftcapIntegrationLogIndex(amount);
@@ -660,7 +662,7 @@
         finally{deferredDynamicRateScope=previous;}
       },
       acquire(args){
-        const initial=BN(args[1]),signature=[initial.sign,initial.layer,initial.mag,Number(args[2]),args[4]?.foreground===true].join(':');
+        const initial=BN(args[1]),signature=[initial.sign,initial.layer,initial.mag,Number(args[2]),args[4]?.foreground===true,args[4]?.googolResource??''].join(':');
         let record=records[cursor++];
         if(record&&record.signature!==signature)throw Error("积分候选输入改变，旧候选失效");
         if(!record){
@@ -693,7 +695,7 @@
   function createResourceSoftcapDynamicRateWork(
     rawRateAtAmount, currentAmount, elapsedSeconds,
     settleRateAtAmount = applyResourceSoftcapSettlement,
-    { foreground = false, memoizeSamples = false } = {}
+    { foreground = false, memoizeSamples = false, googolResource = null } = {}
   ) {
     const seconds=Number(elapsedSeconds), initial=maxBN(ZERO,currentAmount);
     if(typeof rawRateAtAmount!=="function" || !Number.isFinite(seconds) || seconds<0 || !isFiniteBN(initial))
@@ -703,11 +705,13 @@
     // The callback has no local-time input. The formal clock is fixed by caller.
     const samples = memoizeSamples ? new Map() : null;
     const evaluationState=memoizeSamples && runtime.isEvaluating()?runtime.getState():null;
-    const work=WIS.Core.Integration.createAdaptiveWork({amount:initial},seconds,values=>{
+    const delayed=googolResource && WIS.Meta.Infinity.has(state,'B6');
+    const work=WIS.Core.Integration.createAdaptiveWork({amount:initial},seconds,(values,{leftLimit=false}={})=>{
       const amount = values.amount;
-      const key = samples ? [amount.sign, amount.layer, amount.mag].join(":") : null;
+      const key = samples ? [amount.sign, amount.layer, amount.mag,leftLimit].join(":") : null;
       if (samples?.has(key)) return {amount:samples.get(key)};
-      const raw=rawRateAtAmount(values.amount), rate=settleRateAtAmount(raw,values.amount);
+      const calculate=()=>{const raw=rawRateAtAmount(values.amount);return {raw,rate:settleRateAtAmount(raw,values.amount)};};
+      const {raw,rate}=leftLimit && delayed?WIS.Core.Penalties.withGoogolPenaltyLeftLimit(googolResource,amount,calculate):calculate();
       if(!isFiniteBN(raw)||!isFiniteBN(rate)||lt(rate,0))throw Error("动态积分速率无效");
       if (samples) {
         if (samples.size >= 256) samples.delete(samples.keys().next().value);
@@ -715,6 +719,7 @@
       }
       return {amount:rate};
     },{logTolerance:foreground?1e-4:1e-6,
+      nextBoundary:delayed?values=>WIS.Core.Penalties.nextGoogolPenaltyBoundary(googolResource,values.amount,state):null,
       autonomous:!!evaluationState,
       cycleContextCurrent:()=>runtime.isEvaluating() && runtime.getState()===evaluationState});
     let cancelled=false;

@@ -12,7 +12,6 @@
   const ONLINE_SLICE_BUDGET_MS = 12;
   const MAX_DISCRETE_EVENTS_PER_STEP = 128;
   const SIMULATION_EPSILON = 1e-10;
-  const OFFLINE_ERROR_TOLERANCE = 1e-4;
   const OFFLINE_BOUNDARY_BISECTIONS = 16;
   const CHALLENGE_DEFINITIONS = CONFIG.challenges;
   const { max: maxBN } = WIS.Core.BigNum;
@@ -21,10 +20,7 @@
   const Immortal = WIS.Cultivation.ImmortalLogic;
   const {
     autoUpgradeEnhancements, fitnessMembershipCardCount, superLollipopCount, skyCrystalCount,
-    cosmicFiberCount, cosmicFiberAvailable, cosmicFiberChance,
-    cosmicWillCount, cosmicWillAvailable, cosmicWillChance,
-    fiveSpiritStoneCount, fitnessMembershipCardChance, superLollipopChance, skyCrystalChance,
-    fiveSpiritStoneChance, fitnessJBonus, rockPowerPerSecond, ultimateIntentPowerSource, train,
+    cosmicFiberCount, cosmicWillCount, fiveSpiritStoneCount, train,
     applyResourceSoftcap, applyResourceSoftcapRate, applyResourceSoftcapEffectiveRate,
     applyResourceSoftcapOverTime, applyResourceSoftcapDynamicRateOverTime,
     applyResourceSoftcapProgressive, resourceSoftcapExponent,
@@ -36,12 +32,7 @@
     baLingChiCount, cultivationRealmLevel, explore, grantThreeDeficienciesResetReward,
     reconcileMahayanaReincarnationEffects,
     minorTribulationPowerExponent, celestialDeclineExponent, tianNiPearlCount, phantomHeavenMirrorCount,
-    mysticHeavenSacredTreeCount, mysticHeavenSpiritSlayingSwordCount,
-    tianNiPearlChance, mysteriousGreenBottleChance, fuBaoChance, naturalTreasureUpgradeChance,
-    naturalTreasureLevelCap, xuTianDingChance, baLingChiChance, wanYaoFanChance,
-    phantomHeavenMirrorChance, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordChance,
-    immortalCrystalChance, fiveElementsTreasureChance, immortalTreasureChanceMultiplier,
-    automaticExplorationAmountPerSecond, circulationManaPerSecond, immortalPowerPerSecond
+    mysticHeavenSacredTreeCount, mysticHeavenSpiritSlayingSwordCount
   } = Immortal;
 
   let savedOfflineRecovery = null;
@@ -49,8 +40,6 @@
   let initialLoadComplete = false;
   let automationSimulation;
   let stepSimulation;
-  let treasureEventSimulation;
-  let projectionSimulation;
   let offlineSimulation;
   let simulationLoop;
   let renderPending = false;
@@ -89,11 +78,6 @@
   const cultivationFlagKeys = flatStateKeys
     .filter((key) => key.endsWith("Unlocked") || key.endsWith("Level"))
     .sort();
-  const offlineDiscreteStateKeys = flatStateKeys.filter((key) => {
-    const value = state[key];
-    return key === "currentQiLayer" || typeof value === "boolean" || typeof value === "string" ||
-      /(Purchased|Unlocked|Level|Enabled|Active|Exponent|Multiplier|Cap|Tier)$/.test(key);
-  }).sort();
   const challengeKeys = Object.keys(CHALLENGE_DEFINITIONS);
   const {
     definitions: achievementDefinitions, states: achievementStates, recordCurrent: recordCurrentAchievements,
@@ -425,74 +409,14 @@
     epsilon: SIMULATION_EPSILON,
     boundaryBisections: OFFLINE_BOUNDARY_BISECTIONS
   });
-  treasureEventSimulation = WIS.Simulation.TreasureEvents.create({
-    getState: () => state,
-    setStateDirect,
-    advanceGameStep: stepSimulation.advanceGameStep,
-    recordSignature,
-    treasuresUnlocked,
-    hasAchievement,
-    fitnessMembershipCardChance,
-    superLollipopChance,
-    skyCrystalChance,
-    fiveSpiritStoneChance,
-    cosmicFiberAvailable,
-    cosmicFiberChance,
-    cosmicWillAvailable,
-    cosmicWillChance,
-    fitnessJBonus,
-    rockPowerPerSecond,
-    ultimateIntentPowerSource,
-    tianNiPearlChance,
-    mysteriousGreenBottleChance,
-    fuBaoChance,
-    naturalTreasureUpgradeChance,
-    naturalTreasureLevelCap,
-    xuTianDingChance,
-    baLingChiChance,
-    wanYaoFanChance,
-    phantomHeavenMirrorChance,
-    mysticHeavenSacredTreeChance,
-    mysticHeavenSpiritSlayingSwordChance,
-    immortalCrystalChance,
-    fiveElementsTreasureChance,
-    immortalTreasureChanceMultiplier,
-    automaticExplorationAmountPerSecond,
-    circulationManaPerSecond,
-    immortalPowerPerSecond,
-    epsilon: SIMULATION_EPSILON,
-    simulationStepSeconds: SIMULATION_STEP_SECONDS,
-    boundaryBisections: OFFLINE_BOUNDARY_BISECTIONS,
-    maxDiscreteEventsPerStep: MAX_DISCRETE_EVENTS_PER_STEP
-  });
-  projectionSimulation = WIS.Simulation.Projection.create({
-    getState: () => state,
-    setStateDirect,
-    advanceGameStep: stepSimulation.advanceGameStep,
-    treasureDriverSignature: treasureEventSimulation.treasureDriverSignature,
-    stateFlagSignature,
-    recordSignature,
-    offlineDiscreteStateKeys,
-    challengeKeys,
-    epsilon: SIMULATION_EPSILON,
-    simulationStepSeconds: SIMULATION_STEP_SECONDS,
-    maxDiscreteEventsPerStep: MAX_DISCRETE_EVENTS_PER_STEP,
-    errorTolerance: OFFLINE_ERROR_TOLERANCE
-  });
   offlineSimulation = WIS.Simulation.Offline.create({
     useWorker: true,
-    planOfflineMacro: stepSimulation.planOfflineMacro,
     prepareFixedWork: stepSimulation.prepareFixedWork,
     prepareOnlineWork: stepSimulation.prepareOnlineWork,
     onlineMetrics: stepSimulation.onlineMetrics,
     restoreOnlineMetrics: stepSimulation.restoreOnlineMetrics,
     getState: () => state,
     advanceGameStep: stepSimulation.advanceGameStep,
-    calculateAutomaticStepPlan: stepSimulation.calculateAutomaticStepPlan,
-    projectStepTimes: stepSimulation.projectStepTimes,
-    nextKnownSimulationBoundarySeconds: stepSimulation.nextKnownSimulationBoundarySeconds,
-    adaptiveOfflineStepSeconds: projectionSimulation.adaptiveOfflineStepSeconds,
-    nextEffectiveTreasureEventSeconds: treasureEventSimulation.nextEffectiveTreasureEventSeconds,
     beginTransaction: stepSimulation.beginTransaction,
     endTransaction: stepSimulation.endTransaction,
     achievementStates,

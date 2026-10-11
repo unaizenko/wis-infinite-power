@@ -122,7 +122,7 @@
     if (m.eq(1)) return requirement(key, n);
     if (r.type === "exponential") {
       const logRatio = ONE.div(r.q).ln().mul(a);
-      return requirement(key, n).mul(expm1(logRatio.mul(m))).div(expm1(logRatio));
+      return WIS.Core.FiniteProgress.geometric.cumulative(requirement(key,n),logRatio,m);
     }
     // A fixed small prefix uses the original represented demands. Large counts use Euler--Maclaurin (four
     // derivative corrections), not a per-item loop or an expected item count.
@@ -158,39 +158,15 @@
     return B.max(1, estimate);
   }
   function affordable(key, n, progress, award) {
-    const p = nonnegative(progress), a = BN(award);
-    let estimate = affordableEstimate(key, n, p, a);
-    if (!estimate.gt(0)) return ZERO;
-    for (let i = 0; i < 12; i++) {
-      const {cost,next,nextCost} = rewardBoundary(key,n,estimate,a);
-      if (cost.gt(p)) {
-        const lower = estimate.sub(1);
-        if (lower.eq(estimate)) break; // single-item resolution is exhausted
-        estimate = lower;
-      } else if (nextCost.lte(p)) estimate = next;
-      else return estimate;
-    }
-    // Resolve a bad inverse estimate with bounded logarithmic search. No silent
-    // loop over all rewards. Unresolvable units remain in the progress ledger.
-    let lo = ZERO, hi = estimate.mul(2).add(2);
-    for (let i = 0; i < 96; i++) {
-      const mid = lo.add(hi).div(2).floor();
-      if (mid.eq(lo) || mid.eq(hi)) break;
-      if (cumulative(key, n, mid, a).lte(p)) lo = mid; else hi = mid;
-    }
-    return lo;
+    return WIS.Core.FiniteProgress.batchCount(nonnegative(progress),affordableEstimate(key,n,progress,award),
+      m=>cumulative(key,n,m,BN(award)),(code,message)=>new PrecisionError(code,message));
   }
   // A rounded cost equal to the available balance is NOT a certificate for
   // either an integer reward count or an exact zero remainder. Check that both
   // the batch unit and the adjacent cost can still be resolved before debit.
   function rewardBoundary(key,n,m,award) {
-    const next=m.add(1);
-    if(next.eq(m) || (m.gt(0) && m.sub(1).eq(m)))
-      throw new PrecisionError("batch-unit", "奖励批数已无法区分相邻整数；未确认奖励暂停，输入已保留");
-    const cost=cumulative(key,n,m,award), nextCost=cumulative(key,n,next,award);
-    if(!cost.isFinite() || !nextCost.isFinite() || !nextCost.gt(cost))
-      throw new PrecisionError("batch-cost", "相邻批次的累计需求无法可靠区分；未确认奖励暂停，输入已保留");
-    return {cost,next,nextCost};
+    return WIS.Core.FiniteProgress.batchBoundary(m,count=>cumulative(key,n,count,award),
+      (code,message)=>new PrecisionError(code,message));
   }
   function requirementDivisor(state,key) {
     return rules[key].immortal ? ONE : WIS.Meta.Achievements.ordinaryTreasureRequirementDivisor(state);

@@ -58,6 +58,7 @@
   function fractalGainMultiplier(s,order){const N=WIS.Meta.BigNumbers;
     const factor=i=>B.add(1,B.pow(B.log10(B.add(N.amount(s,i),C.fractalLogOffset)),C.fractalPower));
     let m=B.BN(rewardUnlocked(s,'trueG1')?C.fractalReward:1);
+    if(order===0&&has(s,'C3'))m=B.mul(m,B.pow(B.add(1,WIS.Cultivation.Xiuzhen.amount(s,'universeCoefficient')),4));
     if(order>0&&has(s,'D2-1'))m=B.mul(m,factor(order-1));
     if(s.activeChallenge==='trueG1')for(let i=0;i<order;i++)m=B.div(m,factor(i));return m;}
   function gBaseRequirement(s,g){
@@ -129,6 +130,8 @@
     next.meta.infinity={...old,points:B.add(old.points,v.points),totalPointsEarned:B.add(old.totalPointsEarned,v.points),rebirthCount:old.rebirthCount+1,unlocked:true,upgradesUnlocked:true,runElapsed:retained?old.runElapsed:0};
     if(challengeEntry){next.activeChallenge=options.challengeKey;next.activeChallengeElapsedSeconds=0;}
     if(options.respec){next.meta.infinity.points=B.add(next.meta.infinity.points,v.refund);next.meta.infinity.upgrades={};next.meta.infinity.purchaseLedger=[];}
+    if(has(next,'C2') && next.cultivationAutomationTarget)
+      WIS.Cultivation.ImmortalLogic.applyCultivationSelection(next,next.cultivationAutomationTarget==='immortal'?'仙道':'武道');
     // Old time and pending work belong to the old run. Runtime cancels their generations on install.
     if(!retained)next.core.runtime.timeLedger=WIS.Core.State.fresh().core.runtime.timeLedger;
     if(!retained)next.core.runtime.compensation=WIS.Core.State.fresh().core.runtime.compensation;

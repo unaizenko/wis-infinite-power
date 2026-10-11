@@ -527,6 +527,11 @@ button { font: inherit; }
 .automation-group-header small { color: var(--muted); font-size: 11px; }
 .automation-items { display: grid; }
 .automation-row { min-height: 82px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: 16px; border-bottom: 1px solid var(--border); }
+.automation-threshold { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; }
+.automation-threshold input { width: 110px; max-width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); }
+.automation-threshold button { min-height: 44px; }
+#tree-super-auto-error { margin-top: 6px; }
+.tree-upgrade button { touch-action: manipulation; }
 .automation-row:last-child { border-bottom: 0; }
 .automation-row h4 { margin: 0 0 5px; font-size: 14px; }
 .automation-row p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }

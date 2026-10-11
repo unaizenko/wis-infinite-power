@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "release-0.1.7.6-20261008",
+  "buildId": "release-0.1.7.7-20261011",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -57,7 +57,6 @@
     "js/simulation/coordinate-coupled-kernel.js",
     "js/simulation/fixed-sources.js",
     "js/simulation/discrete-map.js",
-    "js/simulation/offline-strategy.js",
     "js/simulation/predictor-groups.js",
     "js/simulation/continuous-predictor.js",
     "js/simulation/local-discrete-macro.js",
@@ -69,9 +68,6 @@
     "js/simulation/compiled-continuous-plan.js",
     "js/simulation/martial-interval.js",
     "js/simulation/step.js",
-    "js/simulation/treasure-events.js",
-    "js/simulation/projection.js",
-    "js/simulation/discrete-batch.js",
     "js/simulation/offline.js",
     "js/simulation/worker-protocol.js",
     "js/simulation/worker-client.js",

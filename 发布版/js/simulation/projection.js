@@ -1,8 +1,7 @@
 (function defineSimulationProjection(WIS) {
   "use strict";
-  // COMPATIBILITY: legacy projection API is still assembled by game.js. The current offline
-  // executor does not call adaptiveOfflineStepSeconds; keep the reference API without
-  // changing settlement.
+  // DIAGNOSTIC-ONLY: explicitly loaded by legacy reference tests.
+  // Production page and Worker settlement do not assemble this API.
 
   WIS.Simulation = WIS.Simulation || {};
   WIS.Simulation.Projection = Object.freeze({

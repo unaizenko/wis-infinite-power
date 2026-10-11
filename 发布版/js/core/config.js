@@ -170,11 +170,10 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.7.6", saveVersion: 72,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.7.7", saveVersion: 72,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
-    offlineSegmentation: Object.freeze({ minSegments: 64, maxSegments: 512 }), // v7 save compatibility
     offlineHierarchy: Object.freeze({ baseSegments:64, macroMaxSeconds:300, splitFactor:4, maxDepth:3,
       maxDirectWork:8192, microSeconds:0.1, splitThreshold:0.001, mapEnabled:true,
       learnSteps:8, initialMapSteps:16, minimumMapSteps:16, maxMapSteps:4096,

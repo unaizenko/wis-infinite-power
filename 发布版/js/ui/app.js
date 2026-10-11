@@ -319,6 +319,7 @@
       Object.freeze({ key: "scale", label: "量级" }),
       Object.freeze({ key: "immortal", label: "仙道" }),
       Object.freeze({ key: "martial", label: "武道" }),
+      Object.freeze({ key: "numbers", label: "大数" }),
       Object.freeze({ key: "challenge", label: "挑战" }),
       Object.freeze({ key: "other", label: "其他" })
     ]);
@@ -378,6 +379,18 @@
         unlockAchievement: "bodyIntegration",
         stateKey: "immortalRealmAutomationEnabled"
       }),
+      Object.freeze({id:'cultivation-selection',name:'转生后自动选择体系',group:'general',kind:'selection',
+        description:'无限转生后自动选择设定的体系，保留原选择奖励；已保留当前体系时不重复选择。重置无限强化失去C2后暂停生效。',
+        isUnlocked:()=>WIS.Meta.Infinity.has(state,'C2'),isEnabled:()=>Boolean(state.cultivationAutomationTarget),
+        isDisabled:()=>Boolean(getCatchUpStatus().locked)}),
+      ...[
+        ['numbers-fractal','自动升级分形','D7-1','fractalAutomationEnabled','在线时依次购买满足条件的分形。'],
+        ['numbers-tree-upgrades','自动升级树构造','D7-2','treeUpgradeAutomationEnabled','在线时按节点、分枝、标签、已解锁的超构造增幅顺序持续升级；拥有D9后超构造中也生效，标签仍需满足衰减阈值。'],
+        ['numbers-tree-super','自动进入超构造','D7-3','treeSuperAutomationEnabled','在线时满足超构造解锁条件，且当前进入倍率达到设定值时自动进入。拥有D8后超构造期间也产出树构造点。']
+      ].map(([id,name,node,key,description])=>Object.freeze({id,name,group:'numbers',description,
+        isUnlocked:()=>WIS.Meta.Infinity.has(state,node),isEnabled:()=>state[key]===true,
+        isDisabled:()=>Boolean(getCatchUpStatus().locked),toggle:()=>state[key]=!state[key]
+      })),
       ...["qi", "body", "heart", "soul"].map((key, index) => Object.freeze({
         id: "martial-" + key,
         name: ["自动凝气", "自动锻体", "自动炼心", "自动神魂"][index],
@@ -404,7 +417,7 @@
 
     const signature = AUTOMATION_DEFINITIONS
       .map((definition) => `${definition.id}:${definition.isUnlocked() ? 1 : 0}:${definition.isEnabled() ? 1 : 0}:${definition.isDisabled?.() ? 1 : 0}`)
-      .join("|");
+      .join("|") + "|" + String(state.treeSuperAutomationMultiplier) + "|" + state.cultivationAutomationTarget;
     if (!force && signature === automationRenderSignature) return;
     automationRenderSignature = signature;
 
@@ -455,9 +468,30 @@
           const description = document.createElement("p");
           description.textContent = definition.description;
           copy.append(name, description);
-          const toggle = document.createElement("button");
+          if(definition.id==='numbers-tree-super') {
+            const field=document.createElement('div');field.className='automation-threshold';
+            const label=document.createElement('label');label.htmlFor='tree-super-auto-multiplier';label.textContent='进入倍率 ≥';
+            const input=document.createElement('input');input.id=label.htmlFor;input.type='text';input.inputMode='decimal';input.autocomplete='off';input.spellcheck=false;input.placeholder='例如 2 或 1e3';input.setAttribute('aria-describedby','tree-super-auto-error');
+            const apply=document.createElement('button');apply.id='save-tree-super-auto-multiplier';apply.type='button';apply.className='secondary-button';apply.textContent='保存倍率';
+            const error=document.createElement('p');error.id='tree-super-auto-error';error.setAttribute('role','status');error.hidden=true;
+            apply.addEventListener('click',()=>{
+              if(!definition.isUnlocked() || definition.isDisabled())return;
+              const value=input.value.trim(),n=value?WIS.Core.BigNum.parseFinite(value):null;
+              if(!n || n.lt(1)){error.textContent='请输入大于或等于 1 的有效倍率。';error.hidden=false;input.setAttribute('aria-invalid','true');return;}
+              state.treeSuperAutomationMultiplier=n;error.hidden=true;input.removeAttribute('aria-invalid');saveState();renderAutomationManager(true);showNotice('超构造进入倍率已保存');
+            });
+            field.append(label,input,apply);copy.append(field,error);
+          }
+          const toggle = document.createElement(definition.kind==='selection'?"select":"button");
           toggle.className = "automation-toggle";
-          toggle.type = "button";
+          if(definition.kind==='selection') {
+            toggle.id='cultivation-automation-target';toggle.setAttribute('aria-label','转生后自动选择体系');
+            for(const [value,label] of [['','关闭'],['immortal','仙道'],['martial','武道']]){const option=document.createElement('option');option.value=value;option.textContent=label;toggle.append(option);}
+            toggle.addEventListener('change',()=>{
+              if(!definition.isUnlocked()||definition.isDisabled())return;
+              state.cultivationAutomationTarget=toggle.value;saveState();renderAutomationManager(true);showNotice('转生后自动选择体系已保存');
+            });
+          }else toggle.type = "button";
           toggle.dataset.automationId = definition.id;
           row.append(copy, toggle);
           view = { row, toggle, name, description };
@@ -465,6 +499,14 @@
           const nextDefinition = definitions.slice(definitions.indexOf(definition) + 1)
             .map((next) => automationViews.get(next.id)?.row).find(Boolean);
           groupView.items.insertBefore(row, nextDefinition || null);
+        }
+        if(definition.id==='numbers-tree-super') {
+          const input=rawById('tree-super-auto-multiplier'),apply=rawById('save-tree-super-auto-multiplier');
+          if(document.activeElement!==input)input.value=String(state.treeSuperAutomationMultiplier);
+          input.disabled=apply.disabled=Boolean(definition.isDisabled());
+        }
+        if(definition.kind==='selection'){
+          view.toggle.value=state.cultivationAutomationTarget;view.toggle.disabled=Boolean(definition.isDisabled());return;
         }
         const enabled = definition.isEnabled();
         const toggle = view.toggle;
@@ -2909,7 +2951,7 @@
   }
 
   const infinityPage = WIS.UI.Infinity.create({ ...context, performSavedAction });
-  const bigNumberPage = WIS.UI.BigNumbers.create({ ...context, performSavedAction });
+  const bigNumberPage = WIS.UI.BigNumbers.create({ ...context, performSavedAction, bindHoldButton, isControlVisible: previewVisible });
   const xiuzhenPage = WIS.UI.Xiuzhen.create({ ...context, performSavedAction });
   const martialPage = WIS.UI.Martial.create({ ...context, performSavedAction });
   function renderActionsPage() {
@@ -2998,8 +3040,8 @@
     if (rawById("automation-dialog")?.open) renderAutomationManager();
   }
 
-  function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true, cooperative = false } = {}) {
-    const commit = work => () => {
+  function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true, cooperative = false, managedCommit = false } = {}) {
+    const commit = work => managedCommit ? work : () => {
       const result = work();
       const completed=value=>{
         if(value!==false)context.completePlayerAction();

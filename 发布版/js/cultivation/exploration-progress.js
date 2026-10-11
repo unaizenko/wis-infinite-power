@@ -106,7 +106,7 @@
     for(const w of signed().expand(all)){const t=parse(w);if(t.e<0n||t.e>4096n)fail('等级整数超出可验证范围');n+=t.c*10n**t.e;}
     if(n<0n)fail('等级为负');return n;}
   function logValue(words,ctx=precision()){const {FP,DP,LN10,ln}=ctx;const n=normalize(words);if(sign(n)<=0)fail('累计需求必须为正');
-    const t=parse(n[0]),digits=t.c.toString(),head=BigInt((digits+'0'.repeat(Number(DP))).slice(0,Number(DP)+1));
+    const t=parse(n.reduce((a,b)=>compare([a],[b])>=0?a:b)),digits=t.c.toString(),head=BigInt((digits+'0'.repeat(Number(DP))).slice(0,Number(DP)+1));
     return (t.e+BigInt(digits.length-1))*FP+ln(head)*FP/LN10;}
   const costCache=new Map();
   function cumulative(n){if(n<0n||String(n).length>4000)fail('需求超过 4000 位等级的局部容量');const key=String(n);if(costCache.has(key))return costCache.get(key);
@@ -131,13 +131,11 @@
       if(!s.unlockedAchievements?.seizeFoundation)p.seize=normalize(old);}
     s.explorationRewards=p;return p;
   }
-  function demandAt(s) {
-    const represented=signed().value(levelWords(s));
-    if(WIS.Core.Runtime.getMathPolicy()===WIS.Core.Runtime.MathPolicy.OFFLINE_APPROX&&B.gte(represented,'1e16'))return B.mul(B.div(2,3),layeredCost(represented));
-    const n=localInteger(levelWords(s));
-    return n===null ? B.mul(B.div(2,3),layeredCost(signed().value(levelWords(s))))
-      : project(minus(cumulative(n+1n),cumulative(n)));
+  function representedDemand(level) {
+    const n=B.BN(level);return n.lt(10)?B.mul(10,B.pow(B.div(1,.65),n))
+      :B.mul(2000,B.pow(B.div(1,.6),B.sub(n,10)));
   }
+  function demandAt(s) { return representedDemand(signed().value(levelWords(s))); }
   function ensure(s) {
     if(s.explorationRewards?.version===2)return s.explorationRewards;
     const p=legacyEnsure(s),natural=project(p.natural),seize=project(p.seize);
@@ -153,61 +151,53 @@
     const words=levelWords(s);if(L().sign(words)<0)fail('等级余额为负');
     for(const w of signed().expand(words))L().integer(String(w).replace(/^-/,'').replace(/\*\d+$/,''));return s;
   }
-  function localInteger(words){try{const n=integer(words);return String(n).length<=3900?n:null;}catch(error){
-    if(!signed().value(words).isFinite()||sign(words)<0)throw error;return null;}}
-  const layeredCost=n=>B.mul(3000,B.pow(B.div(5,3),B.sub(n,10)));
-  function layeredNatural(s,incoming,ceiling,previous){
-    const progress=add(previous.natural,incoming),current=levelWords(s);
-    const n=signed().value(current),pv=signed().value(progress),cv=layeredCost(n);
-    // The same geometric inverse, evaluated in the vendor's layer model.
-    // Once a single integer level is unresolvable, report the approximation
-    // explicitly. No loop expands levels or exponent digits.
-    const credit=B.add(cv,pv),target=B.min(signed().value(ceiling),
-      B.max(n,B.add(10,B.div(B.log10(B.div(credit,3000)),B.log10(B.div(5,3))))).floor());
-    if(!B.gt(target,n)){installNatural(s,previous,progress);return B.ZERO;}
-    const words=[...signed().expand(progress)];
-    const low=words.filter(w=>!String(w).startsWith('-')&&signed().project(w).abs().layer<2);
-    // Preserve represented low words before projecting into the finite point.
-    // The existing high geometric inverse and cap debit remain unchanged.
-    const atCap=compare([target],ceiling)>=0;
-    const main=atCap?signed().value(ceiling):target;
+  function settleNatural(s,amount,frozen,previous) {
+    const ceiling=frozen?.cap||capWords(s),original=levelWords(s),G=F().geometric;
+    if(!(frozen?.eligible??s.goldenCoreUnlocked)||compare(original,ceiling)>=0)return B.ZERO;
+    let stock=original,progress=add(previous.natural,Array.isArray(amount)?amount:[amount]);
+    if(sign(progress)<0)fail('收入为负');
+    let approximation=previous.approximation;
+    // Only two demand regions: levels 0..9, then the post-10 geometric law.
+    for(let region=0;region<2;region++){
+      const n=signed().value(stock),pv=signed().value(progress);
+      if(!pv.gt(0)||compare(stock,ceiling)>=0)break;
+      const regionCap=n.lt(10)&&compare(ceiling,[10])>0?[10]:ceiling;
+      const limit=B.max(0,signed().value(minus(regionCap,stock)).floor());
+      if(!limit.gt(0))break;
+      const q=n.lt(10)?.65:.6,step=B.div(1,q).ln(),first=representedDemand(n);
+      const estimate=pv.lt(first)?B.ZERO:B.max(1,G.inverse(first.ln(),pv.ln(),step,step.exp().sub(1).ln()));
+      if(!estimate.gt(0))break;
+      const costAt=m=>G.cumulative(first,step,m);
+      let count,approximate=G.unresolvable(estimate);
+      if(approximate)count=B.min(estimate,limit);
+      else {
+        try {count=B.min(F().batchCount(pv,estimate,costAt),limit);}
+        catch(error){if(!['batch-cost','batch-unit'].includes(error.code))throw error;
+          // Match treasure tails: keep unconfirmed progress, continue the frame.
+          approximation={code:'precision-limited',exactRemainder:false};break;}
+      }
+      if(!count.gt(0))break;
+      if(approximate&&count.lt(limit)){
+        // Same high-batch closure as treasures: represented high income is used
+        // once; independently represented positive low words remain spendable.
+        progress=normalize([...signed().expand(progress)].filter(w=>{
+          const v=signed().project(w);return v.gt(0)&&v.layer<2;
+        }));
+      } else {
+        const cost=costAt(count);
+        if(!cost.isFinite()||compare(progress,[cost])<0)break;
+        progress=minus(progress,[cost]);
+      }
+      stock=add(stock,[count]);
+      if(approximate)approximation={code:'high-geometric-batch',exactRemainder:false};
+      if(compare(stock,regionCap)<0)break;
+    }
+    const main=signed().value(stock),gained=signed().value(minus(stock,original));
     s.naturalTreasureLevel=main;
-    installNatural(s,previous,atCap?normalize([B.max(0,B.sub(pv,B.max(0,B.sub(layeredCost(main),cv))))]):normalize(low),
-      atCap?minus(ceiling,[main]):[],{code:'high-geometric-batch',exactRemainder:false});
-    WIS.Core.Effects?.invalidate?.();return B.sub(main,n);
+    installNatural(s,previous,progress,minus(stock,[main]),approximation);
+    if(gained.gt(0))WIS.Core.Effects?.invalidate?.();return gained;
   }
-  function settleNatural(s,amount,frozen,previous){const ceiling=frozen?.cap || capWords(s);
-    if(!(frozen?.eligible ?? s.goldenCoreUnlocked)||L().compare(levelWords(s),ceiling)>=0)return B.ZERO;
-    // Above the representable integer spacing, use the existing geometric
-    // inverse directly. The demand law is unchanged; do not build thousands
-    // of guard digits for levels whose public stock is already a BigNum.
-    const finiteHigh=WIS.Core.Runtime.getMathPolicy()===WIS.Core.Runtime.MathPolicy.OFFLINE_APPROX&&B.gte(signed().value(levelWords(s)),'1e16');
-    const incoming=Array.isArray(amount)?normalize(amount):finiteHigh?normalize([amount]):input(amount);if(sign(incoming)<0)fail('收入为负');
-    if(!incoming.length&&!previous.natural.length)return B.ZERO;
-    if(finiteHigh)return layeredNatural(s,incoming,ceiling,previous);
-    const current=localInteger(levelWords(s)),cap=localInteger(ceiling);
-    if(current===null||[...signed().expand(incoming),...signed().expand(previous.natural)].some(w=>
-      !/^[-\d]/.test(w)||abs(parse(w).e).toString().length>3900))
-      return layeredNatural(s,incoming,ceiling,previous);
-    const priorProgress=previous.natural,progress=add(priorProgress,incoming),credit=add(cumulative(current),progress);
-    if(compare(credit,cumulative(current+1n))<0){installNatural(s,previous,progress);return B.ZERO;}
-    let target;
-    if(compare(credit,cumulative(10n))<0){target=current;while(target<10n&&compare(credit,cumulative(target+1n))>=0)target++;}
-    else {const scaled=add(minus(credit,cumulative(10n)),['3000']);
-      const leading=parse(scaled[0]),ctx=precision(abs(leading.e).toString().length+1);
-      target=10n+(logValue(scaled,ctx)-ctx.BASE-ctx.LOG15)/ctx.HIGH;
-      if(target<10n)target=10n;}
-    if(cap!==null&&target>cap)target=cap;if(target<current)target=current;
-    let checks=0;while(compare(credit,cumulative(target))<0){if(++checks>8)fail('升级下界无法确认');target--;}
-    while((cap===null||target<cap)&&compare(credit,cumulative(target+1n))>=0){if(++checks>8)fail('升级上界无法确认');target++;}
-    const gained=target-current,words=L().normalize([String(target)]),main=L().value(words);
-    let remainder=minus(credit,cumulative(target));
-    // A closed cap defers awards; it never discards the represented surplus.
-    s.naturalTreasureLevel=main;
-    installNatural(s,previous,remainder,L().subtract(words,[main]));
-    if(gained>0n)WIS.Core.Effects?.invalidate?.();return L().project(String(gained));
-  }
-  // Cumulative/inverse arithmetic is local to a boundary calculation. The
+  // Shared represented batch calculations keep all progress in finite v2. The
   // state stays finite v2 throughout; no v2 -> legacy state -> v2 transition.
   function installNatural(s,previous,words,levelResidual=previous.levelResidual,approximation=previous.approximation) {
     const base={version:2,natural:ensure(s).natural,seize:previous.seize,levelResidual:levelResidual||[],

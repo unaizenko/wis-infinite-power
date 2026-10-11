@@ -23,6 +23,23 @@
       text("tree-target", v.phase === "complete" ? `TREE(${v.rank})` : v.rank < 3
         ? `目标：TREE(${v.target})　标签：${v.labels}` : `TREE(${v.rank}) → TREE(${v.target})　标签：${v.labels}`);
       for (const phase of ["explicit", "super", "complete"]) $("tree-" + phase).hidden = v.phase !== phase;
+      $("tree-construction-panel").hidden = v.phase !== "explicit" && !(v.phase === "super" && v.superPointIncome);
+      $("tree-upgrades").hidden = v.phase !== "explicit" && !v.superUpgrades;
+      if (!$("tree-construction-panel").hidden) {
+        const decayText = `T${context.format(v.decayIndex, 0)}`;
+        text("tree-construction", context.format(v.construction, 4));
+        text("tree-rate", `+${context.format(v.constructionRate, 4)} /秒`);
+        treeRows.forEach(({ key, el, level, effect, cost, button }) => {
+          const u = v.upgrades[key]; el.hidden = !u.unlocked; if (!u.unlocked) return; level.textContent = `Lv.${u.level}`; cost.textContent = `费用：${f(u.cost)}`;
+          const multiplier = context.format(u.multiplier, 2);
+          effect.textContent = key === "label"
+            ? `实际衰减阈值 ×${u.effect}/级\n当前：${decayText}\n下一等级：T${context.format(v.nextDecayIndex, 0)}${u.active ? "" : `\n达到当前阈值后可升级`}`
+            : key === "amplify" ? `超构造倍率 ×${u.effect}/级 · 当前 ×${multiplier}\n本次升级后，下一费用 ×${f(B.mul(u.growth,B.pow(u.growthStep,u.level)))}`
+            : `${key === "node" ? "树构造点获取" : "坏序列推进"} ×${u.effect}/级 · 当前 ×${multiplier}`;
+          button.textContent = key === "label" && !u.active ? "升级：锁定" : "升级";
+          button.disabled = locked || !u.canPurchase;
+        });
+      }
       if (v.phase === "explicit") {
         text("tree-sequence-title", v.labels === 3 ? "三标签坏序列" : `${v.labels}标签坏序列`);
         text("tree-sequence", `当前：T${context.format(v.currentIndex, 0)}`);
@@ -34,17 +51,6 @@
         text("tree-unlock-target", `超构造解锁：${thresholdText}`);
         $("tree-unlock-bar").value = v.unlockProgress;
         text("tree-unlock-progress", `${context.format(v.unlockProgress * 100, 2)}%`);
-        text("tree-construction", context.format(v.construction, 4));
-        text("tree-rate", `+${context.format(v.constructionRate, 4)} /秒`);
-        treeRows.forEach(({ key, level, effect, cost, button }) => {
-          const u = v.upgrades[key]; level.textContent = `Lv.${u.level}`; cost.textContent = `费用：${f(u.cost)}`;
-          const multiplier = context.format(u.multiplier, 2);
-          effect.textContent = key === "label"
-            ? `实际衰减阈值 ×${u.effect}/级\n当前：${decayText}\n下一等级：T${context.format(v.nextDecayIndex, 0)}${u.active ? "" : `\n达到当前阈值后可升级`}`
-            : `${key === "node" ? "树构造点获取" : "坏序列推进"} ×${u.effect}/级 · 当前 ×${multiplier}`;
-          button.textContent = key === "label" && !u.active ? "升级：锁定" : "升级";
-          button.disabled = locked || !u.canPurchase;
-        });
         $("tree-entry").hidden = false;
         text("tree-entry-base", `若现在进入超构造：进度倍率 ×${context.format(v.superMultiplier, 2)}`);
         $("tree-enter").disabled = locked || !v.canEnter;
@@ -52,11 +58,14 @@
         $("tree-entry-note").hidden = false;
       } else if (v.phase === "super") {
         $("tree-super-bar").value = v.superProgressFraction;
-        text("tree-super-progress", `TREE(${v.rank}) → TREE(${v.target})：${f(v.superCompleted)} / ${f(v.superRequirement)}（${(v.superProgressFraction * 100).toFixed(2)}%）`);
+        text("tree-super-note", `${v.superPointIncome ? "超构造期间持续获得树构造点，不推进普通坏序列。" : "超构造期间不产出树构造点。"}${v.superUpgrades ? "可进行树构造强化。" : ""}进入时的基础倍率保持固定，D11的额外倍率随时间、强化等级和TREE阶位更新。${v.continuousSuper ? "完成目标后直接推进下一TREE，保留构造点和强化。" : ""}离线只累计进度，返回在线后升阶。`);
+        text("tree-super-progress", `TREE(${v.rank}) → TREE(${v.target})：${f(v.superCompleted)} / ${f(v.superRequirement)}（${f(B.mul(v.superProgress,100))}%）`);
+        $("tree-super-time").hidden = !WIS.Meta.Infinity.has(state,"D11-1");
+        text("tree-super-time", `本次超构造时间：${f(v.superElapsedSeconds)} 游戏秒（跨TREE保留）`);
         text("tree-super-base", `实际总进度倍率 ×${context.format(v.superMultiplier, 3)}`);
         text("tree-super-sources", `来源：${v.superSources.map(source => `${source.name} ×${f(source.multiplier)}`).join(" · ")}`);
         text("tree-super-eta", Number.isFinite(v.remainingSeconds)
-          ? `预计：${WIS.UI.Format.elapsedTime(Math.ceil(v.remainingSeconds))}` : "预计：极长（以进度需求为准）");
+          ? `按当前倍率预计：${WIS.UI.Format.elapsedTime(Math.ceil(v.remainingSeconds))}` : "预计：极长（以进度需求为准）");
       } else {
         text("tree-complete-rank", `TREE(${v.rank})`);
         text("tree-next-note", v.available ? `下一目标：TREE(${v.target})　标签：${v.labels}` : "后续 TREE 阶位暂未开放");
@@ -86,7 +95,7 @@
       $("big-number-page-rate").hidden = v.tree.rank >= 3;
       text("big-number-secondary", graham ? `次级：${quantity(v.amounts[4], 4)}；Q = ${f(v.amounts[4])}`
         : order > 0 ? `次级：${quantity(v.amounts[order - 1], order - 1)}` : "更高阶符号尚未解锁");
-      source("big-number-base", M.currentBaseYRate(state), M.currentBaseYRate(state), "Y");
+      source("big-number-base", M.currentBaseYRate(state), B.mul(M.currentBaseYRate(state),WIS.Meta.Infinity.fractalGainMultiplier(state,0)), "Y");
       $("big-number-base").title = "战力提供的 Y 来源：每秒开始时取值，该秒内保持固定。Y 是固定符号，数字表示持有系数。";
       $("super-fractal-panel").hidden = !graham;
       if (graham !== lastGraham) $("fractal-panel").open = !graham;
@@ -124,7 +133,7 @@
       const treeAction = action => {
         if (context.getCatchUpStatus().locked) return;
         const previous = context.achievementStates();
-        context.performSavedAction(action, () => { context.notifyNewAchievements(previous); WIS.Core.Runtime.call("render"); render(); });
+        return context.performSavedAction(action, () => { context.notifyNewAchievements(previous); WIS.Core.Runtime.call("render"); render(); });
       };
       $("tree-enter").addEventListener("click", () => treeAction(() => M.enterTreeSuper(state)));
       $("tree-next").addEventListener("click", () => treeAction(() => M.startNextTree(state)));
@@ -132,12 +141,14 @@
         const el = document.createElement("article"); el.className = "tree-upgrade";
         const title = document.createElement("strong"), level = document.createElement("span"), cost = document.createElement("small");
         const effect = document.createElement("p"); effect.className = "tree-upgrade-effect";
-        title.textContent = rule.name; title.title = rule.description;
+        title.textContent = key === "amplify" ? `4·${rule.name}` : rule.name; title.title = rule.description;
         const button = document.createElement("button"); button.type = "button"; button.className = "primary-button";
         button.id = `tree-upgrade-${key}`; button.textContent = "升级";
         button.title = rule.description;
-        button.addEventListener("click", () => treeAction(() => M.purchaseTreeUpgrade(state, key)));
-        el.append(title, level, effect, cost, button); $("tree-upgrades").append(el); treeRows.push({ key, level, effect, cost, button });
+        el.append(title, level, effect, cost, button); $("tree-upgrades").append(el); treeRows.push({ key, el, level, effect, cost, button });
+        context.bindHoldButton(button.id, () => treeAction(() => M.purchaseTreeUpgrade(state, key)), {
+          managedCommit: true, canRepeat: () => selected === "tree" && context.isControlVisible(button) && M.canPurchaseTreeUpgrade(state,key)
+        });
       }
       for (let i = 0; i < 5; i++) {
         const el = document.createElement("article"); el.className = "fractal-row";

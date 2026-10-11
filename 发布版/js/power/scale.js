@@ -106,7 +106,7 @@
         WIS.Power.ScaleLogic.automaticJSettledPerSecondAt(evaluationJoules, jRateProfile),
       state.joules,
       safeElapsed,
-      (settledRate) => mul(settledRate, incomeFactor), integrationOptions
+      (settledRate) => mul(settledRate, incomeFactor), {...integrationOptions,googolResource:"joules"}
     );
     const powerRateProfile = WIS.Power.ScaleLogic.createAutomaticPowerRateProfile();
     const passivePower = applyResourceSoftcapDynamicRateOverTime(
@@ -114,7 +114,7 @@
         WIS.Power.ScaleLogic.automaticPowerSettledPerSecondAt(evaluationPower, powerRateProfile),
       state.power,
       safeElapsed,
-      (settledRate) => mul(settledRate, incomeFactor), integrationOptions
+      (settledRate) => mul(settledRate, incomeFactor), {...integrationOptions,googolResource:"power"}
     );
     const rates = {
       joulesPerSecond: safeElapsed > 0 ? div(passiveJ, safeElapsed) : ZERO,

@@ -316,7 +316,6 @@ function create(){
   function context(key,a){const id=key+'|'+String(a);if(constants.has(id))return constants.get(id);
     const r=P.rules[key],k=BN(1).div(r.q).ln(),step=k.mul(a),den=step.exp().sub(1);
     const value={r,k,a:BN(a),step,logDen:den.ln(),logBase:BN(r.base).ln()};constants.set(id,value);return value;}
-  function logAddOneExp(x){if(x.gt(40))return x.add(x.neg().exp().add(1).ln());return x.exp().add(1).ln();}
   function inverse(key,n,p,a){count('bulk.inverseRequests');if(!BN(p).gt(0)){count('bulk.zeroProgress');return ZERO;}
     const id=[key,String(n),String(p),String(a)].join('|');
     if(inverses.has(id)){count('bulk.inverseReused');return inverses.get(id);}
@@ -325,7 +324,7 @@ function create(){
       // differs. A power demand must never pass through geometric q.
       if(P.rules[key].type==='power')return P.affordableEstimate(key,n,p,a);
       const c=context(key,a),logD=c.k.mul(n).add(c.logBase),logP=BN(p).ln();
-      return logP.lt(logD)?ZERO:logAddOneExp(logP.sub(logD).add(c.logDen)).div(c.step).floor();});
+      return WIS.Core.FiniteProgress.geometric.inverse(logD,logP,c.step,c.logDen);});
     if(inverses.size>=4096)inverses.delete(inverses.keys().next().value);inverses.set(id,result);return result;
   }
   function logCost(key,n,m,a){
@@ -338,7 +337,7 @@ function create(){
     const c=context(key,a);return BN(g).ln().sub(c.logBase).div(c.k);
   }
   const batchCode=key=>P.rules[key].type==='power'?'high-power-batch':'high-geometric-batch';
-  function unresolvable(m){return m.gt(0)&&(m.add(1).eq(m)||m.sub(1).eq(m));}
+  function unresolvable(m){return WIS.Core.FiniteProgress.geometric.unresolvable(m);}
   function uncertainBounds(m){const {nextUp,nextDown}=require('../precision-analysis');let lo=m.mag,hi=m.mag;
     // Representation sensitivity, not a rigorous bound on the whole game chain.
     for(let i=0;i<16;i++){lo=nextDown(lo);hi=nextUp(hi);}

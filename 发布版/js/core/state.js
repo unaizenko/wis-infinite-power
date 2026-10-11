@@ -9,6 +9,18 @@
     return maxBN(ZERO, WIS.Meta.TreasureLedger?.project(value ?? ZERO) ?? BN(value)).floor();
   }
 
+  function cultivationAutomationTarget(value) {
+    const target=value??"";
+    if(!["","immortal","martial"].includes(target))throw Error("自动选择体系设置无效");
+    return target;
+  }
+
+  function treeSuperAutomationMultiplier(value) {
+    const n=WIS.Core.BigNum.parseFinite(value ?? 2);
+    if(!n || n.lt(1))throw Error('自动超构造进入倍率必须是大于或等于1的有限数值');
+    return n;
+  }
+
   function compatibleTreasureCount(value) {
     const count = treasureCount(value);
     return gte(MAX_SAFE_INTEGER_BN, count) ? toNumber(count, 0) : count;
@@ -144,6 +156,8 @@
     immortalAbilityAutomationEnabled: true, immortalRealmAutomationEnabled: true,
     scaleUpgradeAutomationEnabled: true, scaleActionAutomationEnabled: true,
     scaleFitnessAutomationEnabled: true, scaleRockAutomationEnabled: true,
+    fractalAutomationEnabled: true, treeUpgradeAutomationEnabled: true,
+    treeSuperAutomationEnabled: false, treeSuperAutomationMultiplier: BN(2), cultivationAutomationTarget: "",
     theme: "light"
   });
 
@@ -666,6 +680,11 @@
       scaleActionAutomationEnabled: source.scaleActionAutomationEnabled !== false,
       scaleFitnessAutomationEnabled: (source.scaleFitnessAutomationEnabled ?? source.scaleActionAutomationEnabled) !== false,
       scaleRockAutomationEnabled: (source.scaleRockAutomationEnabled ?? source.scaleActionAutomationEnabled) !== false,
+      fractalAutomationEnabled: source.fractalAutomationEnabled !== false,
+      treeUpgradeAutomationEnabled: source.treeUpgradeAutomationEnabled !== false,
+      treeSuperAutomationEnabled: source.treeSuperAutomationEnabled === true,
+      treeSuperAutomationMultiplier: treeSuperAutomationMultiplier(source.treeSuperAutomationMultiplier),
+      cultivationAutomationTarget: cultivationAutomationTarget(source.cultivationAutomationTarget),
       theme: source.theme === "dark" ? "dark" : "light",
       timeLedger: normalizeTimeLedger(source.timeLedger),
       compensation: WIS.Simulation.Compensation.normalize(source.compensation),
@@ -681,7 +700,7 @@
     "core.runtime": ["totalElapsedSeconds", "reincarnationElapsedSeconds", "currentScaleElapsedSeconds", "lastUpdateAt", "randomState", "timeLedger", "compensation"],
     "core.preferences": [
       "hideUnlockedAchievements", "hideCompletedChallenges", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
-      "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "scaleFitnessAutomationEnabled", "scaleRockAutomationEnabled", "theme", "offlineFastForwardEnabled", "autoCloseOfflineDialogEnabled"
+      "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "scaleFitnessAutomationEnabled", "scaleRockAutomationEnabled", "fractalAutomationEnabled", "treeUpgradeAutomationEnabled", "treeSuperAutomationEnabled", "treeSuperAutomationMultiplier", "cultivationAutomationTarget", "theme", "offlineFastForwardEnabled", "autoCloseOfflineDialogEnabled"
     ],
     "powerSystem.systems.scale.progress": ["highestPower", "totalPower", "maxSinglePowerGain", "brickUnlocked", "wallUnlocked", "highestScaleIndex", "superLollipopRollProgress", "fiveSpiritStoneRollProgress"],
     "powerSystem.systems.scale.actions": ["runningLevel", "rockLevel", "ghostBackActive"],

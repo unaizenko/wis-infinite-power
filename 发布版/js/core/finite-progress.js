@@ -36,6 +36,45 @@
   }
   const value=p=>B.max(0,B.add(B.sub(p.requirement,p.remaining),p.carry));
   const remaining=p=>B.max(0,B.sub(p.remaining,p.carry));
-  WIS.Core.FiniteProgress=Object.freeze({create,advance,accumulate,bulk,validate,value,remaining,record});
+  // Represented batch rules shared by treasures and cultivation rewards.
+  const batchError=(code,message)=>Object.assign(new Error(message),{code});
+  const unresolvable=m=>m.gt(0)&&(m.add(1).eq(m)||m.sub(1).eq(m));
+  function batchBoundary(m,costAt,error=batchError) {
+    const next=m.add(1);
+    if(unresolvable(m))throw error('batch-unit','奖励批数已无法区分相邻整数；输入保留');
+    const cost=costAt(m),nextCost=costAt(next);
+    if(!cost.isFinite()||!nextCost.isFinite()||!nextCost.gt(cost))throw error('batch-cost','相邻批次需求无法可靠区分；输入保留');
+    return {cost,next,nextCost};
+  }
+  function batchCount(progress,estimate,costAt,error=batchError) {
+    const p=B.BN(progress);let m=B.BN(estimate);
+    if(!m.gt(0))return B.ZERO;
+    for(let i=0;i<12;i++){
+      const {cost,next,nextCost}=batchBoundary(m,costAt,error);
+      if(cost.gt(p)){const lower=m.sub(1);if(lower.eq(m))break;m=lower;}
+      else if(nextCost.lte(p))m=next;else return m;
+    }
+    let lo=B.ZERO,hi=m.mul(2).add(2);
+    for(let i=0;i<96;i++){const mid=lo.add(hi).div(2).floor();if(mid.eq(lo)||mid.eq(hi))break;
+      if(costAt(mid).lte(p))lo=mid;else hi=mid;}
+    return lo;
+  }
+  function expm1(x) {
+    x=B.BN(x);
+    if(x.abs().lt('1e-5'))return x.mul(B.ONE.add(x.div(2)).add(x.pow(2).div(6)).add(x.pow(3).div(24)));
+    return x.exp().sub(1);
+  }
+  function geometricCumulative(first,logStep,m) {
+    m=B.BN(m);if(m.eq(0))return B.ZERO;if(m.eq(1))return B.BN(first);
+    return B.BN(first).mul(expm1(B.mul(logStep,m))).div(expm1(logStep));
+  }
+  function geometricInverse(logD,logP,step,logDen) {
+    if(logP.lt(logD))return B.ZERO;
+    const x=logP.sub(logD).add(logDen);
+    const log=x.gt(40)?x.add(x.neg().exp().add(1).ln()):x.exp().add(1).ln();
+    return log.div(step).floor();
+  }
+  const geometric=Object.freeze({cumulative:geometricCumulative,inverse:geometricInverse,unresolvable});
+  WIS.Core.FiniteProgress=Object.freeze({batchCount,batchBoundary,geometric,create,advance,accumulate,bulk,validate,value,remaining,record});
 }(window.WIS));
 
