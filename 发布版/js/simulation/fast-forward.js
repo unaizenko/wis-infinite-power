@@ -313,28 +313,28 @@ function create(){
   const constants=new Map(),inverses=new Map();
   const count=k=>global.__jointRevision?.count(k);
   const timed=(k,f)=>global.__jointRevision?global.__jointRevision.timed(k,f,null,[]):f();
-  function context(key,a){const id=key+'|'+String(a);if(constants.has(id))return constants.get(id);
-    const r=P.rules[key],k=BN(1).div(r.q).ln(),step=k.mul(a),den=step.exp().sub(1);
+  function context(key,a,state){const r=P.ruleFor(state,key),id=key+'|'+String(a)+'|'+(r===P.rules[key]?0:1);if(constants.has(id))return constants.get(id);
+    const k=BN(1).div(r.q).ln(),step=k.mul(a),den=step.exp().sub(1);
     const value={r,k,a:BN(a),step,logDen:den.ln(),logBase:BN(r.base).ln()};constants.set(id,value);return value;}
-  function inverse(key,n,p,a){count('bulk.inverseRequests');if(!BN(p).gt(0)){count('bulk.zeroProgress');return ZERO;}
-    const id=[key,String(n),String(p),String(a)].join('|');
+  function inverse(key,n,p,a,state=null){count('bulk.inverseRequests');if(!BN(p).gt(0)){count('bulk.zeroProgress');return ZERO;}
+    const id=[key,String(n),String(p),String(a),P.ruleFor(state,key)===P.rules[key]?0:1].join('|');
     if(inverses.has(id)){count('bulk.inverseReused');return inverses.get(id);}
     const result=timed('bulk.inverse',()=>{
       // Use the ordinary power-law inverse; only high-count boundary handling
       // differs. A power demand must never pass through geometric q.
-      if(P.rules[key].type==='power')return P.affordableEstimate(key,n,p,a);
-      const c=context(key,a),logD=c.k.mul(n).add(c.logBase),logP=BN(p).ln();
+      if(P.rules[key].type==='power')return P.affordableEstimate(key,n,p,a,state);
+      const c=context(key,a,state),logD=c.k.mul(n).add(c.logBase),logP=BN(p).ln();
       return WIS.Core.FiniteProgress.geometric.inverse(logD,logP,c.step,c.logDen);});
     if(inverses.size>=4096)inverses.delete(inverses.keys().next().value);inverses.set(id,result);return result;
   }
-  function logCost(key,n,m,a){
-    if(P.rules[key].type==='power')return P.cumulative(key,n,m,a).ln();
-    const c=context(key,a),z=c.step.mul(m);
+  function logCost(key,n,m,a,state=null){
+    if(P.rules[key].type==='power')return P.cumulative(key,n,m,a,state).ln();
+    const c=context(key,a,state),z=c.step.mul(m);
     return c.logBase.add(c.k.mul(n)).add(z.gt(40)?z.add(ONE.sub(z.neg().exp()).ln()):z.exp().sub(1).ln()).sub(c.logDen);}
-  function capLevel(key,g,a){
-    const r=P.rules[key];
+  function capLevel(key,g,a,state){
+    const r=P.ruleFor(state,key);
     if(r.type==='power')return BN(g).div(r.base).pow(1/r.exponent).sub(1).mul(r.scale);
-    const c=context(key,a);return BN(g).ln().sub(c.logBase).div(c.k);
+    const c=context(key,a,state);return BN(g).ln().sub(c.logBase).div(c.k);
   }
   const batchCode=key=>P.rules[key].type==='power'?'high-power-batch':'high-geometric-batch';
   function unresolvable(m){return WIS.Core.FiniteProgress.geometric.unresolvable(m);}
@@ -362,13 +362,13 @@ function create(){
     const p=L.value(L.progress(s,key));
     const entries=[...(s.meta.treasureProgressPending[key]||[])];
     if(BN(units).gt(0)&&BN(gain).gt(0))entries.push({units:[units],gain,award:a});
-    if(unresolvable(inverse(key,n,p,L.project(entries[0]?.award??a))))return true;
-    for(const e of entries){const u=L.value(e.units),g=L.project(e.gain),award=L.project(e.award??a),d=P.requirement(key,n);
+    if(unresolvable(inverse(key,n,p,L.project(entries[0]?.award??a),s)))return true;
+    for(const e of entries){const u=L.value(e.units),g=L.project(e.gain),award=L.project(e.award??a),d=P.requirement(key,n,s);
       if(g.gte(d)){
-        const capM=capLevel(key,g,award).sub(n).div(award).floor().add(1);
+        const capM=capLevel(key,g,award,s).sub(n).div(award).floor().add(1);
         if(unresolvable(B.min(u,capM)))return true;
       }
-      if(unresolvable(inverse(key,n,p.add(u.mul(g)),award)))return true;
+      if(unresolvable(inverse(key,n,p.add(u.mul(g)),award,s)))return true;
       yield {phase:'decision'};
     }return false;
   }
@@ -394,11 +394,11 @@ function create(){
         ? {...oldStatus,state:'approximate',code:batchCode(key)} : null;
       const grant=m=>{const delta=L.scale([m],a);stock=L.add(stock,delta);rewards=L.add(rewards,delta);};
       function* settle(){
-        if(L.sign(p)<=0)return;const n=L.value(stock).floor(),pv=L.value(p),m=inverse(key,n,pv,a);
+        if(L.sign(p)<=0)return;const n=L.value(stock).floor(),pv=L.value(p),m=inverse(key,n,pv,a,s);
         if(!m.gt(0))return;yield {phase:'inverse',key};
         if(!unresolvable(m)){
           let batches;
-          try {batches=P.affordable(key,n,pv,a);}catch(error){
+          try {batches=P.affordable(key,n,pv,a,s);}catch(error){
             if(!['batch-cost','batch-resolution'].includes(error.code))throw error;
             // A represented high cap can be posted while its SMALL subsequent
             // reward boundary remains unresolved. Keep all that tail progress;
@@ -408,7 +408,7 @@ function create(){
               stock:P.ledgerSummary(stock),progress:P.ledgerSummary(p),message:'Unconfirmed post-cap tail remains spendable progress; no reward posted for this tail'}};
             count('bulk.retainedTailBoundary');return;
           }
-          const cost=P.cumulative(key,n,batches,a);
+          const cost=P.cumulative(key,n,batches,a,s);
           if(L.compare(p,[cost])<0)return; p=L.subtract(p,[cost]);grant(batches);return;
         }
         // Close only the dominant positive high-layer component. All other
@@ -428,12 +428,12 @@ function create(){
         const chargedWords=p.filter((t,i)=>i===index||closed(t));
         const rest=p.filter((t,i)=>i!==index&&!closed(t));
         yield {phase:'partition',key};
-        const charged=L.value(chargedWords),estimate=inverse(key,n,charged,a),bounds=uncertainBounds(estimate);
+        const charged=L.value(chargedWords),estimate=inverse(key,n,charged,a,s),bounds=uncertainBounds(estimate);
         assert(charged.gt(0)&&L.sign(rest)>=0,'HARD: cannot safely partition net progress');
-        const reward=estimate.mul(a),upper=P.requirement(key,n.add(bounds.hi.mul(a)));
+        const reward=estimate.mul(a),upper=P.requirement(key,n.add(bounds.hi.mul(a)),s);
         record(s,key,{kind:'uncapped',beforeStock:String(n),award:String(a),batches:String(estimate),
           batchesSensitivity:[String(bounds.lo),String(bounds.hi)],closedProgress:String(charged),closedLedger:chargedWords,
-          estimatedLogCost:String(logCost(key,n,estimate,a)),reward:String(reward),
+          estimatedLogCost:String(logCost(key,n,estimate,a,s)),reward:String(reward),
           roundingStock:String(bounds.hi.sub(bounds.lo).mul(a)),remainderLower:'0',remainderUpper:String(upper),
           exactRemainder:false,knownLowWords:rest.length,frame:global.__jointFrame??null});
         yield {phase:'receipt',key};
@@ -441,7 +441,7 @@ function create(){
       }
       yield* settle();yield {phase:'settle',key};
       for(const input of P.Pending.inputs(pending)){count('bulk.pendingVisited');
-        a=L.project(input.award??currentAward);const g=L.project(input.gain),n=L.value(stock).floor(),d=P.requirement(key,n);
+        a=L.project(input.award??currentAward);const g=L.project(input.gain),n=L.value(stock).floor(),d=P.requirement(key,n,s);
         assert(g.gte(0)&&a.gt(0)&&a.floor().eq(a)&&L.sign(input.units)>=0,'HARD: invalid saved source context');
         if(g.lt(d)){
           const incoming=L.scale(input.units,g);yield {phase:'scale',key};
@@ -449,7 +449,7 @@ function create(){
           try {combined=L.add(p,incoming);}
           catch(error){
             if(!(error instanceof L.LedgerError))throw error;
-            if(!unresolvable(inverse(key,n,L.value(incoming),a))){
+            if(!unresolvable(inverse(key,n,L.value(incoming),a,s))){
               if(error.code!=='ledger-capacity')throw error;
               // A small unpaid source cannot be granted as a high batch.
               // Archive its exact words in bounded pages until a later source
@@ -469,12 +469,12 @@ function create(){
         // Source-unit cap: first consume event credits only until the current
         // formula's cap transition. Do NOT apply an uncapped geometric sum to
         // this part. Reward multiplier changes the next inventory by A each time.
-        const capN=capLevel(key,g,a),capM=B.max(0,capN.sub(n).div(a).floor().add(1));
+        const capN=capLevel(key,g,a,s),capM=B.max(0,capN.sub(n).div(a).floor().add(1));
         let credits,retained=[];
         try {credits=L.add(L.scale(p,ONE.div(d)),input.units);}
         catch(error){
           if(!(error instanceof L.LedgerError)||L.compare(input.units,[capM])<0||
-              !unresolvable(inverse(key,n,L.value(input.units).mul(g),a)))throw error;
+              !unresolvable(inverse(key,n,L.value(input.units).mul(g),a,s)))throw error;
           // The incoming units alone pay the entire capped span, so its batch
           // count is independent of prior progress. Carry that exact progress
           // through the same demand conversion, outside the full credit array.
@@ -487,7 +487,7 @@ function create(){
         if(unresolvable(m)){const bounds=uncertainBounds(m);record(s,key,{kind:'capped-credits',beforeStock:String(n),
           gain:String(g),award:String(a),batches:String(m),reward:String(m.mul(a)),closedProgress:'0',
           roundingStock:String(bounds.hi.sub(bounds.lo).mul(a)),remainderUpper:'0',exactCreditLedger:true});}
-        const nextGain=B.min(g,P.requirement(key,L.value(stock).floor()));
+        const nextGain=B.min(g,P.requirement(key,L.value(stock).floor(),s));
         p=L.scale(credits,nextGain);yield* settle();
         if(retained.length){p=L.add(p,L.scale(L.scale(retained,ONE.div(d)),nextGain));yield* settle();}
         yield {phase:"settle",key,block:input._endBlock};

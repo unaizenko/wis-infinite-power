@@ -53,6 +53,7 @@
       if (mounted) return; mounted = true;
       const actions = el("div", "", "upgrade-groups martial-section"); actions.id = "martial-actions"; actions.hidden = true;
       const actionGroup = group(actions, "武道行动", "手动转换消耗全部可用输入；自动化在设置中管理。", true);
+      actionGroup.list.append(el("p", "气、体、心、神魂越高，后续获取逐渐减慢；气、体过度领先心，或心过度领先神魂时进一步减慢。预计收益已包含本次增长产生的减速。", "martial-note"));
       const descriptions = { qi: "将J凝练为气。", body: "将战力转为体。", heart: "以气、体炼心。", soul: "以气、体、心凝练神魂。" };
       for (const key of M.resourceKeys) {
         const row = item(actionGroup.list, actionNames[key], descriptions[key]); row.article.id = "martial-action-" + key;
@@ -71,7 +72,7 @@
       const finalSources = el("p", "", "martial-note"); finalSources.id = "martial-final-sources";
       finalSources.title = "按当前状态分别结算各项武道来源，包含倍率、挑战限制与软上限；各项预览不代表全部来源合并后的总收益。";
       overview.append(finalSources);
-      const heart = group(overview, "心 · 量级软上限", "达到门槛解除对应量级软上限，心不足时按当前值弱化。");
+      const heart = group(overview, "心 · 量级软上限", "阈值前最多弱化60%，越接近阈值弱化越快；达标后完全解除。");
       heart.list.classList.add("martial-heart-table"); heart.list.id = "martial-heart-table";
       for (const name of ["爆墙", "爆屋", "爆楼", "爆街", "爆城"]) {
         const value = el("div"); heart.list.append(value); heartRows.push({ name, value });
@@ -200,7 +201,8 @@
       $("martial-final-sources").textContent = `最终获取：气 +${f(finals[0].final)} J/秒；体 +${f(finals[1].final)} 战力/秒；招式 +${f(finals[2].final)} 战力/秒。`;
       for (const row of heartRows) {
         const need = M.heartRequirement(row.name), reached = B.gte(M.amount(s, "heart"), need);
-        row.value.textContent = `${row.name}：心 ${f(need)} · ${reached ? "已达到" : "未达到"}`;
+        const status = s.activeChallenge === "martialStealHeaven" ? "挑战中停用" : reached ? "已解除" : `已弱化 ${f(B.mul(M.heartExponent(s, row.name, 0), 100))}%`;
+        row.value.textContent = `${row.name}：心 ${f(need)} · ${status}`;
       }
       for (const row of abilities) {
         const v = M.abilityView(s, row.definition.key);

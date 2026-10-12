@@ -95,8 +95,15 @@
     "phantomHeavenMirror", "mysticHeavenSacredTree", "mysticHeavenSpiritSlayingSword"]);
   const nonnegative = v => B.max(0, v);
   const held = (s, k) => nonnegative(T.count(s,k)).floor();
-  function requirement(key, count) {
-    const r = rules[key], n = nonnegative(count);
+  const rootedRules = Object.freeze(Object.fromEntries(Object.entries(rules).map(([key,r]) => [key,
+    !r.immortal ? r : Object.freeze({...r,base:BN(r.base).sqrt(),
+      ...(r.type === "exponential" ? {q:BN(r.q).sqrt()} : {exponent:r.exponent/2})})])));
+  function ruleFor(state,key) {
+    return state && rules[key]?.immortal && WIS.Cultivation.Xiuzhen.has(state,"kongJieMie")
+      ? rootedRules[key] : rules[key];
+  }
+  function requirement(key, count, state = null) {
+    const r = ruleFor(state,key), n = nonnegative(count);
     if (!r) throw new Error(`未知宝物进度：${key}`);
     return r.type === "exponential" ? BN(r.base).mul(ONE.div(r.q).pow(n))
       : BN(r.base).mul(n.div(r.scale).add(1).pow(r.exponent));
@@ -116,19 +123,19 @@
   function powerDifference(start, delta, p) {
     return start.pow(p).mul(expm1(log1p(delta.div(start)).mul(p)));
   }
-  function cumulative(key, n, batches, award = 1) {
-    const r = rules[key], m = nonnegative(batches).floor(), a = BN(award);
+  function cumulative(key, n, batches, award = 1, state = null) {
+    const r = ruleFor(state,key), m = nonnegative(batches).floor(), a = BN(award);
     if (m.eq(0)) return ZERO;
-    if (m.eq(1)) return requirement(key, n);
+    if (m.eq(1)) return requirement(key, n, state);
     if (r.type === "exponential") {
       const logRatio = ONE.div(r.q).ln().mul(a);
-      return WIS.Core.FiniteProgress.geometric.cumulative(requirement(key,n),logRatio,m);
+      return WIS.Core.FiniteProgress.geometric.cumulative(requirement(key,n,state),logRatio,m);
     }
     // A fixed small prefix uses the original represented demands. Large counts use Euler--Maclaurin (four
     // derivative corrections), not a per-item loop or an expected item count.
     if (m.lte(32)) {
       let sum = ZERO;
-      for (let i = 0; i < m.toNumber(); i++) sum = sum.add(requirement(key, BN(n).add(a.mul(i))));
+      for (let i = 0; i < m.toNumber(); i++) sum = sum.add(requirement(key, BN(n).add(a.mul(i)), state));
       return sum;
     }
     const z = BN(n).add(r.scale), d = a.mul(m), p = r.exponent;
@@ -143,8 +150,8 @@
     }
     return B.max(ZERO, sum.mul(factor));
   }
-  function affordableEstimate(key, n, progress, award) {
-    const p = nonnegative(progress), r = rules[key], a = BN(award), first = requirement(key, n);
+  function affordableEstimate(key, n, progress, award, state = null) {
+    const p = nonnegative(progress), r = ruleFor(state,key), a = BN(award), first = requirement(key, n, state);
     if (p.lt(first)) return ZERO;
     let estimate;
     if (r.type === "exponential") {
@@ -157,22 +164,22 @@
     }
     return B.max(1, estimate);
   }
-  function affordable(key, n, progress, award) {
-    return WIS.Core.FiniteProgress.batchCount(nonnegative(progress),affordableEstimate(key,n,progress,award),
-      m=>cumulative(key,n,m,BN(award)),(code,message)=>new PrecisionError(code,message));
+  function affordable(key, n, progress, award, state = null) {
+    return WIS.Core.FiniteProgress.batchCount(nonnegative(progress),affordableEstimate(key,n,progress,award,state),
+      m=>cumulative(key,n,m,BN(award),state),(code,message)=>new PrecisionError(code,message));
   }
   // A rounded cost equal to the available balance is NOT a certificate for
   // either an integer reward count or an exact zero remainder. Check that both
   // the batch unit and the adjacent cost can still be resolved before debit.
-  function rewardBoundary(key,n,m,award) {
-    return WIS.Core.FiniteProgress.batchBoundary(m,count=>cumulative(key,n,count,award),
+  function rewardBoundary(key,n,m,award,state) {
+    return WIS.Core.FiniteProgress.batchBoundary(m,count=>cumulative(key,n,count,award,state),
       (code,message)=>new PrecisionError(code,message));
   }
   function requirementDivisor(state,key) {
     return rules[key].immortal ? ONE : WIS.Meta.Achievements.ordinaryTreasureRequirementDivisor(state);
   }
   function effectiveRequirement(state,key,count=held(state,key)) {
-    return requirement(key,count).div(requirementDivisor(state,key));
+    return requirement(key,count,state).div(requirementDivisor(state,key));
   }
   function unitGain(state, key) {
     if (key === "originImprint") return WIS.Cultivation.Xiuzhen.originProgressGain(state);
@@ -214,7 +221,7 @@
     const addOld = (key, units) => {
       const u = nonnegative(units);
       if (u.gt(0)) L.write(state,key,L.add(L.progress(state,key),
-        L.scale([u],B.min(unitGain(state,key),requirement(key,held(state,key))))));
+        L.scale([u],B.min(unitGain(state,key),requirement(key,held(state,key),state)))));
     };
     for (const [field, key] of [["superLollipopRollProgress", "superLollipop"], ["fiveSpiritStoneRollProgress", "fiveSpiritStone"],
       ["immortalCrystalRollProgress", "immortalCrystal"], ["fiveElementsTreasureRollProgress", "fiveElementsTreasure"]]) {
@@ -244,10 +251,10 @@
     if (key === "cosmicWill" && state.highestScaleIndex < 14) return "尚未达到宇宙结构量级";
     return null;
   }
-  function affordableLedger(key, n, ledger, award) {
-    let m = affordable(key, n, L.value(ledger), award);
+  function affordableLedger(key, n, ledger, award, state) {
+    let m = affordable(key, n, L.value(ledger), award, state);
     for (let i=0;i<12;i++) {
-      const {cost,next,nextCost}=rewardBoundary(key,n,m,award);
+      const {cost,next,nextCost}=rewardBoundary(key,n,m,award,state);
       if (L.compare(ledger,[cost])<0) {
         const lower=m.sub(1);
         if(lower.eq(m)) throw new PrecisionError("batch-unit","奖励批数无法安全缩减；输入已保留");
@@ -320,9 +327,9 @@
     if(Array.isArray(out[key]))out[key]=ledgerSummary(out[key]);return out;}
   const evaluatedEvents=Object.create(null);
   function diagnosticBefore(state,key,units,gain,meta=state.meta) {
-    const original={meta};
+    const original={...state,meta};
     return {key,logicalTime:state.totalElapsedSeconds,input:String(units),gain:String(gain),
-      before:String(T.count(original,key)),demand:String(requirement(key,held(original,key))),
+      before:String(T.count(original,key)),demand:String(requirement(key,held(original,key),original)),
       progressBefore:ledgerSummary(L.progress(original,key)),pendingBefore:(meta.treasureProgressPending?.[key]||[]).length};
   }
   function apply(state,key,units,gain) {
@@ -357,6 +364,14 @@
   function applyInput(state, key, units, gain, fixedAward) {
     ensure(state);
     const point=state.meta.treasureProgressFinite[key];
+    // Saved finite demand is a cache, not rule authority. Rebase together with
+    // settlement so a later failure also restores the old absolute ledger.
+    if(rules[key].immortal && point && !BN(point.requirement).eq(requirement(key,held(state,key),state))) {
+      return L.transaction(state,()=>{
+        L.write(state,key,L.progress(state,key));
+        return applyInput(state,key,units,gain,fixedAward);
+      });
+    }
     if(point && !(state.meta.treasureProgressPending?.[key]?.length) && BN(units).gte(0) && BN(gain).gte(0)) {
       const totalGain=B.mul(units,B.min(gain,point.requirement));
       const next=WIS.Core.FiniteProgress.bulk(point,totalGain);
@@ -399,9 +414,9 @@
       const settleProgress=()=>{
         const checkpoint={stock,p,rewards,n,precision};
         try {
-          const m=affordableLedger(key,n,p,award);
+          const m=affordableLedger(key,n,p,award,state);
           if(m.gt(0)) {
-            const cost=cumulative(key,n,m,award);
+            const cost=cumulative(key,n,m,award,state);
             const rest=S.subtract(p,[cost]);
             // These are additive balances relative to the represented demand,
             // not an arbitrary-precision evaluation of the nonlinear formula.
@@ -424,7 +439,7 @@
       // All reward branches debit the ledger; never merge then clear a residual.
       let resolved=settleProgress();
       while(pending.length) {
-        const input=pending[0], gain=L.project(input.gain), demand=requirement(key,n);
+        const input=pending[0], gain=L.project(input.gain), demand=requirement(key,n,state);
         award=L.project(input.award??currentAward);
         if(gain.lt(demand)) {
           // Even if an inverse is unresolved, uncapped input is safe to bank.
@@ -441,20 +456,20 @@
           if(L.compare(atCurrentRate,[demand])<0) p=atCurrentRate;
           else {
             let credits=L.add(L.scale(p,ONE.div(demand)),input.units);
-            const r=rules[key], capN=r.type==="exponential"
+            const r=ruleFor(state,key), capN=r.type==="exponential"
               ? BN(gain).div(r.base).ln().div(ONE.div(r.q).ln())
               : BN(gain).div(r.base).pow(1/r.exponent).sub(1).mul(r.scale);
             let m=B.min(L.value(credits).floor(),B.max(0,capN.sub(n).div(award).floor().add(1)));
             if(m.add(1).eq(m) || (m.gt(0) && m.sub(1).eq(m)))
               throw new PrecisionError("cap-unit","来源封顶批数无法区分相邻整数；来源输入已保留");
             for(let i=0;i<12;i++) {
-              if(L.compare(credits,[m])>=0 && (m.eq(0) || requirement(key,n.add(m.sub(1).mul(award))).lte(gain))) break;
+              if(L.compare(credits,[m])>=0 && (m.eq(0) || requirement(key,n.add(m.sub(1).mul(award)),state).lte(gain))) break;
               const lower=m.sub(1);
               if(lower.eq(m) || i===11) throw new PrecisionError("cap-boundary","宝物封顶边界无法可靠定位；来源输入已保留");
               m=lower;
             }
             credits=L.subtract(credits,[m]);grant(m);
-            p=L.scale(credits,B.min(gain,requirement(key,n)));
+            p=L.scale(credits,B.min(gain,requirement(key,n,state)));
           }
           pending.shift();resolved=settleProgress();
         } catch(error) {
@@ -486,6 +501,19 @@
     return apply(state, key, units, unitGain(state, key));
   }
   function settle(state, key) { ensure(state); return apply(state, key, ZERO, ZERO); }
+  function reconcileRequirements(state) {
+    WIS.Core.Runtime.assertMutable();
+    return L.transaction(state,()=>{
+      ensure(state);
+      const rewards={};
+      // Capture/rewrite each finite ledger before applying the new curve. A
+      // percentage conversion would discard progress already earned.
+      for(const key of T.keys) if(rules[key].immortal) L.write(state,key,L.progress(state,key));
+      for(const key of T.keys) if(rules[key].immortal && qualification(state,key)===null)
+        rewards[key]=settle(state,key);
+      return rewards;
+    });
+  }
   function importLegacyTransient(state, transient) {
     ensure(state);
     if (!transient || state.meta.treasureQualifications.legacyTransientConverted) return;
@@ -495,7 +523,7 @@
       ["power", "cosmicFiberRollAccumulator", "cosmicFiber"], ["power", "cosmicWillRollAccumulator", "cosmicWill"],
       ["cultivation", "passiveManaRollAccumulator", "tianNiPearl"], ["cultivation", "baLingChiRollAccumulator", "baLingChi"]]) {
       const units = B.min(1, nonnegative(transient[group]?.[field]));
-      const gained = units.mul(B.min(unitGain(state, key), requirement(key, held(state, key))));
+      const gained = units.mul(B.min(unitGain(state, key), requirement(key, held(state, key), state)));
       L.write(state,key,L.add(L.progress(state,key),[gained]));
     }
   }
@@ -517,7 +545,7 @@
     const reason = qualification(state, key), sources = [];
     let rate = ZERO;
     const addSource = (name, units) => {
-      sources.push(name); rate = rate.add(nonnegative(units).mul(B.min(unitGain(state, key), requirement(key, held(state, key)))));
+      sources.push(name); rate = rate.add(nonnegative(units).mul(B.min(unitGain(state, key), requirement(key, held(state, key), state))));
     };
     if (!reason) {
       if (key === "yuanCrystal") addSource("实际产生仙力", WIS.Cultivation.Xiuzhen.rates(state).xianForce.gt(0) ? 1 : 0);
@@ -531,7 +559,7 @@
       if (["cosmicFiber", "cosmicWill"].includes(key)) addSource("当前量级有效时间", 1);
     }
     const progress = L.value(L.progress(state,key));
-    const demand = requirement(key, held(state, key));
+    const demand = requirement(key, held(state, key), state);
     let precision=state.meta.treasureProgressStatus?.[key]||null;
     let certainty=remainderCertainty(precision), remainingAvailable=false;
     const pending=state.meta.treasureProgressPending?.[key]||[];
@@ -556,7 +584,9 @@
     if(displayRemainingSeconds!==null&&!B.isFiniteBN(displayRemainingSeconds))displayRemainingSeconds=null;
     const remainingSeconds=certainty==='exact'?displayRemainingSeconds:null;
     const divisor=requirementDivisor(state,key);
-    return { progress:progress.div(divisor), demand:demand.div(divisor), rate:rate.div(divisor), sources, precision, pendingInputs:pending.length,
+    const shengRate=!reason && key!=="originImprint" && rules[key].immortal && WIS.Cultivation.Xiuzhen.has(state,"kongXuanSheng")
+      ? BN(T.count(state,"originImprint")) : ZERO;
+    return { progress:progress.div(divisor), demand:demand.div(divisor), rate:rate.div(divisor), shengRate, sources, precision, pendingInputs:pending.length,
       remainingPositive:remainingSign>0, award: T.getTreasureAwardMultiplier(state, key),
       remainderCertainty:certainty, remainingSeconds, displayRemainingSeconds,
       displayEtaMode:displayRemainingSeconds===null?'unavailable':certainty==='exact'?'exact':'conservative',
@@ -586,7 +616,7 @@
       if(['cosmicFiber','cosmicWill'].includes(key))units=units.add(ONE);
       if(!units.gt(0)||state.meta.treasureProgressStatus?.[key]?.state==='blocked')
         return {key,pausedReason:'inactive-or-protected',remainingSeconds:null};
-      const r=rules[key],demand=requirement(key,held(state,key));
+      const r=rules[key],demand=requirement(key,held(state,key),state);
       let gain=once(r.immortal?'immortalMultiplier':'ordinaryMultiplier',()=>BN(r.immortal?
         I.immortalTreasureChanceMultiplier():T.getTreasureChanceMultiplier(state))).mul(r.coefficient).mul(requirementDivisor(state,key));
       if(key==='skyCrystal')gain=gain.mul(ONE.add(ONE.add(BN(S.effectiveRockLevel()).div(1000)).log10()));
@@ -679,7 +709,7 @@
       }};
   }
   const Recovery=Object.freeze({needed:needsRecovery,create:createRecovery});
-  WIS.Meta.TreasureProgress = Object.freeze({ rules, explorationKeys, requirement, effectiveRequirement, requirementDivisor, cumulative, affordable, affordableEstimate, unitGain,
+  WIS.Meta.TreasureProgress = Object.freeze({ rules, ruleFor, reconcileRequirements, explorationKeys, requirement, effectiveRequirement, requirementDivisor, cumulative, affordable, affordableEstimate, unitGain,
     Recovery, Pending, receipt, ledgerSummary, ensure, advance, advanceFixed, hasUnsettled, settle, qualification, rememberQualifications, importLegacyTransient, view, boundarySnapshot,
     diagnostics:state=>({evaluations:{...evaluatedEvents},committed:state.meta.treasureDiagnostics||null}) });
 }(window.WIS));

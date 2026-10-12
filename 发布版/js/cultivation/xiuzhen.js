@@ -20,14 +20,18 @@
     ["rules", "规则掌控", 5, "yuanForce", "3e8", "根据当前元力提升仙灵力、仙力获取。"],
     ["divineArt", "自创神通", 6, "yuanForce", "3e12", "根据当前元力提升战力获取。"],
     ["emptyGate", "空门之力", 7, "nieForce", "1e4", "依据当前涅力增长单体宇宙系数N；N仅通过能力产生效果。"],
+    ["kongNieZhang", "空涅·掌", 7, "nieForce", "1e5", "仙道宝物自然获取进度×10，包含烙印·本源。"],
     ["innerWorld", "内天地", 8, "nieForce", "2e5", "根据当前涅力提升N获取。"],
     ["spiritualGod", "灵神", 8, "nieForce", "3e5", "涅力获取×5。"],
-    ["virtualOrigin", "虚本源", 9, "nieForce", "1e8", "每实际获得1e5涅力积累1点烙印·本源进度；需求100×3^持有数，提升N获取。"],
+    ["kongLingYuan", "空灵·缘", 8, "nieForce", "1e6", "纵横灵界的自动探寻量与对应自动探寻法力×100。"],
+    ["virtualOrigin", "虚本源", 9, "nieForce", "1e8", "基础规则：每实际获得1e5涅力积累1点烙印·本源进度；基础需求100×3^持有数，提升N获取。"],
     ["spokenLaw", "言出法随", 9, "nieForce", "3e8", "根据当前涅力提升J与战力获取倍率。"],
+    ["kongXuanSheng", "空玄·生", 9, "nieForce", "1e9", "每种已解锁的其他仙道宝物，每秒直接增加当前本源数量；不包含本源，不受宝物进度或奖励倍率影响。"],
     ["mergeHeaven", "神融天地", 10, "nieForce", "1e12", "根据当前N提升涅力获取。"],
     ["followLaw", "法随身动", 10, "nieForce", "2e12", "根据当前N提升J与战力获取指数，最高^1.2。"],
     ["zunYang", "尊阳", 10, "nieForce", "2e12", "根据当前N提升N获取。"],
-    ["originBody", "本源真身", 10, "nieForce", "3e12", "烙印·本源进度获取×3。"]
+    ["originBody", "本源真身", 10, "nieForce", "3e12", "烙印·本源进度获取×3。"],
+    ["kongJieMie", "空劫·灭", 10, "nieForce", "1e13", "仙道宝物最终进度需求开平方，包含烙印·本源；保留已有进度。"]
   ].map(([key, name, realm, resource, cost, description]) => Object.freeze({ key, name, realm, resource, cost: B.BN(cost), description })));
   const resourceKeys = Object.freeze(["xianForce", "yuanForce", "nieForce", "universeCoefficient"]);
   const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N" });
@@ -36,7 +40,7 @@
   const fresh = () => ({ version: 1, entered: false, realm: 0, highestRealm: 0,
     abilities: {}, history: { entry: false, realm: 0, abilities: {} },
     resources: Object.fromEntries(resourceKeys.map(k => [k, entry()])), manaDebitResidual: [],
-    manaSpent: B.ZERO, manaSpentResidual: [] });
+    manaSpent: B.ZERO, manaSpentResidual: [], shengProgress: {} });
   const nonnegative = value => {
     if (!B.isFiniteBN(value ?? 0) || B.lt(value ?? 0, 0)) throw Error("修真道存档含非法余额");
     return B.BN(value ?? 0);
@@ -47,6 +51,21 @@
     return values.map(String);
   };
   const rank = value => Math.min(realms.length, Math.max(0, Math.floor(Number(value) || 0)));
+  const shengKeys = Object.freeze(Object.keys(WIS.Meta.TreasureRules).filter(key => key !== "originImprint" && WIS.Meta.TreasureRules[key].immortal));
+  function normalizeSheng(raw) {
+    if (raw == null) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) throw Error("空玄·生余量格式无效");
+    const result = {};
+    for (const [key, point] of Object.entries(raw)) {
+      if (!shengKeys.includes(key) || !point || point.version !== 1 || !B.eq(point.requirement,1) ||
+          !B.isFiniteBN(point.remaining) || B.lt(point.remaining,0) || B.gt(point.remaining,1) || !B.isFiniteBN(point.carry))
+        throw Error("空玄·生余量无效");
+      const words = L().normalize([1,B.BN(point.remaining).neg(),point.carry]);
+      if (L().sign(words) < 0 || L().compare(words,[1]) >= 0) throw Error("空玄·生余量越界");
+      result[key] = {version:1,requirement:"1",remaining:String(point.remaining),carry:String(point.carry)};
+    }
+    return result;
+  }
   function normalize(raw) {
     const n = fresh();
     if (!raw || typeof raw !== "object") return n;
@@ -75,6 +94,7 @@
     if(typeof raw.manaSpent==="string")n.manaSpentResidual=L().subtract([raw.manaSpent,...n.manaSpentResidual],[n.manaSpent]);
     n.manaSpent = L().value(L().normalize([n.manaSpent,...n.manaSpentResidual]));
     n.manaSpentResidual = [];
+    n.shengProgress = normalizeSheng(raw.shengProgress);
     return n;
   }
   // A missing legacy branch is a detached default view, never a query write.
@@ -168,8 +188,18 @@
   }
   function buy(state, key, manual = true) {
     if (!canBuy(state, key)) return false;
-    return transaction(state, n => { const a = abilities.find(a => a.key === key); if (!debit(state, a.resource, a.cost)) return false;
-      n.abilities[key] = true; if (manual) n.history.abilities[key] = true; return true; });
+    const purchase = () => transaction(state, n => {
+      const a = abilities.find(a => a.key === key); if (!debit(state, a.resource, a.cost)) return false;
+      n.abilities[key] = true; if (manual) n.history.abilities[key] = true;
+      if (key === "kongJieMie") {
+        WIS.Core.Effects?.invalidate();
+        WIS.Meta.TreasureProgress.reconcileRequirements(state);
+      }
+      return true;
+    });
+    // Mie can award retained progress. Its payment, ownership and every treasure
+    // ledger must roll back together if even one recalculation fails.
+    return key === "kongJieMie" ? L().transaction(state,purchase) : purchase();
   }
   // Shared by production sources/effects and the current-effect UI preview.
   const abilityMultiplierRules = Object.freeze({
@@ -188,6 +218,8 @@
     if (key === "followLaw") return B.add(1,B.min(.2,B.mul(.015,nLog())));
     if (key === "zunYang") return B.pow(B.add(1,nLog()),.35);
     if (key === "originBody") return 3;
+    if (key === "kongNieZhang") return 10;
+    if (key === "kongLingYuan") return 100;
     const rule = abilityMultiplierRules[key];
     if (!rule || !has(state, key)) return 1;
     return B.pow(B.add(1, amount(state, rule[0])), rule[1]);
@@ -206,11 +238,44 @@
         has(state,"virtualOrigin") ? B.pow(B.add(1,WIS.Meta.Treasures.count(state,"originImprint")),.25) : 1));
     return { nieForce:B.mul(nieForce,immortalAchievementMultiplier(state)), universeCoefficient };
   }
-  function originProgressGain(state) { return B.mul("1e-5",abilityMultiplier(state,"originBody")); }
+  function originProgressGain(state) { return B.mul(B.mul("1e-5",abilityMultiplier(state,"originBody")),abilityMultiplier(state,"kongNieZhang")); }
   function awardOrigin(state, gains) {
     if (!has(state,"virtualOrigin") || !B.gt(gains?.nieForce ?? 0,0)) return;
     WIS.Meta.TreasureProgress.advanceFixed(state,"originImprint",gains.nieForce,
       { eligible:true, gain:originProgressGain(state), award:1 });
+  }
+  function captureSheng(state) {
+    if (!has(state,"kongXuanSheng")) return {rate:B.ZERO,keys:[]};
+    const rate = B.BN(WIS.Meta.Treasures.count(state,"originImprint"));
+    return {rate,keys:B.gt(rate,0) ? WIS.Core.Runtime.withState(state,()=>shengKeys.filter(key => WIS.Meta.TreasureProgress.qualification(state,key) === null)) : []};
+  }
+  function awardSheng(state, seconds, frozen = captureSheng(state)) {
+    WIS.Core.Runtime.assertMutable();
+    if (!Number.isFinite(seconds) || seconds < 0 || !B.isFiniteBN(frozen.rate) || B.lt(frozen.rate,0)) throw Error("空玄·生结算无效");
+    if (!(seconds > 0) || !B.gt(frozen.rate,0) || !frozen.keys.length) return;
+    const gain = B.mul(frozen.rate,seconds), F = WIS.Core.FiniteProgress, ledger = L();
+    if (!B.isFiniteBN(gain)) throw Error("空玄·生收益无法表示");
+    // Frozen source eligibility is deliberately not read again after natural
+    // loot. Each treasure owns its fractional remainder, including across saves.
+    return L().transaction(state,()=>transaction(state,n=>{
+      for (const key of frozen.keys) {
+        if (!shengKeys.includes(key)) throw Error("空玄·生宝物来源无效");
+        const point = n.shengProgress[key] || F.create(1);
+        const total = ledger.add([1,B.BN(point.remaining).neg(),point.carry],[gain]);
+        let amount = ledger.value(total).floor();
+        // Projected flooring may land on an adjacent integer. Compare the
+        // bounded exact words before paying; never forgive a per-frame epsilon.
+        if (ledger.compare(total,[amount]) < 0) amount = B.sub(amount,1);
+        const adjacent = B.add(amount,1);
+        if (B.gt(adjacent,amount) && ledger.compare(total,[adjacent]) >= 0) amount = adjacent;
+        const fraction = ledger.subtract(total,[amount]);
+        if (ledger.sign(fraction) < 0 || ledger.compare(fraction,[1]) >= 0) throw Error("空玄·生整数边界无法表示");
+        const remaining = ledger.value(ledger.subtract([1],fraction));
+        const carry = ledger.value(ledger.subtract(fraction,ledger.subtract([1],[remaining])));
+        if (B.gt(amount,0)) WIS.Meta.Treasures.add(state,key,amount,{applyAwardMultiplier:false});
+        n.shengProgress[key] = F.record(1,remaining,carry);
+      }
+    }));
   }
   function rawRates(state) {
     let xianForce = B.ZERO, yuanForce = B.ZERO;
@@ -390,7 +455,7 @@
     : abilities.map(a => ({ id: a.key, resourceKey: a.resource, cost: a.cost,
       available: n.entered && n.realm >= a.realm && !n.abilities[a.key] && !!n.history.abilities[a.key], run: () => buy(state, a.key, false) }));
     if (WIS.Simulation.FixedSegment?.collectCandidates?.("xiuzhen-" + kind,
-      candidates.map(c => ({ available: () => c.available,
+      candidates.map(c => ({ available: () => c.available, currentTreasureProgress:c.id === "kongJieMie",
         runOn: current => isRealm ? breakthrough(current, false) : buy(current, c.id, false)
       })), "mana", candidates.length)) return 0;
     const audit = WIS.Simulation?.FastForward?.auditCandidates;
@@ -404,7 +469,7 @@
   }
   WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
     sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
-    canBuy, buy, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
+    canBuy, buy, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
     spendResource(state, key, cost) { return transaction(state, () => debit(state, key, cost)); } });
 }(window.WIS));

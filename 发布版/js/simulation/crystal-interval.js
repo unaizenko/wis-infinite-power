@@ -113,7 +113,7 @@
       for(const key of T.keys){
         check(L.compare(L.stock(ca,key),L.stock(fa,key))===0,'stock-error');
         const difference=L.subtract(L.progress(ca,key),L.progress(fa,key));
-        check(B.lte(B.abs(L.value(difference)),B.mul(P.requirement(key,T.count(fa,key)),'1e-12')),'progress-error');
+        check(B.lte(B.abs(L.value(difference)),B.mul(P.requirement(key,T.count(fa,key),fa),'1e-12')),'progress-error');
       }
       check(JSON.stringify(ca.meta.treasureProgressPending)===JSON.stringify(fa.meta.treasureProgressPending),'pending-input-error');
       check(coarse.point.random===fine.point.random,'rng-error');

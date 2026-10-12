@@ -44,18 +44,12 @@
   }
 
   function preservesContent(id,state) {
-    return ["scatter","reincarnation","infinity"].includes(id) && WIS.Meta.Achievements.has(state,"eternalWitness");
+    return false; // Compatibility query: no achievement preserves all gameplay content.
   }
   function apply(id, currentState, createFreshState, { context = {}, overrides = {} } = {}) {
     const profile = profiles.get(id);
     if (!profile) throw new Error(`未注册重置配置：${id}`);
     const currentDomain = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(currentState));
-    if (preservesContent(id,currentDomain) && !(id==="infinity"&&context.infinityChallenge===true)) {
-      Object.entries(overrides).forEach(([key,value])=>{
-        if(key.includes("."))setPath(currentDomain,key,value);else currentDomain[key]=clone(value);
-      });
-      return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(currentDomain));
-    }
     const freshDomain = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(createFreshState()));
     const current = WIS.Core.State.toFlat(currentDomain);
     const fresh = WIS.Core.State.toFlat(freshDomain);
@@ -74,6 +68,13 @@
     if (preserve.includes("treasureImprints")) progressKeys.forEach(key => { result.meta[key] = clone(currentDomain.meta[key]); });
     if (clear.includes("treasureImprints") || clearPaths.includes("meta.treasures"))
       progressKeys.forEach(key => { result.meta[key] = clone(freshDomain.meta[key]); });
+    if (profile.rebirthLevel && profile.rebirthLevel <= REBIRTH_LEVEL.INFINITE &&
+        WIS.Meta.Achievements.has(currentDomain,"eternalWitness")) {
+      for (const [key,challenge] of Object.entries(WIS.Core.Config.challenges)) {
+        if (challenge.system) result.challengeCompletions[key] = current.challengeCompletions[key] || 0;
+      }
+      result.bestQiLayer = current.bestQiLayer;
+    }
     if (profile.rebirthLevel) {
       currentRebirthStatistics.forEach((key) => { result[key] = clone(fresh[key]); });
       result.reincarnationElapsedSeconds = clone(fresh.reincarnationElapsedSeconds);

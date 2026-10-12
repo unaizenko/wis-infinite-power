@@ -176,6 +176,8 @@
     // All Xiuzhen sources sample the same pre-commit state. Feedback starts on the next logical frame.
     if (WIS.Cultivation.Xiuzhen && !result.instantEvent)
       result.xiuzhen = WIS.Cultivation.Xiuzhen.plan(_state, result.processedSeconds || 0);
+    if (WIS.Cultivation.Xiuzhen && !result.instantEvent)
+      result.sheng = WIS.Cultivation.Xiuzhen.captureSheng(_state);
     return result;
   }
 
@@ -190,6 +192,8 @@
     if (xiuzhen && xiuzhen !== state.cultivation.systems.immortal.xiuzhen) {
       state.cultivation.systems.immortal.xiuzhen = xiuzhen; WIS.Core.Effects.invalidate();
     }
+    if (!options.skipTreasureRolls && plan.sheng)
+      WIS.Cultivation.Xiuzhen.awardSheng(state,result.processedSeconds,plan.sheng);
     return { ...result, xiuzhen: plan.xiuzhen };
   }
 

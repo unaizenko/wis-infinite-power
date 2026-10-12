@@ -34,5 +34,10 @@
     ["duoMing", "绝技·夺命十三剑", "jueji", 13, 2, { heart: 30 }, [], "随等级提升杀气来源。", "jueji"],
     ["shenDao", "绝技·神刀斩", "jueji", 1, 12, { heart: 60 }, [], "提升鬼脑来源。", "jueji"]
   ].map(([key,name,branch,maxLevel,price,requirements,prerequisites,description,group]) => Object.freeze({ key,name,branch,family:branch === "neijia" ? "human" : "golden",maxLevel,price,upgradeResource:upgradeResources[key] || "soul",requirements:Object.freeze(requirements),prerequisites:Object.freeze(prerequisites),description,group,slot:branch === "inner" && key !== "taiXuan" }));
-  WIS.Cultivation.MartialConfig = Object.freeze({ abilities:Object.freeze(abilities), branches, heartThresholds:Object.freeze({ "墙":1,"屋":10,"楼":40,"街":120,"城":1000 }) });
+  const balance = Object.freeze({
+    absolute:Object.freeze({qi:Object.freeze({threshold:1000,power:.25}),body:Object.freeze({threshold:1000,power:.25}),heart:Object.freeze({threshold:120,power:.25}),soul:Object.freeze({threshold:100,power:.15})}),
+    relative:Object.freeze({qi:Object.freeze({support:"heart",floor:50,factor:5,power:.5}),body:Object.freeze({support:"heart",floor:50,factor:5,power:.5}),heart:Object.freeze({support:"soul",floor:10,factor:3,power:.5})}),
+    heartReliefCap:.6,heartReliefPower:2
+  });
+  WIS.Cultivation.MartialConfig = Object.freeze({ balance, abilities:Object.freeze(abilities), branches, heartThresholds:Object.freeze({ "墙":1,"屋":10,"楼":40,"街":120,"城":1000 }) });
 }(window.WIS));

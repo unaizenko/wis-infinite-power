@@ -55,7 +55,9 @@
   }
   function acquisition(key, info, format) {
     const sources = (info.sources || []).map(s => sourceNames[s]).filter(Boolean).join("、") || sourcesByKey[key] || "暂无来源";
+    const direct = B.gt(info.shengRate || 0, 0);
     const lines = ["来源：" + sources];
+    if (direct) lines.push(`空玄·生：每秒 +${format(info.shengRate, 4)} 件`);
     const blocked = info.remainderCertainty === 'blocked' || info.precision?.state === "blocked";
     if (blocked) {
       const failed = /ledger|invalid|failed|capacity/.test(info.precision?.code || "");
@@ -79,7 +81,7 @@
       const validDemand = B.parseFinite(info.demand);
       const demand = validDemand && validDemand.gt(0) ? format(validDemand, 4) : "暂无法计算";
       lines.push(`${known ? '已知进度' : '进度'}：${format(info.progress, 4)} / ${demand}`);
-      lines.push(`预计：${eta}`);
+      lines.push(`${direct ? "自然获取预计" : "预计"}：${eta}`);
       if (percent !== null) {
         // Historical pending input may carry an older award multiplier.
         const award = info.pendingInputs === 0 ? B.parseFinite(info.award) : null;
@@ -89,7 +91,7 @@
       }
     }
     const pause = pauseReason(key, info);
-    if (pause) lines.push("暂停：" + pause);
+    if (pause) lines.push((direct ? "自然获取暂停：" : "暂停：") + pause);
     return lines.join("\n");
   }
   function mount(root) {

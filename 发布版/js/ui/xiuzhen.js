@@ -6,7 +6,7 @@
     let mounted = false, lastRealm = -1;
     const f = value => context.format(value, 4);
     const effectLabels = Object.freeze({ body: "J获取", materialSpirit: "仙力获取",
-      crystal: "元力获取", worldAura: "元力获取", rules: "仙灵力、仙力获取", divineArt: "战力获取", innerWorld:"N获取", spiritualGod:"涅力获取", spokenLaw:"J与战力获取", mergeHeaven:"涅力获取", followLaw:"J与战力获取指数", zunYang:"N获取", originBody:"本源进度" });
+      crystal: "元力获取", worldAura: "元力获取", rules: "仙灵力、仙力获取", divineArt: "战力获取", innerWorld:"N获取", spiritualGod:"涅力获取", spokenLaw:"J与战力获取", mergeHeaven:"涅力获取", followLaw:"J与战力获取指数", zunYang:"N获取", originBody:"本源进度", kongNieZhang:"仙道宝物进度", kongLingYuan:"自动探寻量与法力", kongXuanSheng:"每种已解锁仙道宝物", kongJieMie:"仙道宝物进度需求" });
     function el(tag, text, className) {
       const n = document.createElement(tag); if (text) n.textContent = text; if (className) n.className = className; return n;
     }
@@ -121,7 +121,9 @@
           : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : d.level === 7 && !s.challengeCompletions.heavenlyFiveDeclines ? "需要完成天人五衰" : d.level === 7 && !WIS.Meta.Infinity.has(s, "C1") ? "需要体系无限" : "突破") : "强化";
         r.button.disabled = locked || done || !available;
         if (r.effectPreview) {
-          const text = `当前：${effectLabels[d.key]} ${d.key === "followLaw" ? "^" : "×"}${f(X.abilityMultiplier(s, d.key))}`;
+          const text = d.key === "kongXuanSheng" ? `当前：每种已解锁的其他仙道宝物 +${f(X.has(s,d.key) ? WIS.Meta.Treasures.count(s,"originImprint") : 0)}／秒`
+            : d.key === "kongJieMie" ? `当前：仙道宝物进度需求 ^${X.has(s,d.key) ? "0.5" : "1"}`
+            : `当前：${effectLabels[d.key]} ${d.key === "followLaw" ? "^" : "×"}${f(X.abilityMultiplier(s, d.key))}`;
           if (r.effectPreview.textContent !== text) r.effectPreview.textContent = text;
         }
         if (r.preview) {

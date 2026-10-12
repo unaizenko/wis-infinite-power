@@ -1,12 +1,14 @@
 (function defineInfinity(WIS) {
   'use strict';
   const B=WIS.Core.BigNum,C=WIS.Meta.InfinityConfig;
-  const fresh=()=>({version:1,points:B.BN(0),totalPointsEarned:B.BN(0),rebirthCount:0,unlocked:false,upgradesUnlocked:false,upgrades:{},purchaseLedger:[],runElapsed:0,challengeRewards:{}});
+  const fresh=()=>({version:1,points:B.BN(0),totalPointsEarned:B.BN(0),rebirthCount:0,unlocked:false,upgradesUnlocked:false,upgrades:{},purchaseLedger:[],runElapsed:0,challengeRewards:{},ringChallengeActive:false});
   function money(v) {const x=B.parseFinite(v??0);if(!x||x.lt(0)||!x.eq(x.floor()))throw Error('无限点数/支付记录必须为非负整数');return x;}
   function normalize(raw,achievement=false,legacyFastReward=false) {
     const n=fresh();if(raw!=null&&(typeof raw!=='object'||Array.isArray(raw)))throw Error('无限状态无效');
     if(raw?.version!=null&&raw.version!==1)throw Error('无限状态版本无效');
     if(raw?.version===1){
+      if(raw.ringChallengeActive!=null&&typeof raw.ringChallengeActive!=='boolean')throw Error('圆环之理挑战状态无效');
+      n.ringChallengeActive=raw.ringChallengeActive===true;
       n.points=money(raw.points);n.totalPointsEarned=money(raw.totalPointsEarned);
       if(!Number.isSafeInteger(raw.rebirthCount)||raw.rebirthCount<0)throw Error('无限转生次数无效');
       if(!Number.isFinite(raw.runElapsed)||raw.runElapsed<0)throw Error('无限周目时间无效');
@@ -93,7 +95,8 @@
     {id:'infinityGoogol',name:'古戈尔适应',group:'无限',target:'googolPenalty',layer:'strengthMultiplier',value:has(s,'B4')?1-C.googolWeakening:1}
   ];}
   const isInfinityChallenge=id=>C.challenges[id]?.resetLevel==='infinity';
-  function challengeEntryAllowed(s,id){const def=C.challenges[id],n=get(s);return isInfinityChallenge(id)&&n.unlocked&&n.upgradesUnlocked&&has(s,def.infinityUpgrade)&&!s.activeChallenge;}
+  const isChallengeActive=(s,id)=>id==='infinityRing'?get(s).ringChallengeActive===true:s.activeChallenge===id;
+  function challengeEntryAllowed(s,id){const def=C.challenges[id],n=get(s);return isInfinityChallenge(id)&&n.unlocked&&n.upgradesUnlocked&&has(s,def.infinityUpgrade)&&!s.activeChallenge&&(id!=='infinityRing'||!isChallengeActive(s,id));}
   function recordChallengeReward(s,id){
     WIS.Core.Runtime.assertMutable();if(!isInfinityChallenge(id))throw Error('不是无限挑战');
     if(rewardUnlocked(s,id))return false;const n=get(s);s.meta.infinity={...n,challengeRewards:{...n.challengeRewards,[id]:true}};WIS.Core.Effects.invalidate();return true;
@@ -111,7 +114,7 @@
     const rank=WIS.Meta.BigNumbers.get(s).tree.rank;
     let multiplier=B.BN(has(s,'B2')?C.pointMultiplier:1);
     multiplier=B.mul(multiplier,rapidPointMultiplier(s));
-    const points=rank<C.minimumTree?B.BN(0):B.mul(rank,multiplier).floor();
+    const points=challengeKey==='infinityRing'||rank<C.minimumTree?B.BN(0):B.mul(rank,multiplier).floor();
     const earned=B.add(n.totalPointsEarned,points),cap=has(s,'B1-1')?B.max(C.treasureCap,B.mul(C.treasureCap,earned)):B.BN(C.treasureCap);
     return {allowed:challengeKey!=null?(!respec&&challengeEntryAllowed(s,challengeKey)):n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
   }
@@ -120,6 +123,15 @@
     if(!v.allowed)throw Error('当前不能无限转生');
     if(options.expectedRebirthCount!=null&&options.expectedRebirthCount!==old.rebirthCount)throw Error('无限周目已改变');
     if(old.rebirthCount>=Number.MAX_SAFE_INTEGER)throw Error('无限转生次数超出安全范围');
+    if(options.challengeKey==='infinityRing') {
+      // An outer challenge must allow the inner system challenges needed for realm 7.
+      const next=WIS.Core.State.fresh();
+      next.unlockedAchievements={...s.unlockedAchievements};
+      next.core.preferences={...s.core.preferences};
+      next.core.runtime.randomState=s.core.runtime.randomState;
+      next.meta.infinity.ringChallengeActive=true;
+      return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(next));
+    }
     const challengeEntry=options.challengeKey!=null;
     const next=WIS.Core.Reset.apply('infinity',s,()=>WIS.Core.State.fresh(),{context:{infinityChallenge:challengeEntry}});
     const retained=!challengeEntry&&WIS.Core.Reset.preservesContent('infinity',s);
@@ -145,5 +157,5 @@
     return next;
   }
   WIS.Meta.Infinity=Object.freeze({fresh,normalize,get,has,hasInfinityUpgrade:has,status,purchase,invested,previewRebirth,prepareRebirth,
-    commitRebirth,completed,rewardUnlocked,isInfinityChallenge,challengeEntryAllowed,recordChallengeReward,rapidChallengeStepSeconds,rapidPointMultiplier,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gBaseRequirement,gRequirementBeforeRank,gRankPolynomial,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
+    commitRebirth,completed,rewardUnlocked,isInfinityChallenge,isChallengeActive,challengeEntryAllowed,recordChallengeReward,rapidChallengeStepSeconds,rapidPointMultiplier,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gBaseRequirement,gRequirementBeforeRank,gRankPolynomial,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
 }(window.WIS));

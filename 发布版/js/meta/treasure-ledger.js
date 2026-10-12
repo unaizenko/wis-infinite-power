@@ -27,15 +27,16 @@
     if(isStock) {
       const changed=!BN(state.meta.treasures[key]||0).eq(main);
       state.meta.treasures[key]=main;
+      // The new main already includes the prior tail; clear it before rebasing demand.
+      (state.meta.treasureStockResidual ||= {})[key]=[];
       if(changed && state.meta.treasureProgressFinite?.[key]) {
         const words=progress(state,key);
         write(state,key,words,false);
       }
-      (state.meta.treasureStockResidual ||= {})[key]=[];
     } else {
       // Three represented values describe current progress, independent of
       // elapsed play time. Temporary signed words are never persisted as history.
-      const demand=WIS.Meta.TreasureProgress.requirement(key,value(stock(state,key)));
+      const demand=WIS.Meta.TreasureProgress.requirement(key,value(stock(state,key)),state);
       const remaining=value(safeNormalize([demand,...negate(terms)]));
       const nonnegativeRemaining=remaining.lt(0)?ZERO:remaining;
       const carry=value(safeNormalize([...terms,...negate([demand]),nonnegativeRemaining]));

@@ -781,6 +781,7 @@
   function immortalTreasureChanceMultiplierBN() {
     return productBN([
       hasAchievement("humanRealmDominance") ? 2 : 1,
+      WIS.Cultivation.Xiuzhen?.has(state, "kongNieZhang") ? 10 : 1,
       WIS.Core.Effects.product("immortalTreasureChance", "sourceMultiplier", state),
       WIS.Meta.Treasures?.getTreasureChanceMultiplier?.(state) ?? WIS.Power.ScaleLogic.treasureChanceMultiplier()
     ]);
@@ -1732,14 +1733,19 @@
     return immortalCultivationActive() && state.goldenCoreUnlocked && state.activeChallenge !== "mortalTransformation";
   }
 
+  function automaticExplorationEfficiency() {
+    return AUTOMATIC_EXPLORATION_EFFICIENCY * (WIS.Cultivation.Xiuzhen?.has(state, "kongLingYuan") ? 100 : 1);
+  }
+
   function automaticExplorationContext({ cache = true } = {}) {
     if (!explorationEnabled()) return null;
     const powerCost = explorationPowerCost();
     if (!state.roamSpiritWorldUnlocked || !state.goldenCoreUnlocked || lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return null;
     const fullExplorationAmount = explorationAmountForCost(powerCost, { cache });
-    const explorationAmountPerSecond = mul(fullExplorationAmount, AUTOMATIC_EXPLORATION_EFFICIENCY);
+    const automaticEfficiency = automaticExplorationEfficiency();
+    const explorationAmountPerSecond = mul(fullExplorationAmount, automaticEfficiency);
     return gt(explorationAmountPerSecond, ZERO)
-      ? { powerCost, fullExplorationAmount, explorationAmountPerSecond }
+      ? { powerCost, fullExplorationAmount, explorationAmountPerSecond, automaticEfficiency }
       : null;
   }
 
@@ -2127,16 +2133,17 @@
     elapsedSeconds,
     currentMana = state.mana,
     powerCost = explorationPowerCost(),
-    currentExplorationLoad = state.minorTribulationExplorationLoad
+    currentExplorationLoad = state.minorTribulationExplorationLoad,
+    automaticEfficiency = automaticExplorationEfficiency()
   ) {
     const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
     if (!(elapsed > 0) || !gt(fullExplorationAmount, ZERO) || !gt(preTribulationMana, ZERO)) return ZERO;
     if (state.advancedRealmLevel < 2 || state.advancedRealmLevel >= 6) {
-      return mul(preTribulationMana, AUTOMATIC_EXPLORATION_EFFICIENCY * elapsed);
+      return mul(preTribulationMana, automaticEfficiency * elapsed);
     }
 
     const triggerLoad = minorTribulationTriggerLoad();
-    const explorationLoad = mul(fullExplorationAmount, AUTOMATIC_EXPLORATION_EFFICIENCY * elapsed);
+    const explorationLoad = mul(fullExplorationAmount, automaticEfficiency * elapsed);
     if (!gt(triggerLoad, ZERO) || !isFiniteBN(triggerLoad) || !isFiniteBN(explorationLoad) ||
         !isFiniteBN(preTribulationMana)) return ZERO;
 
@@ -2202,7 +2209,8 @@
       elapsed,
       currentMana,
       powerCost,
-      currentExplorationLoad
+      currentExplorationLoad,
+      context.automaticEfficiency ?? automaticExplorationEfficiency()
     );
     return { mana: add(passiveMana, explorationMana), passiveMana, explorationMana };
   }
@@ -2563,7 +2571,7 @@
       state.mana,
       fullExplorationPreview.manaExponent,
       fullExplorationAmount
-    ), AUTOMATIC_EXPLORATION_EFFICIENCY);
+    ), context.automaticEfficiency);
   }
 
   function automaticExplorationManaBeforeSuppressionPerSecond() {
@@ -2578,7 +2586,7 @@
       fullExplorationAmount,
       false,
       false
-    ), AUTOMATIC_EXPLORATION_EFFICIENCY);
+    ), context.automaticEfficiency);
   }
 
   function automaticManaBeforeSuppressionPerSecond() {
@@ -2595,7 +2603,7 @@
     return context ? applyGoogolPenalty("mana", state.mana,
       mul(explorationPotentialManaGain(context.powerCost, state.mana,
         minorTribulationExplorationManaExponent(), context.fullExplorationAmount),
-        AUTOMATIC_EXPLORATION_EFFICIENCY * factor), state) : ZERO;
+        (context.automaticEfficiency ?? automaticExplorationEfficiency()) * factor), state) : ZERO;
   }
 
   // Current theoretical income per game second, independent of committed rates.

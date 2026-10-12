@@ -74,7 +74,7 @@
   function originSafe(state,bounds){
     if(!X().has(state,'virtualOrigin'))return true;
     const T=W.Meta.TreasureProgress,L=W.Meta.TreasureLedger,key='originImprint';
-    const progress=L.value(L.progress(state,key)),remaining=B.max(0,B.sub(T.requirement(key,W.Meta.Treasures.count(state,key)),progress));
+    const progress=L.value(L.progress(state,key)),remaining=B.max(0,B.sub(T.requirement(key,W.Meta.Treasures.count(state,key),state),progress));
     const units=B.mul(B.max(0,B.sub(bounds.nieForce.upper,G().read(state,'nieForce'))),X().originProgressGain(state));
     return B.lt(units,remaining);
   }

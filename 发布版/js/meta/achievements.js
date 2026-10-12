@@ -92,8 +92,7 @@
       { key:"yuan", system:"仙道", name:"元", description:"突破仙道境界·第二步·碎涅。", reward:"解锁仙道宝物烙印·元晶", completed:completedAchievement("yuan",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=6) },
       { key:"greatHeavenlyVenerable", system:"仙道", name:"大天尊", description:"突破第三步·空劫。", reward:`根据本源数量提升法力、仙灵力、仙力、元力、涅力获取；当前 ×${format(greatHeavenlyVenerableMultiplier(state),4)}`, completed:completedAchievement("greatHeavenlyVenerable",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=10) },
       { key:"universe", name:"宇宙", description:"抵达单体宇宙量级。", reward:`根据宇宙意志数量降低普通宝物进度需求；当前 ÷${format(ordinaryTreasureRequirementDivisor(state),4)}`, completed:completedAchievement("universe",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=7) },
-      // Reserved tier: existing TREE/G progress never stands in for infiniteBox.
-      { key:"eternalWitness", name:"一证永证", description:"抵达无限盒子量级（后续开放）。", reward:"无限转生及以下不再重置任何内容；挑战仍重置，强化重选仍清空强化并退款", completed:completedAchievement("eternalWitness",state.meta.milestones.infiniteBox===true) },
+      { key:"eternalWitness", name:"一证永证", description:"完成无限挑战·圆环之理。", reward:"无限转生及以下等级转生，不再重置体系挑战", completed:completedAchievement("eternalWitness",challengeCompletionCount("infinityRing")>0) },
       { key: "infantTransformationImmortal", system: "仙道", name: "婴变为仙", description: "解锁仙道·修真道·婴变。", reward: "解锁仙道挑战·阴虚阳实", completed: completedAchievement("infantTransformationImmortal", (WIS.Cultivation.Xiuzhen?.get(state).highestRealm || 0) >= 2) },
       { key: "powerOne", name: "战力 1", description: "获得至少 1 战力。", reward: "解锁强化界面", completed: completedAchievement("powerOne", gte(state.totalPower, 1)) },
       { key: "five", name: "战五渣", description: "累计获得 5 战力。", reward: "战力获取 ×1.05", completed: completedAchievement("five", gte(state.totalPower, 5)) },

@@ -202,7 +202,7 @@
       return state.cultivation.active === "martial" && (state.activeChallenge === challengeKey || completionCount(state, challengeKey) > 0 ||
         state.meta.martialQualifications?.[prerequisite] === true || (WIS.Cultivation.Martial.get(state).abilities[prerequisite] || 0) > 0);
     }
-    if(challenge.resetLevel==='infinity')return state.activeChallenge===challengeKey||(WIS.Meta.Infinity.get(state).unlocked&&WIS.Meta.Infinity.has(state,challenge.infinityUpgrade));
+    if(challenge.resetLevel==='infinity')return WIS.Meta.Infinity.isChallengeActive(state,challengeKey)||(WIS.Meta.Infinity.get(state).unlocked&&WIS.Meta.Infinity.has(state,challenge.infinityUpgrade));
     if(challenge.infinityUpgrade&&!WIS.Meta.Infinity.has(state,challenge.infinityUpgrade))return false;
     if (challengeKey === "mortalTransformation" && (state.activeChallenge === challengeKey || completionCount(state, challengeKey) > 0)) return true;
     if (challengeKey === "yinVoidYangReal") return WIS.Meta.Achievements.has(state, "infantTransformationImmortal");
@@ -221,7 +221,7 @@
     const conquered = challenge?.rewardKey ? WIS.Meta.Infinity.rewardUnlocked(state,challengeKey) : challenge?.achievementKey
       ? WIS.Meta.Achievements.has(state, challenge.achievementKey)
       : isCompletionLimitReached(challenge, completionCount(state, challengeKey));
-    return challengeUnlocked(challengeKey) && (state.activeChallenge === challengeKey || !state.hideCompletedChallenges || !conquered);
+    return challengeUnlocked(challengeKey) && (WIS.Meta.Infinity.isChallengeActive(state,challengeKey) || !state.hideCompletedChallenges || !conquered);
   }
   function challengeStartable(challengeKey) {
     return challengeUnlocked(challengeKey) && !state.activeChallenge &&
@@ -271,7 +271,7 @@
     if (!challenge || !challengeStartable(challengeKey)) return;
     if(challenge.resetLevel==='infinity') {
       const I=WIS.Meta.Infinity,v=I.previewRebirth(state,{challengeKey});if(!v.allowed)return false;
-      if(!window.confirm(`开启无限挑战「${challenge.name}」将进行一次无限转生，获得 ${formatInfinityPoints(v.points)} 无限点数，重置行动、强化与体系进度，并按无限转生规则保留宝物和强化。挑战计时从0开始。确定开启吗？`))return false;
+      if(challengeKey==='infinityRing'?!window.confirm('开启无限挑战「圆环之理」将清空成就以外的游戏进度，包括无限点、无限强化、宝物和挑战记录；不获得本次转生点数。可在挑战期间进行其他挑战及转生。退出不恢复原进度。确定开启吗？'):!window.confirm(`开启无限挑战「${challenge.name}」将进行一次无限转生，获得 ${formatInfinityPoints(v.points)} 无限点数，重置行动、强化与体系进度，并按无限转生规则保留宝物和强化。挑战计时从0开始。确定开启吗？`))return false;
       try {runtime.call('infinityRebirth',{challengeKey,expectedRebirthCount:v.rebirthCount});switchPage('challenges');render();showNotice(`已开启无限挑战：${challenge.name}`);return true;}
       catch(error){console.error(`WIS infinite challenge start failed: ${challengeKey}`,error);showNotice('无限挑战启动失败，进度已保留');return false;}
     }
@@ -313,7 +313,17 @@
     }
   }
 
-  function exitChallenge() {
+  function exitChallenge(challengeKeyToExit) {
+    if (challengeKeyToExit === 'infinityRing' && WIS.Meta.Infinity.isChallengeActive(state,'infinityRing')) {
+      state.meta.infinity.ringChallengeActive=false;
+      WIS.Core.Effects.invalidate();
+      try { saveState(); }
+      catch (error) {
+        state.meta.infinity.ringChallengeActive=true;
+        WIS.Core.Effects.invalidate();showNotice('退出未完成：保存失败，圆环之理仍在进行中');return false;
+      }
+      render();showNotice('已退出挑战：圆环之理');return true;
+    }
     if (!state.activeChallenge) return;
     const challengeKey = state.activeChallenge;
     const challengeName = CHALLENGE_DEFINITIONS[challengeKey].name;
@@ -332,10 +342,18 @@
   }
 
   function checkActiveChallengeCompletion({ offlineIncome } = {}) {
-    if (!state.activeChallenge) return false;
+    let ringCompleted=false;
+    if (WIS.Meta.Infinity.isChallengeActive(state,'infinityRing') && WIS.Cultivation.Xiuzhen.get(state).realm >= 7) {
+      state.meta.infinity.ringChallengeActive=false;
+      state.challengeCompletions.infinityRing=1;
+      WIS.Meta.Achievements.record(state,'eternalWitness');
+      WIS.Core.Effects.invalidate();saveState();showNotice('挑战成功：圆环之理，获得普通成就·一证永证');
+      ringCompleted=true;
+    }
+    if (!state.activeChallenge) return ringCompleted;
     const challengeKey = state.activeChallenge;
     const challenge = CHALLENGE_DEFINITIONS[challengeKey];
-    if (!challenge || !systemActive(state, challengeKey) || challenge.manualCompletion) return false;
+    if (!challenge || !systemActive(state, challengeKey) || challenge.manualCompletion) return ringCompleted;
     let targetReached = challenge.system === "martial" ? martialGoalReached(state, challenge)
       : challenge.targetYuanForce ?
       gte(WIS.Cultivation.Xiuzhen.amount(state,"yuanForce"),challenge.targetYuanForce) && gte(state.joules,challenge.targetJAndPower) && gte(state.power,challenge.targetJAndPower)
@@ -369,7 +387,7 @@
         (!targetReached && observedElapsed >= challenge.deadlineSeconds - 1e-9))) {
       state.activeChallenge=null;state.activeChallengeElapsedSeconds=0;WIS.Core.Effects.invalidate();saveState();showNotice(`挑战失败：${challenge.name}（超时）`);return true;
     }
-    if (!targetReached) return false;
+    if (!targetReached) return ringCompleted;
     const previousCompletions = challengeCompletionCount(challengeKey);
     const achievementAlreadyEarned = challenge.rewardKey?WIS.Meta.Infinity.rewardUnlocked(state,challengeKey):challenge.achievementKey && WIS.Meta.Achievements.has(state, challenge.achievementKey);
     state.challengeCompletions[challengeKey] = Math.min(challenge.maxCompletions, previousCompletions + 1);

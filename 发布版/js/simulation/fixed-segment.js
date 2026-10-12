@@ -148,6 +148,16 @@
         const base=unit.options.borrowSources ? S.shallowBranch(unit.snapshot) : S.cloneForSimulation(unit.snapshot);
         if(unit.options.borrowSources){base.core={...base.core};base.cultivation={...base.cultivation,systems:{...base.cultivation.systems,immortal:{...base.cultivation.systems.immortal,xiuzhen:{...base.cultivation.systems.immortal.xiuzhen}}}};}
         copySpendable(state,base);
+        if (candidate.currentTreasureProgress) {
+          // Mie settles progress accumulated BEFORE this purchase, including
+          // this frame's natural and Sheng rewards. Other eligibility remains
+          // the frozen start snapshot used by every automatic purchase.
+          const current = S.toSerializable(state).meta;
+          base.meta = {...base.meta};
+          for (const key of ["treasures","treasureStockResidual","treasureProgress","treasureProgressResidual",
+            "treasureProgressResidualTail","treasureProgressFinite","treasureProgressPending","treasureProgressStatus","treasureQualifications","treasureCredits"])
+            if (current[key] !== undefined) base.meta[key] = current[key];
+        }
         const draft=unit.options.borrowSources ? S.createDraft(base) : null;
         const shadow=draft?draft.state:base;
         const before=draft?base:S.toSerializable(shadow);
@@ -213,6 +223,10 @@
         statistics.rewardMs+=clock()-began;
         yield;
       }
+    }
+    if (!unit.options.skipTreasureRolls && sources.sheng?.keys.length) {
+      WIS.Cultivation.Xiuzhen.awardSheng(state,seconds,sources.sheng);
+      yield;
     }
     unit.options.onPhase?.("end-events");
     if(unit.options.offline) {

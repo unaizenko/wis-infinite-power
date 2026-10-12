@@ -66,11 +66,11 @@
         return { key, eligible, units: finite(units,key),
           // A capped source is fixed at the START demand; later stock still
           // pays its escalating cumulative demand through TreasureProgress.
-          gain: finite(B.min(P.unitGain(snapshot,key),P.requirement(key,T.count(snapshot,key))),key),
+          gain: finite(B.min(P.unitGain(snapshot,key),P.requirement(key,T.count(snapshot,key),snapshot)),key),
           award: finite(T.getTreasureAwardMultiplier(snapshot,key),key) };
       });
       const XP=WIS.Cultivation.ExplorationProgress, cap=XP.capWords(snapshot);
-      return { ...profile, rewards,
+      return { ...profile, rewards, sheng:X.captureSheng(snapshot),
         natural: { eligible: immortal && snapshot.goldenCoreUnlocked, cap },
         seizeEligible: immortal && !snapshot.unlockedAchievements?.seizeFoundation,
         // Current six automatic sources have no continuous asset debit.

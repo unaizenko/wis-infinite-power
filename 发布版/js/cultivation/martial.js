@@ -67,6 +67,90 @@
     if (ratio.layer !== 0) return B.ZERO;
     return B.mul(current,Math.expm1(exponent.toNumber()*Math.log1p(ratio.toNumber())));
   }
+
+  // Integrate the marginal price over the incoming increment. Keeping delta
+  // separate prevents cancellation of two enormous cumulative potentials.
+  function powerIncrement(start,delta,power) {
+    if (B.eq(start,0)) return B.pow(delta,power);
+    const ratio = B.div(delta,start);
+    if (B.lte(ratio,1)) {
+      // A positive nonzero-layer ratio <= 1 is below the Number envelope;
+      // all higher terms are below Decimal representation at this stock.
+      if (ratio.layer !== 0) return B.mul(B.mul(delta,power),B.pow(start,power-1));
+      return B.mul(B.pow(start,power),Math.expm1(power*Math.log1p(ratio.toNumber())));
+    }
+    return B.sub(B.pow(B.add(start,delta),power),B.pow(start,power));
+  }
+  function priceSegment(start,exponent,power,coefficient) {
+    const p = 2/exponent+power, q = 1/exponent+power;
+    const a = B.mul(coefficient,.5/exponent/p), b = B.mul(coefficient,.75/exponent/q);
+    const cost = delta => B.add(B.mul(a,powerIncrement(start,delta,p)),B.mul(b,powerIncrement(start,delta,q)));
+    const slope = value => B.add(B.mul(B.mul(a,p),B.pow(value,p-1)),B.mul(B.mul(b,q),B.pow(value,q-1)));
+    return {cost,slope,p,q,a,b};
+  }
+  function absoluteInvestment(key,value) {
+    const config = C.balance.absolute[key], threshold = B.BN(config.threshold);
+    if (B.lte(value,threshold)) return F(value);
+    const segment = priceSegment(threshold,1,config.power,B.pow(threshold,-config.power));
+    return B.add(F(threshold),segment.cost(B.sub(value,threshold)));
+  }
+  function conversionThresholds(s,key) {
+    const absolute = C.balance.absolute[key], relative = C.balance.relative[key];
+    const thresholds = [{value:B.BN(absolute.threshold),power:absolute.power}];
+    if (relative) thresholds.push({value:B.add(relative.floor,B.mul(relative.factor,absoluteInvestment(relative.support,amount(s,relative.support)))),power:relative.power});
+    return thresholds.sort((a,b) => a.value.cmp(b.value));
+  }
+  function previousPositive(value) {
+    // Used only when an arithmetic midpoint collapses onto a large endpoint.
+    // Step exactly one binary coordinate ULP; never invent an invisible grant.
+    const data = new DataView(new ArrayBuffer(8)); data.setFloat64(0,value.mag);
+    data.setBigUint64(0,data.getBigUint64(0)+(value.mag>0?-1n:1n));
+    return B.Decimal.fromComponents(value.sign,value.layer,data.getFloat64(0));
+  }
+  function solveSegment(segment,start,investment,limit) {
+    // Active segments have p,q > 1. Each monomial and the starting tangent
+    // gives an upper bound, so this bracket does not span the input magnitude.
+    let high = B.min(B.pow(B.div(investment,segment.a),1/segment.p),B.pow(B.div(investment,segment.b),1/segment.q));
+    high = B.min(high,B.div(investment,segment.slope(start)));
+    if (limit) high = B.min(high,limit);
+    let low = B.ZERO;
+    for (let i=0;i<80;i++) {
+      const cost = segment.cost(high);
+      if (B.lte(cost,investment)) return high;
+      // Convexity keeps the Newton candidate above the actual root.
+      let next = B.sub(high,B.div(B.sub(cost,investment),segment.slope(B.add(start,high))));
+      if (!B.gt(next,low) || !B.lt(next,high)) next = B.add(low,B.div(B.sub(high,low),2));
+      if (!B.gt(next,low) || !B.lt(next,high)) {
+        const below = previousPositive(high);
+        if (!B.gt(below,low) || !B.lt(below,high)) return low;
+        if (B.lte(segment.cost(below),investment)) return below;
+        high = below; continue;
+      }
+      if (B.lte(segment.cost(next),investment)) low = next; else high = next;
+      if (B.eq(B.add(low,B.div(B.sub(high,low),2)),low)) return low;
+    }
+    return low;
+  }
+  function balancedGain(s,key,current,investment,exponent,legacyGain) {
+    if (!B.gt(investment,0)) return B.ZERO;
+    const thresholds = conversionThresholds(s,key);
+    if (B.lte(B.add(current,legacyGain),thresholds[0].value)) return legacyGain;
+    // conversionExponent is bounded to [1,1.15]; no resource is cast to Number.
+    const e = exponent.toNumber();
+    let stock = current, remaining = investment, gained = B.ZERO, power = 0, coefficient = B.ONE;
+    for (const threshold of thresholds) {
+      if (B.lt(stock,threshold.value)) {
+        const delta = B.sub(threshold.value,stock), segment = priceSegment(stock,e,power,coefficient), cost = segment.cost(delta);
+        if (B.lt(remaining,cost)) {
+          if (!power) return legacyGain;
+          return B.add(gained,solveSegment(segment,stock,remaining,delta));
+        }
+        remaining = B.max(0,B.sub(remaining,cost)); gained = B.add(gained,delta); stock = threshold.value;
+      }
+      power += threshold.power; coefficient = B.mul(coefficient,B.pow(threshold.value,-threshold.power));
+    }
+    return B.add(gained,solveSegment(priceSegment(stock,e,power,coefficient),stock,remaining));
+  }
   function commit(s,n,core=null) {
     const validated = normalize(n);
     s.cultivation = {...s.cultivation,systems:{...s.cultivation?.systems,martial:validated}};
@@ -177,6 +261,7 @@
       ? incrementalGain(current,unpowered,result.investment,exponent)
       : null;
     if (result.gain === null) result.gain = B.max(0,B.sub(B.pow(inverseF(potential),exponent),current));
+    result.gain = balancedGain(s,key,current,result.investment,exponent,result.gain);
     if (!B.gt(B.add(current,result.gain),current)) result.gain = B.ZERO;
     result.allowed = B.gt(input,0) && B.gt(result.gain,0);
     result.reason = result.allowed ? "" : "投入不足或没有可表示的收益";
@@ -278,7 +363,8 @@
   }
   function heartWeight(s,stage) {
     const calculate = () => { const req = heartRequirement(stage);
-      return B.eq(req,0) ? B.ONE : B.min(1,B.sqrt(B.div(amount(s,"heart"),req))); };
+      const heart = amount(s,"heart");
+      return B.eq(req,0) || B.gte(heart,req) ? B.ONE : B.mul(C.balance.heartReliefCap,B.pow(B.div(heart,req),C.balance.heartReliefPower)); };
     const memo = configuredHeartRequirements.has(stage) && WIS.Core.Effects?.scopeMemo(s);
     if (!memo) return calculate();
     // Weight depends on this frozen candidate's heart amount, not on the
