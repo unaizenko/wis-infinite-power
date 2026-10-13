@@ -7,23 +7,28 @@
     finite(p.carry,'累计');return p;
   }
   const record=(requirement,remaining,carry)=>({version:1,requirement:String(requirement),remaining:String(remaining),carry:String(carry)});
+  // Cancel represented decimal words before projecting a balance. Repeating
+  // Decimal subtraction to measure its own rounding error is unstable when
+  // demand is huge but the stored absolute progress is small.
+  function fromRemaining(requirement, words) {
+    const L=WIS.Core.SignedLedger;
+    const remaining=B.max(0,finite(L.value(words),'余量'));
+    const carry=finite(L.value(L.strict.subtract([String(remaining)],words)),'累计');
+    return record(requirement,remaining,carry);
+  }
   function create(requirement,progress=0) {
     const req=finite(requirement,'需求'),gain=finite(progress,'收入');
     if(!req.gt(0)||gain.lt(0))throw Error('有限进度需求/收入无效');
-    const remaining=B.max(0,B.sub(req,gain));
-    return record(req,remaining,B.sub(gain,B.sub(req,remaining)));
+    return fromRemaining(req,WIS.Core.SignedLedger.strict.subtract([String(req)],[String(gain)]));
   }
   function advance(point,gain) {
-    const req=B.BN(point.requirement),left=B.BN(point.remaining);
     gain=finite(gain,'收入');if(gain.lt(0))throw Error('有限进度收入为负');
-    const pending=finite(B.add(point.carry,gain),'累计');
-    if(pending.gte(left))return {crossed:true,excess:B.sub(pending,left)};
-    const remaining=finite(B.sub(left,pending),'余量');
-    // One compensation value retains sub-ULP inputs and rounding in either
-    // direction. It is never a list of historical terms. No per-input epsilon
-    // is forgiven, avoiding a bias proportional to input count.
-    const carry=B.sub(pending,B.sub(left,remaining));
-    return {crossed:false,point:record(req,remaining,carry)};
+    const L=WIS.Core.SignedLedger;
+    const deficit=L.strict.subtract([point.remaining],[point.carry,String(gain)]);
+    // Compare the signed balance before projection so a sub-ULP deficit cannot
+    // turn into a free reward, and a positive excess is not rounded to zero.
+    if(L.strict.sign(deficit)<=0)return {crossed:true,excess:finite(L.value(L.negate(deficit)),'累计')};
+    return {crossed:false,point:fromRemaining(point.requirement,deficit)};
   }
   function accumulate(point,gain) {
     const next=advance(point,gain);
@@ -34,8 +39,9 @@
     const next=advance(point,gain);
     return next.crossed&&settle?settle(next):next;
   }
-  const value=p=>B.max(0,B.add(B.sub(p.requirement,p.remaining),p.carry));
-  const remaining=p=>B.max(0,B.sub(p.remaining,p.carry));
+  const value=p=>B.max(0,WIS.Core.SignedLedger.value(WIS.Core.SignedLedger.strict.normalize(
+    [p.requirement,...WIS.Core.SignedLedger.negate([p.remaining]),p.carry])));
+  const remaining=p=>B.max(0,WIS.Core.SignedLedger.value(WIS.Core.SignedLedger.strict.subtract([p.remaining],[p.carry])));
   // Represented batch rules shared by treasures and cultivation rewards.
   const batchError=(code,message)=>Object.assign(new Error(message),{code});
   const unresolvable=m=>m.gt(0)&&(m.add(1).eq(m)||m.sub(1).eq(m));

@@ -1,6 +1,6 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.8，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.7.9，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,9 +22,9 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.8` | 玩家可见发布版本 |
+| gameVersion | `0.1.7.9` | 玩家可见发布版本 |
 | schemaVersion | `72` | Save envelope/State schema |
-| buildId | `release-0.1.7.8-20261012` | 发布构建与静态缓存标识 |
+| buildId | `release-0.1.7.9-20261013` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `2` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
@@ -379,3 +379,5 @@ B6由Core.Penalties集中提供阶梯公式和下一档位边界。ScaleLogic动
 ### C4 圆环之理（2026-10-12）
 
 C4接在C3之后，100点。Infinity.prepareRebirth对infinityRing建立仅保留成就、设置和RNG的全新候选，不发点数。meta.infinity.ringChallengeActive独立持久化，让必要的普通/体系挑战与无限转生可在圆环内继续；Challenges在正式结算检查当前realm>=7后发放eternalWitness并结束圆环。Reset按挑战定义的system保留体系挑战次数和bestQiLayer，旧保留全部内容效果停用。退出保存失败恢复活动标志。
+
+有限进度精度修复（2026-10-13）：Core.FiniteProgress 的 create/advance/value/remaining 在投影前用 SignedLedger 严格消去公共项，跨越需求按投影前符号判断，避免大需求吞掉小进度或提前发奖。维持 finite v1 的 requirement/remaining/carry 字段；直接宝物入库更新需求时保留绝对自然进度。SignedLedger 在函数调用时读取，现有脚本加载顺序不变。
