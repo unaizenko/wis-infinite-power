@@ -151,6 +151,44 @@
     }
     return B.add(gained,solveSegment(priceSegment(stock,e,power,coefficient),stock,remaining));
   }
+  const innerCount = s => C.abilities.filter(a => a.branch === "inner" && (get(s).abilities[a.key] || 0) > 0).length;
+  function captureChangSheng(s) {
+    const kinds = lv(s,"changSheng") ? innerCount(s) : 0;
+    if (!kinds) return {kinds:0,base:B.ZERO,rate:B.ZERO,current:B.ZERO,thresholds:[]};
+    const base = B.mul(kinds*kinds,abilityMultiplier(s,"danJin")), current = amount(s,"qi"), thresholds = conversionThresholds(s,"qi");
+    let attenuation = B.ONE;
+    for (const t of thresholds) attenuation = B.mul(attenuation,B.pow(B.max(1,B.div(current,t.value)),t.power));
+    return {kinds,base,rate:B.div(base,attenuation),current,thresholds};
+  }
+  function naturalSegment(start,power,coefficient) {
+    const p = power+1, a = B.div(coefficient,2*p);
+    return {p,q:p,a,b:a,cost:delta => B.mul(B.mul(a,2),powerIncrement(start,delta,p)),
+      slope:value => B.mul(coefficient,B.pow(value,power))};
+  }
+  function changShengGain(profile,seconds,{frozen=false}={}) {
+    const dt = nonnegative(seconds);
+    if (!profile || !profile.kinds || !B.gt(dt,0)) return B.ZERO;
+    if (frozen) return B.mul(profile.rate,dt);
+    let budget = B.mul(profile.base,dt), stock = profile.current, gained = B.ZERO, power = 0, coefficient = B.ONE;
+    // The passive budget buys only attenuation, never the quadratic conversion
+    // potential. Integrate each threshold-crossing increment without subtracting
+    // large cumulative values or rounding the existing balance down.
+    for (const t of profile.thresholds) {
+      if (B.lt(stock,t.value)) {
+        const delta = B.sub(t.value,stock), segment = naturalSegment(stock,power,coefficient);
+        const cost = segment.cost(delta);
+        if (B.lt(budget,cost)) return B.add(gained,power ? solveSegment(segment,stock,budget,delta) : B.min(delta,budget));
+        budget = B.max(0,B.sub(budget,cost)); gained = B.add(gained,delta); stock = t.value;
+      }
+      power += t.power; coefficient = B.mul(coefficient,B.pow(t.value,-t.power));
+    }
+    return B.add(gained,solveSegment(naturalSegment(stock,power,coefficient),stock,budget));
+  }
+  function awardChangSheng(s,gain) {
+    WIS.Core.Runtime?.assertMutable?.(); gain = nonnegative(gain);
+    if (!B.gt(gain,0)) return false;
+    const n = normalize(get(s)); grant(n,"qi",gain); commit(s,n); return true;
+  }
   function commit(s,n,core=null) {
     const validated = normalize(n);
     s.cultivation = {...s.cultivation,systems:{...s.cultivation?.systems,martial:validated}};
@@ -186,6 +224,8 @@
       case "anJin": case "taiJi": return B.BN(1.3);
       case "yiGu": return B.add(1,B.mul(.04,B.log10(B.add(coreAmount(s,"power"),1))));
       case "huaJin": return B.add(1,B.mul(.05,B.log10(B.add(amount(s,"qi"),1))));
+      case "gangJin": return B.BN(10);
+      case "danJin": return B.add(1,B.sqrt(s.runningLevel || 0));
       case "yiSui": return B.add(1,B.mul(.1,B.log10(B.add(amount(s,"body"),1))));
       case "ganDong": return B.BN(1.1);
       case "sanTi": return B.BN(1.2);
@@ -205,6 +245,7 @@
   }
   function efficiency(s,key) {
     let e = B.ONE;
+    if (["qi","body"].includes(key) && lv(s,"danJin")) e = B.mul(e,abilityMultiplier(s,"danJin"));
     if (lv(s,"jiaYi") && ["qi","body"].includes(key)) e = B.mul(e,abilityMultiplier(s,"jiaYi"));
     if (key === "qi" && lv(s,"taiXuan")) e = B.mul(e,abilityMultiplier(s,"taiXuan"));
     if (key === "qi" && achievement(s,"martialInnate")) e = B.mul(e,2);
@@ -299,6 +340,7 @@
       requirements.heart = B.mul(requirements.heart,factor);
       if (a.group === "jueji") cost = B.mul(cost,factor);
     }
+    if (a.branch === "inner" && lv(s,"changSheng")) cost = B.mul(cost,10*(innerCount(s)+1));
     let reason = !active(s) ? "当前未选择武道" : level >= a.maxLevel ? "已达上限" : key === "longXiang" && level ? "龙象通过修炼进度升级" : "";
     if (!reason && a.prerequisites.some(k => !lv(s,k))) reason = "前置能力未解锁";
     if (!reason && a.slot && !level && slotUsed(s) >= slots(s)) reason = "内功槽位已满";
@@ -310,7 +352,12 @@
   const canBuy = (s,key) => abilityView(s,key).allowed;
   function buy(s,key) {
     WIS.Core.Runtime?.assertMutable?.(); const view = abilityView(s,key); if (!view.allowed) return false;
-    const n = normalize(get(s)); debit(n,view.costResource,view.cost); n.abilities[key] = view.level+1; commit(s,n);
+    const n = normalize(get(s)); debit(n,view.costResource,view.cost); n.abilities[key] = view.level+1;
+    if (key === "changSheng") {
+      for (const a of C.abilities) if (a.branch === "inner") delete n.abilities[a.key];
+      n.longxiangProgress = B.ZERO;
+    }
+    commit(s,n);
     if (["stealHeaven","innerHarmony","innate"].includes(key)) s.meta = {...s.meta,martialQualifications:{...s.meta?.martialQualifications,[key]:true}};
     return true;
   }
@@ -335,6 +382,7 @@
   function effects(s) {
     if (!active(s)) return [];
     const result = [], effect = (id,target,value,layer="regionMultiplier",dependencies=[]) => ({id:"martial-"+id+"-"+target,name:byKey.get(id)?.name || "武道",group:"武道",target,layer,value:typeof value === "function" ? value(s) : value,valueAt:typeof value === "function" ? value : null,dynamicResources:dependencies});
+    if (lv(s,"gangJin")) result.push(effect("gangJin","power",abilityMultiplier(s,"gangJin")));
     if (lv(s,"sanTi")) result.push(effect("sanTi","joules",abilityMultiplier(s,"sanTi")));
     for (const [id,m] of [["taiJi",1.3],["baGua",1.5]]) if (lv(s,id)) for (const target of ["joules","power"]) result.push(effect(id,target,abilityMultiplier(s,id)));
     if (lv(s,"xingYi")) for (const target of ["joules","power"]) result.push(effect("xingYi",target,abilityMultiplier(s,"xingYi")));
@@ -415,5 +463,5 @@
     }}
     commit(s,n); return false;
   }
-  WIS.Cultivation.Martial = Object.freeze({resourceKeys,fresh,normalize,get,amount,active,F,abilityMultiplier,qiPowerSource,preview,convert,abilityView,canBuy,buy,slots,slotUsed,sources,effects,heartRequirement,heartExponent,advance,automate,automaticUnlocked,setAutomation,conversionExponent,efficiency});
+  WIS.Cultivation.Martial = Object.freeze({innerCount,captureChangSheng,changShengGain,awardChangSheng,resourceKeys,fresh,normalize,get,amount,active,F,abilityMultiplier,qiPowerSource,preview,convert,abilityView,canBuy,buy,slots,slotUsed,sources,effects,heartRequirement,heartExponent,advance,automate,automaticUnlocked,setAutomation,conversionExponent,efficiency});
 }(window.WIS));

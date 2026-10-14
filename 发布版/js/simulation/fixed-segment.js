@@ -74,8 +74,9 @@
     const bigNumbers = options.frozenOffline ? WIS.Meta.BigNumbers.prepareFrozen(snapshot,seconds,WIS.Meta.BigNumbers.captureFrozen(snapshot)) : bigNumbersUnlocked ? R.withState(bigNumbersState,()=>E.withFrozenState(bigNumbersState,()=>
       WIS.Meta.BigNumbers.prepare(bigNumbersState,seconds,options.offline ? {fixedSources:true,offlineSnapshot:true} : {fixedSources:false,
         powerAt:((offset)=>B.add(bigNumbersState.power,B.mul(sources.rates.power,offset)))}))) : null;
+    const changShengGain = WIS.Cultivation.Martial.changShengGain(sources.changSheng,seconds,{frozen:options.frozenOffline===true});
     const sourceMs=clock()-started;statistics.sourceMs+=sourceMs;recordCost("sourcePreparation",sourceMs);
-    return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, options, started,
+    return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, changShengGain, options, started,
       frozenStart:options.frozenOffline ? {activeChallenge:snapshot.activeChallenge,
         activeChallengeElapsedSeconds:snapshot.activeChallengeElapsedSeconds,power:B.BN(snapshot.power)} : null };
   }
@@ -248,6 +249,8 @@
     // Running earlier would let the prepared domain overwrite the purchase.
     if(!unit.options.offline && typeof unit.options.runAchievementAutomations==='function')
       operations+=R.withState(state,()=>WIS.Meta.BigNumbers.automate(state));
+    // Natural qi is awarded after all same-frame conversions and purchases.
+    WIS.Cultivation.Martial.awardChangSheng(state,unit.changShengGain);
     E.invalidate();
     for(const key of WIS.Simulation.FixedSources.keys) WIS.tmp.rates[key+"PerSecond"]=sources.rates[key];
     unit.options.onPhase?.("next-state");

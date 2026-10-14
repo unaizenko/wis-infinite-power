@@ -1835,7 +1835,7 @@
     const paused = status.phase === "paused";
     const settlement = state.core.runtime.lastSettlement;
     for (const key of X.resourceKeys) {
-      const visible = active && (n.abilities[key] || n.realm >= ({xianForce:2,yuanForce:3,nieForce:7,universeCoefficient:7}[key]));
+      const visible = active && (n.abilities[key] || n.realm >= ({xianForce:2,yuanForce:3,nieForce:7,universeCoefficient:7,multiverseCoefficient:11}[key]));
       setHiddenIfChanged(byId(key + "-resource"), !visible);
       if (visible) {
         setTextIfChanged(byId(key), format(X.amount(state, key)));
@@ -1851,7 +1851,7 @@
           : rate == null ? "尚无结算速率" : committedRateText(key, X.amount(state, key), rate, status));
       }
     }
-    setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys.filter(key => key !== "universeCoefficient")]
+    setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys.filter(key => !["universeCoefficient","multiverseCoefficient"].includes(key))]
       .every(key => byId(key + "-resource").hidden));
   }
 

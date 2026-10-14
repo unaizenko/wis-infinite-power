@@ -2,7 +2,7 @@
   "use strict";
   const B = WIS.Core.BigNum, R = WIS.Core.Runtime, E = WIS.Core.Effects;
   const S = WIS.Power.ScaleLogic, I = WIS.Cultivation.ImmortalLogic;
-  const labels = { joules: "J", power: "战力", mana: "法力", immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N" };
+  const labels = { joules: "J", power: "战力", mana: "法力", immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N", multiverseCoefficient: "多元宇宙系数N²" };
   const unlocks = {
     focus: "focusPurchased", ghostBrain: "ghostBrainPurchased", killingIntent: "killingIntentPurchased",
     elementalization: "elementalizationPurchased", ultimateIntent: "ultimateIntentPurchased",
@@ -15,7 +15,7 @@
     training: "锻炼", focus: "集中", rock: "打岩", ghostBrain: "鬼脑", ultimateIntent: "极意",
     breathing: "吐纳", circulation: "周天", refineTheVoid: "炼化虚空", exploration: "探寻（合计）",
     explorationNormal: "普通探寻", explorationFuBao: "符宝探寻", automaticExploration: "纵横灵界",
-    immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N"
+    immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N", multiverseCoefficient: "多元宇宙系数N²"
   };
   const primary = Object.keys(names);
   const penalty = (resource, gain, state) => WIS.Core.Penalties.applyGoogolPenalty(resource, state[resource], gain, state);
@@ -115,6 +115,7 @@
             grouped("探寻指数", "power", E.groups("exploration", "sourceExponent", state));
             exponent("小天劫", automatic ? I.minorTribulationExplorationManaExponent() : explorationSources().exponent);
           }
+          exponent("道无涯", WIS.Cultivation.Xiuzhen.daoWuYaExponent(state));
           exponent("天人衰劫", I.immortalPowerManaSuppressionExponent());
           if (automatic) add("自动探寻效率", "multiply", WIS.Core.Config.exploration.automaticEfficiency);
           if (!progressive) googol();
@@ -125,7 +126,7 @@
           if (state.activeChallenge === "severSelfCorpse") groups["斩自我尸额外限制"] = [{ value: I.selfCorpseImmortalPowerLimitExponent() }];
           grouped("仙灵力区域指数", "power", groups, I.immortalPowerRegionExponent(),
             B.add(I.goldenNatureImmortalPowerExponentBonus(), I.greatLuoManaExponentBonus()));
-          time(); googol();
+          time(); exponent("道无涯", WIS.Cultivation.Xiuzhen.daoWuYaExponent(state)); googol();
         } else {
           // Xiuzhen raw includes ability multipliers; the common penalty is final-only.
           googol();
@@ -177,7 +178,8 @@
           case "xianForce":
           case "yuanForce":
           case "nieForce":
-          case "universeCoefficient": {
+          case "universeCoefficient":
+          case "multiverseCoefficient": {
             resource = id;
             const X = WIS.Cultivation.Xiuzhen;
             raw = X.rawRates(state)[id]; final = X.rates(state)[id];

@@ -38,7 +38,7 @@
       return WIS.Power.ScaleLogic?.treasureChanceMultiplier?.(state) ?? 1;
     },
     getTreasureAwardMultiplier(state, key = null) {
-      if (key === "originImprint") return 1;
+      if (key === "originImprint") return WIS.Cultivation.Xiuzhen.fourthStepActive(state) && WIS.Cultivation.Xiuzhen.has(state,"daoYuan") ? 2 : 1;
       if (key !== null && !this.isStackable(key)) return 1;
       return WIS.Power.ScaleLogic?.treasureAwardMultiplier?.(state) ?? 1;
     },

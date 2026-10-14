@@ -100,11 +100,11 @@
           const slots = el("p", "", "martial-note"); slots.id = "martial-slots"; panel.prepend(slots);
         }
         const categories = key === "golden"
-          ? [["inner", "内功", "首次解锁占用名额，升级不再占用；太玄经不占名额。"], ["moves", "招式", "提升武道来源与转换效率。"], ["jueji", "绝技", "各项能力按自身效果生效。"], ["special", "特殊能力", "挑战资格与内功名额。"]]
-          : [["strength", "劲力", "明劲、暗劲、化劲"], ["body", "肉身", "易筋、易骨、易髓"], ["boxing", "国术", "拳法与武道修行"], ["special", "特殊能力", "挑战资格与特殊功法"]];
+          ? [["shengong", "神功", "特殊修行法门；解锁前请留意重置与价格变化。"], ["inner", "内功", "首次解锁占用名额，升级不再占用；太玄经不占名额。"], ["moves", "招式", "提升武道来源与转换效率。"], ["jueji", "绝技", "各项能力按自身效果生效。"], ["special", "特殊能力", "挑战资格与内功名额。"]]
+          : [["strength", "劲力", "明劲、暗劲、化劲、罡劲、丹劲"], ["body", "肉身", "易筋、易骨、易髓"], ["boxing", "国术", "拳法与武道修行"], ["special", "特殊能力", "挑战资格与特殊功法"]];
         const categoryLists = new Map(categories.map(([category, name, description], index) => [category, group(groups, name, description, index === 0).list]));
         for (const a of C.abilities.filter(a => (a.family || a.group || a.branch) === key)) {
-          const category = key === "golden" ? a.branch : ["mingJin", "anJin", "huaJin"].includes(a.key) ? "strength" : ["yiJin", "yiGu", "yiSui"].includes(a.key) ? "body" : ["stealHeaven", "innerHarmony", "reverseArt", "innate"].includes(a.key) ? "special" : "boxing";
+          const category = key === "golden" ? a.branch : ["mingJin", "anJin", "huaJin", "gangJin", "danJin"].includes(a.key) ? "strength" : ["yiJin", "yiGu", "yiSui"].includes(a.key) ? "body" : ["stealHeaven", "innerHarmony", "reverseArt", "innate"].includes(a.key) ? "special" : "boxing";
           const row = item(categoryLists.get(category), a.name, a.description);
           const prerequisites = (a.prerequisites || []).map(key => C.abilities.find(other => other.key === key)?.name || key);
           if (prerequisites.length) row.content.append(el("p", "能力前置：" + prerequisites.join("、")));
@@ -115,9 +115,7 @@
           row.control.append(effect, nextEffect, level, requirements, price, reason, buy);
           abilities.push({ definition: a, ...row, effect, nextEffect, level, requirements, price, reason, buy });
         }
-        if (key === "golden") {
-          const placeholder = group(groups, "神功", "待设计"); placeholder.list.append(el("p", "神功内容尚未开放。", "catalog-empty"));
-        }
+
       }
       switchFamily(activeFamily);
 
@@ -174,11 +172,17 @@
       const qualification = { stealHeaven: "盗天机挑战", innerHarmony: "三合挑战", innate: "任督二脉挑战" }[key];
       if (qualification) return `${qualification}资格${level || s.meta?.martialQualifications?.[key] ? "已获得" : "未获得"}`;
       if (!level) return "未解锁";
+      if (key === "changSheng") {
+        if (!M.get(s).abilities.changSheng) return "清空所有内功与龙象进度；初始自然气为0，内功价格 ×10";
+        const p = M.captureChangSheng(s);
+        return `内功 ${p.kinds} 种；自然气 +${f(p.rate)}/秒（基础 ${f(p.base)}/秒）；内功价格 ×${10*(M.innerCount(s)+1)}`;
+      }
       if (key === "reverseArt") return running === "martialMeridians" ? "名额加成暂不生效（挑战限 1 项）" : "内功名额 +1";
       if (key === "qianKun") return `招式战力来源 +${f(M.qiPowerSource(s, level))}/秒`;
       if (key === "jiaYi") return "凝气、锻体效率 ×4；气的J来源、体的战力来源 ×0.5";
       if (["jiuYang", "longXiang"].includes(key) && running === "martialIntentQi") return "气的J来源已被挑战停用";
       const target = {
+        gangJin: "战力获取", danJin: "凝气、锻体效率与长生诀基础产气",
         mingJin: "体的战力来源", anJin: "体的战力来源", huaJin: "体的战力来源",
         yiJin: "锻体效率", yiGu: "锻体效率", yiSui: "锻体效率",
         ganDong: "炼心效率", duGu: "炼心效率", sanTi: "J获取",
@@ -236,7 +240,7 @@
       mount(); const s = R.getState(), enabled = active(s); $("martial-summary").hidden = !enabled;
       for (const row of summaryValues) row.value.textContent = f(M.amount(s, row.key));
       if (enabled) {
-        for (const id of ["mana-resource", "immortal-power-resource", "xianForce-resource", "yuanForce-resource", "nieForce-resource", "universeCoefficient-resource"]) if ($(id)) $(id).hidden = true;
+        for (const id of ["mana-resource", "immortal-power-resource", "xianForce-resource", "yuanForce-resource", "nieForce-resource", "universeCoefficient-resource", "multiverseCoefficient-resource"]) if ($(id)) $(id).hidden = true;
         $("special-resources").hidden = false;
       }
      

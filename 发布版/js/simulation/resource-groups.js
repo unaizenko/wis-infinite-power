@@ -51,12 +51,12 @@
     const S=WIS.Power.ScaleLogic,active=s.powerSystem.active==='scale';
     return active?S.evaluateScaleRates(c.factor,c.fastProfile?.groups.scale):{joules:B.ZERO,power:B.ZERO};
   }});
-  register({id:'immortal',outputs:['mana','immortalPower'],dynamicResources:['joules','power','mana','immortalPower','yuanForce'],outputDependencies:{mana:['joules','power','mana','immortalPower'],immortalPower:['joules','mana','immortalPower','yuanForce']},mapSignature:s=>softcapSignature(s,['mana','immortalPower']),legacyCommit:true,rate(s,c){
+  register({id:'immortal',outputs:['mana','immortalPower'],dynamicResources:['joules','power','mana','immortalPower','yuanForce','multiverseCoefficient'],outputDependencies:{mana:['joules','power','mana','immortalPower','multiverseCoefficient'],immortalPower:['joules','mana','immortalPower','yuanForce','multiverseCoefficient']},mapSignature:s=>softcapSignature(s,['mana','immortalPower']),legacyCommit:true,rate(s,c){
     if(s.cultivation.active&&!['immortal','martial'].includes(s.cultivation.active))throw Error('未支持的修行 ResourceGroup');
     const values=c.memo('immortal-sources',()=>s.cultivation.active==='immortal'?WIS.Cultivation.ImmortalLogic.fixedAutomaticSources(c.factor):{mana:B.ZERO,passiveMana:B.ZERO,explorationMana:B.ZERO,immortalPower:B.ZERO,explorationAmount:B.ZERO,circulation:false});
     return {mana:values.mana,immortalPower:values.immortalPower};
   }});
-  register({id:'xiuzhen',kernelWritePaths:WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>'cultivation.systems.immortal.xiuzhen.resources.'+k),outputs:WIS.Cultivation.Xiuzhen.resourceKeys,dynamicResources:['immortalPower','xianForce','yuanForce','nieForce','universeCoefficient'],outputDependencies:{xianForce:['immortalPower','xianForce','yuanForce'],yuanForce:['xianForce','yuanForce'],nieForce:['yuanForce','universeCoefficient'],universeCoefficient:['nieForce','universeCoefficient']},legacyCommit:true,
+  register({id:'xiuzhen',kernelWritePaths:WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>'cultivation.systems.immortal.xiuzhen.resources.'+k),outputs:WIS.Cultivation.Xiuzhen.resourceKeys,dynamicResources:['immortalPower','xianForce','yuanForce','nieForce','universeCoefficient','multiverseCoefficient'],outputDependencies:{xianForce:['immortalPower','xianForce','yuanForce','multiverseCoefficient'],yuanForce:['xianForce','yuanForce','multiverseCoefficient'],nieForce:['yuanForce','universeCoefficient','multiverseCoefficient'],universeCoefficient:['nieForce','universeCoefficient'],multiverseCoefficient:['universeCoefficient']},legacyCommit:true,
     read:(s,k)=>WIS.Cultivation.Xiuzhen.amount(s,k),write:(s,k,v)=>{WIS.Cultivation.Xiuzhen.get(s).resources[k].amount=v;},
     rate(s,c){const v=WIS.Cultivation.Xiuzhen.rates(s);return Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>[k,B.mul(v[k],c.factor)]));}
   });

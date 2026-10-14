@@ -1,6 +1,6 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.9，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.7.10，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,12 +22,14 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.9` | 玩家可见发布版本 |
+| gameVersion | `0.1.7.10` | 玩家可见发布版本 |
 | schemaVersion | `72` | Save envelope/State schema |
-| buildId | `release-0.1.7.9-20261013` | 发布构建与静态缓存标识 |
+| buildId | `release-0.1.7.10-20261014` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `2` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
+
+第四步资源 multiverseCoefficient（N²）由cultivation/resources注册，xiuzhen负责库存/支付/速率，ResourceGroups声明N与M反馈依赖。道无涯沿用既有来源指数层，道源通过本源自然奖励倍率统一结算；UI复用中央格式化。长生诀由Martial捕获K、起点气及心支撑，FixedSources保存本段来源，FixedSegment准备在线衰减积分或冻结起点速率，并于同帧自动动作后入账。新能力按原重置/Save规则处理，不改变持久化clock/debt/RNG合同。
 
 ## 3. 脚本装配
 

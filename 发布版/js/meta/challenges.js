@@ -271,7 +271,7 @@
     if (!challenge || !challengeStartable(challengeKey)) return;
     if(challenge.resetLevel==='infinity') {
       const I=WIS.Meta.Infinity,v=I.previewRebirth(state,{challengeKey});if(!v.allowed)return false;
-      if(challengeKey==='infinityRing'?!window.confirm('开启无限挑战「圆环之理」将清空成就以外的游戏进度，包括无限点、无限强化、宝物和挑战记录；不获得本次转生点数。可在挑战期间进行其他挑战及转生。退出不恢复原进度。确定开启吗？'):!window.confirm(`开启无限挑战「${challenge.name}」将进行一次无限转生，获得 ${formatInfinityPoints(v.points)} 无限点数，重置行动、强化与体系进度，并按无限转生规则保留宝物和强化。挑战计时从0开始。确定开启吗？`))return false;
+      if(challengeKey==='infinityRing'?!window.confirm('开启无限挑战「圆环之理」将保留成就、无限点数和无限强化，清空其他游戏进度（包括宝物和挑战记录）；不获得本次转生点数。可在挑战期间进行其他挑战及转生。退出不恢复原进度。确定开启吗？'):!window.confirm(`开启无限挑战「${challenge.name}」将进行一次无限转生，获得 ${formatInfinityPoints(v.points)} 无限点数，重置行动、强化与体系进度，并按无限转生规则保留宝物和强化。挑战计时从0开始。确定开启吗？`))return false;
       try {runtime.call('infinityRebirth',{challengeKey,expectedRebirthCount:v.rebirthCount});switchPage('challenges');render();showNotice(`已开启无限挑战：${challenge.name}`);return true;}
       catch(error){console.error(`WIS infinite challenge start failed: ${challengeKey}`,error);showNotice('无限挑战启动失败，进度已保留');return false;}
     }

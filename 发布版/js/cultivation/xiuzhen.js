@@ -6,7 +6,8 @@
     ["第一步·问鼎", "xianForce", "1e8"], ["第二步·窥涅", "yuanForce", "1e5"],
     ["第二步·净涅", "yuanForce", "1e8"], ["第二步·碎涅", "yuanForce", "1e12"],
     ["第三步·空涅", "yuanForce", "1e24"], ["第三步·空灵", "nieForce", "1e6"],
-    ["第三步·空玄", "nieForce", "1e7"], ["第三步·空劫", "nieForce", "1e11"]
+    ["第三步·空玄", "nieForce", "1e7"], ["第三步·空劫", "nieForce", "1e11"],
+    ["第四步·踏天", "nieForce", "1e9"]
   ].map(([name, resource, cost], i) => Object.freeze({ name, resource, cost: B.BN(cost), level: i + 1 })));
   const abilities = Object.freeze([
     ["intent", "意境", 1, "mana", "2e50", "战力获取 ^1.05"],
@@ -31,10 +32,12 @@
     ["followLaw", "法随身动", 10, "nieForce", "2e12", "根据当前N提升J与战力获取指数，最高^1.2。"],
     ["zunYang", "尊阳", 10, "nieForce", "2e12", "根据当前N提升N获取。"],
     ["originBody", "本源真身", 10, "nieForce", "3e12", "烙印·本源进度获取×3。"],
-    ["kongJieMie", "空劫·灭", 10, "nieForce", "1e13", "仙道宝物最终进度需求开平方，包含烙印·本源；保留已有进度。"]
+    ["kongJieMie", "空劫·灭", 10, "nieForce", "1e13", "仙道宝物最终进度需求开平方，包含烙印·本源；保留已有进度。"],
+    ["daoWuYa", "道无涯", 11, "multiverseCoefficient", "1000", "按当前多元宇宙系数N²提升法力、仙灵力、仙力、元力、涅力的最终获取指数，最高^1.5；原有惩罚随后生效。"],
+    ["daoYuan", "道源", 11, "multiverseCoefficient", "10000", "烙印·本源每次自然奖励数量×2；进度获取不变，后续需求按实际持有数量增长。"]
   ].map(([key, name, realm, resource, cost, description]) => Object.freeze({ key, name, realm, resource, cost: B.BN(cost), description })));
-  const resourceKeys = Object.freeze(["xianForce", "yuanForce", "nieForce", "universeCoefficient"]);
-  const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N" });
+  const resourceKeys = Object.freeze(["xianForce", "yuanForce", "nieForce", "universeCoefficient", "multiverseCoefficient"]);
+  const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N", multiverseCoefficient: "多元宇宙系数N²" });
   const entry = () => ({ amount: B.ZERO, residual: [], total: B.ZERO, totalResidual: [],
     spent: B.ZERO, spentResidual: [], peak: B.ZERO });
   const fresh = () => ({ version: 1, entered: false, realm: 0, highestRealm: 0,
@@ -173,7 +176,8 @@
     return active(state) && unlocked(state) && !sealed(state) && !!next &&
       (next.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0) &&
       (next.level < 7 || (state.challengeCompletions?.heavenlyFiveDeclines || 0) > 0) &&
-      (next.level !== 7 || WIS.Meta.Infinity.has(state, "C1")) && canSpend(state, next.resource, next.cost);
+      (next.level !== 7 || WIS.Meta.Infinity.has(state, "C1")) &&
+      (next.level !== 11 || WIS.Meta.Infinity.has(state, "C5")) && canSpend(state, next.resource, next.cost);
   }
   function breakthrough(state, manual = true) {
     if (!canBreakthrough(state)) return false;
@@ -217,6 +221,8 @@
     if (key === "mergeHeaven") return B.pow(B.add(1,nLog()),.5);
     if (key === "followLaw") return B.add(1,B.min(.2,B.mul(.015,nLog())));
     if (key === "zunYang") return B.pow(B.add(1,nLog()),.35);
+    if (key === "daoWuYa") return daoWuYaExponent(state);
+    if (key === "daoYuan") return 2;
     if (key === "originBody") return 3;
     if (key === "kongNieZhang") return 10;
     if (key === "kongLingYuan") return 100;
@@ -228,21 +234,26 @@
   const immortalAchievementMultiplier = state => WIS.Meta.Achievements?.greatHeavenlyVenerableMultiplier(state) ?? B.ONE;
   const yuanFromXian = x => B.pow(B.add(1, B.div(x, "1e8")), .75);
   const thirdStepActive = state => active(state) && !sealed(state) && get(state).realm >= 7;
+  const fourthStepActive = state => active(state) && !sealed(state) && get(state).realm >= 11;
+  const daoWuYaExponent = state => fourthStepActive(state) && has(state,"daoWuYa")
+    ? B.add(1,B.min(.5,B.mul(.05,B.log10(B.add(1,amount(state,"multiverseCoefficient")))))) : B.ONE;
+  const applyDaoWuYa = (state,gain) => B.gt(gain,1) ? B.pow(gain,daoWuYaExponent(state)) : gain;
+  const multiverseRate = state => fourthStepActive(state) ? B.pow(B.div(amount(state,"universeCoefficient"),1000),.5) : B.ZERO;
   function thirdStepRates(state) {
     let nieForce = B.ZERO, universeCoefficient = B.ZERO;
-    if (!thirdStepActive(state)) return { nieForce, universeCoefficient };
+    if (!thirdStepActive(state)) return { nieForce, universeCoefficient, multiverseCoefficient:multiverseRate(state) };
     nieForce = B.mul(B.pow(B.div(amount(state,"yuanForce"),"1e16"),.25),
       B.mul(abilityMultiplier(state,"spiritualGod"),abilityMultiplier(state,"mergeHeaven")));
     if (has(state,"emptyGate")) universeCoefficient = B.mul(B.div(B.pow(B.div(amount(state,"nieForce"),"1e4"),.25),300),
       B.mul(B.mul(abilityMultiplier(state,"innerWorld"),abilityMultiplier(state,"zunYang")),
         has(state,"virtualOrigin") ? B.pow(B.add(1,WIS.Meta.Treasures.count(state,"originImprint")),.25) : 1));
-    return { nieForce:B.mul(nieForce,immortalAchievementMultiplier(state)), universeCoefficient };
+    return { nieForce:applyDaoWuYa(state,B.mul(nieForce,immortalAchievementMultiplier(state))), universeCoefficient, multiverseCoefficient:multiverseRate(state) };
   }
   function originProgressGain(state) { return B.mul(B.mul("1e-5",abilityMultiplier(state,"originBody")),abilityMultiplier(state,"kongNieZhang")); }
   function awardOrigin(state, gains) {
     if (!has(state,"virtualOrigin") || !B.gt(gains?.nieForce ?? 0,0)) return;
     WIS.Meta.TreasureProgress.advanceFixed(state,"originImprint",gains.nieForce,
-      { eligible:true, gain:originProgressGain(state), award:1 });
+      { eligible:true, gain:originProgressGain(state), award:WIS.Meta.Treasures.getTreasureAwardMultiplier(state,"originImprint") });
   }
   function captureSheng(state) {
     if (!has(state,"kongXuanSheng")) return {rate:B.ZERO,keys:[]};
@@ -292,14 +303,14 @@
       if (has(state, "worldAura")) yuanForce = B.mul(yuanForce, abilityMultiplier(state, "worldAura"));
     }
     const achievement=immortalAchievementMultiplier(state);
-    return { xianForce:B.mul(xianForce,achievement), yuanForce:B.mul(B.mul(yuanForce,achievement),yuanCrystalMultiplier(state)), ...thirdStepRates(state) };
+    return { xianForce:applyDaoWuYa(state,B.mul(xianForce,achievement)), yuanForce:applyDaoWuYa(state,B.mul(B.mul(yuanForce,achievement),yuanCrystalMultiplier(state))), ...thirdStepRates(state) };
   }
   function rates(state) {
     const raw = rawRates(state);
     return {
       xianForce: WIS.Core.Penalties.applyGoogolPenalty("xianForce", amount(state, "xianForce"), raw.xianForce, state),
       yuanForce: WIS.Core.Penalties.applyGoogolPenalty("yuanForce", amount(state, "yuanForce"), raw.yuanForce, state),
-      nieForce:raw.nieForce, universeCoefficient:raw.universeCoefficient
+      nieForce:raw.nieForce, universeCoefficient:raw.universeCoefficient, multiverseCoefficient:raw.multiverseCoefficient
     };
   }
   function intervalSupport(state) {
@@ -451,7 +462,8 @@
         available: unlocked(state) && n.realm === r.level - 1 && n.history.realm >= r.level &&
           (r.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0) &&
           (r.level < 7 || (state.challengeCompletions?.heavenlyFiveDeclines || 0) > 0) &&
-          (r.level !== 7 || WIS.Meta.Infinity.has(state, "C1")), run: () => breakthrough(state, false) }))
+          (r.level !== 7 || WIS.Meta.Infinity.has(state, "C1")) &&
+          (r.level !== 11 || WIS.Meta.Infinity.has(state, "C5")), run: () => breakthrough(state, false) }))
     : abilities.map(a => ({ id: a.key, resourceKey: a.resource, cost: a.cost,
       available: n.entered && n.realm >= a.realm && !n.abilities[a.key] && !!n.history.abilities[a.key], run: () => buy(state, a.key, false) }));
     if (WIS.Simulation.FixedSegment?.collectCandidates?.("xiuzhen-" + kind,
@@ -469,7 +481,7 @@
   }
   WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
     sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
-    canBuy, buy, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
+    canBuy, buy, fourthStepActive, daoWuYaExponent, applyDaoWuYa, multiverseRate, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
     spendResource(state, key, cost) { return transaction(state, () => debit(state, key, cost)); } });
 }(window.WIS));

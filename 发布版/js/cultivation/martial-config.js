@@ -1,6 +1,6 @@
 (function defineMartialConfig(WIS) {
   "use strict";
-  const branches = Object.freeze({ neijia: { name: "内家拳" }, inner: { name: "内功" }, moves: { name: "招式" }, jueji: { name: "绝技" }, special: { name: "特殊能力" } });
+  const branches = Object.freeze({ neijia: { name: "内家拳" }, inner: { name: "内功" }, moves: { name: "招式" }, jueji: { name: "绝技" }, special: { name: "特殊能力" }, shengong: { name: "神功" } });
   const upgradeResources = Object.freeze({ xingYi:"body", jiuYang:"qi", jiuYin:"qi", qianKun:"qi", xiangLong:"qi", liuMai:"qi", duoMing:"qi" });
   const abilities = [
     ["mingJin", "明劲", "neijia", 1, 1, { body: 3 }, [], "根据当前J，提升体提供的战力来源。"],
@@ -8,6 +8,8 @@
     ["anJin", "暗劲", "neijia", 1, 2, { body: 10 }, ["mingJin"], "提升体提供的战力来源。"],
     ["yiGu", "易骨", "neijia", 1, 3, { body: 20 }, ["yiJin"], "根据当前战力，提高锻体的兑换效率。"],
     ["huaJin", "化劲", "neijia", 1, 4, { qi: 30, body: 30 }, ["anJin"], "根据当前气，提升体提供的战力来源。"],
+    ["gangJin", "罡劲", "neijia", 1, 30, { qi: 300, body: 300, heart: 40 }, ["huaJin"], "全局战力获取倍率×10。"],
+    ["danJin", "丹劲", "neijia", 1, 60, { qi: 1000, body: 1000, heart: 120 }, ["gangJin"], "按1＋√当前已购买健身等级，提升凝气、锻体兑换效率与长生诀基础产气；随后仍计算高值与心支撑减速。"],
     ["yiSui", "易髓", "neijia", 1, 6, { body: 100 }, ["yiGu"], "根据当前体，提高锻体的兑换效率。"],
     ["ganDong", "感动", "neijia", 1, 2, { heart: 1 }, [], "提高炼心的兑换效率。"],
     ["sanTi", "三体式", "neijia", 1, 3, { heart: 3 }, [], "提升全局J获取。"],
@@ -18,6 +20,7 @@
     ["innerHarmony", "内三合", "special", 1, 10, { heart: 40 }, [], "解锁三合挑战；全部完成后，炼心可保留部分气、体。"],
     ["reverseArt", "逆练功法", "special", 1, 12, { heart: 60 }, [], "增加可同时修炼的内功名额。"],
     ["innate", "先天", "special", 1, 15, { heart: 120 }, [], "解锁任督二脉挑战；完成后提升气的兑换效率。"],
+    ["changSheng", "神功·长生诀", "shengong", 1, 100, { heart: 120 }, ["innate"], "首次解锁清空所有内功等级与龙象修炼进度，不返还资源。此后内功解锁与付费升级价格乘以10×(当前内功种类数+1)。每秒基础产气为内功种类数的平方，可受丹劲提升，随后受气高值与心支撑削弱。"],
     ["jiuYang", "内功·九阳神功", "inner", 9, [1,1,2,2,3,3,4,4,5], {}, [], "随等级提升气提供的独立J来源。"],
     ["jiuYin", "内功·九阴真经", "inner", 9, [1,1,2,2,3,3,4,4,5], {}, [], "根据当前气和功法等级，提升全局战力获取。"],
     ["beiMing", "内功·北冥神功", "inner", 1, 3, {}, [], "根据当前J，提高凝气的兑换效率。"],

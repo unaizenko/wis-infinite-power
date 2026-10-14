@@ -114,7 +114,7 @@
     const rank=WIS.Meta.BigNumbers.get(s).tree.rank;
     let multiplier=B.BN(has(s,'B2')?C.pointMultiplier:1);
     multiplier=B.mul(multiplier,rapidPointMultiplier(s));
-    const points=challengeKey==='infinityRing'||rank<C.minimumTree?B.BN(0):B.mul(rank,multiplier).floor();
+    const points=challengeKey==='infinityRing'||rank<C.minimumTree?B.BN(0):B.mul(B.add(rank,WIS.Meta.Achievements.has(s,'infinityPower')?3:0),multiplier).floor();
     const earned=B.add(n.totalPointsEarned,points),cap=has(s,'B1-1')?B.max(C.treasureCap,B.mul(C.treasureCap,earned)):B.BN(C.treasureCap);
     return {allowed:challengeKey!=null?(!respec&&challengeEntryAllowed(s,challengeKey)):n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
   }
@@ -129,7 +129,10 @@
       next.unlockedAchievements={...s.unlockedAchievements};
       next.core.preferences={...s.core.preferences};
       next.core.runtime.randomState=s.core.runtime.randomState;
-      next.meta.infinity.ringChallengeActive=true;
+      // Keep the infinity economy together so retained upgrades remain valid and refundable.
+      next.meta.infinity={...next.meta.infinity,unlocked:old.unlocked,upgradesUnlocked:old.upgradesUnlocked,
+        points:old.points,totalPointsEarned:old.totalPointsEarned,upgrades:old.upgrades,
+        purchaseLedger:old.purchaseLedger,ringChallengeActive:true};
       return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(next));
     }
     const challengeEntry=options.challengeKey!=null;

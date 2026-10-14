@@ -1100,7 +1100,7 @@
       multipliers: [immortalPowerMultiplier()],
       exponents: [immortalPowerRegionExponent()]
     });
-    return applyDaoTimeLaw(gain);
+    return WIS.Cultivation.Xiuzhen.applyDaoWuYa(state,applyDaoTimeLaw(gain));
   }
 
   function immortalPowerPerSecond(currentMana = state.mana) {
@@ -2730,14 +2730,14 @@
   ) {
     if (!explorationEnabled()) return ZERO;
     const finalGain = mul(
-      finalManaGainFromSources(sources, currentMana, [], false),
+      finalManaGainFromSources(sources, currentMana, [], false, false),
       WIS.Core.Effects.product("exploration", "regionMultiplier", state)
     );
     const silverTadpoleScriptGain = applyGainExponent(
       finalGain,
       WIS.Core.Effects.product("exploration", "sourceExponent", state)
     );
-    const tribulationGain = applyGainExponent(silverTadpoleScriptGain, tribulationExponent);
+    const tribulationGain = WIS.Cultivation.Xiuzhen.applyDaoWuYa(state,applyGainExponent(silverTadpoleScriptGain, tribulationExponent));
     return applyImmortalSuppression ? applyCelestialDecline(
       tribulationGain,
       currentMana,
@@ -2760,7 +2760,7 @@
     return WIS.Core.Effects.value("spiritWorldAscension", state);
   }
 
-  function finalManaGainFromSources(sourceGains, currentMana = state.mana, additionalMultipliers = [], applyDecline = true) {
+  function finalManaGainFromSources(sourceGains, currentMana = state.mana, additionalMultipliers = [], applyDecline = true, applyFourthStep = true) {
     const gain = calculateRegionGain(sourceGains, {
       multipliers: [manaGainMultiplier(currentMana), ...additionalMultipliers],
       exponents: [add(
@@ -2768,7 +2768,7 @@
         greatLuoManaExponentBonus()
       )]
     });
-    const timeAdjustedGain = applyDaoTimeLaw(gain);
+    const timeAdjustedGain = applyFourthStep ? WIS.Cultivation.Xiuzhen.applyDaoWuYa(state,applyDaoTimeLaw(gain)) : applyDaoTimeLaw(gain);
     return applyDecline ? applyCelestialDecline(timeAdjustedGain, currentMana) : timeAdjustedGain;
   }
 
@@ -4185,9 +4185,9 @@
     ultimateImmortalAperturePrerequisiteMet,
     unlockSeverThreeCorpses, buyImmortalAperture,
     applyCultivationSelection, withImmortalState, isImmortalState: current => state === current, immortalCultivationActive, cultivationRealmLevel, cultivationRealmName, qiSpellPowerMultiplier, foundationSpellPowerMultiplier, greatCultivatorJMultiplier, qiRefiningFitnessMultiplier, immortalFitnessBaseMultiplier, equalHeavenLongevityFitnessMultiplier, baLingChiCount, baLingChiFitnessMultiplier, immortalFitnessLevelCapBonus, manaLiquefactionManaJMultiplier, spiritRefiningArtExponent, reincarnationManaJExponent, manaJRawBonus, manaJBonus, magicTreasurePotentialPowerBonus, magicTreasureManaExponent, magicTreasureManaCurve, materialControlMultiplier, magicTreasurePowerBonus, magicTreasurePowerSource, brahmaDemonArtPowerSource, trueSpiritTransformationPotentialMultiplier, trueSpiritTransformationMultiplier, externalSources, rollTianNiPearlAttempts, minorTribulationPowerExponent, minorTribulationExplorationBaseExponent, minorTribulationExplorationMinimumExponent, minorTribulationExplorationDecayCoefficient, minorTribulationExplorationManaExponent, baLingChiChance, immortalTreasureChanceMultiplier, activeRootRequirementMultiplier, realmRequirementMultiplier, activeRootName, permanentRootDefinition, effectiveScatterRebuildLevel, nextRealmRequirementStackCount, foundationCost, goldenCoreCost, goldenCoreBaseCost, advancedRealmCost, advancedRealmBaseCost, nextRealmCost, breathingRealmConfig, breathingManaDecayMultiplier, rawBaseBreathingManaGain, baseBreathingManaGain, effectiveBaseBreathingManaGain, breathingJCurveExponent, breathingManaGain, breathingManaSource, voidRefiningToQiExponent, auraControlPotentialMultiplier, auraControlMultiplier, immortalRealmDivineAbilityPotentialMultiplier, immortalRealmDivineAbilityMultiplier, descendRealmPotentialTreasureMultiplier, manaMultiplierGroups, manaGainMultiplier, bottleneckManaMultiplier, cultivationBottleneckManaMultiplier, scatterRebuildManaMultiplier, naturalTreasureRawManaMultiplier, naturalTreasureManaDiminishingExponent, naturalTreasureManaMultiplier, naturalTreasureUpgradeChance, naturalTreasureLevelCap, xuTianDingCount, xuTianDingMultiplier, xuTianDingChance, wanYaoFanCount, wanYaoFanMultiplier, wanYaoFanChance, phantomHeavenMirrorCount, phantomHeavenMirrorChance, phantomHeavenMirrorLoadMultiplier, mysticHeavenSacredTreeCount, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordCount, mysticHeavenSpiritSlayingSwordChance, mysticHeavenSpiritSlayingSwordExponent, tianNiPearlCount, tianNiPearlRawManaMultiplier, tianNiPearlManaDiminishingExponent, tianNiPearlManaMultiplier, tianNiPearlChance, mysteriousGreenBottleCount, mysteriousGreenBottleMultiplier, mysteriousGreenBottleChance, fuBaoCount, fuBaoChance, fuBaoManaRatio, fuBaoExplorationManaBonus, formatProbability, nextBaseManaBoundary, offlineManaRounding, joulesForNextBaseMana, getAutomaticManaRates, getAutomaticExplorationManaRate, continuousSourceDescriptors:()=>[
-      ['passiveMana','mana',['joules','power','mana','immortalPower']],
-      ['explorationMana','mana',['joules','power','mana','immortalPower']],
-      ['immortalPower','immortalPower',['joules','mana','immortalPower','yuanForce']]
+      ['passiveMana','mana',['joules','power','mana','immortalPower','multiverseCoefficient']],
+      ['explorationMana','mana',['joules','power','mana','immortalPower','multiverseCoefficient']],
+      ['immortalPower','immortalPower',['joules','mana','immortalPower','yuanForce','multiverseCoefficient']]
     ].map(([id,target,dynamicResources])=>({id,target,dynamicResources,operationType:'additive',valueAt:(_s,c={})=>fixedAutomaticSources(c.factor??1)[id]})),
     fixedAutomaticSources, foregroundAutomaticGains, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
     unlockBodyIntegrationAbility, unlockMahayanaAbility, scatterAndRebuild, reincarnate,

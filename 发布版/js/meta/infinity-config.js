@@ -13,7 +13,8 @@
     ['C1','systems','体系无限',5,[],null,null,'systems',0,0,'解锁体系单体突破资格。'],
     ['C2','systems','自律体系',10,['C1'],null,null,'autoCultivation',1,0,'在设置的自动化管理中选择仙道或武道；无限转生后自动选择，保留原选择奖励。默认关闭。'],
     ['C3','systems','无限大数',50,['C2'],null,null,'universeY',2,0,'根据当前单体宇宙系数N，使Y获取 ×(1+N)^4。离线按起点N冻结倍率。'],
-    ['C4','systems','圆环之理',100,['C3'],null,null,'ringChallenge',3,0,'解锁无限挑战·圆环之理：重置成就以外内容，抵达单体量级，获得普通成就·一证永证。'],
+    ['C4','systems','圆环之理',100,['C3'],null,null,'ringChallenge',3,0,'解锁无限挑战·圆环之理：保留成就、无限点数和无限强化，重置其他内容，抵达单体量级，获得普通成就·一证永证。'],
+    ['C5','systems','体系多元',500,['C4'],null,null,'systemsMultiverse',4,0,'解锁体系进入多元的突破资格；仙道可突破第四步·踏天。'],
     ['D1-1','numbers','超越葛立恒',1,[],null,null,'grahamCap',0,0,'允许G65及以上阶位。'],
     ['D1-2','numbers','超越树',1,[],null,null,'treeCap',0,1,'允许TREE(4)及以上阶位。'],
     ['D2-1','numbers','分形递进',2,['D1-1'],null,null,'fractal',1,0,'前一级分形资源强化后一级获取：1 + √log10(F前 + 1)。'],
@@ -64,7 +65,7 @@
       trueG1:Object.freeze({name:'真 G1',maxCompletions:1,infinityUpgrade:'D3',targetG:1,resetBigNumbers:true,catalogSystem:'大数',description:'各低层分形累计削弱高层获取。',achievementKey:'trueG1',rewardDescription:'解锁成就·真 G1'}),
       trueGraham:Object.freeze({name:'真葛立恒',maxCompletions:1,infinityUpgrade:'D3',targetG:64,resetBigNumbers:true,catalogSystem:'大数',description:'G提升需求提高至原需求^(1 + 0.01×G)。',achievementKey:'trueGraham',rewardDescription:'解锁成就·真葛立恒'}),
       trueTree3:Object.freeze({name:'真 TREE3',maxCompletions:1,infinityUpgrade:'D3',targetTree:3,resetBigNumbers:true,catalogSystem:'大数',description:'超构造阈值提高至原阈值^1.10。',achievementKey:'trueTree3',rewardDescription:'解锁成就·真 TREE3'}),
-      infinityRing:Object.freeze({name:'圆环之理',maxCompletions:1,infinityUpgrade:'C4',targetXiuzhenRealm:7,catalogSystem:'无限',resetLevel:'infinity',achievementKey:'eternalWitness',description:'重置成就以外的游戏进度，重新抵达单体宇宙量级。期间可进行普通、体系挑战及转生；退出不恢复原进度。',rewardDescription:'获得普通成就·一证永证：无限转生及以下等级转生不再重置体系挑战'}),
+      infinityRing:Object.freeze({name:'圆环之理',maxCompletions:1,infinityUpgrade:'C4',targetXiuzhenRealm:7,catalogSystem:'无限',resetLevel:'infinity',achievementKey:'eternalWitness',description:'保留成就、无限点数和无限强化，重置其他游戏进度，重新抵达单体宇宙量级。期间可进行普通、体系挑战及转生；退出不恢复原进度。',rewardDescription:'获得普通成就·一证永证：无限转生及以下等级转生不再重置体系挑战'}),
       infinityFast:Object.freeze({name:'快速',maxCompletions:1,infinityUpgrade:'E4',deadlineSeconds:5,requiredScaleIndex:14,catalogSystem:'无限',resetLevel:'infinity',rewardKey:'infinityFast',description:'开启时进行一次无限转生；5秒内抵达宇宙结构，超时失败。',rewardDescription:'宇宙意志的双对数永久提升无限点数获取'})
     })});
 }(window.WIS));
