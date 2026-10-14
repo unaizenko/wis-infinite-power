@@ -1876,7 +1876,8 @@
     setTextIfChanged(byId("joules"), format(state.joules));
     setTextIfChanged(byId("power"), format(state.power));
     const thirdStepScale = WIS.Cultivation.Xiuzhen.thirdStepActive(state);
-    setTextIfChanged(byId("current-scale"), thirdStepScale ? "单体宇宙" : SCALE_THRESHOLDS[state.highestScaleIndex].name);
+    const fourthStepScale = WIS.Cultivation.Xiuzhen.fourthStepActive(state);
+    setTextIfChanged(byId("current-scale"), fourthStepScale ? "多元宇宙" : thirdStepScale ? "单体宇宙" : SCALE_THRESHOLDS[state.highestScaleIndex].name);
     setHiddenIfChanged(byId("next-scale-progress"), thirdStepScale);
     const nextScale = SCALE_THRESHOLDS[state.highestScaleIndex + 1];
     const nextScaleDetails = nextScale ? scaleRequirementDetails(state.highestScaleIndex + 1, state) : null;

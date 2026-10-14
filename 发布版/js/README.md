@@ -24,7 +24,7 @@
 | --- | --- | --- |
 | gameVersion | `0.1.7.10` | 玩家可见发布版本 |
 | schemaVersion | `72` | Save envelope/State schema |
-| buildId | `release-0.1.7.10-20261014` | 发布构建与静态缓存标识 |
+| buildId | `release-0.1.7.10-20261014-multiverse-scale` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `2` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
