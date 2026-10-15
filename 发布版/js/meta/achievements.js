@@ -198,7 +198,7 @@
       { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
       { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", state.meta.bigNumbers?.tree?.rank >= 3) },
       { key: "trueG1", name: "真 G1", description: "首次完成大数挑战·真 G1。", reward: "所有分形获取 ×10", completed: hasAchievement("trueG1") },
-      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G基础提升需求变为原需求^0.95，挑战中及G64后同样生效", completed: hasAchievement("trueGraham") },
+      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G提升需求在减法、除法修正后取0.95次方，挑战中及G64后同样生效", completed: hasAchievement("trueGraham") },
       { key: "trueTree3", name: "真 TREE3", description: "首次完成大数挑战·真 TREE3。", reward: "树构造点获取 ×3", completed: hasAchievement("trueTree3") }
     );
 

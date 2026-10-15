@@ -446,6 +446,13 @@
   }
   // Only structural TREE changes invalidate predictors. Work/progress remains a fresh interval input.
   const treeSignature = state => { const t = treeState(state); return [treeUnlocked(state), t.rank, t.phase, t.upgrades.node, t.upgrades.branch, t.upgrades.label, t.upgrades.amplify, t.superEntryMultiplier, I.has(state,"D11-1")?String(t.superElapsedSeconds):null]; };
+  function affordableGCount(limit,cost,canPay){
+    if(limit<=0||!canPay(cost(1)))return 0;
+    let lo=1,hi=Math.min(2,limit);
+    while(hi<limit&&canPay(cost(hi))){lo=hi;hi=Math.min(limit,hi*2);}
+    while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(canPay(cost(mid)))lo=mid;else hi=mid-1;}
+    return lo;
+  }
   function writeGProgress(n,words) {
     const L=ledger(),normalized=L.normalize(words);
     if(L.sign(normalized)<0)throw Error('超分形进度余额不足，未提交');
@@ -460,11 +467,7 @@
     if(!n.gIndex)return 0;
     const L=ledger(),modified=state!==null,fixedOnly=!modified&&options.fixedSources===true;
     let progress=L.normalize([n.superProgress,...n.superResidual]);
-    const affordable=(words,cost,limit)=>{
-      let lo=0,hi=limit;
-      while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(L.compare(words,[cost(mid)])>=0)lo=mid;else hi=mid-1;}
-      return lo;
-    };
+    const affordable=(words,cost,limit)=>affordableGCount(limit,cost,value=>L.compare(words,[value])>=0);
     // The original plain solver settles carried whole ranks before applying
     // this interval's source; retain that order, including its milestone base.
     if(!modified&&!fixedOnly&&n.gIndex<cap) {
@@ -487,7 +490,7 @@
       for(const end of [...MILESTONES.filter(g=>g>n.gIndex&&g<cap),cap]) {
         const start=n.gIndex,limit=end-start;if(limit<=0)continue;
         const k=milestoneMultiplier(start),req=modified?I.gRequirement(state,start):B.BN(100);
-        const rankCost=modified&&I.has(state,'D6')?gRankCost(state,start,limit,ratio):null;
+        const rankCost=modified&&(I.has(state,'D6')||I.rewardUnlocked(state,'trueGraham'))?gRankCost(state,start,limit,ratio):null;
         const cost=count=>{
           if(count===0)return B.ZERO;
           if(rankCost)return rankCost(count);
@@ -589,7 +592,7 @@
       if(n.gIndex>=end)continue;
       const k=milestoneMultiplier(n.gIndex),req=I.gRequirement(state,n.gIndex),maxLevels=end-n.gIndex;
       const capacity=n.gIndex>=IC.gCapacityStart;
-      const rankCost=I.has(state,'D6')?gRankCost(state,n.gIndex,maxLevels,ratio):null;
+      const rankCost=(I.has(state,'D6')||I.rewardUnlocked(state,'trueGraham'))?gRankCost(state,n.gIndex,maxLevels,ratio):null;
       const cost=count=>{
         if(rankCost)return B.div(rankCost(count),k);
         if(capacity&&count<=32){let exact=B.ZERO;for(let j=0;j<count;j++)exact=B.add(exact,I.gRequirement(state,n.gIndex+j));return B.div(exact,k);}
@@ -598,11 +601,7 @@
       };
       let levels;
       if(capacity||rankCost){
-        if(B.lt(available,cost(1)))levels=0;
-        else {let lo=0,hi=Math.min(maxLevels,Math.max(1,Math.floor(B.toNumber(B.div(B.mul(available,k),rankCost?IC.gRankMinimum:req),maxLevels))+1));
-          while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
-          levels=lo;
-        }
+        levels=affordableGCount(maxLevels,cost,value=>B.lte(value,available));
       }else{
         const estimate=B.eq(ratio,1)?B.div(B.mul(available,k),req):B.div(B.log10(B.add(1,B.div(B.mul(B.mul(available,k),B.sub(ratio,1)),req))),B.log10(ratio));
         levels=Math.min(maxLevels,Math.max(0,Math.floor(B.toNumber(B.min(estimate,maxLevels),0))));
@@ -615,11 +614,12 @@
     n.superProgress=B.mul(available,milestoneMultiplier(n.gIndex));n.superResidual=[];
     return MILESTONES.filter(g=>g>old&&g<=n.gIndex).length;
   }
-  // On each side of G64 the old requirement is convex (geometric times
+  // On each side of G64 the raw requirement is convex (geometric times
   // quadratic). Subtracting G preserves convexity, so its floor is one interval.
   // Find that interval lazily only for large batches; sum its two outer pieces
-  // analytically and its middle as 42 per rank. Never iterate over high G ranks.
+  // analytically and its middle as 42 per rank, then apply D4 division.
   function gRankCost(state,start,limit,ratio){
+    if(I.rewardUnlocked(state,'trueGraham'))return poweredGCost(state,start);
     let floorRange=null;
     const raw=g=>I.gRequirementBeforeRank(state,g);
     const belowFloor=i=>{const polynomial=I.gRankPolynomial(state,start+i);return polynomial
@@ -659,7 +659,60 @@
         }
       }
       const first=Math.min(count,floorRange[0]),end=Math.min(count,floorRange[1]);
-      return B.add(B.add(rawSum(0,first),B.mul(end-first,IC.gRankMinimum)),rawSum(end,count-end));
+      return I.gRequirementAfterRank(state,B.add(B.add(rawSum(0,first),B.mul(end-first,IC.gRankMinimum)),rawSum(end,count-end)));
+    };
+  }
+  // Power sums use the same represented-number accuracy as the geometric
+  // batches. The small ranks are explicit; the smooth tail uses eight
+  // Euler--Maclaurin corrections with stable endpoint differences.
+  function gPowerSum(x,count,p){
+    if(count===0)return B.ZERO;
+    if(count===1)return B.pow(x,p);
+    const logRatio=Math.log1p((count-1)/x);
+    const difference=exponent=>B.mul(B.pow(x,exponent),Math.expm1(exponent*logRatio));
+    let sum=B.add(B.div(difference(p+1),p+1),B.mul(B.add(B.pow(x,p),B.pow(x+count-1,p)),.5));
+    for(const [order,coefficient] of [[1,1/12],[3,-1/720],[5,1/30240],[7,-1/1209600],
+      [9,1/47900160],[11,-691/1307674368000],[13,1/74724249600],[15,-3617/10670622842880000]]){
+      let derivative=coefficient;for(let j=0;j<order;j++)derivative*=p-j;
+      sum=B.add(sum,B.mul(difference(p-order),derivative));
+    }
+    return sum;
+  }
+  function poweredGCost(state,start){
+    const p=IC.gRewardExponent,divisor=I.gRequirementDivisor(state),rank=I.has(state,'D6');
+    const prefixSums=[B.ZERO];
+    const explicit=(first,count)=>{
+      if(first===start&&count<=4096){
+        while(prefixSums.length<=count){const j=prefixSums.length-1;prefixSums.push(B.add(prefixSums[j],I.gRequirement(state,start+j)));}
+        return prefixSums[count];
+      }
+      let sum=B.ZERO;for(let j=0;j<count;j++)sum=B.add(sum,I.gRequirement(state,first+j));return sum;
+    };
+    return count=>{
+      if(count<=4096)return explicit(start,count);
+      if(state.activeChallenge==='trueGraham'){
+        // At most MAX_SAFE_INTEGER terms. Beyond this suffix, even the
+        // conservative omitted-count * largest-omitted-demand bound is below
+        // represented precision (challenge growth is 100^(0.01*0.95) per G).
+        const kept=Math.min(count,2048),first=start+count-kept,sum=explicit(first,kept);
+        if(count>kept&&B.gt(B.mul(I.gRequirement(state,first-1),count-kept),B.mul(sum,1e-17)))
+          throw Error('G挑战累计需求尾项无法安全省略');
+        return sum;
+      }
+      const prefix=Math.min(count,Math.max(0,128-start)),first=start+prefix,n=count-prefix;
+      if(!n)return explicit(start,count);
+      if(IC.gCapacityPower!==2)throw Error('G次方批量需要二次容量曲线');
+      const a=IC.gRequirement/(IC.gCapacityDivisor**2),h=IC.gCapacityStart-IC.gCapacityDivisor;
+      // a*(G-h)^2-G = a*((G-h-1/(2a))^2 - h/a-1/(4a^2)).
+      const shift=h+(rank?1/(2*a):0),offset=rank?h/a+1/(4*a*a):0,x=first-shift;
+      let sum=B.ZERO,coefficient=1;
+      // x >= 71.68; offset/x^2 < .007. Twelve binomial terms leave <1e-25
+      // relative tail. No growing per-rank loop at high G or high TREE.
+      for(let j=0;j<(rank?12:1);j++){
+        sum=B.add(sum,B.mul(coefficient,gPowerSum(x,n,2*p-2*j)));
+        coefficient*=((p-j)/(j+1))*(-offset);
+      }
+      return B.add(explicit(start,prefix),B.mul(B.pow(B.div(a,divisor),p),sum));
     };
   }
   function gCapacitySum(g,count,ratio){
@@ -764,7 +817,7 @@
     for(const end of [Math.min(IC.gCapacityStart,profile.maximum),profile.maximum]) {
       const start=n.gIndex,limit=end-start;
       if(limit<=0)continue;
-      const rankCost=I.has(state,'D6')?gRankCost(state,start,limit,ratio):null;
+      const rankCost=(I.has(state,'D6')||I.rewardUnlocked(state,'trueGraham'))?gRankCost(state,start,limit,ratio):null;
       const first=I.gRequirement(state,start);
       const cost=count=>{
         if(count<=0)return B.ZERO;
@@ -773,8 +826,7 @@
         return B.mul(first,start>=IC.gCapacityStart?gCapacitySum(start,count,ratio):
           B.eq(ratio,1)?count:B.div(B.sub(B.pow(ratio,count),1),B.sub(ratio,1)));
       };
-      let lo=0,hi=limit;
-      while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(L.compare([cost(mid)],available)<=0)lo=mid;else hi=mid-1;}
+      const lo=affordableGCount(limit,cost,value=>L.compare([value],available)<=0);
       available=L.subtract(available,[cost(lo)]);n.gIndex+=lo;
       if(n.gIndex<end)break;
     }

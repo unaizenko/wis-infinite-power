@@ -152,7 +152,7 @@
     fiveElementsTreasureRollProgress: 0, immortalCrystalRollProgress: 0, minorTribulationExplorationLoad: ZERO,
     activeChallenge: null, activeChallengeElapsedSeconds: 0, threeCorpseChallengesUnlocked: false,
     currentQiLayer: 1, bestQiLayer: 0,
-    hideUnlockedAchievements: false, hideCompletedChallenges: false, offlineFastForwardEnabled: true, autoCloseOfflineDialogEnabled: true,
+    hideUnlockedAchievements: false, hideCompletedChallenges: false, hideUnlockedUpgrades: false, hideUnlockedInfinityUpgrades: false, offlineFastForwardEnabled: true, autoCloseOfflineDialogEnabled: true,
     immortalAbilityAutomationEnabled: true, immortalRealmAutomationEnabled: true,
     scaleUpgradeAutomationEnabled: true, scaleActionAutomationEnabled: true,
     scaleFitnessAutomationEnabled: true, scaleRockAutomationEnabled: true,
@@ -671,6 +671,8 @@
       treasureProgressVersion: source.treasureProgressVersion === 1 ? 1 : 0,
       hideUnlockedAchievements: source.hideUnlockedAchievements === true,
       hideCompletedChallenges: source.hideCompletedChallenges === true,
+      hideUnlockedUpgrades: source.hideUnlockedUpgrades === true,
+      hideUnlockedInfinityUpgrades: source.hideUnlockedInfinityUpgrades === true,
       // The retired player toggle no longer disables the standard settlement path.
       offlineFastForwardEnabled: true,
       autoCloseOfflineDialogEnabled: source.autoCloseOfflineDialogEnabled !== false,
@@ -699,7 +701,7 @@
     "core.resources": ["joules", "joulesGainResidual", "joulesGainResidualTail", "power", "powerGainResidual", "powerGainResidualTail"],
     "core.runtime": ["totalElapsedSeconds", "reincarnationElapsedSeconds", "currentScaleElapsedSeconds", "lastUpdateAt", "randomState", "timeLedger", "compensation"],
     "core.preferences": [
-      "hideUnlockedAchievements", "hideCompletedChallenges", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
+      "hideUnlockedAchievements", "hideCompletedChallenges", "hideUnlockedUpgrades", "hideUnlockedInfinityUpgrades", "immortalAbilityAutomationEnabled", "immortalRealmAutomationEnabled",
       "scaleUpgradeAutomationEnabled", "scaleActionAutomationEnabled", "scaleFitnessAutomationEnabled", "scaleRockAutomationEnabled", "fractalAutomationEnabled", "treeUpgradeAutomationEnabled", "treeSuperAutomationEnabled", "treeSuperAutomationMultiplier", "cultivationAutomationTarget", "theme", "offlineFastForwardEnabled", "autoCloseOfflineDialogEnabled"
     ],
     "powerSystem.systems.scale.progress": ["highestPower", "totalPower", "maxSinglePowerGain", "brickUnlocked", "wallUnlocked", "highestScaleIndex", "superLollipopRollProgress", "fiveSpiritStoneRollProgress"],

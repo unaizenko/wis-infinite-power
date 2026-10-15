@@ -30,7 +30,15 @@
     function renderUpgrades(){const n=I.get(s);$('infinity-upgrade-tabs').hidden=!n.upgradesUnlocked;if(!n.upgradesUnlocked)upgrades=false;
       $('ordinary-upgrades-panel').hidden=upgrades;$('infinity-upgrades-panel').hidden=!upgrades;
       $('ordinary-upgrades-tab').setAttribute('aria-selected',String(!upgrades));$('infinity-upgrades-tab').setAttribute('aria-selected',String(upgrades));
+      $('ordinary-upgrades-panel').classList.toggle('hide-unlocked-upgrades',s.hideUnlockedUpgrades);
+      for(const [id,hidden] of [['toggle-upgrade-filter',s.hideUnlockedUpgrades],['toggle-infinity-upgrade-filter',s.hideUnlockedInfinityUpgrades]]){
+        text($(id),hidden?'显示全部强化':'隐藏已解锁强化');attribute($(id),'aria-pressed',String(hidden));
+      }
       if(!upgrades)return false;displayedRun=n.rebirthCount;
+      const visibleNodes=Object.values(C.nodes).filter(node=>node.branch===branch&&(!s.hideUnlockedInfinityUpgrades||!I.has(s,node.id)));
+      const visibleRows=[...new Set(visibleNodes.map(node=>node.position.row))].sort((a,b)=>a-b);
+      if(!visibleNodes.some(node=>node.id===nodeId))nodeId=visibleNodes[0]?.id||null;
+      $('infinity-filter-empty').hidden=visibleNodes.length>0;
       $('infinity-points').textContent=`无限点数：${f(n.points)}`;
       for(const el of $('infinity-branches').children)el.setAttribute('aria-selected',String(el.dataset.branch===branch));
       const tree=$('infinity-tree');tree.style.setProperty('--infinity-columns',branch==='tempo'?3:branch==='systems'?1:2);
@@ -46,13 +54,16 @@
         }
         const status=I.status(s,node.id),classes=`infinity-node ${status}${node.position.row>0?' infinity-child':''}`;
         if(view.button.className!==classes)view.button.className=classes;
-        const hidden=node.branch!==branch;if(view.button.hidden!==hidden)view.button.hidden=hidden;
+        const hidden=node.branch!==branch||(s.hideUnlockedInfinityUpgrades&&I.has(s,node.id));if(view.button.hidden!==hidden)view.button.hidden=hidden;
+        const row=s.hideUnlockedInfinityUpgrades?visibleRows.indexOf(node.position.row)+1:node.position.row+1;
+        if(!hidden){view.button.style.gridRow=String(row);view.button.classList.toggle('infinity-child',row>1);}
         text(view.name,nodeName(node));text(view.price,`${node.price} 无限点`);text(view.status,label[status]);
         attribute(view.button,'aria-pressed',String(nodeId===node.id));
       }
       $('infinity-invested').textContent=`已投入无限点数：${f(I.invested(s))}`;renderDetails();return true;
     }
-    function renderDetails(){const node=C.nodes[nodeId];$('infinity-node-name').textContent=nodeName(node);
+    function renderDetails(){const node=C.nodes[nodeId];$('infinity-details').hidden=!node;if(!node)return;
+      $('infinity-node-name').textContent=nodeName(node);
       $('infinity-node-price').textContent=`价格：${node.price} 无限点数`;
       $('infinity-node-prerequisites').textContent=`前置：${node.prerequisites.map(id=>nodeName(C.nodes[id])).join(node.prerequisiteMode==='any'?' / ':' + ')||'无'}${node.prerequisiteMode==='any'?'（任意一项）':''}`;
       $('infinity-node-effect').textContent=node.description;$('infinity-buy').disabled=I.status(s,nodeId)!=='available';
@@ -77,7 +88,11 @@
       for(const child of [...page.children])if(!child.classList.contains('page-header'))ordinary.append(child);
       const tabs=element('div','big-number-tabs');tabs.id='infinity-upgrade-tabs';tabs.hidden=true;tabs.innerHTML='<button type="button" id="ordinary-upgrades-tab">普通强化</button><button type="button" id="infinity-upgrades-tab">无限强化</button>';
       const up=element('section','infinity-panel');up.id='infinity-upgrades-panel';up.hidden=true;
-      up.innerHTML='<h2>无限强化</h2><p id="infinity-points"></p><div class="infinity-branches" id="infinity-branches" role="tablist"></div><div class="infinity-tree" id="infinity-tree"></div><section class="infinity-details"><h3 id="infinity-node-name"></h3><p id="infinity-node-price"></p><p id="infinity-node-prerequisites"></p><p id="infinity-node-effect"></p><button type="button" class="primary-button" id="infinity-buy">购买</button></section><p id="infinity-invested"></p><button type="button" id="infinity-respec">重置无限强化</button>';
+      up.innerHTML='<h2>无限强化</h2><p id="infinity-points"></p><div class="infinity-branches" id="infinity-branches" role="tablist"></div><div class="infinity-tree" id="infinity-tree"></div><p id="infinity-filter-empty" hidden>本分支强化已全部解锁。</p><section class="infinity-details" id="infinity-details"><h3 id="infinity-node-name"></h3><p id="infinity-node-price"></p><p id="infinity-node-prerequisites"></p><p id="infinity-node-effect"></p><button type="button" class="primary-button" id="infinity-buy">购买</button></section><p id="infinity-invested"></p><button type="button" id="infinity-respec">重置无限强化</button>';
+      for(const [parent,id,key] of [[ordinary,'toggle-upgrade-filter','hideUnlockedUpgrades'],[up,'toggle-infinity-upgrade-filter','hideUnlockedInfinityUpgrades']]){
+        const filter=element('button','secondary-button','隐藏已解锁强化');filter.id=id;filter.type='button';filter.setAttribute('aria-pressed','false');parent.prepend(filter);
+        filter.addEventListener('click',()=>{s[key]=!s[key];context.saveState();repaint();});
+      }
       page.append(tabs,ordinary,up);$('ordinary-upgrades-tab').addEventListener('click',()=>{upgrades=false;repaint();});$('infinity-upgrades-tab').addEventListener('click',()=>{upgrades=true;repaint();});
       for(const [key,name] of Object.entries(C.branches)){const button=element('button','',name);button.type='button';button.dataset.branch=key;button.setAttribute('role','tab');button.addEventListener('click',()=>{branch=key;nodeId=Object.values(C.nodes).find(n=>n.branch===key).id;renderUpgrades();});$('infinity-branches').append(button);}
       $('infinity-buy').addEventListener('click',()=>context.performSavedAction(()=>I.purchase(s,nodeId),renderUpgrades));$('infinity-respec').addEventListener('click',()=>rebirth(true));

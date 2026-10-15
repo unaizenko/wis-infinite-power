@@ -63,29 +63,34 @@
     if(order===0&&has(s,'C3'))m=B.mul(m,B.pow(B.add(1,WIS.Cultivation.Xiuzhen.amount(s,'universeCoefficient')),4));
     if(order>0&&has(s,'D2-1'))m=B.mul(m,factor(order-1));
     if(s.activeChallenge==='trueG1')for(let i=0;i<order;i++)m=B.div(m,factor(i));return m;}
+  // Historical pre-capacity save migration basis; current costs use gRequirement.
   function gBaseRequirement(s,g){
     const base=B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?1+C.gChallengeCoefficient*g:1);
     return rewardUnlocked(s,'trueGraham')?B.pow(base,C.gRewardExponent):base;
   }
+  // Raw baseline includes challenge difficulty and the G64 capacity curve.
+  // Modifiers then run in order: D6 subtraction/floor, D4 division, reward power.
   function gRequirementBeforeRank(s,g){
+    const base=B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?1+C.gChallengeCoefficient*g:1);
     const capacity=B.pow(B.add(1,B.div(Math.max(g-C.gCapacityStart,0),C.gCapacityDivisor)),C.gCapacityPower);
-    const treeReduction=has(s,'D4')?B.pow(C.treeGBase,Math.max(0,WIS.Meta.BigNumbers.get(s).tree.rank-C.treeGStart)):B.ONE;
-    return B.div(B.mul(gBaseRequirement(s,g),capacity),treeReduction);
+    return B.mul(base,capacity);
   }
-  // For constant-base G capacity, write f(G) = (G-h)^2/L - G.
-  // Near the high-G floor exit, (G-h)-L stays small; this form avoids
-  // subtracting two ~G values, and supplies the same polynomial to batching.
+  const gRequirementDivisor=s=>has(s,'D4')?B.pow(C.treeGBase,Math.max(0,WIS.Meta.BigNumbers.get(s).tree.rank-C.treeGStart)):B.ONE;
+  function gRequirementAfterRank(s,value){
+    const divided=B.div(value,gRequirementDivisor(s));
+    return rewardUnlocked(s,'trueGraham')?B.pow(divided,C.gRewardExponent):divided;
+  }
   function gRankPolynomial(s,g){
     if(g<C.gCapacityStart||s.activeChallenge==='trueGraham'||C.gCapacityPower!==2)return null;
-    const reduction=has(s,'D4')?B.pow(C.treeGBase,Math.max(0,WIS.Meta.BigNumbers.get(s).tree.rank-C.treeGStart)):B.ONE;
     const h=C.gCapacityStart-C.gCapacityDivisor,a=B.sub(g,h);
-    const length=B.mul(B.div(reduction,gBaseRequirement(s,g)),B.mul(C.gCapacityDivisor,C.gCapacityDivisor));
+    const length=B.div(B.mul(C.gCapacityDivisor,C.gCapacityDivisor),C.gRequirement);
     const offset=B.div(B.sub(a,length),length);
     return {constant:B.sub(B.mul(a,offset),h),linear:B.add(1,B.mul(2,offset)),quadratic:B.div(1,length)};
   }
   function gRequirement(s,g){
-    if(!has(s,'D6'))return gRequirementBeforeRank(s,g);
-    return B.max(C.gRankMinimum,gRankPolynomial(s,g)?.constant??B.sub(gRequirementBeforeRank(s,g),g));
+    const raw=gRequirementBeforeRank(s,g);
+    const afterRank=has(s,'D6')?B.max(C.gRankMinimum,B.sub(raw,g)):raw;
+    return gRequirementAfterRank(s,afterRank);
   }
   const gSpeedMultiplier=_s=>B.ONE;
   const treeGainMultiplier=s=>B.mul(has(s,'D2-2')?B.pow(B.add(1,B.div(WIS.Meta.BigNumbers.get(s).gIndex,C.gTreeDivisor)),C.gTreePower):1,rewardUnlocked(s,'trueTree3')?C.treeReward:1);
@@ -160,5 +165,5 @@
     return next;
   }
   WIS.Meta.Infinity=Object.freeze({fresh,normalize,get,has,hasInfinityUpgrade:has,status,purchase,invested,previewRebirth,prepareRebirth,
-    commitRebirth,completed,rewardUnlocked,isInfinityChallenge,isChallengeActive,challengeEntryAllowed,recordChallengeReward,rapidChallengeStepSeconds,rapidPointMultiplier,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gBaseRequirement,gRequirementBeforeRank,gRankPolynomial,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
+    commitRebirth,completed,rewardUnlocked,isInfinityChallenge,isChallengeActive,challengeEntryAllowed,recordChallengeReward,rapidChallengeStepSeconds,rapidPointMultiplier,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gBaseRequirement,gRequirementBeforeRank,gRequirementDivisor,gRequirementAfterRank,gRankPolynomial,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
 }(window.WIS));

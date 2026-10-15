@@ -38,6 +38,7 @@ html[data-theme="dark"] {
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+#ordinary-upgrades-panel.hide-unlocked-upgrades .item-row.purchased { display: none !important; }
 
 /* Independent action subpage; the global resource/sticky layout is untouched. */
 .big-number-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
