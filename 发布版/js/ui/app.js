@@ -386,7 +386,7 @@
       ...[
         ['numbers-fractal','自动升级分形','D7-1','fractalAutomationEnabled','在线时依次购买满足条件的分形。'],
         ['numbers-tree-upgrades','自动升级树构造','D7-2','treeUpgradeAutomationEnabled','在线时按节点、分枝、标签、已解锁的超构造增幅顺序持续升级；拥有D9后超构造中也生效，标签仍需满足衰减阈值。'],
-        ['numbers-tree-super','自动进入超构造','D7-3','treeSuperAutomationEnabled','在线时满足超构造解锁条件，且当前进入倍率达到设定值时自动进入。拥有D8后超构造期间也产出树构造点。']
+        ['numbers-tree-super','自动进入超构造','D7-3','treeSuperAutomationEnabled','在线时满足超构造解锁条件，且当前进入倍率达到设定值时自动进入。拥有D8后超构造期间也产出树构造点。拥有D10时，此开关同时控制连续推进；关闭后完成当前TREE目标便停止，保留剩余进度。']
       ].map(([id,name,node,key,description])=>Object.freeze({id,name,group:'numbers',description,
         isUnlocked:()=>WIS.Meta.Infinity.has(state,node),isEnabled:()=>state[key]===true,
         isDisabled:()=>Boolean(getCatchUpStatus().locked),toggle:()=>state[key]=!state[key]
@@ -1820,7 +1820,7 @@
     if (bigVisible) {
       const v = M.view(state), order = v.dominantOrder;
       const f = value => gtBN(value, ZERO) && !gteBN(value, 0.001)
-        ? WIS.UI.Format.scientificMultiplier(value) : format(value, 4);
+        ? WIS.UI.Format.scientificMultiplier(value) : format(value, 2);
       setTextIfChanged(byId("big-number-dominant"), v.tree.rank >= 3 ? `TREE(${v.tree.rank})` : v.gIndex > 0
         ? `G${v.gIndex}` : `${f(v.amounts[order])} ${v.symbols[order]}`);
       setTextIfChanged(byId("big-number-rate"), v.tree.rank >= 3 ? "当前 TREE 层级已完成" : v.gIndex > 0
@@ -1835,7 +1835,8 @@
     const paused = status.phase === "paused";
     const settlement = state.core.runtime.lastSettlement;
     for (const key of X.resourceKeys) {
-      const visible = active && (n.abilities[key] || n.realm >= ({xianForce:2,yuanForce:3,nieForce:7,universeCoefficient:7,multiverseCoefficient:11}[key]));
+      const visible = active && (key !== "universeCoefficient" || !X.fourthStepActive(state))
+        && (n.abilities[key] || n.realm >= ({xianForce:2,yuanForce:3,nieForce:7,universeCoefficient:7,multiverseCoefficient:11}[key]));
       setHiddenIfChanged(byId(key + "-resource"), !visible);
       if (visible) {
         setTextIfChanged(byId(key), format(X.amount(state, key)));
@@ -2001,7 +2002,7 @@
     return snapshot;
   }
   // Programmatic refresh remains available; there is no manual UI button.
-  function requestExplorationPreviewRefresh(element = byId("exploration-preview")) {
+  function requestExplorationPreviewRefresh(element = rawById("exploration-preview")) {
     markExplorationPreviewDirty();
     if (document.hidden || !previewVisible(element) || explorationPreviewRefreshPending) return;
     explorationPreviewRefreshPending = true;
@@ -2268,15 +2269,6 @@
     setDisabledIfChanged(byId("breathing-button"), !breathingJAvailable || !breathingGainAvailable);
     }
     if (immortalCultivationActive() && state.goldenCoreUnlocked) {
-    const snapshot = explorationPreviewSnapshot("action", byId("exploration-preview"));
-    if (snapshot) {
-      setTextIfChanged(byId("exploration-preview"), WIS.UI.SourcePreview.text(snapshot.records, format));
-      toggleClassIfChanged(byId("exploration-preview"), "source-gain-preview", true);
-      setTextIfChanged(byId("exploration-preview-status"), "计算开始时状态的精确预览；实际结果以探寻时为准");
-    } else if (explorationHoldActive || firstExplorationPreviewPending.has("action") || explorationPreviewWorks.has('action')) {
-      setTextIfChanged(byId("exploration-preview"), "收益预览：计算中…");
-      setTextIfChanged(byId("exploration-preview-status"), explorationHoldActive ? "松开后更新精确预览" : "正在计算首次精确预览");
-    }
     setTextIfChanged(byId("exploration-cost"), "消耗当前 10% 战力，至少消耗 1M");
     // A stale low-yield preview must never prevent a newly valid live action.
     // The formal action is the authority for gain and payment eligibility.

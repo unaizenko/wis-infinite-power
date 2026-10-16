@@ -82,13 +82,7 @@
       const demand = validDemand && validDemand.gt(0) ? format(validDemand, 4) : "暂无法计算";
       lines.push(`${known ? '已知进度' : '进度'}：${format(info.progress, 4)} / ${demand}`);
       lines.push(`${direct ? "自然获取预计" : "预计"}：${eta}`);
-      if (percent !== null) {
-        // Historical pending input may carry an older award multiplier.
-        const award = info.pendingInputs === 0 ? B.parseFinite(info.award) : null;
-        const quantity = award && award.gt(1) && award.eq(award.floor())
-          ? `（每次 ${format(award, 0)} 件）` : "";
-        lines.push(`下次获得：${percent}${quantity}`);
-      }
+      if (percent !== null) lines.push(`下次获得：${percent}`);
     }
     const pause = pauseReason(key, info);
     if (pause) lines.push((direct ? "自然获取暂停：" : "暂停：") + pause);

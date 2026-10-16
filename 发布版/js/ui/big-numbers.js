@@ -5,18 +5,12 @@
     const state = WIS.Core.Runtime.state, $ = id => document.getElementById(id);
     let selected = false, lastGraham = false;
     const text = (id, value) => { const el = $(id); if (el.textContent !== value) el.textContent = value; };
-    const f = x => {
+    const f = (x, digits = 4) => {
       const n = B.BN(x);
       if (B.gt(n, 0) && B.lt(n, 0.001)) return WIS.UI.Format.scientificMultiplier(n);
-      return context.format(n, 4);
+      return context.format(n, digits);
     };
-    const quantity = (value, order) => `${f(value)} ${M.SYMBOLS[order]}`;
-    const sourceText = (raw, final, label) => WIS.UI.SourcePreview.text({
-      raw, final, label, resource: "symbol", unit: "秒", extra: []
-    }, f);
-    const source = (id, raw, final, label) => {
-      $(id).classList.add("source-gain-preview"); text(id, sourceText(raw, final, label));
-    };
+    const quantity = (value, order) => `${f(value, 2)} ${M.SYMBOLS[order]}`;
     const rows = [], milestones = [], treeRows = [];
     function renderTree() {
       const v = M.treeView(state), locked = context.getCatchUpStatus().locked === true;
@@ -55,10 +49,13 @@
         text("tree-entry-base", `若现在进入超构造：进度倍率 ×${context.format(v.superMultiplier, 2)}`);
         $("tree-enter").disabled = locked || !v.canEnter;
         $("tree-enter").hidden = !v.canEnter;
+        text("tree-entry-note", v.continuousSuper && B.gt(v.superProgress,0)
+          ? `已保留超构造进度：${f(v.superCompleted)}；再次进入后继续结算。继续构造可提高超构造基础。`
+          : "继续构造可提高超构造基础。");
         $("tree-entry-note").hidden = false;
       } else if (v.phase === "super") {
         $("tree-super-bar").value = v.superProgressFraction;
-        text("tree-super-note", `${v.superPointIncome ? "超构造期间持续获得树构造点，不推进普通坏序列。" : "超构造期间不产出树构造点。"}${v.superUpgrades ? "可进行树构造强化。" : ""}进入时的基础倍率保持固定，D11的额外倍率随时间、强化等级和TREE阶位更新。${v.continuousSuper ? "完成目标后直接推进下一TREE，保留构造点和强化。" : ""}离线只累计进度，返回在线后升阶。`);
+        text("tree-super-note", `${v.superPointIncome ? "超构造期间持续获得树构造点，不推进普通坏序列。" : "超构造期间不产出树构造点。"}${v.superUpgrades ? "可进行树构造强化。" : ""}进入时的基础倍率保持固定，D11的额外倍率随时间、强化等级和TREE阶位更新。${v.continuousSuper ? "开启自动进入超构造时连续推进下一TREE；关闭后完成当前目标便停止，保留构造点、强化及剩余进度。" : ""}离线只累计进度，返回在线后升阶。`);
         text("tree-super-progress", `TREE(${v.rank}) → TREE(${v.target})：${f(v.superCompleted)} / ${f(v.superRequirement)}（${f(B.mul(v.superProgress,100))}%）`);
         $("tree-super-time").hidden = !WIS.Meta.Infinity.has(state,"D11-1");
         text("tree-super-time", `本次超构造时间：${f(v.superElapsedSeconds)} 游戏秒（跨TREE保留）`);
@@ -91,20 +88,19 @@
       if (selected === "tree") { renderTree(); return; }
       const v = M.view(state), order = v.dominantOrder, graham = v.gIndex > 0;
       text("big-number-page-dominant", v.tree.rank >= 3 ? `TREE(${v.tree.rank})` : graham ? `G${v.gIndex}` : quantity(v.amounts[order], order));
-      source("big-number-page-rate", graham ? v.baseSpeed : v.rates[order], graham ? v.speed : v.rates[order], graham ? "%" : M.SYMBOLS[order]);
-      $("big-number-page-rate").hidden = v.tree.rank >= 3;
-      text("big-number-secondary", graham ? `次级：${quantity(v.amounts[4], 4)}；Q = ${f(v.amounts[4])}`
+      text("big-number-secondary", graham ? `次级：${quantity(v.amounts[4], 4)}；Q = ${f(v.amounts[4], 2)}`
         : order > 0 ? `次级：${quantity(v.amounts[order - 1], order - 1)}` : "更高阶符号尚未解锁");
-      source("big-number-base", M.currentBaseYRate(state), B.mul(M.currentBaseYRate(state),WIS.Meta.Infinity.fractalGainMultiplier(state,0)), "Y");
-      $("big-number-base").title = "战力提供的 Y 来源：每秒开始时取值，该秒内保持固定。Y 是固定符号，数字表示持有系数。";
       $("super-fractal-panel").hidden = !graham;
       if (graham !== lastGraham) $("fractal-panel").open = !graham;
       lastGraham = graham;
       text("fractal-summary", `分形：已完成 ${v.fractalLevel}/5`);
-      rows.forEach(({ el, effect, status, button }, i) => {
-        const preview = sourceText(B.ONE, WIS.Meta.Infinity.fractalGainMultiplier(state, i), M.SYMBOLS[i]);
-        if (effect.textContent !== preview) effect.textContent = preview;
+      rows.forEach(({ el, stock, effect, status, button }, i) => {
         const done = i < v.fractalLevel, next = i === v.fractalLevel;
+        const holdings = `当前资源：${quantity(v.amounts[i], i)}`;
+        if (stock.textContent !== holdings) stock.textContent = holdings;
+        const preview = `当前获取：+${quantity(v.rates[i], i)}/秒` + (done ? ""
+          : `\n强化后新增来源：+${quantity(WIS.Meta.Infinity.fractalGainMultiplier(state, i), i)}/秒${i === 4 ? "；解锁 G1" : ""}`);
+        if (effect.textContent !== preview) effect.textContent = preview;
         el.hidden = !done && !next;
         el.classList.toggle("fractal-complete", done);
         el.classList.toggle("fractal-future", !done && !next);
@@ -118,7 +114,7 @@
         text("super-fractal-next", complete ? treeUnlocked ? "G64 · 本阶段完成；大数·树已开放" : "G64 · 本阶段完成；完成古戈尔成就后开放大数·树" : `下一阶位：G${v.gIndex + 1}`);
         text("super-fractal-progress", complete ? "本阶段已完成" : `${f(v.progress)} / ${f(v.requirement)}`);
         $("super-fractal-bar").value = complete ? 100 : Math.min(100, B.toNumber(B.mul(B.div(v.progress,v.requirement),100), 0));
-        text("super-fractal-sources", `基础：${M.BASE_SUPER_SPEED}%/秒 · Graham里程碑：×${v.milestoneMultiplier} · 超越分形：×${f(v.fractalMultiplier)}`);
+        text("super-fractal-sources", `当前进度速度：${f(v.speed)}%/秒 · 基础：${M.BASE_SUPER_SPEED}%/秒 · Graham里程碑：×${v.milestoneMultiplier} · 超越分形：×${f(v.fractalMultiplier)}`);
         const nextTarget = M.MILESTONES.find(g => g > v.gIndex);
         milestones.forEach(({ el, rank }) => {
           el.classList.toggle("complete", v.gIndex >= rank); el.classList.toggle("next", nextTarget === rank);
@@ -152,11 +148,12 @@
       }
       for (let i = 0; i < 5; i++) {
         const el = document.createElement("article"); el.className = "fractal-row";
-        const label = document.createElement("div"), title = document.createElement("strong"), effect = document.createElement("p"), status = document.createElement("small");
+        const label = document.createElement("div"), title = document.createElement("strong"), stock = document.createElement("p"), effect = document.createElement("p"), status = document.createElement("small");
         title.textContent = `分形-${i + 1}`;
-        effect.className = "source-gain-preview";
-        if (i === 4) effect.title = "解锁后获得 G1";
-        status.id = `fractal-status-${i}`; label.append(title, effect, status);
+        stock.className = "fractal-stock";
+        effect.className = "fractal-rate source-gain-preview";
+        if (i === 0) effect.title = "当前获取包含战力来源与已解锁分形来源及其倍率。战力来源每秒开始时取值，该秒内保持固定。";
+        status.id = `fractal-status-${i}`; label.append(title, stock, effect, status);
         const button = document.createElement("button"); button.type = "button"; button.className = "primary-button";
         button.id = `buy-fractal-${i + 1}`;
         button.addEventListener("click", () => {
@@ -166,7 +163,7 @@
             context.notifyNewAchievements(previous); WIS.Core.Runtime.call("render"); render();
           });
         });
-        el.append(label, button); $("fractal-list").append(el); rows.push({ el, effect, status, button });
+        el.append(label, button); $("fractal-list").append(el); rows.push({ el, stock, effect, status, button });
       }
       for (const rank of M.MILESTONES) {
         const el = document.createElement("span"); $("graham-milestones").append(el); milestones.push({ el, rank });

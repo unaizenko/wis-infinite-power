@@ -22,6 +22,12 @@
       if(!selected)return false;
       for(const id of ['ordinary-actions-panel','big-number-panel','tree-panel'])$(id).hidden=true;
       for(const id of ['ordinary-actions-tab','big-number-tab','tree-tab'])$(id).setAttribute('aria-selected','false');
+      const X=WIS.Cultivation.Xiuzhen,third=X.thirdStepActive(s),fourth=X.fourthStepActive(s);
+      $('infinity-universe-resources').hidden=!third;
+      for(const [key,visible] of [['universeCoefficient',third],['multiverseCoefficient',fourth]]){
+        $('infinity-'+key+'-row').hidden=!visible;
+        if(visible)text($('infinity-'+key),context.format(X.amount(s,key),2));
+      }
       const v=I.previewRebirth(s);displayedRun=n.rebirthCount;
       $('infinity-balance').textContent=`无限点数：${f(n.points)}　累计获得：${f(n.totalPointsEarned)}　无限转生：${n.rebirthCount}次`;
       $('infinity-preview').textContent=`${`重置行动、强化与体系进度，每种宝物最多保留 ${f(v.cap)}${WIS.Meta.Achievements.has(s,'eternalWitness')?'；一证永证保留体系挑战':'；挑战按无限强化保留规则重置'}`}；获得 ${f(v.points)} 无限点数`;
@@ -41,7 +47,11 @@
       $('infinity-filter-empty').hidden=visibleNodes.length>0;
       $('infinity-points').textContent=`无限点数：${f(n.points)}`;
       for(const el of $('infinity-branches').children)el.setAttribute('aria-selected',String(el.dataset.branch===branch));
-      const tree=$('infinity-tree');tree.style.setProperty('--infinity-columns',branch==='tempo'?3:branch==='systems'?1:2);
+      const tree=$('infinity-tree');
+      const rowNodes=new Map(visibleRows.map(row=>[row,visibleNodes.filter(n=>n.position.row===row).sort((a,b)=>a.position.column-b.position.column)]));
+      const gcd=(a,b)=>b?gcd(b,a%b):a;
+      const columns=[...rowNodes.values()].reduce((count,nodes)=>count*nodes.length/gcd(count,nodes.length),1);
+      tree.style.setProperty('--infinity-columns',columns);
       for(const node of Object.values(C.nodes)){
         let view=nodeViews.get(node.id);
         if(!view){
@@ -56,7 +66,11 @@
         if(view.button.className!==classes)view.button.className=classes;
         const hidden=node.branch!==branch||(s.hideUnlockedInfinityUpgrades&&I.has(s,node.id));if(view.button.hidden!==hidden)view.button.hidden=hidden;
         const row=s.hideUnlockedInfinityUpgrades?visibleRows.indexOf(node.position.row)+1:node.position.row+1;
-        if(!hidden){view.button.style.gridRow=String(row);view.button.classList.toggle('infinity-child',row>1);}
+        if(!hidden){
+          const siblings=rowNodes.get(node.position.row),span=columns/siblings.length;
+          view.button.style.gridRow=String(row);view.button.style.gridColumn=String(siblings.indexOf(node)*span+1)+' / span '+span;
+          view.button.classList.toggle('infinity-child',row>1);
+        }
         text(view.name,nodeName(node));text(view.price,`${node.price} 无限点`);text(view.status,label[status]);
         attribute(view.button,'aria-pressed',String(nodeId===node.id));
       }
@@ -82,7 +96,7 @@
       const tab=element('button','','无限');tab.id='infinity-tab';tab.type='button';tab.setAttribute('role','tab');$('big-number-tabs').append(tab);
       tab.addEventListener('click',()=>{selected=true;repaint();});for(const id of ['ordinary-actions-tab','big-number-tab','tree-tab'])$(id).addEventListener('click',()=>{selected=false;repaint();});
       const panel=element('section','infinity-panel');panel.id='infinity-panel';panel.hidden=true;
-      panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
+      panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><section class="infinity-details" id="infinity-universe-resources" hidden><h3>宇宙数量</h3><p id="infinity-universeCoefficient-row" hidden>单体宇宙（N）：<strong id="infinity-universeCoefficient">0</strong></p><p id="infinity-multiverseCoefficient-row" hidden>多元宇宙（N²）：<strong id="infinity-multiverseCoefficient">0</strong></p></section><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
       $('actions-page').append(panel);$('infinity-rebirth').addEventListener('click',()=>rebirth(false));
       const page=$('upgrades-page'),ordinary=element('div');ordinary.id='ordinary-upgrades-panel';
       for(const child of [...page.children])if(!child.classList.contains('page-header'))ordinary.append(child);

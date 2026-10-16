@@ -12,7 +12,8 @@
     }
     function fold(title, id) {
       const n = el("details", "", "upgrade-group xiuzhen-fold"); n.id = id; n.open = true;
-      n.append(el("summary", title)); return n;
+      const summary = el("summary"), label = el("span"); label.append(el("b", title)); summary.append(label);
+      n.append(summary); return n;
     }
     function perform(action) {
       if (context.getCatchUpStatus().locked) return;
@@ -47,9 +48,16 @@
       const note = el("p", "", "big-number-note"); note.id = "xiuzhen-unlock-note"; realms.append(note);
       X.realms.forEach(r => rows.push({ type: "realm", definition: r, ...row(realms, r.name,
         r.level < 4 ? r.level === 2 ? "开放仙力。" : r.level === 3 ? "开放元力体系。" : "完成挑战·化凡后解锁；开放意境、元神。"
-          : r.level < 7 ? `永久取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。` : r.level === 7 ? "完成天人五衰并购买无限强化·体系无限后突破；自动获得能力·涅力，按当前元力生成涅力，不持续扣除元力。" : r.level === 11 ? "需要无限强化·体系多元；突破后自动获得踏天，按当前单体宇宙系数N持续产生多元宇宙系数N²，不消耗N。" : "解锁本境界的付费能力。", r.cost, r.resource,
+          : r.level < 7 ? `取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。` : r.level === 7 ? "完成天人五衰并购买无限强化·体系无限后突破；自动获得能力·涅力，按当前元力生成涅力，不持续扣除元力。" : r.level === 11 ? "需要无限强化·体系多元；突破后自动获得踏天，按当前单体宇宙系数N持续产生多元宇宙系数N²，不消耗N。" : "解锁本境界的付费能力。", r.cost, r.resource,
         state => X.get(state).realm === r.level - 1 && X.breakthrough(state), "realm-" + r.level) }));
       const abilitiesPanel = $("immortal-abilities-panel"), oldContent = abilitiesPanel.querySelector(".upgrade-groups");
+      const filter = el("button", "隐藏已解锁能力", "secondary-button");
+      filter.id = "toggle-immortal-ability-filter"; filter.type = "button";
+      filter.addEventListener("click", () => {
+        const current = R.getState(); current.hideUnlockedImmortalAbilities = !current.hideUnlockedImmortalAbilities;
+        context.saveState(); R.call("renderImmediately");
+      });
+      abilitiesPanel.prepend(filter);
       const oldAbilities = fold("仙道·炼气道能力", "qi-path-abilities");
       abilitiesPanel.insertBefore(oldAbilities, oldContent); oldAbilities.append(oldContent);
       const newAbilities = fold("仙道·修真道能力", "xiuzhen-abilities"); abilitiesPanel.append(newAbilities);
@@ -103,6 +111,12 @@
     function render({ page = null, writePreview = null } = {}) {
       if (!mounted) return;
       const s = R.getState(), n = X.get(s), unlocked = X.unlocked(s), locked = context.getCatchUpStatus().locked;
+      if (page !== "realms") {
+        const hiding = s.hideUnlockedImmortalAbilities;
+        $("immortal-abilities-panel").classList.toggle("hide-unlocked-abilities", hiding);
+        $("toggle-immortal-ability-filter").textContent = hiding ? "显示全部能力" : "隐藏已解锁能力";
+        $("toggle-immortal-ability-filter").setAttribute("aria-pressed", String(hiding));
+      }
       if (page !== "realms") $("xiuzhen-abilities").hidden = !X.available(s) || n.realm < 1;
       if (page !== "abilities") {
       $("xiuzhen-realms").hidden = !X.available(s);
@@ -110,7 +124,7 @@
       $("xiuzhen-unlock-note").textContent = X.sealed(s)
         ? (X.qiPathSealed(s) ? "化凡挑战期间仙道能力封印；结束后按当前已获得状态恢复。"
           : "炼气十万年期间修真道封印，历史境界不解除软上限；无限炼气可继续推进。退出后恢复原有修真道资格。")
-        : `当前：${n.realm ? X.realms[n.realm - 1].name : "等待突破第一步·化神"}。炼气道继续生效；两道不是二选一。`;
+        : `当前：${n.realm ? X.realms[n.realm - 1].name : "等待突破第一步·化神"}。炼气道继续生效。`;
       }
       rows.forEach(r => {
         if (page === "realms" && r.type !== "realm" || page === "abilities" && r.type !== "ability") return;
@@ -151,7 +165,7 @@
       if (!$("xiuzhen-origin-treasure").hidden) {
         const info=WIS.Meta.TreasureProgress.view(s,"originImprint");
         $("xiuzhen-origin-count").textContent=`×${f(count)}`;
-        $("xiuzhen-origin-effect").textContent=`N获取 ×${f(B.pow(B.add(1,count),.25))}（需虚本源生效）`;
+        $("xiuzhen-origin-effect").textContent=`N获取 ×${f(B.pow(B.add(1,count),.25))}`;
         $("xiuzhen-origin-status").textContent=WIS.UI.Treasures.acquisition("originImprint",info,context.format);
       }
     }

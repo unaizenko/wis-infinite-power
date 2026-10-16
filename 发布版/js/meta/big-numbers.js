@@ -38,7 +38,7 @@
       if (!multiplier || B.lt(multiplier, 1)) throw Error("TREE 超构造倍率无效");
       t.superEntryMultiplier=multiplier;
       const progress=B.parseFinite(raw.superProgress ?? 0);
-      if (!progress || B.lt(progress,0) || B.gt(progress,1) && raw.phase !== "super") throw Error("TREE 超构造进度无效");
+      if (!progress || B.lt(progress,0) || B.gt(progress,1) && !["super", "explicit"].includes(raw.phase)) throw Error("TREE 超构造进度无效");
       t.superProgress=progress;
       if (![undefined, "explicit", "super", "complete"].includes(raw.phase)) throw Error("TREE 阶段无效");
       t.phase = raw.phase || "explicit";
@@ -47,7 +47,8 @@
     if (t.rank >= 3 && t.phase === "complete") {
       t.phase = "complete"; t.superProgress = B.ONE;
     } else if (t.phase === "complete") throw Error("TREE 完成状态缺少阶位");
-    if (t.phase === "explicit") { t.superEntryMultiplier = 1; t.superProgress = B.ZERO; t.superElapsedSeconds = B.ZERO; }
+    // Explicit construction can retain earned work after stopping D10 at a target.
+    if (t.phase === "explicit") { t.superEntryMultiplier = 1; t.superElapsedSeconds = B.ZERO; }
     return t;
   }
   const cloneTree = t => ({ ...t, upgrades: { ...t.upgrades } });
@@ -319,7 +320,7 @@
   function enterTreeSuper(state) {
     if (!canEnterTreeSuper(state)) return false;
     WIS.Core.Runtime.assertMutable();
-    transaction(state, n => { n.tree.superEntryMultiplier = treeSuperMultiplier(state); n.tree.superProgress = B.ZERO; n.tree.superElapsedSeconds = B.ZERO; n.tree.phase = "super"; });
+    transaction(state, n => { n.tree.superEntryMultiplier = treeSuperMultiplier(state); if (!I.has(state,"D10")) n.tree.superProgress = B.ZERO; n.tree.superElapsedSeconds = B.ZERO; n.tree.phase = "super"; });
     return true;
   }
   // One bounded pass per committed online frame. Reuse all manual gates and
@@ -353,8 +354,8 @@
   // Stored progress uses the current target's requirement as one unit. Offline
   // may bank more than one unit; online consumes geometric rank costs in at
   // most 53 comparisons, even for extreme Decimal multipliers.
-  function advanceContinuousTree(t, seconds, speed, maximum) {
-    const target=t.rank<3?3:t.rank+1, limit=maximum-target+1;
+  function advanceContinuousTree(t, seconds, speed, maximum, stopAtTarget = false) {
+    const target=t.rank<3?3:t.rank+1, limit=stopAtTarget?1:maximum-target+1;
     const available=nonnegative(B.add(t.superProgress,B.mul(speed,seconds)));
     if(B.lt(available,1)){t.superProgress=available;return;}
     const cost=count=>count===0?B.ZERO:count===1?B.ONE:
@@ -363,16 +364,21 @@
     while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
     if(lo===0){t.superProgress=available;return;}
     t.rank=target+lo-1;
-    if(lo===limit){t.phase="complete";t.superProgress=B.ONE;return;}
+    if(t.rank>=maximum){t.phase="complete";t.superProgress=B.ONE;return;}
     t.superProgress=nonnegative(B.div(B.max(0,B.sub(available,cost(lo))),B.pow(IC.treeTimeGrowth,lo)));
+    if(stopAtTarget)stopTreeAtTarget(t);
   }
-  function advanceBoostedTree(state,seconds) {
+  function stopTreeAtTarget(t) {
+    // Retain construction, upgrades and raw earned progress for the next target.
+    t.phase="explicit";t.superEntryMultiplier=1;t.superElapsedSeconds=B.ZERO;
+  }
+  function advanceBoostedTree(state,seconds,stopAtTarget = false) {
     const t=treeState(state),maximum=maximumTree(state);
     // Previously earned work (including frozen offline income) pays raw TREE
     // requirements first. Never multiply it again by newly acquired boosts.
-    advanceContinuousTree(t,0,B.ZERO,maximum);
+    advanceContinuousTree(t,0,B.ZERO,maximum,stopAtTarget);
     if(t.phase!=="super")return;
-    const target=targetTreeRank(state),limit=maximum-target+1;
+    const target=targetTreeRank(state),limit=stopAtTarget?1:maximum-target+1;
     const rankGrowth=I.has(state,'D11-3')?IC.treeRankBoost:1;
     const exposure=treeTimeExposure(t.superElapsedSeconds,seconds,I.has(state,'D11-1'));
     const multiplier=B.mul(B.mul(t.superEntryMultiplier,I.has(state,'D11-2')?treeEffect(state,'amplify'):1),B.pow(rankGrowth,t.rank));
@@ -386,8 +392,11 @@
     let lo=1,hi=limit;
     while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
     t.rank=target+lo-1;
-    if(lo===limit){t.phase="complete";t.superProgress=B.ONE;return;}
-    t.superProgress=nonnegative(B.div(B.max(0,B.sub(available,cost(lo))),B.mul(nextRatio,B.pow(ratio,lo-1))));
+    if(t.rank>=maximum){t.phase="complete";t.superProgress=B.ONE;return;}
+    // A stopped interval earns work at the completed rank; do not apply a
+    // future rank boost to work banked while the player is out of super mode.
+    t.superProgress=nonnegative(B.div(B.max(0,B.sub(available,cost(lo))),stopAtTarget?IC.treeTimeGrowth:B.mul(nextRatio,B.pow(ratio,lo-1))));
+    if(stopAtTarget)stopTreeAtTarget(t);
   }
   function advanceTree(state, seconds) {
     if (!treeActive(state)) return;
@@ -405,8 +414,13 @@
         t.totalConstruction=nonnegative(B.add(t.totalConstruction,gain));
       }
       if(I.has(state,"D10")){
-        if(['D11-1','D11-2','D11-3'].some(id=>I.has(state,id)))advanceBoostedTree(state,seconds);
-        else {advanceContinuousTree(t,seconds,treeSuperSpeed(state),maximumTree(state));t.superElapsedSeconds=nonnegative(B.add(t.superElapsedSeconds,seconds));}
+        const stopAtTarget = !state.treeSuperAutomationEnabled;
+        if(stopAtTarget && B.gte(t.superProgress,1)){
+          advanceContinuousTree(t,0,B.ZERO,maximumTree(state),true);
+          return;
+        }
+        if(['D11-1','D11-2','D11-3'].some(id=>I.has(state,id)))advanceBoostedTree(state,seconds,stopAtTarget);
+        else {advanceContinuousTree(t,seconds,treeSuperSpeed(state),maximumTree(state),stopAtTarget);if(!stopAtTarget||t.phase==="super")t.superElapsedSeconds=nonnegative(B.add(t.superElapsedSeconds,seconds));}
         return;
       }
       t.superElapsedSeconds=nonnegative(B.add(t.superElapsedSeconds,Math.min(seconds,remaining)));
@@ -445,7 +459,7 @@
           cost: treeUpgradeCost(state, key), canPurchase: canPurchaseTreeUpgrade(state, key) }])) };
   }
   // Only structural TREE changes invalidate predictors. Work/progress remains a fresh interval input.
-  const treeSignature = state => { const t = treeState(state); return [treeUnlocked(state), t.rank, t.phase, t.upgrades.node, t.upgrades.branch, t.upgrades.label, t.upgrades.amplify, t.superEntryMultiplier, I.has(state,"D11-1")?String(t.superElapsedSeconds):null]; };
+  const treeSignature = state => { const t = treeState(state); return [treeUnlocked(state), t.rank, t.phase, t.upgrades.node, t.upgrades.branch, t.upgrades.label, t.upgrades.amplify, t.superEntryMultiplier, I.has(state,"D10")?state.treeSuperAutomationEnabled:null, I.has(state,"D11-1")?String(t.superElapsedSeconds):null]; };
   function affordableGCount(limit,cost,canPay){
     if(limit<=0||!canPay(cost(1)))return 0;
     let lo=1,hi=Math.min(2,limit);
