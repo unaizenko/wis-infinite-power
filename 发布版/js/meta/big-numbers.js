@@ -338,17 +338,19 @@
       if(enterTreeSuper(state))count++;
     return count;
   }
-  function resetRankProgress(t) {
-    t.phase="explicit";t.construction=B.ZERO;t.sequenceWork=B.ZERO;t.superProgress=B.ZERO;t.superEntryMultiplier=1;t.superElapsedSeconds=B.ZERO;
+  function resetRankProgress(t, retainConstruction = false) {
+    // D8 points are spendable inventory, including income earned in super mode.
+    if (!retainConstruction) t.construction=B.ZERO;
+    t.phase="explicit";t.sequenceWork=B.ZERO;t.superProgress=B.ZERO;t.superEntryMultiplier=1;t.superElapsedSeconds=B.ZERO;
   }
   function continueUnlockedTree(state) {
     const t=treeState(state);
-    if(t.phase==="complete" && t.rank>=3 && t.rank<maximumTree(state) && I.has(state,"D1-2"))resetRankProgress(t);
+    if(t.phase==="complete" && t.rank>=3 && t.rank<maximumTree(state) && I.has(state,"D1-2"))resetRankProgress(t,I.has(state,"D8"));
   }
   function startNextTree(state) {
     if (!treeActive(state) || treeState(state).phase !== "complete") return false;
     WIS.Core.Runtime.assertMutable();
-    transaction(state, n => { resetRankProgress(n.tree); });
+    transaction(state, n => { resetRankProgress(n.tree,I.has(state,"D8")); });
     return true;
   }
   // Stored progress uses the current target's requirement as one unit. Offline
@@ -428,7 +430,7 @@
       if (B.gte(t.superProgress,1)) {
         t.rank=targetTreeRank(state);t.phase="complete";
         if(I.has(state,"D1-2") && t.rank<maximumTree(state)){
-          resetRankProgress(t);
+          resetRankProgress(t,I.has(state,"D8"));
           if(seconds>remaining)advanceTree(state,seconds-remaining);
         }
       }

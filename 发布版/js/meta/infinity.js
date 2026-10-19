@@ -119,7 +119,9 @@
     const rank=WIS.Meta.BigNumbers.get(s).tree.rank;
     let multiplier=B.BN(has(s,'B2')?C.pointMultiplier:1);
     multiplier=B.mul(multiplier,rapidPointMultiplier(s));
-    const points=challengeKey==='infinityRing'||rank<C.minimumTree?B.BN(0):B.mul(B.add(rank,WIS.Meta.Achievements.has(s,'infinityPower')?3:0),multiplier).floor();
+    // The permanent curve uses this run's TREE rank. Infinity Power stays additive before multipliers.
+    const base=WIS.Meta.Achievements.has(s,'seventhTree')?B.add(3,B.div(B.mul(B.sub(rank,3),B.sub(rank,2)),2)):B.BN(rank);
+    const points=challengeKey==='infinityRing'||rank<C.minimumTree?B.BN(0):B.mul(B.add(base,WIS.Meta.Achievements.has(s,'infinityPower')?3:0),multiplier).floor();
     const earned=B.add(n.totalPointsEarned,points),cap=has(s,'B1-1')?B.max(C.treasureCap,B.mul(C.treasureCap,earned)):B.BN(C.treasureCap);
     return {allowed:challengeKey!=null?(!respec&&challengeEntryAllowed(s,challengeKey)):n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
   }

@@ -2771,7 +2771,7 @@
     setTextIfChanged(byId("statistics-highest-scale"), SCALE_THRESHOLDS[state.lifetimeHighestScaleIndex].name);
     setTextIfChanged(byId("statistics-total-j"), format(state.lifetimeTotalJ));
     setTextIfChanged(byId("statistics-total-power"), format(state.lifetimeTotalPower));
-    setTextIfChanged(byId("statistics-highest-realm"), cultivationRealmName(state.lifetimeHighestCultivationRealmLevel));
+    setTextIfChanged(byId("statistics-highest-realm"), WIS.Cultivation.Xiuzhen.statisticsRealmName(state, true) || cultivationRealmName(state.lifetimeHighestCultivationRealmLevel));
     setTextIfChanged(byId("statistics-highest-mana"), format(state.lifetimeHighestMana));
     setTextIfChanged(byId("statistics-total-mana"), format(state.lifetimeTotalMana));
     setTextIfChanged(byId("statistics-highest-immortal-power"), format(state.lifetimeHighestImmortalPower));
@@ -2784,7 +2784,7 @@
     setTextIfChanged(byId("statistics-current-highest-power"), format(state.currentRebirthHighestPower));
     setTextIfChanged(byId("statistics-current-total-power"), format(state.currentRebirthTotalPower));
     setTextIfChanged(byId("statistics-current-highest-scale"), SCALE_THRESHOLDS[state.currentRebirthHighestScaleIndex].name);
-    setTextIfChanged(byId("statistics-current-highest-realm"), cultivationRealmName(state.currentRebirthHighestCultivationRealmLevel));
+    setTextIfChanged(byId("statistics-current-highest-realm"), WIS.Cultivation.Xiuzhen.statisticsRealmName(state) || cultivationRealmName(state.currentRebirthHighestCultivationRealmLevel));
     setTextIfChanged(byId("statistics-current-highest-mana"), format(state.currentRebirthHighestMana));
     setTextIfChanged(byId("statistics-current-total-mana"), format(state.currentRebirthTotalMana));
     setTextIfChanged(byId("statistics-current-highest-immortal-power"), format(state.currentRebirthHighestImmortalPower));

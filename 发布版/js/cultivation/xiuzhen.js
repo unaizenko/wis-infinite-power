@@ -40,7 +40,7 @@
   const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N", multiverseCoefficient: "多元宇宙系数N²" });
   const entry = () => ({ amount: B.ZERO, residual: [], total: B.ZERO, totalResidual: [],
     spent: B.ZERO, spentResidual: [], peak: B.ZERO });
-  const fresh = () => ({ version: 1, entered: false, realm: 0, highestRealm: 0,
+  const fresh = () => ({ version: 1, entered: false, realm: 0, highestRealm: 0, lifetimeHighestRealm: 0,
     abilities: {}, history: { entry: false, realm: 0, abilities: {} },
     resources: Object.fromEntries(resourceKeys.map(k => [k, entry()])), manaDebitResidual: [],
     manaSpent: B.ZERO, manaSpentResidual: [], shengProgress: {} });
@@ -54,6 +54,13 @@
     return values.map(String);
   };
   const rank = value => Math.min(realms.length, Math.max(0, Math.floor(Number(value) || 0)));
+  // Statistics are independent of current-run unlock/achievement qualification.
+  const lifetimeRealmLevel = n => Math.max(rank(n.lifetimeHighestRealm), rank(n.highestRealm), rank(n.realm), rank(n.history?.realm));
+  function statisticsRealmName(state, lifetime = false) {
+    const n = get(state), level = lifetime ? lifetimeRealmLevel(n) : rank(n.realm);
+    // Current Xiuzhen realm only rises within a run; resets clear it (scatter retains it).
+    return level > 0 ? "修真道·" + realms[level - 1].name : null;
+  }
   const shengKeys = Object.freeze(Object.keys(WIS.Meta.TreasureRules).filter(key => key !== "originImprint" && WIS.Meta.TreasureRules[key].immortal));
   function normalizeSheng(raw) {
     if (raw == null) return {};
@@ -76,6 +83,7 @@
     n.highestRealm = Math.max(n.realm, rank(raw.highestRealm));
     n.history = { entry: raw.history?.entry === true, realm: rank(raw.history?.realm),
       abilities: Object.fromEntries(abilities.filter(a => raw.history?.abilities?.[a.key] === true).map(a => [a.key, true])) };
+    n.lifetimeHighestRealm = lifetimeRealmLevel({ ...n, lifetimeHighestRealm: raw.lifetimeHighestRealm });
     n.abilities = Object.fromEntries(abilities.filter(a => raw.abilities?.[a.key] === true).map(a => [a.key, true]));
     for (const key of resourceKeys) {
       const from = raw.resources?.[key] || {}, to = n.resources[key];
@@ -183,7 +191,7 @@
     if (!canBreakthrough(state)) return false;
     return transaction(state, n => { const next = realms[n.realm]; if (!debit(state, next.resource, next.cost)) return false;
       // Retain the legacy flag for existing saves/fast-forward eligibility, not as a paid gate.
-      n.entered = true; n.realm++; n.highestRealm = Math.max(n.highestRealm, n.realm);
+      n.entered = true; n.realm++; n.highestRealm = Math.max(n.highestRealm, n.realm); n.lifetimeHighestRealm = lifetimeRealmLevel(n);
       if (manual) n.history.realm = Math.max(n.history.realm, n.realm); return true; });
   }
   function canBuy(state, key) {
@@ -441,13 +449,14 @@
   function reset(state, previous, profile, challengeKey) {
     if (profile === "infinity") {
       const n = fresh();
-      n.history = normalize(get(previous)).history;
+      const old = normalize(get(previous));
+      n.history = old.history; n.lifetimeHighestRealm = old.lifetimeHighestRealm;
       state.cultivation.systems.immortal.xiuzhen = n;
       return;
     }
     if (profile === "scatter") return; // same lower-tier retention as other retained abilities
     const old = get(previous), n = fresh();
-    n.history = normalize(old).history; n.highestRealm = old.highestRealm;
+    n.history = normalize(old).history; n.highestRealm = old.highestRealm; n.lifetimeHighestRealm = lifetimeRealmLevel(old);
     for (const key of resourceKeys) for (const field of ["total", "totalResidual", "spent", "spentResidual", "peak"])
       n.resources[key][field] = Array.isArray(old.resources[key][field]) ? old.resources[key][field].slice() : old.resources[key][field];
     n.manaSpent = old.manaSpent; n.manaSpentResidual = old.manaSpentResidual.slice();
@@ -479,7 +488,7 @@
     if (next?.run()) changes = 1 + automation(state, kind);
     return changes;
   }
-  WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, unlocked, available, active,
+  WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, statisticsRealmName, unlocked, available, active,
     sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
     canBuy, buy, fourthStepActive, daoWuYaExponent, applyDaoWuYa, multiverseRate, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
