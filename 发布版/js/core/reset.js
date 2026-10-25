@@ -98,7 +98,7 @@
       else result[key] = clone(value);
     });
     WIS.Cultivation.Xiuzhen?.reset(result, currentDomain, id, overrides.activeChallenge);
-    if(id!=="scatter")result.meta.highMultiverse=WIS.Meta.HighMultiverse.fresh();
+    if(id!=="scatter")result.meta.highMultiverse=WIS.Meta.HighMultiverse.rebirthState(currentDomain);
     // Every rebirth rebuilds the four temporary balances and purchased martial
     // abilities; permanent qualifications remain in the preserved meta branch.
     if (profile.rebirthLevel) result.cultivation.systems.martial = WIS.Cultivation.Martial.fresh();

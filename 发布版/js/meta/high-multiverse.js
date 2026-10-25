@@ -32,6 +32,12 @@
     return n;
   }
   const get=s=>s.meta.highMultiverse||fresh(), amount=s=>get(s).amount;
+  // Purchased orders and the ranked lifetime maximum are permanent. A new
+  // run starts with no stock, income total or current-order peak.
+  function rebirthState(s){
+    const n=normalize(get(s));
+    return normalize({...fresh(),order:n.order,owner:n.owner,highest:n.highest});
+  }
   const unlocked=s=>get(s).order!=='0';
   const symbol=order=>order==='1'?'N':order==='2'?'N²':order==='3'?'N³':'N^'+order;
   function visible(s){
@@ -107,5 +113,5 @@
       get:amount,set(s,value){const next=nonnegative(value);if(!unlocked(s)&&B.gt(next,0))throw Error('未解锁高阶多元库存');s.meta={...s.meta,highMultiverse:{...get(s),amount:next,highest:bestRecord(highest(s),{order:get(s).order,coefficient:next})}};return next;},
       add:adjust});
   }
-  WIS.Meta.HighMultiverse=Object.freeze({key,fresh,normalize,get,highest,amount,unlocked,symbol,visible,active,highestVisible,currentOrder,price,preview,promote,weaken,rate,credit,registerResource});
+  WIS.Meta.HighMultiverse=Object.freeze({key,fresh,rebirthState,normalize,get,highest,amount,unlocked,symbol,visible,active,highestVisible,currentOrder,price,preview,promote,weaken,rate,credit,registerResource});
 }(window.WIS));

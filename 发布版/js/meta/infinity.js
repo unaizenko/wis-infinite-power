@@ -170,6 +170,7 @@
       // An outer challenge must allow the inner system challenges needed for realm 7.
       const next=WIS.Core.State.fresh();
       next.unlockedAchievements={...s.unlockedAchievements};
+      next.meta.highMultiverse=WIS.Meta.HighMultiverse.rebirthState(s);
       next.core.preferences={...s.core.preferences};
       next.core.runtime.randomState=s.core.runtime.randomState;
       // Keep the infinity economy together so retained upgrades remain valid and refundable.

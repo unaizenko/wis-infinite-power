@@ -38,7 +38,7 @@
     ["daoWuYa", "道无涯", 11, "multiverseCoefficient", "1000", "按当前多元宇宙系数N²提升法力、仙灵力、仙力、元力、涅力的最终获取指数，最高^1.5；原有惩罚随后生效。"],
     ["daoYuan", "道源", 11, "multiverseCoefficient", "10000", "烙印·本源每次自然奖励数量×2；进度获取不变，后续需求按实际持有数量增长。"],
     ["originMultiverse", "第六步·本源增幅", 13, "nieForce", "5e16", "高阶多元原始获取×√(1+本源数量)，随后统一接受2/k指数削弱。"],
-    ["eternalMultiverse", "第七步·多元证道", 14, "nieForce", "5e18", "依据本轮历史最高高阶多元提升涅力获取：×10^(h−3+L/(1+L))；h为最高阶数，L=log10(1+该阶最高系数)。升阶、消耗不降低记录。"],
+    ["eternalMultiverse", "第七步·多元证道", 14, "nieForce", "5e18", "依据跨转生历史最高高阶多元提升涅力获取：×10^(h−3+L/(1+L))；h为最高阶数，L=log10(1+该阶最高系数)。升阶、消耗不降低记录。"],
     ["tierNie", "第八步·阶数增幅", 15, "nieForce", "5e21", "涅力获取×(k−1)²；k为当前高阶多元阶数。"],
     ["tierTranscendence", "第九步·超越", 16, "nieForce", "5e24", "J与战力获取指数×[1+min(0.5,0.025×(k−2))]；与已有指数共同生效，最高新增^1.5。"]
   ].map(([key, name, realm, resource, cost, description]) => Object.freeze({ key, name, realm, resource, cost: B.BN(cost), description })));

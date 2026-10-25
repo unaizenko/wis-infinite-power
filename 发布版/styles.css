@@ -929,4 +929,4 @@ button { font: inherit; }
 /* High multiverse order is unbounded; wrap its label without changing other resource cards. */
 .resource-panel #highMultiverseCoefficient-resource { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .resource-panel #highMultiverseCoefficient-resource > span { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
-#infinity-high-multiverse-row, #high-multiverse-upgrade { overflow-wrap: anywhere; }
+#infinity-high-multiverse-row, #infinity-high-multiverse-highest-row, #high-multiverse-upgrade { overflow-wrap: anywhere; }
