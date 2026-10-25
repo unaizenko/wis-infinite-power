@@ -22,14 +22,26 @@
       if(!selected)return false;
       for(const id of ['ordinary-actions-panel','big-number-panel','tree-panel'])$(id).hidden=true;
       for(const id of ['ordinary-actions-tab','big-number-tab','tree-tab'])$(id).setAttribute('aria-selected','false');
-      const X=WIS.Cultivation.Xiuzhen,third=X.thirdStepActive(s),fourth=X.fourthStepActive(s);
+      const X=WIS.Cultivation.Xiuzhen,H=WIS.Meta.HighMultiverse,third=X.thirdStepActive(s),fourth=X.fourthStepActive(s);
       $('infinity-universe-resources').hidden=!third;
       for(const [key,visible] of [['universeCoefficient',third],['multiverseCoefficient',fourth]]){
         $('infinity-'+key+'-row').hidden=!visible;
         if(visible)text($('infinity-'+key),context.format(X.amount(s,key),2));
       }
+      $('infinity-high-multiverse-row').hidden=!H.active(s);
+      if(H.active(s)){text($('infinity-high-multiverse-label'),'高阶多元（'+H.symbol(H.get(s).order)+'）');text($('infinity-high-multiverse'),context.format(H.amount(s),2));}
+      $('high-multiverse-upgrade').hidden=!fourth&&!H.active(s);
+      if(fourth||H.active(s)){
+        const advance=H.preview(s);
+        text($('high-multiverse-condition'),'升阶条件：C6·体系高阶多元'+(advance.prerequisite?'（已解锁）':'（未解锁）')+'；仙道第五步'+(advance.eligible?'（已达到）':'（未达到或封印）')+'；当前'+advance.fromSymbol+'系数 ≥ '+advance.threshold+'（当前 '+context.format(advance.coefficient,2)+'）');
+        text($('high-multiverse-cost'),'费用：'+f(advance.cost)+' 无限点数'+(advance.enoughPoints?'':'（点数不足）'));
+        text($('high-multiverse-preview'),'升阶预览：'+context.format(advance.coefficient,2)+' '+advance.fromSymbol+' → '+context.format(advance.nextAmount,2)+' '+advance.toSymbol+'；N、N²库存保留');
+        $('high-multiverse-promote').disabled=!advance.allowed;
+      }
       const v=I.previewRebirth(s);displayedRun=n.rebirthCount;
       $('infinity-balance').textContent=`无限点数：${f(n.points)}　累计获得：${f(n.totalPointsEarned)}　无限转生：${n.rebirthCount}次`;
+      $('infinity-silver-sea').hidden=!WIS.Meta.Achievements.has(s,'silverSea');
+      if(!$('infinity-silver-sea').hidden)text($('infinity-silver-sea'),'银海：+'+context.format(I.silverSeaRate(s),2)+' 无限点数/秒（当前无限转生收益的1%；当前需达到单体宇宙且TREE≥3，小数累计，离线生效）');
       $('infinity-preview').textContent=`${`重置行动、强化与体系进度，每种宝物最多保留 ${f(v.cap)}${WIS.Meta.Achievements.has(s,'eternalWitness')?'；一证永证保留体系挑战':'；挑战按无限强化保留规则重置'}`}；获得 ${f(v.points)} 无限点数`;
       $('infinity-rebirth').disabled=!v.allowed;$('infinity-requirement').textContent=v.allowed?'当前可无限转生':'需要当前 TREE ≥ TREE(3)';return true;
     }
@@ -96,8 +108,9 @@
       const tab=element('button','','无限');tab.id='infinity-tab';tab.type='button';tab.setAttribute('role','tab');$('big-number-tabs').append(tab);
       tab.addEventListener('click',()=>{selected=true;repaint();});for(const id of ['ordinary-actions-tab','big-number-tab','tree-tab'])$(id).addEventListener('click',()=>{selected=false;repaint();});
       const panel=element('section','infinity-panel');panel.id='infinity-panel';panel.hidden=true;
-      panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><section class="infinity-details" id="infinity-universe-resources" hidden><h3>宇宙数量</h3><p id="infinity-universeCoefficient-row" hidden>单体宇宙（N）：<strong id="infinity-universeCoefficient">0</strong></p><p id="infinity-multiverseCoefficient-row" hidden>多元宇宙（N²）：<strong id="infinity-multiverseCoefficient">0</strong></p></section><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
+      panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><section class="infinity-details" id="infinity-universe-resources" hidden><h3>宇宙数量</h3><p id="infinity-universeCoefficient-row" hidden>单体宇宙（N）：<strong id="infinity-universeCoefficient">0</strong></p><p id="infinity-multiverseCoefficient-row" hidden>多元宇宙（N²）：<strong id="infinity-multiverseCoefficient">0</strong></p><p id="infinity-high-multiverse-row" hidden><span id="infinity-high-multiverse-label">高阶多元</span>：<strong id="infinity-high-multiverse">0</strong></p></section><section class="infinity-details" id="high-multiverse-upgrade" hidden><h3>高阶多元</h3><p id="high-multiverse-condition"></p><p id="high-multiverse-cost"></p><p id="high-multiverse-preview"></p><p>仙道第五步根据涅力产出；原始获取统一按(1+原始获取)^(2/k)−1削弱。阶数越高，削弱越强。</p><button type="button" class="primary-button" id="high-multiverse-promote">高阶多元+</button></section><p id="infinity-silver-sea" hidden></p><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
       $('actions-page').append(panel);$('infinity-rebirth').addEventListener('click',()=>rebirth(false));
+      $('high-multiverse-promote').addEventListener('click',()=>context.performSavedAction(()=>WIS.Meta.HighMultiverse.promote(s),renderActions));
       const page=$('upgrades-page'),ordinary=element('div');ordinary.id='ordinary-upgrades-panel';
       for(const child of [...page.children])if(!child.classList.contains('page-header'))ordinary.append(child);
       const tabs=element('div','big-number-tabs');tabs.id='infinity-upgrade-tabs';tabs.hidden=true;tabs.innerHTML='<button type="button" id="ordinary-upgrades-tab">普通强化</button><button type="button" id="infinity-upgrades-tab">无限强化</button>';

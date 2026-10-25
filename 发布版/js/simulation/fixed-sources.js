@@ -70,7 +70,7 @@
           award: finite(T.getTreasureAwardMultiplier(snapshot,key),key) };
       });
       const XP=WIS.Cultivation.ExplorationProgress, cap=XP.capWords(snapshot);
-      return { ...profile, rewards, sheng:X.captureSheng(snapshot), changSheng:WIS.Cultivation.Martial.captureChangSheng(snapshot),
+      return { ...profile, rewards, silverSeaRate:WIS.Meta.Infinity.silverSeaRate(snapshot), sheng:X.captureSheng(snapshot), changSheng:WIS.Cultivation.Martial.captureChangSheng(snapshot),
         natural: { eligible: immortal && snapshot.goldenCoreUnlocked, cap },
         seizeEligible: immortal && !snapshot.unlockedAchievements?.seizeFoundation,
         // Current six automatic sources have no continuous asset debit.

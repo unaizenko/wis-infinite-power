@@ -43,7 +43,9 @@
         const m=M.normalize(M.get(s)),e=m.resources[shortName];
         const next=WIS.Core.Resources.prepareTerms({amount:e.amount},"amount",terms||[delta]).amount;
         const total=B.sub(next,e.amount);
-        e.amount=next;e.total=B.add(e.total,B.max(0,total));e.spent=B.add(e.spent,B.max(0,B.mul(total,-1)));e.peak=B.max(e.peak,next);install(s,m);return next;
+        e.amount=next;e.total=B.add(e.total,B.max(0,total));e.spent=B.add(e.spent,B.max(0,B.mul(total,-1)));e.peak=B.max(e.peak,next);
+        if (shortName === "heart" && B.lt(total,0)) M.applyHeartSpendRewards(s,m,B.mul(total,-1));
+        install(s,m);return next;
       }
     });
   }

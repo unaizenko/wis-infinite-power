@@ -191,6 +191,7 @@
       rates:{joulesPerSecond:sources.rates.joules,powerPerSecond:sources.rates.power}},{writeRates:!options.projection,powerPeak:options.powerPeak});
     immortal?.commitAutomaticGain?.(state,cultivation,{writeRates:!options.projection,skipTreasureRolls:true});
     WIS.Simulation.ResourceGroups.commitAdditional(state,plan.gains);
+    WIS.Meta.Infinity.awardSilverSea(state,seconds,sources.silverSeaRate??B.ZERO);
     for(const [key,debit] of Object.entries(plan.debits)) if(B.gt(debit,0)) {
       const paid=["joules","power"].includes(key)?WIS.Core.Resources.spend(key,debit):WIS.Core.Resources.spendSystem("immortal",key,debit);
       if(!paid) throw Error("固定持续消耗无法提交；本段未提交");

@@ -1,6 +1,8 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.7.13，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.8.0，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+
+0.1.8.0已同步当前正式内容至发布版；下文“仅开发/未发布”均为对应功能开发时历史记录。发布版剥离调速与公式调试，正式速度固定×1。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -22,18 +24,20 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.7.13` | 玩家可见发布版本 |
+| gameVersion | `0.1.8.0` | 玩家可见发布版本 |
 | schemaVersion | `72` | Save envelope/State schema |
-| buildId | `release-0.1.7.13-20261019` | 发布构建与静态缓存标识 |
+| buildId | `release-0.1.8.0-20261025` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `2` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
 
 第四步资源 multiverseCoefficient（N²）由cultivation/resources注册，xiuzhen负责库存/支付/速率，ResourceGroups声明N与M反馈依赖。道无涯沿用既有来源指数层，道源通过本源自然奖励倍率统一结算；UI复用中央格式化。长生诀由Martial捕获K、起点气及心支撑，FixedSources保存本段来源，FixedSegment准备在线衰减积分或冻结起点速率，并于同帧自动动作后入账。新能力按原重置/Save规则处理，不改变持久化clock/debt/RNG合同。
 
+高阶多元由meta/high-multiverse.js管理独立meta.highMultiverse，正式资源ID为meta.multiverse.highMultiverseCoefficient。阶数以十进制字符串持久化/BigInt递增，金额与库存沿用BigNum；C6是前置，升阶在行动保存边界原子扣点且保留N/N²。ResourceGroups接收当前Cultivation的highMultiverseRate(state)来源并先削弱每秒速率，目前体系来源为0，专属强化待后续。顶栏使用最高可见资源选择器；存档新增字段默认锁定，散功保留，其他转生清零。
+
 ## 3. 脚本装配
 
-`index.html` 是唯一人工脚本成员/顺序真源，`js/script-manifest.json` 是生成结果。当前清单 78 个脚本。
+`index.html` 是唯一人工脚本成员/顺序真源，`js/script-manifest.json` 是生成结果。当前清单 79 个脚本。
 
 大致顺序：
 
@@ -383,3 +387,24 @@ B6由Core.Penalties集中提供阶梯公式和下一档位边界。ScaleLogic动
 C4接在C3之后，100点。Infinity.prepareRebirth对infinityRing建立仅保留成就、设置和RNG的全新候选，不发点数。meta.infinity.ringChallengeActive独立持久化，让必要的普通/体系挑战与无限转生可在圆环内继续；Challenges在正式结算检查当前realm>=7后发放eternalWitness并结束圆环。Reset按挑战定义的system保留体系挑战次数和bestQiLayer，旧保留全部内容效果停用。退出保存失败恢复活动标志。
 
 有限进度精度修复（2026-10-13）：Core.FiniteProgress 的 create/advance/value/remaining 在投影前用 SignedLedger 严格消去公共项，跨越需求按投影前符号判断，避免大需求吞掉小进度或提前发奖。维持 finite v1 的 requirement/remaining/carry 字段；直接宝物入库更新需求时保留绝对自然进度。SignedLedger 在函数调用时读取，现有脚本加载顺序不变。
+
+
+## 修真道第五至第九步（2026-10-25）
+Xiuzhen维护境界12至16、第五步先天原始率与第六至九步动态能力；Immortal注册项highMultiverseRate转交此原始率，HighMultiverse统一削弱。高阶highest字段以(order,coefficient)比较并由正式credit/promote/registry设置保存，纯highest查询还纳入候选当前库存/peak，消费不降历史；旧档normalize补记录。ResourceGroups补涅力/战力对高阶的依赖及阶数签名。UI按原realm/ability列表自动装配，新先天说明和第五步升阶资格独立加入。费用公式及重置边界见../AGENT_CONTEXT.md与../../WIS-项目资源/xiuzhen-fifth-ninth-20261025/REPORT.md。
+
+
+## 高阶多元成就（2026-10-25）
+HighMultiverse.currentOrder统一当前可见已解锁阶位；Achievements提供三成就及共享阶位倍率。Infinity.previewRebirth在基础+3后乘无限多元；silverSeaRate共享最终预览，不包含退款。FixedSources捕获银海率，FixedSegment在私有候选连续提交阶段调用awardSilverSea，整数记余额/累计，有限小数silverSeaProgress保留；不调用转生或调整时钟。Treasures.getTreasureAwardMultiplier只给originImprint叠厚土×阶数。UI动态更新两成就倍率，并在无限页显示银海速率。详见../../WIS-项目资源/multiverse-achievements-20261025/REPORT.md。
+
+## 武道七项能力（2026-10-25，仅开发版）
+
+开发版本仍 0.1.7.13；build release-0.1.8.0-20261025。发布版未改，Schema72/rule2/存档key不变。
+
+新增天魔策/慈航剑典各200神魂，要求先天、当前心200；实际消费每1心基础给予10气/体。手动/自动神魂转换与Registry心支付均在全部扣费后按候选库存/心计算，再叠丹劲和基因源能并走原长生诀直接收入积分减速，包含即将收入；前置门槛、set、重置、零额、失败支付不触发。预览只读且复用相同奖励函数。
+
+宇宙流：基因源能9级，神魂费用200×2^(等级−1)，每级获取倍率×2，满级×512，仅首次解锁需气体1000/心120，后续升级只需神魂；作用凝气、锻体投入效率和直接气体收入，随后原减速。水晶冥想600魂、基因源能/心300前置，炼心神魂投入效率×5。秘境流：苦海1000魂/气1e4；命泉2000魂/体1e4/苦海；神桥5000魂/心1000/命泉。三者分别以1+[log10(1+气/体/心)]²乘呼吸法/极限运动/鬼背的原倍率，不凭空解锁原强化。神桥仅在武道且鬼背已购买并激活时取消J×0.75惩罚并增强战力。
+
+沿原能力存档/转生清除规则，无新持久字段。现有宇宙、秘境占位页正式接入卡片与购买升级；行动预览显示消耗心奖励，鬼背与原强化预览同步倍率。Scale Effects声明martialQi/Body/Heart动态依赖。在线保留0.1秒正式结算；离线沿起点冻结长生诀收益，不运行自动兑换。
+
+针对性验证：新增10项Node、原长生诀14项、罡劲丹劲7项、冻结离线13子场景；真实UI 1280/390/320宽度购买/满级/存档/只读/无溢出；4场在线离线Worker与同浏览器本地完整玩法、debt、RNG、Save一致（仅排除宿主时间戳）。85运行JS语法、79脚本manifest、68脚本Worker检查，发布91文件哈希未变。没有全历史套件、实体设备或长期性能验收。详细数值及文件见 ../WIS-项目资源/martial-seven-20261025/REPORT.md。
+

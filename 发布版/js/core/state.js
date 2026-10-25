@@ -893,7 +893,7 @@
       core: { resources: {}, runtime: {}, preferences: {} },
       powerSystem: { active: "scale", systems: { scale: { progress: {}, actions: {}, upgrades: {}, history: { manualUpgrades: {} } } } },
       cultivation: { active: null, systems: { immortal: { resources: {}, progress: {}, abilities: {}, persistent: {}, history: { manualAbilities: {}, manualRealmLevel: 0 } } } },
-      meta: { achievements: {}, treasures: {}, milestones: {}, statistics: {}, challenges: {}, infinity: WIS.Meta.Infinity.fresh() }
+      meta: { achievements: {}, treasures: {}, milestones: {}, statistics: {}, challenges: {}, infinity: WIS.Meta.Infinity.fresh(), highMultiverse: WIS.Meta.HighMultiverse.fresh() }
     };
   }
 
@@ -957,6 +957,7 @@
     legacyPaths.forEach(({ write }, key) => write(domain, clone(flat[key])));
     domain.cultivation.active = ["仙道", "immortal"].includes(flat.cultivationSystem) ? "immortal" : ["武道", "martial"].includes(flat.cultivationSystem) ? "martial" : null;
     domain.meta.achievements = clone(flat.unlockedAchievements || {});
+    domain.meta.highMultiverse = WIS.Meta.HighMultiverse.normalize(flatInput?.highMultiverse);
     domain.meta.infinity = WIS.Meta.Infinity.normalize(flatInput?.infinity,domain.meta.achievements.tree3 === true,domain.meta.achievements.rapidUniverseStructure===true);
     delete domain.meta.achievements.rapidUniverseStructure;
     delete domain.meta.achievements.martialFlow;
@@ -1104,6 +1105,7 @@
     if (domain.cultivation.active === "武道") domain.cultivation.active = "martial";
     if (domain.cultivation.active === "仙道") domain.cultivation.active = "immortal";
 
+    domain.meta.highMultiverse = WIS.Meta.HighMultiverse.normalize(source.meta?.highMultiverse);
     domain.meta.infinity = WIS.Meta.Infinity.normalize(source.meta?.infinity,source.meta?.achievements?.tree3 === true,
       source.meta?.achievements?.rapidUniverseStructure===true||(Number(source.meta?.challenges?.challengeCompletions?.infinityFast)||0)>0);
     delete domain.meta.achievements.rapidUniverseStructure;

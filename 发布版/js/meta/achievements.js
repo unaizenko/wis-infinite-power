@@ -85,8 +85,15 @@
     return WIS.Meta.Achievements.has(current,"universe")
       ? B.pow(B.add(1,B.log10(B.add(1,WIS.Meta.Treasures.count(current,"cosmicWill")))),.5) : B.ONE;
   }
+  function multiverseAchievementMultiplier(current,key) {
+    return WIS.Meta.Achievements.has(current,key)
+      ? WIS.Core.BigNum.max(1,WIS.Meta.HighMultiverse.currentOrder(current)) : WIS.Core.BigNum.ONE;
+  }
   function achievementDefinitions() {
     const definitions = [
+      { key:"infiniteMultiverse", name:"无限多元", description:"抵达N³。", reward:'无限点数获取×当前N的阶位；当前 ×'+format(multiverseAchievementMultiplier(state,"infiniteMultiverse"),2), completed:completedAchievement("infiniteMultiverse",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=3n) },
+      { key:"silverSea", name:"银海", description:"抵达N^99。", reward:"当前达到单体宇宙且TREE≥3时，每秒自动获得当前无限转生收益的1%；离线生效，不触发转生，小数累计", completed:completedAchievement("silverSea",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=99n) },
+      { key:"thickEarth", system:"仙道", name:"厚土", description:"抵达仙道·修真道·第九步。", reward:'本源自然奖励数量×当前N的阶位，与道源叠加；当前 ×'+format(multiverseAchievementMultiplier(state,"thickEarth"),2), completed:completedAchievement("thickEarth",(WIS.Cultivation.Xiuzhen.get(state).highestRealm||0)>=16) },
       { key:"martialHarmony", system:"武道", name:"内三合", description:"完成意与气合、心与意合、气与力合三项武道挑战。", reward:"炼心保留相当于炼心前当前心的气、体，不足时按现有数量保留；解锁自动神魂", completed:completedAchievement("martialHarmony",["martialIntentQi","martialHeartIntent","martialQiPower"].every(key=>challengeCompletionCount(key)>0)) },
       { key:"martialInnate", system:"武道", name:"先天", description:"完成任督二脉挑战。", reward:"气获取×2", completed:completedAchievement("martialInnate",challengeCompletionCount("martialMeridians")>0) },
       { key:"yuan", system:"仙道", name:"元", description:"突破仙道境界·第二步·碎涅。", reward:"解锁仙道宝物烙印·元晶", completed:completedAchievement("yuan",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=6) },
@@ -208,9 +215,9 @@
       "powerOne","five","brick","trueBrick","lightningFiveWhip","trainingUp",
       ...SCALE_THRESHOLDS.slice(2).flatMap((_scale,i)=>[`scale${i+2}`,`trueScale${i+2}`]),
       "threeDeficiencies","fiveMisfortunesThreeDeficiencies","beyondFractal","googol","trueG1","graham64","trueGraham","tree3","trueTree3","seventhTree",
-      "universe","infinityPower","eternalWitness",
+      "universe","infinityPower","infiniteMultiverse","silverSea","eternalWitness",
       "aspireImmortality","daoFoundation","seizeFoundation","goldenCore","infantSpirit","humanRealmDominance","refineTheVoid","bodyIntegration","mahayana",
-      "ascendImmortal","goldenNature","utmostPurity","greatLuo","selfSeveringSlash","qiPathComplete","infantTransformationImmortal","yuan","greatHeavenlyVenerable"
+      "ascendImmortal","goldenNature","utmostPurity","greatLuo","selfSeveringSlash","qiPathComplete","infantTransformationImmortal","yuan","greatHeavenlyVenerable","thickEarth"
     ];
     const positions=new Map(order.map((key,i)=>[key,i]));
     return definitions.sort((a,b)=>(positions.get(a.key)??order.length)-(positions.get(b.key)??order.length));
@@ -269,7 +276,7 @@
   }
 
   WIS.Meta.Achievements = Object.freeze({
-    greatHeavenlyVenerableMultiplier, ordinaryTreasureRequirementDivisor,
+    greatHeavenlyVenerableMultiplier, ordinaryTreasureRequirementDivisor, multiverseAchievementMultiplier,
     has(state, key) {
       return state.meta.achievements?.[key] === true;
     },

@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "release-0.1.7.13-20261019",
+  "buildId": "release-0.1.8.0-20261025",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -27,6 +27,7 @@
     "js/core/probability.js",
     "js/simulation/compensation.js",
     "js/cultivation/martial.js",
+    "js/meta/high-multiverse.js",
     "js/core/state.js",
     "js/core/save.js",
     "js/core/resources.js",

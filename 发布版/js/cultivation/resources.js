@@ -43,4 +43,5 @@
       specialSpend: (s, cost) => WIS.Cultivation.Xiuzhen.spendResource(s, shortName, cost)
     });
   }
+  WIS.Meta.HighMultiverse.registerResource();
 }(window.WIS));

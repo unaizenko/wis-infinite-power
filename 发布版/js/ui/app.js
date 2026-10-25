@@ -1834,12 +1834,15 @@
     const recovering=status.pendingGameSeconds>0 && (status.presentation==="blocking" || status.offlinePendingGameSeconds>0);
     const paused = status.phase === "paused";
     const settlement = state.core.runtime.lastSettlement;
-    for (const key of X.resourceKeys) {
-      const visible = active && (key !== "universeCoefficient" || !X.fourthStepActive(state))
+    const H=WIS.Meta.HighMultiverse, highestUniverse=H.highestVisible(state);
+    for (const key of [...X.resourceKeys,H.key]) {
+      const visible = key===H.key ? highestUniverse===key : active && (!["universeCoefficient","multiverseCoefficient"].includes(key) || highestUniverse===key)
         && (n.abilities[key] || n.realm >= ({xianForce:2,yuanForce:3,nieForce:7,universeCoefficient:7,multiverseCoefficient:11}[key]));
       setHiddenIfChanged(byId(key + "-resource"), !visible);
       if (visible) {
-        setTextIfChanged(byId(key), format(X.amount(state, key)));
+        const stock=key===H.key?H.amount(state):X.amount(state,key);
+        if(key===H.key)setTextIfChanged(byId("highMultiverseCoefficient-label"),"高阶多元（"+H.symbol(H.get(state).order)+"）");
+        setTextIfChanged(byId(key), format(stock));
         // All registered resource rates are published by the existing committed
         // step. Presentation must not run another Xiuzhen/Effects evaluation.
         const rate = WIS.tmp.rates[key + "PerSecond"] ??
@@ -1849,7 +1852,7 @@
         setTextIfChanged(byId(key + "-rate"), paused ? "结算暂停"
           : status.clockSuspended || recovering ? "（离线结算中）"
           : document.hidden ? "当前产出暂不展示"
-          : rate == null ? "尚无结算速率" : committedRateText(key, X.amount(state, key), rate, status));
+          : rate == null ? "尚无结算速率" : committedRateText(key, stock, rate, status));
       }
     }
     setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys.filter(key => !["universeCoefficient","multiverseCoefficient"].includes(key))]
@@ -2114,8 +2117,8 @@
     setPreviewText(byId("exercise-preview"), () => `${state.exercisePurchased ? "当前：" : "解锁后："}J 获取 ×${format(state.exercisePurchased ? exercise : exercisePotential, 2)}`);
     setPreviewText(byId("transcendent-preview"), () => `${state.transcendentPurchased ? "当前：" : "解锁后："}战力获取 ×${format(state.transcendentPurchased ? transcendent : transcendentPotential, 2)}`);
     writeSourcePreview("focus-preview", "focus", true);
-    setPreviewText(byId("breathing-method-preview"), () => `${state.breathingMethodPurchased ? "当前：" : "解锁后："}跑步倍率 ×1.5`);
-    setPreviewText(byId("extreme-exercise-preview"), () => `${state.extremeExercisePurchased ? "当前：" : "解锁后："}运动倍率 ×1.5`);
+    setPreviewText(byId("breathing-method-preview"), () => `${state.breathingMethodPurchased ? "当前：" : "解锁后："}跑步倍率 ×${format(mulBN(1.5, WIS.Cultivation.Martial.abilityMultiplier(state,"kuHai")), 2)}`);
+    setPreviewText(byId("extreme-exercise-preview"), () => `${state.extremeExercisePurchased ? "当前：" : "解锁后："}运动倍率 ×${format(mulBN(1.5, WIS.Cultivation.Martial.abilityMultiplier(state,"mingQuan")), 2)}`);
     }
     if (renderActions) {
       const fitnessCap = fitnessLevelCap();
@@ -2151,6 +2154,8 @@
     setHiddenIfChanged(byId("rock-action"), !state.wallUnlocked);
     setHiddenIfChanged(byId("ghost-back-action"), !state.ghostBackPurchased);
     toggleClassIfChanged(byId("ghost-back-action"), "purchased", state.ghostBackActive);
+    setTextIfChanged(byId("ghost-back-description"), WIS.Cultivation.Martial.active(state) && WIS.Cultivation.Martial.get(state).abilities.shenQiao ? "激活时提升战力获取；神桥已取消J获取惩罚。" : "激活时降低J获取，提升战力获取。");
+    setTextIfChanged(byId("ghost-back-effect"), `激活时：J ×${format(WIS.Power.ScaleLogic.ghostBackJMultiplier(state,true),2)}；战力 ×${format(WIS.Power.ScaleLogic.ghostBackPowerMultiplier(state,true),2)}`);
     setTextIfChanged(byId("ghost-back-state"), state.ghostBackActive ? "当前已激活" : "当前未激活");
     setTextIfChanged(byId("toggle-ghost-back"), state.ghostBackActive ? "关闭" : "激活");
     setDisabledIfChanged(byId("toggle-ghost-back"), !state.ghostBackPurchased);
@@ -3024,7 +3029,7 @@
       const reward = rawById("achievement-beyondFractal")?.querySelector(".achievement-reward strong");
       const current = WIS.Meta.Achievements.beyondFractalReward();
       if (reward && reward.textContent !== current) reward.textContent = current;
-      for (const achievement of achievementDefinitions().filter(a=>["greatHeavenlyVenerable","universe"].includes(a.key))) {
+      for (const achievement of achievementDefinitions().filter(a=>["greatHeavenlyVenerable","universe","infiniteMultiverse","thickEarth"].includes(a.key))) {
         const row=rawById(`achievement-${achievement.key}`)?.querySelector(".achievement-reward strong");
         if(row)setTextIfChanged(row,achievement.reward);
       }

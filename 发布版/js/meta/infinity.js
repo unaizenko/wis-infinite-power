@@ -1,8 +1,17 @@
 (function defineInfinity(WIS) {
   'use strict';
   const B=WIS.Core.BigNum,C=WIS.Meta.InfinityConfig;
-  const fresh=()=>({version:1,points:B.BN(0),totalPointsEarned:B.BN(0),rebirthCount:0,unlocked:false,upgradesUnlocked:false,upgrades:{},purchaseLedger:[],runElapsed:0,challengeRewards:{},ringChallengeActive:false});
+  const fresh=()=>({version:1,points:B.BN(0),totalPointsEarned:B.BN(0),rebirthCount:0,unlocked:false,upgradesUnlocked:false,upgrades:{},purchaseLedger:[],runElapsed:0,challengeRewards:{},ringChallengeActive:false,silverSeaProgress:{version:1,requirement:"1",remaining:"1",carry:"0"}});
   function money(v) {const x=B.parseFinite(v??0);if(!x||x.lt(0)||!x.eq(x.floor()))throw Error('无限点数/支付记录必须为非负整数');return x;}
+  function normalizeSilverSeaProgress(raw) {
+    if(raw==null)return {version:1,requirement:"1",remaining:"1",carry:"0"};
+    const L=WIS.Meta.TreasureLedger;
+    if(raw.version!==1||!B.eq(raw.requirement,1)||!B.isFiniteBN(raw.remaining)||B.lt(raw.remaining,0)||B.gt(raw.remaining,1)||!B.isFiniteBN(raw.carry))
+      throw Error('银海小数进度无效');
+    const fraction=L.normalize([1,B.BN(raw.remaining).neg(),raw.carry]);
+    if(L.sign(fraction)<0||L.compare(fraction,[1])>=0)throw Error('银海小数进度越界');
+    return {version:1,requirement:"1",remaining:String(raw.remaining),carry:String(raw.carry)};
+  }
   function normalize(raw,achievement=false,legacyFastReward=false) {
     const n=fresh();if(raw!=null&&(typeof raw!=='object'||Array.isArray(raw)))throw Error('无限状态无效');
     if(raw?.version!=null&&raw.version!==1)throw Error('无限状态版本无效');
@@ -10,6 +19,7 @@
       if(raw.ringChallengeActive!=null&&typeof raw.ringChallengeActive!=='boolean')throw Error('圆环之理挑战状态无效');
       n.ringChallengeActive=raw.ringChallengeActive===true;
       n.points=money(raw.points);n.totalPointsEarned=money(raw.totalPointsEarned);
+      n.silverSeaProgress=normalizeSilverSeaProgress(raw.silverSeaProgress);
       if(!Number.isSafeInteger(raw.rebirthCount)||raw.rebirthCount<0)throw Error('无限转生次数无效');
       if(!Number.isFinite(raw.runElapsed)||raw.runElapsed<0)throw Error('无限周目时间无效');
       n.rebirthCount=raw.rebirthCount;n.runElapsed=raw.runElapsed;
@@ -118,12 +128,38 @@
   function previewRebirth(s,{respec=false,challengeKey=null}={},n=get(s)) {
     const rank=WIS.Meta.BigNumbers.get(s).tree.rank;
     let multiplier=B.BN(has(s,'B2')?C.pointMultiplier:1);
-    multiplier=B.mul(multiplier,rapidPointMultiplier(s));
+    multiplier=B.mul(B.mul(multiplier,rapidPointMultiplier(s)),WIS.Meta.Achievements.multiverseAchievementMultiplier(s,"infiniteMultiverse"));
     // The permanent curve uses this run's TREE rank. Infinity Power stays additive before multipliers.
     const base=WIS.Meta.Achievements.has(s,'seventhTree')?B.add(3,B.div(B.mul(B.sub(rank,3),B.sub(rank,2)),2)):B.BN(rank);
     const points=challengeKey==='infinityRing'||rank<C.minimumTree?B.BN(0):B.mul(B.add(base,WIS.Meta.Achievements.has(s,'infinityPower')?3:0),multiplier).floor();
     const earned=B.add(n.totalPointsEarned,points),cap=has(s,'B1-1')?B.max(C.treasureCap,B.mul(C.treasureCap,earned)):B.BN(C.treasureCap);
     return {allowed:challengeKey!=null?(!respec&&challengeEntryAllowed(s,challengeKey)):n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
+  }
+  function silverSeaRate(s) {
+    if(!WIS.Meta.Achievements.has(s,'silverSea')||WIS.Meta.HighMultiverse.currentOrder(s)==='0')return B.ZERO;
+    const v=previewRebirth(s);
+    return v.allowed?B.div(v.points,100):B.ZERO;
+  }
+  function awardSilverSea(s,seconds,rate) {
+    WIS.Core.Runtime.assertMutable();
+    const dt=B.parseFinite(seconds),r=B.parseFinite(rate);
+    if(!dt||!r||B.lt(dt,0)||B.lt(r,0))throw Error('银海收益参数无效');
+    const gain=B.mul(r,dt);if(!B.isFiniteBN(gain))throw Error('银海收益无法表示');
+    if(B.eq(gain,0))return B.ZERO;
+    const n=get(s),L=WIS.Meta.TreasureLedger,p=normalizeSilverSeaProgress(n.silverSeaProgress);
+    // Separate the integer gain before accumulating sub-point progress. Huge
+    // income must not erase a saved fraction or require a huge-minus-one sum.
+    let whole=gain.floor();
+    const fraction=L.add([1,B.BN(p.remaining).neg(),p.carry],L.subtract([gain],[whole]));
+    const crosses=L.compare(fraction,[1])>=0;
+    const rest=crosses?L.subtract(fraction,[1]):fraction;
+    if(L.sign(rest)<0||L.compare(rest,[1])>=0)throw Error('银海小数边界无法表示');
+    if(crosses)whole=B.add(whole,1);
+    const remaining=L.value(L.subtract([1],rest));
+    const carry=L.value(L.subtract(rest,L.subtract([1],[remaining])));
+    const next={...n,points:money(B.add(n.points,whole)),totalPointsEarned:money(B.add(n.totalPointsEarned,whole)),
+      silverSeaProgress:{version:1,requirement:"1",remaining:String(remaining),carry:String(carry)}};
+    s.meta={...s.meta,infinity:next};return whole;
   }
   function prepareRebirth(s,options={}) {
     WIS.Core.Runtime.assertMutable();const old=normalize(get(s),s.unlockedAchievements.tree3===true),v=previewRebirth(s,options,old);
@@ -138,7 +174,7 @@
       next.core.runtime.randomState=s.core.runtime.randomState;
       // Keep the infinity economy together so retained upgrades remain valid and refundable.
       next.meta.infinity={...next.meta.infinity,unlocked:old.unlocked,upgradesUnlocked:old.upgradesUnlocked,
-        points:old.points,totalPointsEarned:old.totalPointsEarned,upgrades:old.upgrades,
+        points:old.points,totalPointsEarned:old.totalPointsEarned,silverSeaProgress:old.silverSeaProgress,upgrades:old.upgrades,
         purchaseLedger:old.purchaseLedger,ringChallengeActive:true};
       return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(next));
     }
@@ -166,6 +202,6 @@
     catch(error){host.restore(snapshot);throw error;}
     return next;
   }
-  WIS.Meta.Infinity=Object.freeze({fresh,normalize,get,has,hasInfinityUpgrade:has,status,purchase,invested,previewRebirth,prepareRebirth,
+  WIS.Meta.Infinity=Object.freeze({fresh,normalize,get,has,hasInfinityUpgrade:has,status,purchase,invested,previewRebirth,silverSeaRate,awardSilverSea,prepareRebirth,
     commitRebirth,completed,rewardUnlocked,isInfinityChallenge,isChallengeActive,challengeEntryAllowed,recordChallengeReward,rapidChallengeStepSeconds,rapidPointMultiplier,tempoMultiplier,dynamicTempo,softcapWeakening,interpolate,fractalGainMultiplier,gBaseRequirement,gRequirementBeforeRank,gRequirementDivisor,gRequirementAfterRank,gRankPolynomial,gRequirement,gSpeedMultiplier,treeGainMultiplier,effects});
 }(window.WIS));

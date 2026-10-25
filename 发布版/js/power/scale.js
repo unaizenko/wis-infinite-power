@@ -32,14 +32,14 @@
   function effects(state) {
     if (state.powerSystem?.active !== "scale") return [];
     return [
-      { id: "gym", name: "跑步", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => WIS.Power.ScaleLogic.gymMultiplier(current) },
-      { id: "exercise", name: "运动", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => WIS.Power.ScaleLogic.exerciseMultiplier(current) },
+      { id: "gym", name: "跑步", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power","martialQi"], value: (current) => WIS.Power.ScaleLogic.gymMultiplier(current) },
+      { id: "exercise", name: "运动", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules","martialBody"], value: (current) => WIS.Power.ScaleLogic.exerciseMultiplier(current) },
       { id: "water", name: "击水", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, value: (current) => current.waterPurchased ? WIS.Power.ScaleLogic.waterPotentialJMultiplier(current) : 1 },
-      { id: "ghostBackJ", name: "鬼背", group: "行动", target: "joules", layer: "regionMultiplier", value: state.ghostBackPurchased && state.ghostBackActive ? 0.75 : 1 },
+      { id: "ghostBackJ", name: "鬼背", group: "行动", target: "joules", layer: "regionMultiplier", value: WIS.Power.ScaleLogic.ghostBackJMultiplier(state) },
       { id: "five", name: "战五渣", group: "量级论", target: "power", layer: "regionMultiplier", value: state.unlockedAchievements?.five ? 1.05 : 1 },
       { id: "transcendent", name: "超凡之力", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power"], value: (current) => WIS.Power.ScaleLogic.transcendentMultiplier(current) },
       { id: "naturalStrength", name: "天生神力", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules"], value: (current) => current.naturalStrengthPurchased ? WIS.Power.ScaleLogic.naturalStrengthPotentialMultiplier(current) : 1 },
-      { id: "ghostBackPower", name: "鬼背", group: "量级论", target: "power", layer: "regionMultiplier", value: state.ghostBackPurchased && state.ghostBackActive ? 1.75 : 1 },
+      { id: "ghostBackPower", name: "鬼背", group: "量级论", target: "power", layer: "regionMultiplier", dynamic: true, dynamicResources: ["martialHeart"], value: current => WIS.Power.ScaleLogic.ghostBackPowerMultiplier(current) },
       { id: "bulletTime", name: "子弹时间", group: "量级论", target: "power", layer: "regionMultiplier", value: state.bulletTimePurchased ? 1.5 : 1 },
       { id: "superpower", name: "异能", group: "量级论", target: "power", layer: "regionExponent", value: state.superpowerPurchased ? (state.superpowerEvolutionPurchased ? 1.06 : 1.05) : 1 },
       { id: "invulnerable", name: "金刚不坏", group: "量级论", target: "fitness", layer: "sourceExponent", value: state.invulnerablePurchased ? 1.15 : 1 },

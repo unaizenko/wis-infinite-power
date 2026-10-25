@@ -6,7 +6,7 @@
     const $ = id => document.getElementById(id);
     const labels = Object.freeze({ qi: "气", body: "体", heart: "心", soul: "神魂", joules: "J", power: "战力" });
     const actionNames = Object.freeze({ qi: "凝气", body: "锻体", heart: "炼心", soul: "神魂" });
-    const families = [["golden", "金古黄梁"], ["human", "国术—人仙"], ["devour", "宇宙"], ["shroud", "秘境"]];
+    const families = [["golden", "金古黄梁"], ["human", "国术—人仙"], ["devour", "宇宙流"], ["shroud", "秘境流"]];
     const rows = [], abilities = [], challengeRows = [], summaryValues = [], heartRows = [], tabs = [], panels = [];
     let mounted = false, pending = false, activeFamily = "golden";
     const f = value => context.format(value, 3);
@@ -91,20 +91,18 @@
         tabs.push(tab); tablist.append(tab);
         const panel = el("section", "", "cultivation-subpage"); panel.id = "martial-" + key + "-panel"; panel.dataset.martialBranch = key;
         panel.setAttribute("role", "tabpanel"); panel.setAttribute("aria-labelledby", tab.id); panels.push(panel); cultivation.append(panel);
-        if (key === "devour" || key === "shroud") {
-          const placeholder = group(panel, name, "待设计", true);
-          placeholder.list.append(el("p", "尚未开放。", "catalog-empty")); continue;
-        }
         const groups = el("div", "", "upgrade-groups"); panel.append(groups);
         if (key === "golden") {
           const slots = el("p", "", "martial-note"); slots.id = "martial-slots"; panel.prepend(slots);
         }
         const categories = key === "golden"
           ? [["shengong", "神功", "特殊修行法门；解锁前请留意重置与价格变化。"], ["inner", "内功", "首次解锁占用名额，升级不再占用；太玄经不占名额。"], ["moves", "招式", "提升武道来源与转换效率。"], ["jueji", "绝技", "各项能力按自身效果生效。"], ["special", "特殊能力", "挑战资格与内功名额。"]]
+          : key === "devour" ? [["devour", "宇宙流", "基因与精神修炼，提升武道资源获取。"]]
+          : key === "shroud" ? [["shroud", "秘境流", "根据气、体、心增强已有强化。"]]
           : [["strength", "劲力", "明劲、暗劲、化劲、罡劲、丹劲"], ["body", "肉身", "易筋、易骨、易髓"], ["boxing", "国术", "拳法与武道修行"], ["special", "特殊能力", "挑战资格与特殊功法"]];
         const categoryLists = new Map(categories.map(([category, name, description], index) => [category, group(groups, name, description, index === 0).list]));
         for (const a of C.abilities.filter(a => (a.family || a.group || a.branch) === key)) {
-          const category = key === "golden" ? a.branch : ["mingJin", "anJin", "huaJin", "gangJin", "danJin"].includes(a.key) ? "strength" : ["yiJin", "yiGu", "yiSui"].includes(a.key) ? "body" : ["stealHeaven", "innerHarmony", "reverseArt", "innate"].includes(a.key) ? "special" : "boxing";
+          const category = key !== "human" ? a.branch : ["mingJin", "anJin", "huaJin", "gangJin", "danJin"].includes(a.key) ? "strength" : ["yiJin", "yiGu", "yiSui"].includes(a.key) ? "body" : ["stealHeaven", "innerHarmony", "reverseArt", "innate"].includes(a.key) ? "special" : "boxing";
           const row = item(categoryLists.get(category), a.name, a.description);
           const prerequisites = (a.prerequisites || []).map(key => C.abilities.find(other => other.key === key)?.name || key);
           if (prerequisites.length) row.content.append(el("p", "能力前置：" + prerequisites.join("、")));
@@ -163,6 +161,8 @@
         row.amount.textContent = "当前" + labels[row.key] + "：" + f(M.amount(s, row.key));
         row.costs.textContent = "消耗全部可用：" + Object.entries(p.costs || p.consumed || {}).map(([key, value]) => `${f(value)} ${labels[key] || key}`).join("、");
         row.gain.textContent = `预计 +${f(p.gain)} ${labels[row.key]}` + (p.reason ? ` · ${p.reason}` : "");
+        const rewards = Object.entries(p.heartRewards || {}).filter(([,value]) => B.gt(value,0));
+        if (rewards.length) row.gain.textContent += "；消耗心额外获得：" + rewards.map(([key,value]) => `+${f(value)} ${labels[key]}`).join("、");
         row.convert.disabled = locked() || !enabled || !p.allowed || !B.gt(p.gain, B.ZERO);
       }
     }
@@ -177,11 +177,14 @@
         const p = M.captureChangSheng(s);
         return `内功 ${p.kinds} 种；自然气 +${f(p.rate)}/秒（基础 ${f(p.base)}/秒）；内功价格 ×${10*(M.innerCount(s)+1)}`;
       }
+      if (["tianMo","ciHang"].includes(key)) return `每消耗1心基础获得10${key === "tianMo" ? "气" : "体"}；实际收益按扣费后的资源计算减速`;
+      if (["kuHai","mingQuan","shenQiao"].includes(key)) return `${{kuHai:"呼吸法",mingQuan:"极限运动",shenQiao:"鬼背战力"}[key]}倍率 ×${f(M.abilityMultiplier(s,key,level))}` + (key === "shenQiao" ? "；取消鬼背J惩罚（激活时生效）" : "（需解锁原强化）");
       if (key === "reverseArt") return running === "martialMeridians" ? "名额加成暂不生效（挑战限 1 项）" : "内功名额 +1";
       if (key === "qianKun") return `招式战力来源 +${f(M.qiPowerSource(s, level))}/秒`;
       if (key === "jiaYi") return "凝气、锻体效率 ×4；气的J来源、体的战力来源 ×0.5";
       if (["jiuYang", "longXiang"].includes(key) && running === "martialIntentQi") return "气的J来源已被挑战停用";
       const target = {
+        geneEnergy: "凝气、锻体效率及直接气、体获取", crystalMeditation: "炼心、神魂兑换效率",
         gangJin: "战力获取", danJin: "凝气、锻体效率与长生诀基础产气",
         mingJin: "体的战力来源", anJin: "体的战力来源", huaJin: "体的战力来源",
         yiJin: "锻体效率", yiGu: "锻体效率", yiSui: "锻体效率",

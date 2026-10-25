@@ -244,6 +244,7 @@
     getActions: WIS.Cultivation.ImmortalLogic.getActionIds,
     getAbilities: WIS.Cultivation.ImmortalLogic.getAbilityIds,
     getEffects: effects, planAutomaticGain, commitAutomaticGain,
+    highMultiverseRate: state => WIS.Cultivation.Xiuzhen.highMultiverseRawRate(state),
     effectCacheStatistics: () => ({...effectCacheCounts}),
     getState: (state) => WIS.Core.State.domainView(state).cultivation.systems.immortal,
     reset: (type) => WIS.Core.Reset.describe(type),

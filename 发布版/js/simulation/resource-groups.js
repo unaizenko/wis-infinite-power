@@ -46,7 +46,7 @@
     if(sources.some(s=>s.requiresProviderRefresh||s.dynamicResources?.length&&typeof s.valueAt!=='function'))return null;
     return {joules:WIS.Power.ScaleLogic.createAutomaticJRateProfile({interval:true}),power:WIS.Power.ScaleLogic.createAutomaticPowerRateProfile({interval:true,...options})};
   }
-  register({id:'scale',outputs:['joules','power'],compileFastProfile:compileScaleProfile,dynamicResources:['joules','power','mana','immortalPower','xianForce','yuanForce','nieForce','universeCoefficient','martialQi','martialBody','martialHeart'],outputDependencies:{joules:['joules','power','mana','immortalPower','xianForce','nieForce','universeCoefficient','martialQi','martialBody','martialHeart'],power:['joules','power','mana','immortalPower','yuanForce','nieForce','universeCoefficient','martialQi','martialBody','martialHeart']},mapSignature:s=>softcapSignature(s,['joules','power']),legacyCommit:true,rate(s,c){
+  register({id:'scale',outputs:['joules','power'],compileFastProfile:compileScaleProfile,dynamicResources:['joules','power','mana','immortalPower','xianForce','yuanForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart'],outputDependencies:{joules:['joules','power','mana','immortalPower','xianForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart'],power:['joules','power','mana','immortalPower','yuanForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart']},mapSignature:s=>[softcapSignature(s,['joules','power']),WIS.Meta.HighMultiverse.get(s).order],legacyCommit:true,rate(s,c){
     if(s.powerSystem.active&&s.powerSystem.active!=='scale')throw Error('未支持的战力 ResourceGroup');
     const S=WIS.Power.ScaleLogic,active=s.powerSystem.active==='scale';
     return active?S.evaluateScaleRates(c.factor,c.fastProfile?.groups.scale):{joules:B.ZERO,power:B.ZERO};
@@ -56,7 +56,7 @@
     const values=c.memo('immortal-sources',()=>s.cultivation.active==='immortal'?WIS.Cultivation.ImmortalLogic.fixedAutomaticSources(c.factor):{mana:B.ZERO,passiveMana:B.ZERO,explorationMana:B.ZERO,immortalPower:B.ZERO,explorationAmount:B.ZERO,circulation:false});
     return {mana:values.mana,immortalPower:values.immortalPower};
   }});
-  register({id:'xiuzhen',kernelWritePaths:WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>'cultivation.systems.immortal.xiuzhen.resources.'+k),outputs:WIS.Cultivation.Xiuzhen.resourceKeys,dynamicResources:['immortalPower','xianForce','yuanForce','nieForce','universeCoefficient','multiverseCoefficient'],outputDependencies:{xianForce:['immortalPower','xianForce','yuanForce','multiverseCoefficient'],yuanForce:['xianForce','yuanForce','multiverseCoefficient'],nieForce:['yuanForce','universeCoefficient','multiverseCoefficient'],universeCoefficient:['nieForce','universeCoefficient'],multiverseCoefficient:['universeCoefficient']},legacyCommit:true,
+  register({id:'xiuzhen',kernelWritePaths:WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>'cultivation.systems.immortal.xiuzhen.resources.'+k),outputs:WIS.Cultivation.Xiuzhen.resourceKeys,mapSignature:s=>[WIS.Meta.HighMultiverse.get(s).order,WIS.Meta.HighMultiverse.highest(s)],dynamicResources:['immortalPower','xianForce','yuanForce','nieForce','universeCoefficient','multiverseCoefficient','highMultiverseCoefficient'],outputDependencies:{xianForce:['immortalPower','xianForce','yuanForce','multiverseCoefficient'],yuanForce:['xianForce','yuanForce','multiverseCoefficient'],nieForce:['yuanForce','universeCoefficient','multiverseCoefficient','highMultiverseCoefficient'],universeCoefficient:['nieForce','universeCoefficient'],multiverseCoefficient:['universeCoefficient']},legacyCommit:true,
     read:(s,k)=>WIS.Cultivation.Xiuzhen.amount(s,k),write:(s,k,v)=>{WIS.Cultivation.Xiuzhen.get(s).resources[k].amount=v;},
     rate(s,c){const v=WIS.Cultivation.Xiuzhen.rates(s);return Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>[k,B.mul(v[k],c.factor)]));}
   });
@@ -69,5 +69,10 @@
     write(s,k,v){const m=WIS.Cultivation.Martial.normalize(WIS.Cultivation.Martial.get(s));m.resources[martialNames[k]].amount=B.BN(v);s.cultivation={...s.cultivation,systems:{...s.cultivation.systems,martial:m}};},
     rate:()=>Object.fromEntries(Object.keys(martialNames).map(k=>[k,B.ZERO]))
   });
+  const H=WIS.Meta.HighMultiverse;
+  register({id:'highMultiverse',outputs:[H.key],dynamicResources:[...resourceKeys,H.key],
+    kernelWritePaths:['meta.highMultiverse'],mapSignature:s=>[s.cultivation.active,H.get(s).order,H.active(s)],
+    read:H.amount,write:(s,_key,value)=>{s.meta={...s.meta,highMultiverse:{...H.get(s),amount:B.BN(value)}};},
+    rate:(s,c)=>({[H.key]:B.mul(H.rate(s),c.factor)}),commit:(s,gains)=>H.credit(s,gains[H.key]??B.ZERO)});
   WIS.Simulation.ResourceGroups=Object.freeze({register,compile,evaluate,read,write,commitAdditional,get groups(){return Object.freeze([...groups]);},get keys(){return resourceKeys;}});
 }(window.WIS));

@@ -821,7 +821,7 @@
   }
 
   function breathingMethodGymMultiplier(source = state) {
-    return source.breathingMethodPurchased ? BN("1.5") : ONE;
+    return source.breathingMethodPurchased ? mul("1.5", WIS.Cultivation.Martial?.abilityMultiplier(source,"kuHai") ?? ONE) : ONE;
   }
 
   function scaleIndexForPower(power) {
@@ -1070,7 +1070,16 @@
   }
 
   function extremeExerciseEffectMultiplier(source = state) {
-    return source.extremeExercisePurchased ? BN("1.5") : ONE;
+    return source.extremeExercisePurchased ? mul("1.5", WIS.Cultivation.Martial?.abilityMultiplier(source,"mingQuan") ?? ONE) : ONE;
+  }
+
+  function ghostBackJMultiplier(source = state, activated = source.ghostBackActive) {
+    const martial = WIS.Cultivation.Martial;
+    return source.ghostBackPurchased && activated && !(martial?.active(source) && martial.get(source).abilities.shenQiao) ? BN("0.75") : ONE;
+  }
+
+  function ghostBackPowerMultiplier(source = state, activated = source.ghostBackActive) {
+    return source.ghostBackPurchased && activated ? mul("1.75", WIS.Cultivation.Martial?.abilityMultiplier(source,"shenQiao") ?? ONE) : ONE;
   }
 
   function naturalStrengthPotentialMultiplier(source = state) {
@@ -2708,7 +2717,7 @@
     planetWillElementalizationMultiplier, starShatterRockMultiplier,
     selfSuppressionJExponentFromBase, selfSuppressionJExponent,
     planetSuppressionRewardExponent, utmostPuritySoftcapExponent,
-    gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplierForExponent,
+    ghostBackJMultiplier, ghostBackPowerMultiplier, gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplierForExponent,
     sonicMovementPotentialMultiplier, sonicMovementMultiplier, godspeedExponent,
     godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress, rollFitnessMembershipCardAttempts, exercisePotentialMultiplier, exerciseMultiplier, transcendentPotentialMultiplier, transcendentMultiplier, extremeExerciseEffectMultiplier, naturalStrengthPotentialMultiplier, powerMultiplierGroups, powerMultiplier, challengeCompletionCount, challengeRewardExponent, challengeRewardMultiplier, longevityChallengeRewardMultiplier, fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent, currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent, trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier, automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier, lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier, myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus, regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount, fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel, waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap, baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier, conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier, skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent, continentCollapsePotentialExponent, ghostBrainActualPowerPerSecond, joulesForNextBasePower, focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, applyFocusSmoothSoftcap, dynamicFocusMultiplier, focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus, rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus, focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost, rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent, automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost, manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus, train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod, buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower, buyLifePower, buyMyStyle, buyIntuition, buyGhostBack, buySonicMovement, buyCarbonLimit, buyKillingIntent, buyRockStrike, buyHighSpeedMetabolism, buyEnduranceEnhancement, buyBulletTime, buyDynamicFocus, buySuperPerception, buyInvulnerable, buyRegeneration, buySuperpower, buySuperSpeedThinking, buyMountainCollapse, buyMindDivision, buyPowerOneTime, buyHyperRegeneration, buyMentalDomain, buyEarthSplit, buyGodspeed, buySuperpowerEvolution, buySubtle, buySkySplit, buyBiologicalQuantification, buyGhostManTransformation, buyDestroyCountry, buyHumanGhostTransformation, buyKillingIntentSubstance, buyEnergyCycle, buyMountainShatter, buyBioenergy, buyElementalization, buyKillingIntentPerception, buyKillingIntentWave, buyUltimateIntent, buyBrainDomainDevelopment, buyContinentSplit, buyContinentCollapse, toggleGhostBack,
     getJPerSecond: automaticJPerSecond,

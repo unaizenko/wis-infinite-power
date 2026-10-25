@@ -15,6 +15,7 @@
     ['C3','systems','无限大数',50,['C2'],null,null,'universeY',2,0,'根据当前单体宇宙系数N，使Y获取 ×(1+N)^4。离线按起点N冻结倍率。'],
     ['C4','systems','圆环之理',100,['C3'],null,null,'ringChallenge',3,0,'解锁无限挑战·圆环之理：保留成就、无限点数和无限强化，重置其他内容，抵达单体量级，获得普通成就·一证永证。'],
     ['C5','systems','体系多元',500,['C4'],null,null,'systemsMultiverse',4,0,'解锁体系进入多元的突破资格；仙道可突破第四步·踏天。'],
+    ['C6','systems','体系高阶多元',1500,['C5'],null,null,'systemsHighMultiverse',5,0,'解锁高阶多元前置；多元体系可在行动·无限消耗无限点数提升阶数，体系专属产出后续开放。'],
     ['D1-1','numbers','超越葛立恒',1,[],null,null,'grahamCap',0,0,'允许G65及以上阶位。'],
     ['D1-2','numbers','超越树',1,[],null,null,'treeCap',0,1,'允许TREE(4)及以上阶位。'],
     ['D2-1','numbers','分形递进',2,['D1-1'],null,null,'fractal',1,0,'前一级分形资源强化后一级获取：1 + √log10(F前 + 1)。'],
@@ -44,6 +45,7 @@
   const nodes=Object.freeze(Object.fromEntries(rows.map(([id,branch,name,price,prerequisites,exclusiveGroup,route,effectId,row,column,description])=>
     [id,Object.freeze({id,branch,name,price,implemented:true,prerequisites:Object.freeze(prerequisites),prerequisiteMode:id==='E4'?'any':'all',exclusiveGroup,route,effectId,position:Object.freeze({row,column}),description})])));
   WIS.Meta.InfinityConfig=Object.freeze({nodes,branches:Object.freeze({regular:'常规',systems:'体系',numbers:'大数',tempo:'节奏'}),
+    highMultiverse:Object.freeze({firstCost:500,costNumerator:11,costDenominator:10,minimumCoefficient:10}),
     minimumTree:3,treasureCap:999,pointMultiplier:2,softcapWeakening:.30,googolWeakening:.35,earlyLastStage:'恒星',
     retainedChallenges:Object.freeze(['innateDeficiency','powerless','longevity','fiveMisfortunes']),
     retainedChallengeGroups:Object.freeze({

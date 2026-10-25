@@ -106,13 +106,13 @@
     brick: Object.freeze([
       { id: "focus", name: "集中", description: "每秒获得相当于锻炼基础战力2%的战力。", previewId: "focus-preview", preview: "当前实际：+0 战力/秒", cost: powerCosts.focus },
       { id: "transcendent", name: "超凡之力", description: "根据当前战力提升战力获取。", previewId: "transcendent-preview", preview: "解锁后：战力获取随战力变动", cost: powerCosts.transcendent },
-      { id: "breathing-method", name: "呼吸法", description: "使跑步倍率 ×1.5。", previewId: "breathing-method-preview", preview: "解锁后：跑步倍率 ×1.5", cost: powerCosts.breathingMethod },
-      { id: "extreme-exercise", name: "极限运动", description: "使运动倍率 ×1.5。", previewId: "extreme-exercise-preview", preview: "解锁后：运动倍率 ×1.5", cost: powerCosts.extremeExercise }
+      { id: "breathing-method", name: "呼吸法", description: "跑步基础倍率×1.5，可受苦海进一步提升。", previewId: "breathing-method-preview", preview: "解锁后：跑步倍率 ×1.5", cost: powerCosts.breathingMethod },
+      { id: "extreme-exercise", name: "极限运动", description: "运动基础倍率×1.5，可受命泉进一步提升。", previewId: "extreme-exercise-preview", preview: "解锁后：运动倍率 ×1.5", cost: powerCosts.extremeExercise }
     ]),
     house: Object.freeze([
       { id: "my-style", name: "我流", description: "根据当前J，增加健身倍率（加法）。", previewId: "my-style-preview", preview: "解锁后：健身倍率 ×1.00", cost: powerCosts.myStyle },
       { id: "intuition", name: "直感", description: "根据当前战力，提升集中倍率。", previewId: "intuition-preview", preview: "解锁后：集中倍率 ×1.00", cost: powerCosts.intuition },
-      { id: "ghost-back", name: "鬼背", description: "激活时降低J获取，提升战力获取。", previewId: "ghost-back-preview", preview: "解锁后：可在行动界面开启鬼背", cost: powerCosts.ghostBack },
+      { id: "ghost-back", name: "鬼背", description: "激活时J获取×0.75、战力获取×1.75；神桥可取消J惩罚并提升战力倍率。", previewId: "ghost-back-preview", preview: "解锁后：可在行动界面开启鬼背", cost: powerCosts.ghostBack },
       { id: "sonic-movement", name: "音速移动", description: "使跑步倍率×3.8。", previewId: "sonic-movement-preview", preview: "解锁后：跑步倍率 ×3.80", cost: powerCosts.sonicMovement },
       { id: "carbon-limit", name: "碳基界限", description: "根据当前J，增加健身倍率（加法）。", previewId: "carbon-limit-preview", preview: "解锁后：健身倍率加法 +0", cost: powerCosts.carbonLimit },
       { id: "killing-intent", name: "杀气", description: "根据当前战力，每秒获得J。", previewId: "killing-intent-preview", preview: "解锁后实际：+0 J/秒", cost: powerCosts.killingIntent }
