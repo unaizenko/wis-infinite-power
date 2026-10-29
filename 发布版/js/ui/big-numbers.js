@@ -10,12 +10,13 @@
       if (B.gt(n, 0) && B.lt(n, 0.001)) return WIS.UI.Format.scientificMultiplier(n);
       return context.format(n, digits);
     };
+    const rankText = value => typeof value==="number" && Number.isSafeInteger(value) ? String(value) : WIS.UI.Format.number(value,0);
     const quantity = (value, order) => `${f(value, 2)} ${M.SYMBOLS[order]}`;
     const rows = [], milestones = [], treeRows = [];
     function renderTree() {
       const v = M.treeView(state), locked = context.getCatchUpStatus().locked === true;
-      text("tree-target", v.phase === "complete" ? `TREE(${v.rank})` : v.rank < 3
-        ? `目标：TREE(${v.target})　标签：${v.labels}` : `TREE(${v.rank}) → TREE(${v.target})　标签：${v.labels}`);
+      text("tree-target", v.phase === "complete" ? `TREE(${rankText(v.rank)})` : B.lt(v.rank,3)
+        ? `目标：TREE(${rankText(v.target)})` : `TREE(${rankText(v.rank)}) → TREE(${rankText(v.target)})`);
       for (const phase of ["explicit", "super", "complete"]) $("tree-" + phase).hidden = v.phase !== phase;
       $("tree-construction-panel").hidden = v.phase !== "explicit" && !(v.phase === "super" && v.superPointIncome);
       $("tree-upgrades").hidden = v.phase !== "explicit" && !v.superUpgrades;
@@ -35,7 +36,7 @@
         });
       }
       if (v.phase === "explicit") {
-        text("tree-sequence-title", v.labels === 3 ? "三标签坏序列" : `${v.labels}标签坏序列`);
+        text("tree-sequence-title", B.eq(v.labels,3) ? "三标签坏序列" : `${rankText(v.labels)}标签坏序列`);
         text("tree-sequence", `当前：T${context.format(v.currentIndex, 0)}`);
         const thresholdText = `T${context.format(v.thresholdIndex, 0)}`;
         const decayText = `T${context.format(v.decayIndex, 0)}`;
@@ -55,8 +56,7 @@
         $("tree-entry-note").hidden = false;
       } else if (v.phase === "super") {
         $("tree-super-bar").value = v.superProgressFraction;
-        text("tree-super-note", `${v.superPointIncome ? "超构造期间持续获得树构造点，不推进普通坏序列。" : "超构造期间不产出树构造点。"}${v.superUpgrades ? "可进行树构造强化。" : ""}进入时的基础倍率保持固定，D11的额外倍率随时间、强化等级和TREE阶位更新。${v.continuousSuper ? "开启自动进入超构造时连续推进下一TREE；关闭后完成当前目标便停止，保留构造点、强化及剩余进度。" : ""}离线只累计进度，返回在线后升阶。`);
-        text("tree-super-progress", `TREE(${v.rank}) → TREE(${v.target})：${f(v.superCompleted)} / ${f(v.superRequirement)}（${f(B.mul(v.superProgress,100))}%）`);
+        text("tree-super-progress", `TREE(${rankText(v.rank)}) → TREE(${rankText(v.target)})：${f(v.superCompleted)} / ${f(v.superRequirement)}（${f(B.mul(v.superProgress,100))}%）`);
         $("tree-super-time").hidden = !WIS.Meta.Infinity.has(state,"D11-1");
         text("tree-super-time", `本次超构造时间：${f(v.superElapsedSeconds)} 游戏秒（跨TREE保留）`);
         text("tree-super-base", `实际总进度倍率 ×${context.format(v.superMultiplier, 3)}`);
@@ -64,8 +64,8 @@
         text("tree-super-eta", Number.isFinite(v.remainingSeconds)
           ? `按当前倍率预计：${WIS.UI.Format.elapsedTime(Math.ceil(v.remainingSeconds))}` : "预计：极长（以进度需求为准）");
       } else {
-        text("tree-complete-rank", `TREE(${v.rank})`);
-        text("tree-next-note", v.available ? `下一目标：TREE(${v.target})　标签：${v.labels}` : "后续 TREE 阶位暂未开放");
+        text("tree-complete-rank", `TREE(${rankText(v.rank)})`);
+        text("tree-next-note", v.available ? `下一目标：TREE(${rankText(v.target)})` : "后续 TREE 阶位暂未开放");
         $("tree-next").hidden = !v.available; $("tree-next").disabled = locked;
       }
     }
@@ -86,8 +86,8 @@
       $("tree-tab").setAttribute("aria-selected", String(selected === "tree"));
       if (!selected) return;
       if (selected === "tree") { renderTree(); return; }
-      const v = M.view(state), order = v.dominantOrder, graham = v.gIndex > 0;
-      text("big-number-page-dominant", v.tree.rank >= 3 ? `TREE(${v.tree.rank})` : graham ? `G${v.gIndex}` : quantity(v.amounts[order], order));
+      const v = M.view(state), order = v.dominantOrder, graham = B.gt(v.gIndex,0);
+      text("big-number-page-dominant", B.gte(v.tree.rank,3) ? `TREE(${rankText(v.tree.rank)})` : graham ? `G${rankText(v.gIndex)}` : quantity(v.amounts[order], order));
       text("big-number-secondary", graham ? `次级：${quantity(v.amounts[4], 4)}；Q = ${f(v.amounts[4], 2)}`
         : order > 0 ? `次级：${quantity(v.amounts[order - 1], order - 1)}` : "更高阶符号尚未解锁");
       $("super-fractal-panel").hidden = !graham;
@@ -110,15 +110,15 @@
         button.textContent = done ? "已强化" : next ? "强化" : "需要上一分形";
       });
       if (graham) {
-        const complete = v.gIndex >= M.maximumG(state);
-        text("super-fractal-next", complete ? treeUnlocked ? "G64 · 本阶段完成；大数·树已开放" : "G64 · 本阶段完成；完成古戈尔成就后开放大数·树" : `下一阶位：G${v.gIndex + 1}`);
+        const maximum = M.maximumG(state), complete = maximum !== null && B.gte(v.gIndex,maximum);
+        text("super-fractal-next", complete ? treeUnlocked ? `G${rankText(v.gIndex)} · 本阶段完成；大数·树已开放` : `G${rankText(v.gIndex)} · 本阶段完成；完成古戈尔成就后开放大数·树` : `下一阶位：G${rankText(M.rankAdd(v.gIndex,1))}`);
         text("super-fractal-progress", complete ? "本阶段已完成" : `${f(v.progress)} / ${f(v.requirement)}`);
         $("super-fractal-bar").value = complete ? 100 : Math.min(100, B.toNumber(B.mul(B.div(v.progress,v.requirement),100), 0));
         text("super-fractal-sources", `当前进度速度：${f(v.speed)}%/秒 · 基础：${M.BASE_SUPER_SPEED}%/秒 · Graham里程碑：×${v.milestoneMultiplier} · 超越分形：×${f(v.fractalMultiplier)}`);
-        const nextTarget = M.MILESTONES.find(g => g > v.gIndex);
+        const nextTarget = M.MILESTONES.find(g => B.gt(g,v.gIndex));
         milestones.forEach(({ el, rank }) => {
-          el.classList.toggle("complete", v.gIndex >= rank); el.classList.toggle("next", nextTarget === rank);
-          el.textContent = `G${rank}${v.gIndex >= rank ? " ✓" : nextTarget === rank ? " · 下一目标" : ""}`;
+          el.classList.toggle("complete", B.gte(v.gIndex,rank)); el.classList.toggle("next", nextTarget === rank);
+          el.textContent = `G${rank}${B.gte(v.gIndex,rank) ? " ✓" : nextTarget === rank ? " · 下一目标" : ""}`;
         });
       }
     }

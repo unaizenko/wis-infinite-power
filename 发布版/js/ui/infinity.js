@@ -33,10 +33,10 @@
       }
       $('infinity-high-multiverse-row').hidden=!retainedTier;
       if(retainedTier){text($('infinity-high-multiverse-label'),'高阶多元（'+H.symbol(H.get(s).order)+'）'+(H.active(s)?'':' · 阶位已保留，产出未恢复'));text($('infinity-high-multiverse'),context.format(H.amount(s),2));}
-      $('high-multiverse-upgrade').hidden=!fourth&&!retainedTier;
-      if(fourth||retainedTier){
+      $('high-multiverse-upgrade').hidden=!fourth&&!retainedTier&&!H.eligible(s);
+      if(fourth||retainedTier||H.eligible(s)){
         const advance=H.preview(s);
-        text($('high-multiverse-condition'),'升阶条件：C6·体系高阶多元'+(advance.prerequisite?'（已解锁）':'（未解锁）')+'；仙道第五步'+(advance.eligible?'（已达到）':'（未达到或封印）')+'；当前'+advance.fromSymbol+'系数 ≥ '+advance.threshold+'（当前 '+context.format(advance.coefficient,2)+'）');
+        text($('high-multiverse-condition'),'升阶条件：C6·体系高阶多元'+(advance.prerequisite?'（已解锁）':'（未解锁）')+'；当前体系高阶多元资格'+(advance.eligible?'（已满足）':'（未满足或封印）')+'；当前'+advance.fromSymbol+'系数 ≥ '+advance.threshold+'（当前 '+context.format(advance.coefficient,2)+'）');
         text($('high-multiverse-cost'),'费用：'+f(advance.cost)+' 无限点数'+(advance.enoughPoints?'':'（点数不足）'));
         text($('high-multiverse-preview'),'升阶预览：'+context.format(advance.coefficient,2)+' '+advance.fromSymbol+' → '+context.format(advance.nextAmount,2)+' '+advance.toSymbol+'；N、N²库存保留');
         $('high-multiverse-promote').disabled=!advance.allowed;
@@ -111,7 +111,7 @@
       const tab=element('button','','无限');tab.id='infinity-tab';tab.type='button';tab.setAttribute('role','tab');$('big-number-tabs').append(tab);
       tab.addEventListener('click',()=>{selected=true;repaint();});for(const id of ['ordinary-actions-tab','big-number-tab','tree-tab'])$(id).addEventListener('click',()=>{selected=false;repaint();});
       const panel=element('section','infinity-panel');panel.id='infinity-panel';panel.hidden=true;
-      panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><section class="infinity-details" id="infinity-universe-resources" hidden><h3>宇宙数量</h3><p id="infinity-universeCoefficient-row" hidden>单体宇宙（N）：<strong id="infinity-universeCoefficient">0</strong></p><p id="infinity-multiverseCoefficient-row" hidden>多元宇宙（N²）：<strong id="infinity-multiverseCoefficient">0</strong></p><p id="infinity-high-multiverse-row" hidden><span id="infinity-high-multiverse-label">高阶多元</span>：<strong id="infinity-high-multiverse">0</strong></p><p id="infinity-high-multiverse-highest-row" hidden>历史最高高阶多元：<strong id="infinity-high-multiverse-highest">0</strong>（跨转生保留）</p></section><section class="infinity-details" id="high-multiverse-upgrade" hidden><h3>高阶多元</h3><p id="high-multiverse-condition"></p><p id="high-multiverse-cost"></p><p id="high-multiverse-preview"></p><p>仙道第五步根据涅力产出；原始获取统一按(1+原始获取)^(2/k)−1削弱。阶数越高，削弱越强。已购买阶位与历史最高数量永久保留；转生清空当前库存，重新达到第五步后恢复该阶位产出，升阶费用不退还。</p><button type="button" class="primary-button" id="high-multiverse-promote">高阶多元+</button></section><p id="infinity-silver-sea" hidden></p><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
+      panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><section class="infinity-details" id="infinity-universe-resources" hidden><h3>宇宙数量</h3><p id="infinity-universeCoefficient-row" hidden>单体宇宙（N）：<strong id="infinity-universeCoefficient">0</strong></p><p id="infinity-multiverseCoefficient-row" hidden>多元宇宙（N²）：<strong id="infinity-multiverseCoefficient">0</strong></p><p id="infinity-high-multiverse-row" hidden><span id="infinity-high-multiverse-label">高阶多元</span>：<strong id="infinity-high-multiverse">0</strong></p><p id="infinity-high-multiverse-highest-row" hidden>历史最高高阶多元：<strong id="infinity-high-multiverse-highest">0</strong>（跨转生保留）</p></section><section class="infinity-details" id="high-multiverse-upgrade" hidden><h3>高阶多元</h3><p id="high-multiverse-condition"></p><p id="high-multiverse-cost"></p><p id="high-multiverse-preview"></p><button type="button" class="primary-button" id="high-multiverse-promote">高阶多元+</button></section><p id="infinity-silver-sea" hidden></p><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
       $('actions-page').append(panel);$('infinity-rebirth').addEventListener('click',()=>rebirth(false));
       $('high-multiverse-promote').addEventListener('click',()=>context.performSavedAction(()=>WIS.Meta.HighMultiverse.promote(s),renderActions));
       const page=$('upgrades-page'),ordinary=element('div');ordinary.id='ordinary-upgrades-panel';
@@ -133,7 +133,7 @@
       challengePanel.closest('details').after(infiniteGroup);
       for(const [id,def] of Object.entries(C.challenges)){const card=element('article','item-row');card.id=`infinity-challenge-${id}`;card.dataset.challengeKey=id;card.dataset.catalogSystem=I.isInfinityChallenge(id)?'无限':'普通';card.hidden=true;
         const info=element('div','item-content'),control=element('div','purchase-control'),button=element('button','primary-button','开启挑战');button.type='button';
-        info.append(element('h2','',`${I.isInfinityChallenge(id)?'无限挑战':'挑战'}·${def.name}`),element('p','',def.description));
+        info.append(element('h2','',['trueG1','trueGraham','trueTree3','infinityRing'].includes(id)?def.name:`${I.isInfinityChallenge(id)?'无限挑战':'挑战'}·${def.name}`),element('p','',def.description));
         control.append(element('span','infinity-challenge-status'),element('small','',`目标：${def.targetG?`G${def.targetG}`:def.targetTree?`TREE(${def.targetTree})`:def.targetXiuzhenRealm?'抵达单体宇宙量级':'无限转生后5秒内抵达宇宙结构'}`),element('small','infinity-challenge-reward'),button);
         button.addEventListener('click',()=>{if(I.isChallengeActive(s,id))WIS.Meta.Challenges.exitChallenge(id);else WIS.Meta.Challenges.startChallenge(id);});card.append(info,control);(I.isInfinityChallenge(id)?infinitePanel:challengePanel).append(card);}
     }

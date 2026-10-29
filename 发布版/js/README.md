@@ -1,8 +1,8 @@
 # WIS 发布版模块说明
 
-当前基线：WIS 0.1.8.1，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
+当前基线：WIS 0.1.8.2，传统 `<script>` + `window.WIS`，无 bundler，支持 `file://`。当前 build 以 `core/build-config.js` 为准。
 
-0.1.8.1已同步当前正式内容至发布版；下文“仅开发/未发布”均为对应功能开发时历史记录。发布版剥离调速与公式调试，正式速度固定×1。
+当前0.1.8.2已同步当前开发版全部正式内容至本地发布版（2026-10-29）。发布版剥离调速与公式调试，正式速度固定×1。
 
 长期约束见 `../AGENTS.md`，当前项目状态见 `../AGENT_CONTEXT.md`，测试见 `../TESTING.md`。
 
@@ -24,16 +24,16 @@
 
 | 名称 | 当前值 | 含义 |
 | --- | --- | --- |
-| gameVersion | `0.1.8.1` | 玩家可见发布版本 |
-| schemaVersion | `72` | Save envelope/State schema |
-| buildId | `release-0.1.8.1-20261025` | 发布构建与静态缓存标识 |
+| gameVersion | `0.1.8.2` | 玩家可见发布版本 |
+| schemaVersion | `73` | Save envelope/State schema |
+| buildId | `release-0.1.8.2-20261029` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `2` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
 
 第四步资源 multiverseCoefficient（N²）由cultivation/resources注册，xiuzhen负责库存/支付/速率，ResourceGroups声明N与M反馈依赖。道无涯沿用既有来源指数层，道源通过本源自然奖励倍率统一结算；UI复用中央格式化。长生诀由Martial捕获K、起点气及心支撑，FixedSources保存本段来源，FixedSegment准备在线衰减积分或冻结起点速率，并于同帧自动动作后入账。新能力按原重置/Save规则处理，不改变持久化clock/debt/RNG合同。
 
-高阶多元由meta/high-multiverse.js管理独立meta.highMultiverse，正式资源ID为meta.multiverse.highMultiverseCoefficient。阶数以十进制字符串持久化/BigInt递增，金额与库存沿用BigNum；C6是前置，升阶在行动保存边界原子扣点且保留N/N²。ResourceGroups接收当前Cultivation的highMultiverseRate(state)来源并先削弱每秒速率，目前体系来源为0，专属强化待后续。顶栏使用最高可见资源选择器；存档新增字段默认锁定，散功保留，其他转生清零。
+高阶多元由meta/high-multiverse.js管理独立meta.highMultiverse，正式资源ID为meta.multiverse.highMultiverseCoefficient。阶数用十进制字符串/BigInt保存；C6及当前体系highMultiverseEligible为资格。体系highMultiverseRate提供压缩后基底，通用模块只执行一次2/k削弱，再应用可选highMultiverseMultiplier（默认1）及sqrt(1+H/10)库存衰减。仙道的六通过该后置倍率生效；N/M平滑获取与能力配套见AGENT_CONTEXT最新节。付费阶位与历史最高永久保留，散功保留当前库存，其他转生清当前库存；顶栏按当前有效资格显示。
 
 ## 3. 脚本装配
 
@@ -398,7 +398,7 @@ HighMultiverse.currentOrder统一当前可见已解锁阶位；Achievements提�
 
 ## 武道七项能力（2026-10-25，仅开发版）
 
-开发版本仍 0.1.7.13；build release-0.1.8.1-20261025。发布版未改，Schema72/rule2/存档key不变。
+开发版本仍 0.1.7.13；build release-0.1.8.2-20261029。发布版未改，Schema72/rule2/存档key不变。
 
 新增天魔策/慈航剑典各200神魂，要求先天、当前心200；实际消费每1心基础给予10气/体。手动/自动神魂转换与Registry心支付均在全部扣费后按候选库存/心计算，再叠丹劲和基因源能并走原长生诀直接收入积分减速，包含即将收入；前置门槛、set、重置、零额、失败支付不触发。预览只读且复用相同奖励函数。
 
@@ -415,7 +415,21 @@ HighMultiverse.currentOrder统一当前可见已解锁阶位；Achievements提�
 
 无限界面在体系未恢复时也显示已保留阶位、当前0库存、跨转生历史最高数量；与其他体系切换不丢失。第七步在本轮再次购买后读取永久最高记录，文案同步更新。新历史行继承大阶数换行规则。现有存档字段足够，Schema72/rule2不变；旧存档可从其仍保留的order/peak补最高，已被旧版清除的记录不伪造还原。下文旧“无限转生清阶位/本轮最高”描述被本节替代。
 
-开发build release-0.1.8.1-20261025，发布目标release-0.1.8.1-20261025；用户明确要求本次同步发布并取消调试。新保留合同5项Node先失败后通过，与原高阶10/修真7/三成就8共30项通过。真实UI1280/390/320宽度覆盖实际点击转生、零库存、记录显示、重载、第五步恢复和80位阶数字符串；四场真实Worker覆盖在线/离线以及尚未恢复/已经恢复来源，与同浏览器本地完整玩法、RNG、debt、Save一致。详见../WIS-项目资源/release-0181-20261025/VERIFICATION.json。
+开发build release-0.1.8.2-20261029，发布目标release-0.1.8.1-20261025；用户明确要求本次同步发布并取消调试。新保留合同5项Node先失败后通过，与原高阶10/修真7/三成就8共30项通过。真实UI1280/390/320宽度覆盖实际点击转生、零库存、记录显示、重载、第五步恢复和80位阶数字符串；四场真实Worker覆盖在线/离线以及尚未恢复/已经恢复来源，与同浏览器本地完整玩法、RNG、debt、Save一致。详见../WIS-项目资源/release-0181-20261025/VERIFICATION.json。
 
 
 本次已完成发布同步：release-0.1.8.1-20261025。发布代码38项Node、保留进度UI三宽度、Worker四场、发布四宽度无调试/只读/Alt+S无效、两份旧档和file启动全部通过；开发圆环保护另9项通过。独立审查复跑30项通过，无阻塞或延后问题。仅本地发布，无commit/push/线上部署。
+
+## 2026-10-28：描述与体系资格接口
+
+`cultivation/xiuzhen.js` 保留原指数入口，通过内部uncappedExponent取消三项硬上限，旧阈值之后使用连续对数增长；不改变regionExponent的组合方式。`ui/xiuzhen.js`仅把既有踏天/第五步来源表现为自动能力卡，无新增购买或持久字段。
+
+高阶多元Provider由`cultivation/immortal.js`注册：`highMultiverseEligible(state)`表示当前可升阶/产出，`highMultiverseVisible(state)`表示已有高阶库存可见，`highMultiverseInitialCoefficient(state)`返回首次N²系数。未来体系需要注册这些只读函数及已有`highMultiverseRate(state)`；未提供资格的体系默认不可用。当前阶位owner仍按永久保留合同约束，切换体系不转移库存。公共HighMultiverse仅统一门槛/支付/取根及2/k削弱，UI使用“当前体系高阶多元资格”。N/N²的仙道资源展示仍沿用已有规则。
+
+## 2026-10-29：符号阶位大数边界
+
+G与TREE阶位经BigNumbers.rankValue/ rankAdd/ rankCompare处理，普通安全整数保持Number兼容，超大精确整数使用可被BigNum读取的科学计数串，更高e/ee使用Decimal；maximumG/maximumTree在D1已解锁时返回null表示无玩法封顶。不得以Number/Math或字符串拼接处理大阶位。UI统一使用Format，整数计数不使用显示舍入结果。Schema73保护新阶位格式，普通资源及rule2时间/RNG合同保持。
+
+## 2026-10-29：宇宙产出与衰减来源边界
+
+Xiuzhen.rawRates保留技能合并后的原始N/M率，rates最终应用10/秒以上的连续对数压缩及1000库存以上的平方根衰减；高阶Provider压缩体系原始率后，HighMultiverse.rate只执行一次2/k削弱和10系数以上的库存衰减。库存查询只读，M输出自依赖不可省略。离线冻结最终起点速率的合同保持。

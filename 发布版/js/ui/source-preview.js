@@ -128,8 +128,12 @@
             B.add(I.goldenNatureImmortalPowerExponentBonus(), I.greatLuoManaExponentBonus()));
           time(); exponent("道无涯", WIS.Cultivation.Xiuzhen.daoWuYaExponent(state)); googol();
         } else {
-          // Xiuzhen raw includes ability multipliers; the common penalty is final-only.
-          googol();
+          // N is the uncompressed base; its ability multipliers apply below.
+          if (["universeCoefficient","multiverseCoefficient"].includes(resource)) {
+            note("双重对数压缩：10×ln[1+ln(1+基础产出/10)]");
+            if (resource==="universeCoefficient") add("能力倍率（压缩后）", "multiply", WIS.Cultivation.Xiuzhen.universeGainMultiplier(state));
+            add("库存衰减", "multiply", WIS.Cultivation.Xiuzhen.universeStockMultiplier(state,resource));
+          } else googol();
           if (!steps.length) add("来源层之后无额外乘区", "multiply", 1);
         }
         return steps;

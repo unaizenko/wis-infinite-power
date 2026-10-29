@@ -357,8 +357,8 @@
     let targetReached = challenge.system === "martial" ? martialGoalReached(state, challenge)
       : challenge.targetYuanForce ?
       gte(WIS.Cultivation.Xiuzhen.amount(state,"yuanForce"),challenge.targetYuanForce) && gte(state.joules,challenge.targetJAndPower) && gte(state.power,challenge.targetJAndPower)
-      : challenge.targetG ? WIS.Meta.BigNumbers.get(state).gIndex >= challenge.targetG
-      : challenge.targetTree ? WIS.Meta.BigNumbers.get(state).tree.rank >= challenge.targetTree
+      : challenge.targetG ? gte(WIS.Meta.BigNumbers.get(state).gIndex,challenge.targetG)
+      : challenge.targetTree ? gte(WIS.Meta.BigNumbers.get(state).tree.rank,challenge.targetTree)
       : challenge.targetXiuzhenRealm
       ? WIS.Cultivation.Xiuzhen.get(state).realm >= challenge.targetXiuzhenRealm
       : challenge.requiresJAndPower

@@ -27,20 +27,20 @@
     ["innerWorld", "内天地", 8, "nieForce", "2e5", "根据当前涅力提升N获取。"],
     ["spiritualGod", "灵神", 8, "nieForce", "3e5", "涅力获取×5。"],
     ["kongLingYuan", "空灵·缘", 8, "nieForce", "1e6", "纵横灵界的自动探寻量与对应自动探寻法力×100。"],
-    ["virtualOrigin", "虚本源", 9, "nieForce", "1e8", "基础规则：每实际获得1e5涅力积累1点烙印·本源进度；基础需求100×3^持有数，提升N获取。"],
+    ["virtualOrigin", "虚本源", 9, "nieForce", "1e8", "解锁宝物烙印·虚本源"],
     ["spokenLaw", "言出法随", 9, "nieForce", "3e8", "根据当前涅力提升J与战力获取倍率。"],
-    ["kongXuanSheng", "空玄·生", 9, "nieForce", "1e9", "每种已解锁的其他仙道宝物，每秒直接增加当前本源数量；不包含本源，不受宝物进度或奖励倍率影响。"],
+    ["kongXuanSheng", "空玄·生", 9, "nieForce", "1e9", "本源以外的每种已解锁仙道宝物，每秒直接增加当前本源数量。"],
     ["mergeHeaven", "神融天地", 10, "nieForce", "1e12", "根据当前N提升涅力获取。"],
-    ["followLaw", "法随身动", 10, "nieForce", "2e12", "根据当前N提升J与战力获取指数，最高^1.2。"],
+    ["followLaw", "法随身动", 10, "nieForce", "2e12", "根据当前N提升J与战力获取指数。"],
     ["zunYang", "尊阳", 10, "nieForce", "2e12", "根据当前N提升N获取。"],
     ["originBody", "本源真身", 10, "nieForce", "3e12", "烙印·本源进度获取×3。"],
-    ["kongJieMie", "空劫·灭", 10, "nieForce", "1e13", "仙道宝物最终进度需求开平方，包含烙印·本源；保留已有进度。"],
-    ["daoWuYa", "道无涯", 11, "multiverseCoefficient", "1000", "按当前多元宇宙系数N²提升法力、仙灵力、仙力、元力、涅力的最终获取指数，最高^1.5；原有惩罚随后生效。"],
-    ["daoYuan", "道源", 11, "multiverseCoefficient", "10000", "烙印·本源每次自然奖励数量×2；进度获取不变，后续需求按实际持有数量增长。"],
-    ["originMultiverse", "第六步·本源增幅", 13, "nieForce", "5e16", "高阶多元原始获取×√(1+本源数量)，随后统一接受2/k指数削弱。"],
-    ["eternalMultiverse", "第七步·多元证道", 14, "nieForce", "5e18", "依据跨转生历史最高高阶多元提升涅力获取：×10^(h−3+L/(1+L))；h为最高阶数，L=log10(1+该阶最高系数)。升阶、消耗不降低记录。"],
-    ["tierNie", "第八步·阶数增幅", 15, "nieForce", "5e21", "涅力获取×(k−1)²；k为当前高阶多元阶数。"],
-    ["tierTranscendence", "第九步·超越", 16, "nieForce", "5e24", "J与战力获取指数×[1+min(0.5,0.025×(k−2))]；与已有指数共同生效，最高新增^1.5。"]
+    ["kongJieMie", "空劫·灭", 10, "nieForce", "1e13", "仙道宝物最终进度需求开平方。"],
+    ["daoWuYa", "道无涯", 11, "multiverseCoefficient", "300", "按当前多元宇宙系数N²提升法力、仙灵力、仙力、元力、涅力的最终获取指数。"],
+    ["daoYuan", "道源", 11, "multiverseCoefficient", "3000", "烙印·本源每次自然奖励数量×2。"],
+    ["originMultiverse", "六", 13, "nieForce", "5e16", "根据本源数量，提升高阶多元获取。"],
+    ["eternalMultiverse", "七", 14, "nieForce", "5e18", "根据最高高阶多元数量，提升涅力获取。"],
+    ["tierNie", "八", 15, "nieForce", "5e21", "根据高阶多元阶位，提升涅力获取。"],
+    ["tierTranscendence", "九", 16, "nieForce", "5e24", "根据高阶多元阶数，提升J、战力获取。"]
   ].map(([key, name, realm, resource, cost, description]) => Object.freeze({ key, name, realm, resource, cost: B.BN(cost), description })));
   const resourceKeys = Object.freeze(["xianForce", "yuanForce", "nieForce", "universeCoefficient", "multiverseCoefficient"]);
   const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N", multiverseCoefficient: "多元宇宙系数N²" });
@@ -226,19 +226,36 @@
     crystal: ["yuanForce", .15], worldAura: ["yuanForce", .25],
     rules: ["yuanForce", .18], divineArt: ["yuanForce", .25]
   });
+  // Keep the old slope through the former cap, then continue logarithmically.
+  // Value and first derivative match at the knee; Decimal math has no hard cap.
+  function uncappedExponent(strength, knee) {
+    return B.add(1, B.lte(strength,knee) ? strength
+      : B.mul(knee,B.add(1,B.BN(B.div(strength,knee)).ln())));
+  }
+  // Same ln(1+x) function at every magnitude. The small-x series prevents
+  // Decimal's represented 1+x from rounding to 1 and erasing positive income.
+  function ln1p(value) {
+    const x=B.BN(value);
+    return B.lt(x,"1e-5")
+      ? B.mul(x,B.add(B.sub(1,B.div(x,2)),B.sub(B.div(B.mul(x,x),3),B.div(B.pow(x,3),4))))
+      : B.BN(B.add(1,x)).ln();
+  }
+  const log1p10 = value => B.div(ln1p(value),Math.LN10);
   function abilityMultiplier(state, key) {
     if (!has(state, key)) return 1;
     const pLog = () => B.add(1, B.log10(B.add(1, B.div(amount(state,"nieForce"),"1e4"))));
-    const nLog = () => B.log10(B.add(1, amount(state,"universeCoefficient")));
-    if (key === "innerWorld") return B.pow(pLog(),1.2);
+    const nLog = () => log1p10(amount(state,"universeCoefficient"));
+    const oLog = () => log1p10(WIS.Meta.Treasures.count(state,"originImprint"));
+    if (key === "innerWorld") return B.pow(B.add(1,log1p10(log1p10(B.div(amount(state,"nieForce"),"1e4")))),.25);
     if (key === "spiritualGod") return 5;
     if (key === "spokenLaw") return B.pow(pLog(),1.5);
-    if (key === "mergeHeaven") return B.pow(B.add(1,nLog()),.5);
-    if (key === "followLaw") return B.add(1,B.min(.2,B.mul(.015,nLog())));
-    if (key === "zunYang") return B.pow(B.add(1,nLog()),.35);
+    if (key === "mergeHeaven") return B.pow(B.add(1,B.mul(10,nLog())),.5);
+    if (key === "followLaw") return B.add(1,B.mul(.2,ln1p(B.div(nLog(),2))));
+    if (key === "zunYang") return B.add(1,B.mul(.35,ln1p(nLog())));
+    if (key === "virtualOrigin") return B.add(1,B.mul(.1,ln1p(oLog())));
     if (key === "daoWuYa") return daoWuYaExponent(state);
     if (key === "daoYuan") return 2;
-    if (key === "originMultiverse") return B.pow(B.add(1,WIS.Meta.Treasures.count(state,"originImprint")),.5);
+    if (key === "originMultiverse") return B.add(1,B.mul(.5,ln1p(oLog())));
     if (["eternalMultiverse","tierNie","tierTranscendence"].includes(key)) {
       const H=WIS.Meta.HighMultiverse;
       if (!H.active(state)) return B.ONE;
@@ -249,7 +266,7 @@
         return B.pow10(B.add(B.sub(best.order,3),B.div(l,B.add(1,l))));
       }
       const k=H.get(state).order;
-      return key === "tierNie" ? B.pow(B.sub(k,1),2) : B.add(1,B.min(.5,B.mul(.025,B.sub(k,2))));
+      return key === "tierNie" ? B.pow(B.sub(k,1),2) : uncappedExponent(B.mul(.025,B.sub(k,2)),.5);
     }
     if (key === "originBody") return 3;
     if (key === "kongNieZhang") return 10;
@@ -264,10 +281,15 @@
   const thirdStepActive = state => active(state) && !sealed(state) && get(state).realm >= 7;
   const fourthStepActive = state => active(state) && !sealed(state) && get(state).realm >= 11;
   const fifthStepActive = state => active(state) && !sealed(state) && get(state).realm >= 12;
+  // Globally smooth production and stock decay; no gameplay threshold/cap.
+  const compressUniverseRate = rate => B.mul(10,ln1p(ln1p(B.div(rate,10))));
+  const universeStockDecay = stock => B.pow(B.add(1,B.div(stock,1000)),.5);
+  const universeGainMultiplier = state => B.mul(B.mul(abilityMultiplier(state,"innerWorld"),abilityMultiplier(state,"zunYang")),abilityMultiplier(state,"virtualOrigin"));
+  const finalUniverseRate = (rate,stock,multiplier=B.ONE) => B.div(B.mul(compressUniverseRate(rate),multiplier),universeStockDecay(stock));
   const highMultiverseRawRate = state => fifthStepActive(state)
-    ? B.mul(B.pow(B.div(amount(state,"nieForce"),"1e12"),.25),abilityMultiplier(state,"originMultiverse")) : B.ZERO;
+    ? compressUniverseRate(B.pow(B.div(amount(state,"nieForce"),"1e12"),.25)) : B.ZERO;
   const daoWuYaExponent = state => fourthStepActive(state) && has(state,"daoWuYa")
-    ? B.add(1,B.min(.5,B.mul(.05,B.log10(B.add(1,amount(state,"multiverseCoefficient")))))) : B.ONE;
+    ? B.add(1,B.mul(.5,ln1p(B.div(log1p10(amount(state,"multiverseCoefficient")),2)))) : B.ONE;
   const applyDaoWuYa = (state,gain) => B.gt(gain,1) ? B.pow(gain,daoWuYaExponent(state)) : gain;
   const multiverseRate = state => fourthStepActive(state) ? B.pow(B.div(amount(state,"universeCoefficient"),1000),.5) : B.ZERO;
   function thirdStepRates(state) {
@@ -276,9 +298,8 @@
     nieForce = B.mul(B.pow(B.div(amount(state,"yuanForce"),"1e16"),.25),
       B.mul(abilityMultiplier(state,"spiritualGod"),abilityMultiplier(state,"mergeHeaven")));
     nieForce = B.mul(nieForce,B.mul(abilityMultiplier(state,"eternalMultiverse"),abilityMultiplier(state,"tierNie")));
-    if (has(state,"emptyGate")) universeCoefficient = B.mul(B.div(B.pow(B.div(amount(state,"nieForce"),"1e4"),.25),300),
-      B.mul(B.mul(abilityMultiplier(state,"innerWorld"),abilityMultiplier(state,"zunYang")),
-        has(state,"virtualOrigin") ? B.pow(B.add(1,WIS.Meta.Treasures.count(state,"originImprint")),.25) : 1));
+    // The three universe abilities multiply after compression in rates().
+    if (has(state,"emptyGate")) universeCoefficient = B.div(B.pow(B.div(amount(state,"nieForce"),"1e4"),.25),300);
     return { nieForce:applyDaoWuYa(state,B.mul(nieForce,immortalAchievementMultiplier(state))), universeCoefficient, multiverseCoefficient:multiverseRate(state) };
   }
   function originProgressGain(state) { return B.mul(B.mul("1e-5",abilityMultiplier(state,"originBody")),abilityMultiplier(state,"kongNieZhang")); }
@@ -342,7 +363,7 @@
     return {
       xianForce: WIS.Core.Penalties.applyGoogolPenalty("xianForce", amount(state, "xianForce"), raw.xianForce, state),
       yuanForce: WIS.Core.Penalties.applyGoogolPenalty("yuanForce", amount(state, "yuanForce"), raw.yuanForce, state),
-      nieForce:raw.nieForce, universeCoefficient:raw.universeCoefficient, multiverseCoefficient:raw.multiverseCoefficient
+      nieForce:raw.nieForce, universeCoefficient:finalUniverseRate(raw.universeCoefficient,amount(state,"universeCoefficient"),universeGainMultiplier(state)), multiverseCoefficient:finalUniverseRate(raw.multiverseCoefficient,amount(state,"multiverseCoefficient"))
     };
   }
   function intervalSupport(state) {
@@ -517,6 +538,8 @@
   WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, statisticsRealmName, unlocked, available, active,
     sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
     canBuy, buy, fifthStepActive, highMultiverseRawRate, fourthStepActive, daoWuYaExponent, applyDaoWuYa, multiverseRate, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
+    universeGainMultiplier,
+    universeStockMultiplier(state,key) { return B.div(1,universeStockDecay(amount(state,key))); },
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
     spendResource(state, key, cost) { return transaction(state, () => debit(state, key, cost)); } });
 }(window.WIS));

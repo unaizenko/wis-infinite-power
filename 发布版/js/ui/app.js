@@ -1821,9 +1821,10 @@
       const v = M.view(state), order = v.dominantOrder;
       const f = value => gtBN(value, ZERO) && !gteBN(value, 0.001)
         ? WIS.UI.Format.scientificMultiplier(value) : format(value, 2);
-      setTextIfChanged(byId("big-number-dominant"), v.tree.rank >= 3 ? `TREE(${v.tree.rank})` : v.gIndex > 0
-        ? `G${v.gIndex}` : `${f(v.amounts[order])} ${v.symbols[order]}`);
-      setTextIfChanged(byId("big-number-rate"), v.tree.rank >= 3 ? "当前 TREE 层级已完成" : v.gIndex > 0
+      const rankText = value => typeof value === "number" && Number.isSafeInteger(value) ? String(value) : WIS.UI.Format.number(value, 0);
+      setTextIfChanged(byId("big-number-dominant"), gteBN(v.tree.rank, 3) ? `TREE(${rankText(v.tree.rank)})` : gtBN(v.gIndex, ZERO)
+        ? `G${rankText(v.gIndex)}` : `${f(v.amounts[order])} ${v.symbols[order]}`);
+      setTextIfChanged(byId("big-number-rate"), gteBN(v.tree.rank, 3) ? "当前 TREE 层级已完成" : gtBN(v.gIndex, ZERO)
         ? `超分形 ${f(v.progress)}% · +${f(v.speed)}%/秒`
         : `（+${f(v.rates[order])}/秒）`);
     }
@@ -1881,11 +1882,12 @@
     setTextIfChanged(byId("power"), format(state.power));
     const thirdStepScale = WIS.Cultivation.Xiuzhen.thirdStepActive(state);
     const fourthStepScale = WIS.Cultivation.Xiuzhen.fourthStepActive(state);
-    setTextIfChanged(byId("current-scale"), fourthStepScale ? "多元宇宙" : thirdStepScale ? "单体宇宙" : SCALE_THRESHOLDS[state.highestScaleIndex].name);
-    setHiddenIfChanged(byId("next-scale-progress"), thirdStepScale);
+    const highMultiverseScale = WIS.Meta.HighMultiverse.active(state);
+    setTextIfChanged(byId("current-scale"), highMultiverseScale ? "高阶多元" : fourthStepScale ? "多元宇宙" : thirdStepScale ? "单体宇宙" : SCALE_THRESHOLDS[state.highestScaleIndex].name);
+    setHiddenIfChanged(byId("next-scale-progress"), thirdStepScale || highMultiverseScale);
     const nextScale = SCALE_THRESHOLDS[state.highestScaleIndex + 1];
     const nextScaleDetails = nextScale ? scaleRequirementDetails(state.highestScaleIndex + 1, state) : null;
-    setTextIfChanged(byId("next-scale-progress"), thirdStepScale ? "" : nextScaleDetails
+    setTextIfChanged(byId("next-scale-progress"), thirdStepScale || highMultiverseScale ? "" : nextScaleDetails
       ? `下一量级：${nextScale.name}（基础 ${format(nextScaleDetails.baseRequirement, 0)}${!eqBN(nextScaleDetails.rewardMultiplier, ONE) ? `；黑洞挑战奖励 ×${format(nextScaleDetails.rewardMultiplier, 5)}` : ""}${!eqBN(nextScaleDetails.blackHoleMultiplier, ONE) ? `；黑洞倍率 ×${format(nextScaleDetails.blackHoleMultiplier, 3)}` : ""}；实际需求 ${format(nextScaleDetails.actualRequirement, 0)} 战力）`
       : "已达到当前量级系统上限");
     setTextIfChanged(byId("joules-rate"), committedRateText("joules",state.joules,gain,rateStatus));
@@ -2304,7 +2306,7 @@
     }
     setHiddenIfChanged(byId("cultivation-choices"), cultivationSelected);
     setTextIfChanged(byId("cultivation-status"), immortalSelected
-      ? "已选择：仙道（转世重修不会重置体系）"
+      ? "已选择：仙道"
       : cultivationSelected ? `已选择：${state.cultivation.active === "martial" ? "武道" : state.cultivation.active}`
         : cultivationBlocked ? "五弊挑战中无法选择体系" : "尚未选择体系");
     setHiddenIfChanged(byId("immortal-progress"), !immortalSelected);
@@ -2726,7 +2728,6 @@
     setTextIfChanged(byId("cosmic-will-count"), `×${format(currentCosmicWillCount, 0)}`);
     setTextIfChanged(byId("cosmic-will-decayed-chance"), "");
     setTextIfChanged(byId("cosmic-will-final-chance"), treasureProgressText("cosmicWill"));
-    setTextIfChanged(byId("cosmic-will-effect"), "当前暂无效果");
     setHiddenIfChanged(byId("xu-tian-ding-treasure"), state.heavenlyTreasureLevel < 1 && !gtBN(currentXuTianDingCount, ZERO));
     setTextIfChanged(byId("xu-tian-ding-count"), `×${format(currentXuTianDingCount, 0)}`);
     setTextIfChanged(byId("xu-tian-ding-chance"), treasureProgressText("xuTianDing"));

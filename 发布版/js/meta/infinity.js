@@ -73,25 +73,28 @@
     if(order===0&&has(s,'C3'))m=B.mul(m,B.pow(B.add(1,WIS.Cultivation.Xiuzhen.amount(s,'universeCoefficient')),4));
     if(order>0&&has(s,'D2-1'))m=B.mul(m,factor(order-1));
     if(s.activeChallenge==='trueG1')for(let i=0;i<order;i++)m=B.div(m,factor(i));return m;}
+  const safeRank = value => typeof value==='number' && Number.isSafeInteger(value);
+  const rankOffset = (value,offset) => safeRank(value) ? Math.max(0,value-offset) : B.max(0,B.sub(value,offset));
+  const challengeGExponent = g => safeRank(g) ? 1+C.gChallengeCoefficient*g : B.add(1,B.mul(C.gChallengeCoefficient,g));
   // Historical pre-capacity save migration basis; current costs use gRequirement.
   function gBaseRequirement(s,g){
-    const base=B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?1+C.gChallengeCoefficient*g:1);
+    const base=B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?challengeGExponent(g):1);
     return rewardUnlocked(s,'trueGraham')?B.pow(base,C.gRewardExponent):base;
   }
   // Raw baseline includes challenge difficulty and the G64 capacity curve.
   // Modifiers then run in order: D6 subtraction/floor, D4 division, reward power.
   function gRequirementBeforeRank(s,g){
-    const base=B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?1+C.gChallengeCoefficient*g:1);
-    const capacity=B.pow(B.add(1,B.div(Math.max(g-C.gCapacityStart,0),C.gCapacityDivisor)),C.gCapacityPower);
+    const base=B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?challengeGExponent(g):1);
+    const capacity=B.pow(B.add(1,B.div(rankOffset(g,C.gCapacityStart),C.gCapacityDivisor)),C.gCapacityPower);
     return B.mul(base,capacity);
   }
-  const gRequirementDivisor=s=>has(s,'D4')?B.pow(C.treeGBase,Math.max(0,WIS.Meta.BigNumbers.get(s).tree.rank-C.treeGStart)):B.ONE;
+  const gRequirementDivisor=s=>has(s,'D4')?B.pow(C.treeGBase,rankOffset(WIS.Meta.BigNumbers.get(s).tree.rank,C.treeGStart)):B.ONE;
   function gRequirementAfterRank(s,value){
     const divided=B.div(value,gRequirementDivisor(s));
     return rewardUnlocked(s,'trueGraham')?B.pow(divided,C.gRewardExponent):divided;
   }
   function gRankPolynomial(s,g){
-    if(g<C.gCapacityStart||s.activeChallenge==='trueGraham'||C.gCapacityPower!==2)return null;
+    if(B.lt(g,C.gCapacityStart)||s.activeChallenge==='trueGraham'||C.gCapacityPower!==2)return null;
     const h=C.gCapacityStart-C.gCapacityDivisor,a=B.sub(g,h);
     const length=B.div(B.mul(C.gCapacityDivisor,C.gCapacityDivisor),C.gRequirement);
     const offset=B.div(B.sub(a,length),length);
@@ -131,9 +134,9 @@
     multiplier=B.mul(B.mul(multiplier,rapidPointMultiplier(s)),WIS.Meta.Achievements.multiverseAchievementMultiplier(s,"infiniteMultiverse"));
     // The permanent curve uses this run's TREE rank. Infinity Power stays additive before multipliers.
     const base=WIS.Meta.Achievements.has(s,'seventhTree')?B.add(3,B.div(B.mul(B.sub(rank,3),B.sub(rank,2)),2)):B.BN(rank);
-    const points=challengeKey==='infinityRing'||rank<C.minimumTree?B.BN(0):B.mul(B.add(base,WIS.Meta.Achievements.has(s,'infinityPower')?3:0),multiplier).floor();
+    const points=challengeKey==='infinityRing'||B.lt(rank,C.minimumTree)?B.BN(0):B.mul(B.add(base,WIS.Meta.Achievements.has(s,'infinityPower')?3:0),multiplier).floor();
     const earned=B.add(n.totalPointsEarned,points),cap=has(s,'B1-1')?B.max(C.treasureCap,B.mul(C.treasureCap,earned)):B.BN(C.treasureCap);
-    return {allowed:challengeKey!=null?(!respec&&challengeEntryAllowed(s,challengeKey)):n.unlocked&&(respec?n.upgradesUnlocked:rank>=C.minimumTree),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
+    return {allowed:challengeKey!=null?(!respec&&challengeEntryAllowed(s,challengeKey)):n.unlocked&&(respec?n.upgradesUnlocked:B.gte(rank,C.minimumTree)),points,cap,refund:respec?ledgerTotal(n):B.BN(0),rebirthCount:n.rebirthCount};
   }
   function silverSeaRate(s) {
     if(!WIS.Meta.Achievements.has(s,'silverSea')||WIS.Meta.HighMultiverse.currentOrder(s)==='0')return B.ZERO;

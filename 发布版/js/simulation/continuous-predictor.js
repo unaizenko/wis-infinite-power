@@ -15,7 +15,7 @@
     const completions=dormantMartial?Object.fromEntries(Object.entries(s.challengeCompletions).filter(([k,v])=>!(W.Core.Config.challenges[k]?.system==="martial"&&v===0))):s.challengeCompletions;
     return JSON.stringify([s.powerSystem.active,s.cultivation.active,s.highestScaleIndex,s.advancedRealmLevel,x.realm,x.entered,
       branch(s.powerSystem.systems.scale.upgrades),branch(s.powerSystem.systems.scale.actions),branch(Object.fromEntries(Object.entries(i.abilities).filter(([k])=>k!=='naturalTreasureLevel'))),branch(x.abilities),
-      W.Meta.BigNumbers.treeSignature(s),s.meta.infinity.upgrades,s.activeChallenge,completions,s.unlockedAchievements,n.unlocked,n.fractalLevel,n.beyondFractal,W.Meta.BigNumbers.MILESTONES.filter(v=>v<=n.gIndex),
+      W.Meta.BigNumbers.treeSignature(s),s.meta.infinity.upgrades,s.activeChallenge,completions,s.unlockedAchievements,n.unlocked,n.fractalLevel,n.beyondFractal,W.Meta.BigNumbers.MILESTONES.filter(v=>WIS.Core.BigNum.lte(v,n.gIndex)),
       keys.map(k=>[coordinate(G().read(s,k)).layer,B.gte(G().read(s,k),'1e100')]),groups.map(g=>g.mapSignature(s)),
       [String(W.Meta.Treasures.count(s,'yuanCrystal')),
         s.unlockedAchievements.greatHeavenlyVenerable ? String(W.Meta.Treasures.count(s,'originImprint')) : null,

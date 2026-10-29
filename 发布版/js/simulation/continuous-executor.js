@@ -17,7 +17,7 @@
       systems:[s.powerSystem.active,s.cultivation.active],realm:[s.highestScaleIndex,s.advancedRealmLevel,x?.realm,x?.entered],
       infinity:s.meta.infinity.upgrades,challenge:s.activeChallenge,abilities:[branches(s.powerSystem.systems.scale.upgrades),branches(s.powerSystem.systems.scale.actions),branches(i.abilities),branches(x?.abilities)],
       softcapAchievements:['scale10','utmostPurity'].map(k=>!!s.unlockedAchievements?.[k]),
-      tree:W.Meta.BigNumbers.treeSignature(s),g:W.Meta.BigNumbers.MILESTONES.filter(v=>v<=n.gIndex),
+      tree:W.Meta.BigNumbers.treeSignature(s),g:W.Meta.BigNumbers.MILESTONES.filter(v=>WIS.Core.BigNum.lte(v,n.gIndex)),
       regions:G().keys.map(k=>{const a=G().read(s,k);return [k,a.layer,B.gte(a,'1e100'),W.Core.Config.softcaps.map(t=>B.gt(a,t.threshold))];})});
   }
   // No unproved bulk formula is admitted. In particular, repeating K N times

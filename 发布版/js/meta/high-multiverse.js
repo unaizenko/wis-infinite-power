@@ -40,12 +40,12 @@
   }
   const unlocked=s=>get(s).order!=='0';
   const symbol=order=>order==='1'?'N':order==='2'?'N²':order==='3'?'N³':'N^'+order;
+  const eligible=s=>WIS.Core.Registries.getActiveCultivation(s)?.highMultiverseEligible?.(s)===true;
   function visible(s){
     const n=get(s);if(!unlocked(s)||s.cultivation.active!==n.owner)return false;
-    return n.owner==='immortal'?WIS.Cultivation.Xiuzhen.available(s)&&WIS.Cultivation.Xiuzhen.get(s).realm>=12:
-      WIS.Core.Registries.getActiveCultivation(s)?.highMultiverseVisible?.(s)===true;
+    return WIS.Core.Registries.getActiveCultivation(s)?.highMultiverseVisible?.(s)===true;
   }
-  function active(s){return visible(s)&&(get(s).owner!=='immortal'||WIS.Cultivation.Xiuzhen.fifthStepActive(s));}
+  function active(s){return visible(s)&&eligible(s);}
   function highestVisible(s){
     if(visible(s))return key;
     const X=WIS.Cultivation.Xiuzhen;
@@ -65,14 +65,15 @@
   }
   function preview(s){
     const n=get(s),first=n.order==='0',nextOrder=first?'3':(BigInt(n.order)+1n).toString();
-    const X=WIS.Cultivation.Xiuzhen, eligible=first?X.fifthStepActive(s):active(s);
-    const coefficient=first?X.amount(s,'multiverseCoefficient'):amount(s),cost=price(n.order);
+    const provider=WIS.Core.Registries.getActiveCultivation(s);
+    const qualified=first?eligible(s):active(s);
+    const coefficient=first?nonnegative(provider?.highMultiverseInitialCoefficient?.(s)??0):amount(s),cost=price(n.order);
     const threshold=WIS.Meta.InfinityConfig.highMultiverse.minimumCoefficient;
     const enoughCoefficient=B.gte(coefficient,threshold),enoughPoints=B.gte(WIS.Meta.Infinity.get(s).points,cost);
     const prerequisite=WIS.Meta.Infinity.has(s,'C6');
     return {first,nextOrder,fromSymbol:first?'N²':symbol(n.order),toSymbol:symbol(nextOrder),coefficient,cost,threshold,
-      nextAmount:B.eq(coefficient,0)?B.ZERO:nonnegative(B.pow10(B.div(B.log10(coefficient),nextOrder))),prerequisite,eligible,enoughCoefficient,enoughPoints,
-      allowed:prerequisite&&eligible&&enoughCoefficient&&enoughPoints};
+      nextAmount:B.eq(coefficient,0)?B.ZERO:nonnegative(B.pow10(B.div(B.log10(coefficient),nextOrder))),prerequisite,eligible:qualified,enoughCoefficient,enoughPoints,
+      allowed:prerequisite&&qualified&&enoughCoefficient&&enoughPoints};
   }
   function promote(s){
     WIS.Core.Runtime.assertMutable();const v=preview(s);if(!v.allowed)return false;
@@ -93,9 +94,12 @@
   }
   function rate(s){
     if(!active(s))return B.ZERO;
-    // Each system supplies the raw per-second rate; weakening occurs only here.
-    const provider=WIS.Core.Registries.getActiveCultivation(s)?.highMultiverseRate;
-    return weaken(provider?provider(s):B.ZERO,get(s).order);
+    // Owner base is weakened exactly once. Its optional final multiplier is
+    // applied afterwards so higher orders do not erase the ability's benefit.
+    const system=WIS.Core.Registries.getActiveCultivation(s);
+    const gain=weaken(system?.highMultiverseRate?.(s)??B.ZERO,get(s).order);
+    const multiplier=nonnegative(system?.highMultiverseMultiplier?.(s)??B.ONE);
+    return B.div(B.mul(gain,multiplier),B.pow(B.add(1,B.div(amount(s),10)),.5));
   }
   function adjust(s,delta,terms){
     WIS.Core.Runtime.assertMutable();
@@ -113,5 +117,5 @@
       get:amount,set(s,value){const next=nonnegative(value);if(!unlocked(s)&&B.gt(next,0))throw Error('未解锁高阶多元库存');s.meta={...s.meta,highMultiverse:{...get(s),amount:next,highest:bestRecord(highest(s),{order:get(s).order,coefficient:next})}};return next;},
       add:adjust});
   }
-  WIS.Meta.HighMultiverse=Object.freeze({key,fresh,rebirthState,normalize,get,highest,amount,unlocked,symbol,visible,active,highestVisible,currentOrder,price,preview,promote,weaken,rate,credit,registerResource});
+  WIS.Meta.HighMultiverse=Object.freeze({key,fresh,rebirthState,normalize,get,highest,amount,unlocked,symbol,visible,eligible,active,highestVisible,currentOrder,price,preview,promote,weaken,rate,credit,registerResource});
 }(window.WIS));

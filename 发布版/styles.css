@@ -930,3 +930,9 @@ button { font: inherit; }
 .resource-panel #highMultiverseCoefficient-resource { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .resource-panel #highMultiverseCoefficient-resource > span { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 #infinity-high-multiverse-row, #infinity-high-multiverse-highest-row, #high-multiverse-upgrade { overflow-wrap: anywhere; }
+
+/* Martial ability descriptions stay together; prices and actions form a compact column. */
+#martial-progress .item-content > small { display:block; margin-top:6px; line-height:1.6; overflow-wrap:anywhere; }
+#martial-progress .item-content { min-width:0; flex:1 1 auto; }
+#martial-progress .purchase-control { flex:0 0 170px; min-width:0; }
+@media(max-width:900px) { #martial-progress .purchase-control { flex-basis:auto; } }

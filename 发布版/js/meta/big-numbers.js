@@ -1,9 +1,9 @@
 (function defineSymbolicBigNumbers(WIS) {
   "use strict";
-  // Only coefficients enter BigNum. Symbols and Graham numbers are never expanded.
+  // Symbolic values are never expanded; coefficients and oversized rank indices use BigNum.
   const B = WIS.Core.BigNum, I=WIS.Meta.Infinity, IC=WIS.Meta.InfinityConfig;
-  const maximumG = state => I.has(state,'D1-1') ? Number.MAX_SAFE_INTEGER : 64;
-  const maximumTree = state => I.has(state,'D1-2') ? Number.MAX_SAFE_INTEGER : 3;
+  const maximumG = state => I.has(state,'D1-1') ? null : 64;
+  const maximumTree = state => I.has(state,'D1-2') ? null : 3;
   const BASE_SUPER_SPEED = "0.008"; // percent per game second
   const MAX_TREE_RANK = 3;
   const TREE_WORK_BASE = "1e9", TREE_INDEX_BASE = "1e6";
@@ -13,6 +13,29 @@
     label: Object.freeze({ name: "标签构造", description: "提高高阶坏序列中标记结构的搜索效率。", cost: 300, growth: 8, effect: 1.6 }),
     amplify: Object.freeze({ name: "超构造增幅", description: "树构造强化4：提升超构造倍率，费用倍率逐级增加。", cost: 1000, growth: 10, growthStep: 1.1, effect: 1.2, unlock: "D11-2" })
   });
+
+  // Preserve legacy Number arithmetic below the old boundary. Oversized exact
+  // integers use strings (as high-multiverse orders do); extreme e/ee ranks use
+  // the same Decimal backend as resource coefficients, never a JS Number cap.
+  const SAFE_RANK = Number.MAX_SAFE_INTEGER;
+  function exactRank(v) {
+    if(typeof v==='number'&&Number.isSafeInteger(v))return BigInt(v);
+    const text=String(v??0);
+    if(/^-?\d+$/.test(text)&&text.length<=4096)return BigInt(text);
+    const m=/^(-?)(\d+)(?:\.(\d+))?e\+?(\d+)$/.exec(text);
+    if(m&&Number(m[4])<=4090){const shift=Number(m[4])-(m[3]?.length||0);if(shift>=0)return BigInt(m[1]+m[2]+(m[3]||'')+'0'.repeat(shift));}
+    return null;
+  }
+  function packRank(n){if(n>=0n&&n<=BigInt(SAFE_RANK))return Number(n);const text=n.toString();return text.length<=300?text:text[0]+'.'+text.slice(1)+'e'+(text.length-1);}
+  function rankValue(value=0){
+    const exact=exactRank(value);if(exact!==null){if(exact<0n)throw Error('大数阶位无效');return packRank(exact);}
+    const n=B.parseFinite(value);if(!n||B.lt(n,0)||!B.eq(n,n.floor()))throw Error('大数阶位无效');return n;
+  }
+  function rankAdd(a,b){const x=exactRank(a),y=exactRank(b);return x!==null&&y!==null?packRank(x+y):rankValue(B.add(a,b).floor());}
+  function rankCompare(a,b){const x=exactRank(a),y=exactRank(b);return x!==null&&y!==null?(x>y?1:x<y?-1:0):B.BN(a).cmp(b);}
+  const rankLimitReached=(rank,maximum)=>maximum!==null&&rankCompare(rank,maximum)>=0;
+  const safeRank=rank=>typeof rank==='number'&&Number.isSafeInteger(rank);
+
   function freshTree() {
     return { rank: 0, phase: "explicit", construction: B.BN(0), totalConstruction: B.BN(0), sequenceWork: B.BN(0),
       upgrades: { node: 0, branch: 0, label: 0, amplify: 0 }, superEntryMultiplier: 1, superProgress: B.ZERO, superElapsedSeconds: B.ZERO };
@@ -26,8 +49,8 @@
       return x;
     };
     if (raw) {
-      t.rank = integer(raw.rank);
-      if (t.rank > Number.MAX_SAFE_INTEGER || (t.rank > 0 && t.rank < 3)) throw Error("TREE 阶位未开放");
+      t.rank = rankValue(raw.rank??0);
+      if (rankCompare(t.rank,0)>0 && rankCompare(t.rank,3)<0) throw Error("TREE 阶位未开放");
       for (const key of ["construction", "totalConstruction", "sequenceWork", "superElapsedSeconds"]) {
         const value = B.parseFinite(raw[key] ?? 0);
         if (!value || value.lt(0)) throw Error("TREE 存档包含非法数值");
@@ -44,7 +67,7 @@
       t.phase = raw.phase || "explicit";
     }
     // Permanent achievements never restore current-run TREE progress.
-    if (t.rank >= 3 && t.phase === "complete") {
+    if (B.gte(t.rank,3) && t.phase === "complete") {
       t.phase = "complete"; t.superProgress = B.ONE;
     } else if (t.phase === "complete") throw Error("TREE 完成状态缺少阶位");
     // Explicit construction can retain earned work after stopping D10 at a target.
@@ -78,7 +101,7 @@
     n.unlocked = raw.unlocked === true;
     n.fractalLevel = integer(raw.fractalLevel, 5);
     n.purchases = SYMBOLS.map((_, i) => i < n.fractalLevel);
-    n.gIndex = n.fractalLevel === 5 ? Math.max(1, integer(raw.gIndex, Number.MAX_SAFE_INTEGER)) : 0;
+    n.gIndex = n.fractalLevel === 5 ? (rankCompare(rankValue(raw.gIndex??1),1)<0?1:rankValue(raw.gIndex??1)) : 0;
     n.beyondFractal = raw.beyondFractal === true || n.fractalLevel === 5;
     n.elapsedSeconds = Number.isFinite(raw.elapsedSeconds) ? Math.max(0, raw.elapsedSeconds) : 0;
     if(raw.ySample!=null){
@@ -91,7 +114,7 @@
     n.resources = SYMBOLS.map((_, i) => {
       const e = raw.resources?.[i] || {};
       // Economic coefficients and statistics merge legacy words once, then
-      // retain only their represented Decimal value. Discrete G stays exact.
+      // retain their represented Decimal value. Rank strings retain exact units.
       return { amount: merge(e.amount,e.residual), residual: [],
         total: merge(e.total,e.totalResidual), totalResidual: [],
         spent: merge(e.spent,e.spentResidual), spentResidual: [],
@@ -105,7 +128,7 @@
   function reconcileGCapacity(state) {
     const n=get(state);
     if(n.gCapacityModel===1)return;
-    if(n.gIndex>=IC.gCapacityStart+1){
+    if(B.gte(n.gIndex,IC.gCapacityStart+1)){
       const oldRequirement=I.gBaseRequirement(state,n.gIndex);
       n.superProgress=B.mul(B.div(n.superProgress,oldRequirement),I.gRequirement(state,n.gIndex));
       if(n.superResidual.length)writeGProgress(n,[n.superProgress,...ledger().scale(n.superResidual,B.div(I.gRequirement(state,n.gIndex),oldRequirement))]);
@@ -124,11 +147,11 @@
     return get(state).unlocked || r.power;
   }
   function syncMilestones(state) {
-    if (get(state).tree?.rank >= 3) {
+    if (B.gte(get(state).tree?.rank??0,3)) {
       state.symbolicPowerMilestones.tree3 = true;
       WIS.Meta.Achievements.record(state, "tree3");
     }
-    if (get(state).gIndex < 64) return;
+    if (B.lt(get(state).gIndex,64)) return;
     state.symbolicPowerMilestones.graham64 = true;
     WIS.Meta.Achievements.record(state, "graham64");
   }
@@ -228,7 +251,7 @@
     return true;
   }
   function milestoneMultiplier(gIndex) {
-    return 2 ** MILESTONES.slice(0, -1).filter(g => gIndex >= g).length;
+    return 2 ** MILESTONES.slice(0, -1).filter(g => B.gte(gIndex,g)).length;
   }
   function fractalMultiplier(q, enabled = true) {
     return enabled ? B.add(1, B.div(B.log10(B.add(1, q)), 10)) : B.BN(1);
@@ -252,13 +275,13 @@
     return B.mul(B.mul(seconds, BASE_SUPER_SPEED), B.add(1, B.div(meanLog, 10)));
   }
   const treeState = state => get(state).tree || freshTree();
-  const treeUnlocked = state => I.has(state, 'D5') && get(state).gIndex >= 1
-    || WIS.Meta.Achievements.has(state, "googol") && get(state).gIndex >= 64;
-  const targetTreeRank = state => treeState(state).rank < 3 ? 3 : treeState(state).rank + 1;
+  const treeUnlocked = state => I.has(state, 'D5') && B.gte(get(state).gIndex,1)
+    || WIS.Meta.Achievements.has(state, "googol") && B.gte(get(state).gIndex,64);
+  const targetTreeRank = state => B.lt(treeState(state).rank,3) ? 3 : rankAdd(treeState(state).rank,1);
   const treeSuperThresholdWork = (state, _target) => B.pow(IC.treeWork,state.activeChallenge==='trueTree3'?IC.treeChallengeExponent:1);
   const treeDecayThresholdWork = (state, _target) => B.mul(IC.treeDecayWork, treeEffect(state, "label"));
-  const treeSuperRequirement = (_state,target) => B.mul(IC.treeSeconds,B.pow(IC.treeTimeGrowth,target-3));
-  const treeSuperSeconds = target => B.toNumber(B.mul(IC.treeSeconds,B.pow(IC.treeTimeGrowth,target-3)),Infinity);
+  const treeSuperRequirement = (_state,target) => B.mul(IC.treeSeconds,B.pow(IC.treeTimeGrowth,safeRank(target)?target-3:B.sub(target,3)));
+  const treeSuperSeconds = target => B.toNumber(B.mul(IC.treeSeconds,B.pow(IC.treeTimeGrowth,safeRank(target)?target-3:B.sub(target,3))),Infinity);
   const treeEffect = (state, key) => B.pow(TREE_UPGRADES[key].effect, treeState(state).upgrades[key]);
   const treeUpgradeCost = (state, key) => {
     const rule = TREE_UPGRADES[key];
@@ -300,7 +323,7 @@
     const mean=B.mul(2/3,B.div(B.add(B.add(B.mul(a,a),B.mul(a,b)),B.mul(b,b)),B.add(a,b)));
     return B.mul(seconds,B.add(1,mean));
   }
-  const treeActive = state => treeUnlocked(state) && targetTreeRank(state) <= maximumTree(state);
+  const treeActive = state => treeUnlocked(state) && (maximumTree(state)===null || rankCompare(targetTreeRank(state),maximumTree(state))<=0);
   function canPurchaseTreeUpgrade(state, key) {
     return Object.hasOwn(TREE_UPGRADES, key) && (!TREE_UPGRADES[key].unlock || I.has(state,TREE_UPGRADES[key].unlock)) && treeActive(state) && (treeState(state).phase === "explicit" || treeState(state).phase === "super" && I.has(state,"D9"))
       && (key !== "label" || B.gte(treeState(state).sequenceWork, treeDecayThresholdWork(state, targetTreeRank(state))))
@@ -345,7 +368,7 @@
   }
   function continueUnlockedTree(state) {
     const t=treeState(state);
-    if(t.phase==="complete" && t.rank>=3 && t.rank<maximumTree(state) && I.has(state,"D1-2"))resetRankProgress(t,I.has(state,"D8"));
+    if(t.phase==="complete" && B.gte(t.rank,3) && !rankLimitReached(t.rank,maximumTree(state)) && I.has(state,"D1-2"))resetRankProgress(t,I.has(state,"D8"));
   }
   function startNextTree(state) {
     if (!treeActive(state) || treeState(state).phase !== "complete") return false;
@@ -354,19 +377,20 @@
     return true;
   }
   // Stored progress uses the current target's requirement as one unit. Offline
-  // may bank more than one unit; online consumes geometric rank costs in at
-  // most 53 comparisons, even for extreme Decimal multipliers.
+  // may bank more than one unit; online consumes geometric rank costs with
+  // the native integer solver or a bounded BigNum search above its range.
   function advanceContinuousTree(t, seconds, speed, maximum, stopAtTarget = false) {
-    const target=t.rank<3?3:t.rank+1, limit=stopAtTarget?1:maximum-target+1;
+    const target=B.lt(t.rank,3)?3:rankAdd(t.rank,1), limit=stopAtTarget?1:maximum===null?SAFE_RANK:maximum-Number(target)+1;
     const available=nonnegative(B.add(t.superProgress,B.mul(speed,seconds)));
     if(B.lt(available,1)){t.superProgress=available;return;}
     const cost=count=>count===0?B.ZERO:count===1?B.ONE:
       B.div(B.sub(B.pow(IC.treeTimeGrowth,count),1),B.sub(IC.treeTimeGrowth,1));
     let lo=0,hi=limit;
     while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
+    if(maximum===null&&!stopAtTarget&&lo===SAFE_RANK)lo=affordableLarge(cost,value=>B.lte(value,available),B.div(B.log10(B.add(1,B.mul(available,B.sub(IC.treeTimeGrowth,1)))),Math.log10(IC.treeTimeGrowth)));
     if(lo===0){t.superProgress=available;return;}
-    t.rank=target+lo-1;
-    if(t.rank>=maximum){t.phase="complete";t.superProgress=B.ONE;return;}
+    const next=rankAdd(target,rankAdd(lo,-1));if(rankCompare(next,t.rank)<=0){t.superProgress=available;return;}t.rank=next;
+    if(rankLimitReached(t.rank,maximum)){t.phase="complete";t.superProgress=B.ONE;return;}
     t.superProgress=nonnegative(B.div(B.max(0,B.sub(available,cost(lo))),B.pow(IC.treeTimeGrowth,lo)));
     if(stopAtTarget)stopTreeAtTarget(t);
   }
@@ -380,7 +404,7 @@
     // requirements first. Never multiply it again by newly acquired boosts.
     advanceContinuousTree(t,0,B.ZERO,maximum,stopAtTarget);
     if(t.phase!=="super")return;
-    const target=targetTreeRank(state),limit=stopAtTarget?1:maximum-target+1;
+    const target=targetTreeRank(state),limit=stopAtTarget?1:maximum===null?SAFE_RANK:maximum-Number(target)+1;
     const rankGrowth=I.has(state,'D11-3')?IC.treeRankBoost:1;
     const exposure=treeTimeExposure(t.superElapsedSeconds,seconds,I.has(state,'D11-1'));
     const multiplier=B.mul(B.mul(t.superEntryMultiplier,I.has(state,'D11-2')?treeEffect(state,'amplify'):1),B.pow(rankGrowth,t.rank));
@@ -389,15 +413,16 @@
     const first=B.sub(1,t.superProgress);
     if(B.lt(available,first)){t.superProgress=nonnegative(B.add(t.superProgress,available));return;}
     // Rank 0 -> 3 is a three-rank boost; all later jumps are one rank.
-    const nextRatio=B.div(IC.treeTimeGrowth,B.pow(rankGrowth,target-t.rank)),ratio=B.div(IC.treeTimeGrowth,rankGrowth);
-    const cost=count=>count===0?B.ZERO:count===1?first:B.add(first,B.mul(nextRatio,B.div(B.sub(B.pow(ratio,count-1),1),B.sub(ratio,1))));
+    const nextRatio=B.div(IC.treeTimeGrowth,B.pow(rankGrowth,B.lt(t.rank,3)?3:1)),ratio=B.div(IC.treeTimeGrowth,rankGrowth);
+    const cost=count=>B.eq(count,0)?B.ZERO:B.eq(count,1)?first:B.add(first,B.mul(nextRatio,B.div(B.sub(B.pow(ratio,safeRank(count)?count-1:B.sub(count,1)),1),B.sub(ratio,1))));
     let lo=1,hi=limit;
     while(lo<hi){const mid=lo+Math.ceil((hi-lo)/2);if(B.lte(cost(mid),available))lo=mid;else hi=mid-1;}
-    t.rank=target+lo-1;
-    if(t.rank>=maximum){t.phase="complete";t.superProgress=B.ONE;return;}
+    if(maximum===null&&!stopAtTarget&&lo===SAFE_RANK)lo=affordableLarge(cost,value=>B.lte(value,available),B.add(1,B.div(B.log10(B.add(1,B.div(B.mul(B.max(0,B.sub(available,first)),B.sub(ratio,1)),nextRatio))),B.log10(ratio))));
+    const next=rankAdd(target,rankAdd(lo,-1));if(rankCompare(next,t.rank)<=0)return;t.rank=next;
+    if(rankLimitReached(t.rank,maximum)){t.phase="complete";t.superProgress=B.ONE;return;}
     // A stopped interval earns work at the completed rank; do not apply a
     // future rank boost to work banked while the player is out of super mode.
-    t.superProgress=nonnegative(B.div(B.max(0,B.sub(available,cost(lo))),stopAtTarget?IC.treeTimeGrowth:B.mul(nextRatio,B.pow(ratio,lo-1))));
+    t.superProgress=nonnegative(B.div(B.max(0,B.sub(available,cost(lo))),stopAtTarget?IC.treeTimeGrowth:B.mul(nextRatio,B.pow(ratio,safeRank(lo)?lo-1:B.sub(lo,1)))));
     if(stopAtTarget)stopTreeAtTarget(t);
   }
   function advanceTree(state, seconds) {
@@ -428,8 +453,8 @@
       t.superElapsedSeconds=nonnegative(B.add(t.superElapsedSeconds,Math.min(seconds,remaining)));
       t.superProgress=B.min(1,B.add(t.superProgress,B.mul(seconds,treeSuperSpeed(state))));
       if (B.gte(t.superProgress,1)) {
-        t.rank=targetTreeRank(state);t.phase="complete";
-        if(I.has(state,"D1-2") && t.rank<maximumTree(state)){
+        const next=targetTreeRank(state);if(rankCompare(next,t.rank)<=0)return;t.rank=next;t.phase="complete";
+        if(I.has(state,"D1-2") && !rankLimitReached(t.rank,maximumTree(state))){
           resetRankProgress(t,I.has(state,"D8"));
           if(seconds>remaining)advanceTree(state,seconds-remaining);
         }
@@ -446,10 +471,10 @@
     const nextDecayIndex = treeSequenceIndex(nextDecayWork, nextDecayWork);
     const labelActive = B.gte(t.sequenceWork, decayWork);
     const requirement=treeSuperRequirement(state,target);
-    return { ...cloneTree(t), unlocked, target, labels: target, available: target <= maximumTree(state),
+    return { ...cloneTree(t), unlocked, target, labels: target, available: maximumTree(state)===null || rankCompare(target,maximumTree(state))<=0,
       sequenceIndex, currentIndex, nextIndex: B.add(currentIndex, 1), sequenceProgress: B.toNumber(B.sub(sequenceIndex, currentIndex), 0),
       thresholdIndex, decayIndex, nextDecayIndex, unlockProgress: B.toNumber(B.min(1, B.max(0, B.div(sequenceIndex, thresholdIndex))), 0),
-      constructionRate: unlocked && (t.phase === "explicit" || t.phase === "super" && I.has(state,"D8")) && target <= maximumTree(state) ? treeConstructionRate(state) : B.ZERO,
+      constructionRate: unlocked && (t.phase === "explicit" || t.phase === "super" && I.has(state,"D8")) && (maximumTree(state)===null || rankCompare(target,maximumTree(state))<=0) ? treeConstructionRate(state) : B.ZERO,
       superMultiplier: treeEffectiveSuperMultiplier(state),
       superRequirement: requirement, superCompleted: B.mul(t.superProgress,requirement),
       superProgressFraction: B.toNumber(B.min(1,t.superProgress),0),
@@ -462,6 +487,86 @@
   }
   // Only structural TREE changes invalidate predictors. Work/progress remains a fresh interval input.
   const treeSignature = state => { const t = treeState(state); return [treeUnlocked(state), t.rank, t.phase, t.upgrades.node, t.upgrades.branch, t.upgrades.label, t.upgrades.amplify, t.superEntryMultiplier, I.has(state,"D10")?state.treeSuperAutomationEnabled:null, I.has(state,"D11-1")?String(t.superElapsedSeconds):null]; };
+
+  // Monotone Decimal search. Exponent bracketing handles e/ee counts in bounded
+  // work; native-count callers keep the existing solver and payment ordering.
+  function affordableLarge(cost,canPay,estimate=1){
+    if(!canPay(cost(1)))return 0;
+    let lo=B.ONE,hi=B.max(2,B.add(B.mul(estimate,2),1)).floor();
+    const larger=value=>{const doubled=B.mul(value,2);if(B.gt(doubled,value))return doubled;
+      return B.BN(value).constructor.fromComponents(1,value.layer,value.mag+Math.max(Math.abs(value.mag)*1e-14,1e-14));};
+    let bracket=false;
+    for(let i=0;i<128;i++){
+      if(!B.isFiniteBN(hi))break;
+      if(!canPay(cost(rankValue(hi)))){bracket=true;break;}
+      lo=hi;hi=larger(hi);
+    }
+    if(!bracket)throw Error('阶位批量超出大数可表示范围，进度未扣除');
+    for(let i=0;i<128;i++){
+      let lower=B.div(hi,2).floor();if(B.eq(lower,hi))lower=B.BN(hi).constructor.fromComponents(1,hi.layer,hi.mag-Math.max(Math.abs(hi.mag)*1e-14,1e-14));
+      if(B.lte(lower,lo))break;if(canPay(cost(rankValue(lower)))){lo=lower;break;}hi=lower;
+    }
+    for(let i=0;i<192;i++){
+      const mid=B.div(B.add(lo,hi),2).floor();
+      if(B.lte(mid,lo)||B.gte(mid,hi))break;
+      if(canPay(cost(rankValue(mid))))lo=mid;else hi=mid;
+    }
+    return rankValue(lo);
+  }
+  const logOnePlus=x=>B.lt(B.abs(x),'1e-5')?B.mul(x,B.add(B.sub(1,B.div(x,2)),B.div(B.mul(x,x),3))):B.BN(B.add(1,x)).ln();
+  const expMinusOne=x=>B.lt(B.abs(x),'1e-5')?B.mul(x,B.add(B.add(1,B.div(x,2)),B.div(B.mul(x,x),6))):B.sub(B.BN(x).exp(),1);
+  function largePowerSum(x,count,p){
+    const n=B.BN(count);if(B.eq(n,0))return B.ZERO;if(B.eq(n,1))return B.pow(x,p);
+    const log=logOnePlus(B.div(B.sub(n,1),x));
+    const difference=e=>B.mul(B.pow(x,e),expMinusOne(B.mul(e,log)));
+    let sum=B.add(B.div(difference(p+1),p+1),B.mul(B.add(B.pow(x,p),B.pow(B.add(x,B.sub(n,1)),p)),.5));
+    for(const [order,coefficient] of [[1,1/12],[3,-1/720],[5,1/30240],[7,-1/1209600],[9,1/47900160],[11,-691/1307674368000],[13,1/74724249600],[15,-3617/10670622842880000]]){
+      let derivative=coefficient;for(let j=0;j<order;j++)derivative*=p-j;sum=B.add(sum,B.mul(difference(p-order),derivative));
+    }return sum;
+  }
+  function largeGCost(state,start,count){
+    if(B.eq(count,0))return B.ZERO;
+    if(B.lte(count,32)){let sum=B.ZERO;for(let j=0;j<Number(count);j++)sum=B.add(sum,I.gRequirement(state,rankAdd(start,j)));return sum;}
+    const reward=I.rewardUnlocked(state,'trueGraham'),rank=I.has(state,'D6'),n=B.BN(count),g=B.BN(start),divisor=I.gRequirementDivisor(state);
+    if(state.activeChallenge==='trueGraham'){
+      // The increasing quadratic factor makes the omitted geometric prefix
+      // smaller than lastOmitted/(1-1/ratio); 2048 terms are beyond precision.
+      const kept=B.lt(n,2048)?Number(n):2048,first=rankAdd(start,rankAdd(count,-kept));let sum=B.ZERO;
+      for(let j=0;j<kept;j++)sum=B.add(sum,I.gRequirement(state,rankAdd(first,j)));
+      return sum;
+    }
+    const a=IC.gRequirement/(IC.gCapacityDivisor**2),h=IC.gCapacityStart-IC.gCapacityDivisor;
+    if(reward){const p=IC.gRewardExponent,shift=h+(rank?1/(2*a):0),offset=rank?h/a+1/(4*a*a):0,x=B.sub(g,shift);let sum=B.ZERO,coefficient=1;
+      for(let j=0;j<(rank?12:1);j++){sum=B.add(sum,B.mul(coefficient,largePowerSum(x,n,2*p-2*j)));coefficient*=((p-j)/(j+1))*(-offset);}
+      return B.mul(B.pow(B.div(a,divisor),p),sum);
+    }
+    const x=B.sub(g,h),pairs=B.mul(n,B.sub(n,1)),sumJ=B.div(pairs,2),sumJ2=B.div(B.mul(pairs,B.sub(B.mul(2,n),1)),6);
+    let sum=B.mul(a,B.add(B.add(B.mul(n,B.mul(x,x)),B.mul(B.mul(2,x),sumJ)),sumJ2));
+    if(rank)sum=B.sub(sum,B.add(B.mul(n,g),sumJ));return B.div(sum,divisor);
+  }
+  function settleLargeG(n,state,income){
+    const L=ledger(),available=L.add([n.superProgress,...n.superResidual],[income]);
+    const cost=count=>largeGCost(state,n.gIndex,count),budget=B.max(0,L.value(available)),firstCost=cost(1);
+    const p=I.rewardUnlocked(state,'trueGraham')?IC.gRewardExponent:1,a=IC.gRequirement/(IC.gCapacityDivisor**2),divisor=I.gRequirementDivisor(state);
+    const estimate=state.activeChallenge==='trueGraham'
+      ? B.add(1,B.div(B.max(0,B.sub(B.log10(B.max(1,budget)),B.log10(firstCost))),Math.log10(IC.gRequirement)*IC.gChallengeCoefficient*p))
+      : B.min(B.div(budget,firstCost),B.pow(B.mul(B.mul(budget,2*p+1),B.pow(B.div(divisor,a),p)),1/(2*p+1)));
+    // A paid batch below the rank's own Decimal resolution cannot advance it.
+    // Keep every income/debit word until a representable rank movement exists.
+    if(rankCompare(rankAdd(n.gIndex,rankValue(B.max(1,B.BN(estimate).floor()))),n.gIndex)<=0){writeGProgress(n,available);return;}
+    const levels=affordableLarge(cost,value=>L.compare([value],available)<=0,estimate);
+    if(B.eq(levels,0)){writeGProgress(n,available);return;}
+    const next=rankAdd(n.gIndex,levels);
+    if(rankCompare(next,n.gIndex)<=0){writeGProgress(n,available);return;}
+    const remainder=L.subtract(available,[cost(levels)]);if(L.sign(remainder)<0)throw Error('大数阶位批量余额不足，未提交');
+    n.gIndex=next;writeGProgress(n,remainder);
+  }
+  function advanceLargeG(n,seconds,q,state,options){
+    const qRate=I.fractalGainMultiplier(state,4),work=options.fixedSources?B.mul(seconds,B.mul(BASE_SUPER_SPEED,fractalMultiplier(q,n.beyondFractal))):B.eq(qRate,1)?exposure(q,seconds,n.beyondFractal):B.div(exposure(q,B.mul(seconds,qRate),n.beyondFractal),qRate);
+    if(!B.isFiniteBN(work))throw Error('无限超分形时间无法表示');
+    settleLargeG(n,state,B.mul(B.mul(work,I.gSpeedMultiplier(state)),milestoneMultiplier(n.gIndex)));return 0;
+  }
+
   function affordableGCount(limit,cost,canPay){
     if(limit<=0||!canPay(cost(1)))return 0;
     let lo=1,hi=Math.min(2,limit);
@@ -480,6 +585,7 @@
   // Stay in progress points: dividing a high-layer atom by k and multiplying
   // it back cannot preserve that atom. Milestone ratios are exact integers.
   function advanceGrahamLedger(n,seconds,q,state=null,options={},cap=64) {
+    const unlimited=cap===null;if(unlimited&&(!safeRank(n.gIndex)||n.gIndex===SAFE_RANK))return advanceLargeG(n,seconds,q,state,options);cap=cap??SAFE_RANK;
     if(!n.gIndex)return 0;
     const L=ledger(),modified=state!==null,fixedOnly=!modified&&options.fixedSources===true;
     let progress=L.normalize([n.superProgress,...n.superResidual]);
@@ -521,7 +627,8 @@
       }
     }
     writeGProgress(n,progress);
-    return MILESTONES.filter(g=>g>firstIndex&&g<=n.gIndex).length;
+    if(unlimited&&n.gIndex===SAFE_RANK)settleLargeG(n,state,B.ZERO);
+    return MILESTONES.filter(g=>g>firstIndex&&B.lte(g,n.gIndex)).length;
   }
   function advanceGraham(n, seconds, q) {
     if(n.superResidual?.length)return advanceGrahamLedger(n,seconds,q);
@@ -557,7 +664,7 @@
       const oldIndex = n.gIndex;
       const startingRates = options.fixedSources ? rates(state) : null;
       const modified = I.has(state,'D1-1') || I.has(state,'D2-1') || I.has(state,'D4') || I.has(state,'D6') || I.rewardUnlocked(state,'trueG1') || I.rewardUnlocked(state,'trueGraham') || ['trueG1','trueGraham'].includes(state.activeChallenge);
-      const earlyTree=I.has(state,'D5') && oldIndex>=1;
+      const earlyTree=I.has(state,'D5') && B.gte(oldIndex,1);
       let crossingSeconds=seconds;
       if(modified && !earlyTree && oldIndex>0 && oldIndex<64){
         const probe={...n};advanceGrahamInfinity(probe,seconds,q,state,options,64);
@@ -567,8 +674,8 @@
         ? advanceGrahamFixed(n, seconds, q) : advanceGraham(n, seconds, q);
       let treeSeconds = 0;
       if (earlyTree) treeSeconds = seconds;
-      else if (n.gIndex >= 64 && treeUnlocked(state)) {
-        if (oldIndex >= 64) treeSeconds = seconds;
+      else if (B.gte(n.gIndex,64) && treeUnlocked(state)) {
+        if (B.gte(oldIndex,64)) treeSeconds = seconds;
         else if (modified) treeSeconds=Math.max(0,seconds-crossingSeconds);
         else if (options.fixedSources) {
           // Graham's existing fixed rate determines the crossing time directly.
@@ -595,7 +702,8 @@
     return result;
   }
   function advanceGrahamInfinity(n,seconds,q,state,options={},cap=maximumG(state)) {
-    if(n.superResidual?.length)return advanceGrahamLedger(n,seconds,q,state,options,cap);
+    const unlimited=cap===null;if(unlimited&&(!safeRank(n.gIndex)||n.gIndex===SAFE_RANK))return advanceLargeG(n,seconds,q,state,options);cap=cap??SAFE_RANK;
+    if(n.superResidual?.length)return advanceGrahamLedger(n,seconds,q,state,options,unlimited?null:cap);
     if(!n.gIndex)return 0;
     const old=n.gIndex, qRate=I.fractalGainMultiplier(state,4), speed=I.gSpeedMultiplier(state);
     const work=options.fixedSources?B.mul(seconds,B.mul(BASE_SUPER_SPEED,fractalMultiplier(q,n.beyondFractal))):
@@ -628,7 +736,8 @@
       if(n.gIndex<end)break;
     }
     n.superProgress=B.mul(available,milestoneMultiplier(n.gIndex));n.superResidual=[];
-    return MILESTONES.filter(g=>g>old&&g<=n.gIndex).length;
+    if(unlimited&&n.gIndex===SAFE_RANK)settleLargeG(n,state,B.ZERO);
+    return MILESTONES.filter(g=>g>old&&B.lte(g,n.gIndex)).length;
   }
   // On each side of G64 the raw requirement is convex (geometric times
   // quadratic). Subtracting G preserves convexity, so its floor is one interval.
@@ -812,8 +921,8 @@
       achievements:{...state.meta.achievements},bigNumbers:{resources:[],tree:{rank:t.rank}}}};
     const activeTree=unlocked&&treeActive(state);
     return {kind:'FrozenBigNumbersProfile',unlocked,rates:rates(rateState),
-      g:{active:unlocked&&n.gIndex>0,maximum:maximumG(state),requirementState,
-        rate:unlocked&&n.gIndex>0?B.mul(I.gSpeedMultiplier(state),B.mul(BASE_SUPER_SPEED,
+      g:{active:unlocked&&B.gt(n.gIndex,0),maximum:maximumG(state),requirementState,
+        rate:unlocked&&B.gt(n.gIndex,0)?B.mul(I.gSpeedMultiplier(state),B.mul(BASE_SUPER_SPEED,
           B.mul(milestoneMultiplier(n.gIndex),fractalMultiplier(amount(state,4),n.beyondFractal)))):B.ZERO},
       tree:{active:activeTree,phase:t.phase,rank:t.rank,target:targetTreeRank(state),
         constructionRate:activeTree&&(t.phase==='explicit'||t.phase==='super'&&I.has(state,'D8'))?treeConstructionRate(state):B.ZERO,
@@ -824,13 +933,15 @@
     if(!profile.active)return;
     const state=profile.requirementState,L=ledger(),startingIndex=n.gIndex;
     const income=nonnegative(B.mul(nonnegative(profile.rate),seconds));
+    if(profile.maximum===null&&(!safeRank(n.gIndex)||n.gIndex===SAFE_RANK)){settleLargeG(n,state,income);return;}
+    const maximum=profile.maximum??SAFE_RANK;
     let available=L.add([n.superProgress,...n.superResidual],[income]);
     if(L.sign(available)<0)throw Error('大数冻结进度余额无效');
     let ratio=state.activeChallenge==='trueGraham'?B.pow(IC.gRequirement,IC.gChallengeCoefficient):B.ONE;
     if(state.activeChallenge==='trueGraham'&&I.rewardUnlocked(state,'trueGraham'))ratio=B.pow(ratio,IC.gRewardExponent);
     // Capacity begins at G64. These are the only two formula regions; each
     // search takes at most 53 iterations even at Number.MAX_SAFE_INTEGER.
-    for(const end of [Math.min(IC.gCapacityStart,profile.maximum),profile.maximum]) {
+    for(const end of [Math.min(IC.gCapacityStart,maximum),maximum]) {
       const start=n.gIndex,limit=end-start;
       if(limit<=0)continue;
       const rankCost=(I.has(state,'D6')||I.rewardUnlocked(state,'trueGraham'))?gRankCost(state,start,limit,ratio):null;
@@ -852,6 +963,7 @@
     if(L.sign(available)<0)throw Error('大数冻结进度余额不足');
     n.superProgress=nonnegative(L.value(available));
     n.superResidual=L.subtract(available,[n.superProgress]);
+    if(profile.maximum===null&&n.gIndex===SAFE_RANK)settleLargeG(n,state,B.ZERO);
   }
   function prepareFrozen(state,seconds,profile=captureFrozen(state)) {
     if(!Number.isFinite(seconds)||seconds<0)throw Error('大数冻结结算时间无效');
@@ -897,16 +1009,16 @@
       throw Error("未知大数符号层级");
     for (const v of [a, b]) {
       if (v.order === 6) {
-        if (!Number.isInteger(v.treeRank) || v.treeRank < 3 || v.treeRank > Number.MAX_SAFE_INTEGER) throw Error("未知 TREE 阶位");
+        if (rankCompare(rankValue(v.treeRank),3)<0) throw Error("未知 TREE 阶位");
       } else if (v.order === 5) {
-        if (!Number.isInteger(v.gIndex) || v.gIndex < 1 || v.gIndex > Number.MAX_SAFE_INTEGER) throw Error("未知 Graham 阶位");
+        if (rankCompare(rankValue(v.gIndex),1)<0) throw Error("未知 Graham 阶位");
       } else nonnegative(v.coefficient);
     }
     const ca = a.order >= 5 ? B.BN(1) : B.BN(a.coefficient), cb = b.order >= 5 ? B.BN(1) : B.BN(b.coefficient);
     if (B.eq(ca, 0) || B.eq(cb, 0)) return ca.cmp(cb);
-    return a.order !== b.order ? Math.sign(a.order - b.order) : a.order === 6 ? Math.sign(a.treeRank - b.treeRank) : a.order === 5 ? Math.sign(a.gIndex - b.gIndex) : ca.cmp(cb);
+    return a.order !== b.order ? Math.sign(a.order - b.order) : a.order === 6 ? rankCompare(a.treeRank,b.treeRank) : a.order === 5 ? rankCompare(a.gIndex,b.gIndex) : ca.cmp(cb);
   }
-  WIS.Meta.BigNumbers = Object.freeze({ BASE_SUPER_SPEED, SYMBOLS, COSTS, MILESTONES, fresh, normalize, get, reconcileGCapacity, continueUnlockedTree, requirements, isUnlocked,
+  WIS.Meta.BigNumbers = Object.freeze({ rankValue, rankAdd, rankCompare, BASE_SUPER_SPEED, SYMBOLS, COSTS, MILESTONES, fresh, normalize, get, reconcileGCapacity, continueUnlockedTree, requirements, isUnlocked,
     syncUnlock, syncMilestones, baseYRate, currentBaseYRate, sampledYGain, rates, amount, canPurchase, purchase, milestoneMultiplier, fractalMultiplier,
     exposure, advance, prepare, captureFrozen, prepareFrozen, view, compareSymbolic, maximumGIndex: 64, maximumG, maximumTree,
     MAX_TREE_RANK, TREE_UPGRADES, freshTree, normalizeTree, treeUnlocked, targetTreeRank, treeSuperThresholdWork, treeDecayThresholdWork, treeSuperRequirement, treeSuperSeconds,

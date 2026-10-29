@@ -92,7 +92,7 @@
   function achievementDefinitions() {
     const definitions = [
       { key:"infiniteMultiverse", name:"无限多元", description:"抵达N³。", reward:'无限点数获取×当前N的阶位；当前 ×'+format(multiverseAchievementMultiplier(state,"infiniteMultiverse"),2), completed:completedAchievement("infiniteMultiverse",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=3n) },
-      { key:"silverSea", name:"银海", description:"抵达N^99。", reward:"当前达到单体宇宙且TREE≥3时，每秒自动获得当前无限转生收益的1%；离线生效，不触发转生，小数累计", completed:completedAchievement("silverSea",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=99n) },
+      { key:"silverSea", name:"银海", description:"抵达N^99。", reward:"当前达到单体宇宙且TREE≥3时，每秒自动获得当前无限转生收益的1%。", completed:completedAchievement("silverSea",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=99n) },
       { key:"thickEarth", system:"仙道", name:"厚土", description:"抵达仙道·修真道·第九步。", reward:'本源自然奖励数量×当前N的阶位，与道源叠加；当前 ×'+format(multiverseAchievementMultiplier(state,"thickEarth"),2), completed:completedAchievement("thickEarth",(WIS.Cultivation.Xiuzhen.get(state).highestRealm||0)>=16) },
       { key:"martialHarmony", system:"武道", name:"内三合", description:"完成意与气合、心与意合、气与力合三项武道挑战。", reward:"炼心保留相当于炼心前当前心的气、体，不足时按现有数量保留；解锁自动神魂", completed:completedAchievement("martialHarmony",["martialIntentQi","martialHeartIntent","martialQiPower"].every(key=>challengeCompletionCount(key)>0)) },
       { key:"martialInnate", system:"武道", name:"先天", description:"完成任督二脉挑战。", reward:"气获取×2", completed:completedAchievement("martialInnate",challengeCompletionCount("martialMeridians")>0) },
@@ -203,10 +203,10 @@
       { key: "beyondFractal", name: "超越分形", description: "完成分形-5，进入 G1。", reward: beyondFractalReward(), completed: completedAchievement("beyondFractal", state.meta.bigNumbers?.fractalLevel === 5) },
       { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
       { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
-      { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", state.meta.bigNumbers?.tree?.rank >= 3) },
-      { key: "seventhTree", name: "第七颗树？", description: "抵达 TREE(10)。", reward: "无限点数基础值改为3+(n−3)(n−2)/2（n为当前TREE阶位），依次为3、4、6、9、13……；无限之力的+3另行叠加，再计算获取倍率", completed: completedAchievement("seventhTree", state.meta.bigNumbers?.tree?.rank >= 10) },
+      { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", WIS.Core.BigNum.gte(state.meta.bigNumbers?.tree?.rank??0,3)) },
+      { key: "seventhTree", name: "第七颗树？", description: "抵达 TREE(10)。", reward: "无限点数基础获取增速改为等差数列", completed: completedAchievement("seventhTree", WIS.Core.BigNum.gte(state.meta.bigNumbers?.tree?.rank??0,10)) },
       { key: "trueG1", name: "真 G1", description: "首次完成大数挑战·真 G1。", reward: "所有分形获取 ×10", completed: hasAchievement("trueG1") },
-      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G提升需求在减法、除法修正后取0.95次方，挑战中及G64后同样生效", completed: hasAchievement("trueGraham") },
+      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G需求^0.95", completed: hasAchievement("trueGraham") },
       { key: "trueTree3", name: "真 TREE3", description: "首次完成大数挑战·真 TREE3。", reward: "树构造点获取 ×3", completed: hasAchievement("trueTree3") }
     );
 

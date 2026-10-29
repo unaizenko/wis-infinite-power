@@ -96,7 +96,7 @@
           const slots = el("p", "", "martial-note"); slots.id = "martial-slots"; panel.prepend(slots);
         }
         const categories = key === "golden"
-          ? [["shengong", "神功", "特殊修行法门；解锁前请留意重置与价格变化。"], ["inner", "内功", "首次解锁占用名额，升级不再占用；太玄经不占名额。"], ["moves", "招式", "提升武道来源与转换效率。"], ["jueji", "绝技", "各项能力按自身效果生效。"], ["special", "特殊能力", "挑战资格与内功名额。"]]
+          ? [["inner", "内功", "首次解锁占用名额，升级不再占用；太玄经不占名额。"], ["moves", "招式", "提升武道来源与转换效率。"], ["jueji", "绝技", "各项能力按自身效果生效。"], ["shengong", "神功", "长生诀、天魔策、慈航剑典、战神图录"], ["special", "特殊能力", "挑战资格与内功名额。"]]
           : key === "devour" ? [["devour", "宇宙流", "基因与精神修炼，提升武道资源获取。"]]
           : key === "shroud" ? [["shroud", "秘境流", "根据气、体、心增强已有强化。"]]
           : [["strength", "劲力", "明劲、暗劲、化劲、罡劲、丹劲"], ["body", "肉身", "易筋、易骨、易髓"], ["boxing", "国术", "拳法与武道修行"], ["special", "特殊能力", "挑战资格与特殊功法"]];
@@ -110,7 +110,8 @@
           const level = el("span"), requirements = el("small"), price = el("small"), reason = el("small", "", "martial-reason");
           const buy = button("解锁", "martial-buy-" + a.key, () => perform(s => M.buy(s, a.key), () => { renderCultivation(); renderActions(); }));
           const effect = el("small", "", "martial-ability-effect"), nextEffect = el("small", "", "martial-ability-next");
-          row.control.append(effect, nextEffect, level, requirements, price, reason, buy);
+          row.content.append(effect, nextEffect, requirements);
+          row.control.append(level, price, reason, buy);
           abilities.push({ definition: a, ...row, effect, nextEffect, level, requirements, price, reason, buy });
         }
 
@@ -214,8 +215,9 @@
       for (const row of abilities) {
         const v = M.abilityView(s, row.definition.key);
         row.level.textContent = `层级：${v.level}/${v.maxLevel}`;
+        row.level.hidden = row.definition.branch === "shengong";
         row.effect.textContent = "当前：" + abilityEffect(s, v.key, v.level);
-        row.nextEffect.hidden = v.level >= v.maxLevel || Boolean(s.meta?.martialQualifications?.[v.key]);
+        row.nextEffect.hidden = row.definition.branch === "shengong" || v.level >= v.maxLevel || Boolean(s.meta?.martialQualifications?.[v.key]);
         row.nextEffect.textContent = row.nextEffect.hidden ? "" : `${v.level ? v.key === "longXiang" ? "下级修炼效果" : "升级后" : "解锁后"}：${abilityEffect(s, v.key, v.level + 1)}`;
         row.requirements.textContent = "当前值前置（不扣除）：" + Object.entries(v.requirements || {}).map(([key, value]) => `${labels[key] || key}≥${f(value)}`).join("、");
         row.price.textContent = `${labels[v.costResource] || "神魂"}价格：${f(v.cost)}`;
