@@ -306,9 +306,9 @@
   }
   function compactPending(entries,award){const it=compactPendingSteps(entries,award);let item;do{item=it.next();}while(!item.done);return item.value;}
   function appendPending(entries,units,gain,award){
-    const result=entries.slice(),row={units:[String(units)],gain:String(gain),award:String(award)},last=result.at(-1);
+    const result=entries.slice(),row={units:[String(units)],gain:String(gain),award:String(award)},last=result[result.length-1];
     if(last&&pendingContext(last)===pendingContext(row)){
-      if(last.unitChunks){const parts=last.units.slice(),tail=[...WIS.Core.SignedLedger.expand([parts.at(-1)])];
+      if(last.unitChunks){const parts=last.units.slice(),tail=[...WIS.Core.SignedLedger.expand([parts[parts.length-1]])];
         let merged;try{merged=L.add(tail,row.units);}catch(error){if(!(error instanceof L.LedgerError))throw error;}
         if(merged&&merged.length<=64)parts[parts.length-1]=pendingPage(merged);else parts.push(pendingPage(row.units));
         result[result.length-1]={...last,units:parts};

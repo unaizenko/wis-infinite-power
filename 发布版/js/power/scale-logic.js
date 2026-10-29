@@ -1664,7 +1664,7 @@
     while (prefix.length <= targetLevel) {
       const cost = BN(costAtLevel(prefix.length - 1));
       if (!cost.isFinite() || !cost.gt(0)) throw Error("批量强化成本无效，未提交");
-      prefix.push(L.add(prefix.at(-1), [cost]));
+      prefix.push(L.add(prefix[prefix.length-1], [cost]));
     }
     return L.subtract(prefix[targetLevel], prefix[startLevel]);
   }

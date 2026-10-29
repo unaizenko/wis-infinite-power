@@ -1189,9 +1189,9 @@
     if (!Number.isInteger(version) || version < 36 || version > config.saveVersion)
       throw Error("不支持的存档版本");
     if (!data || typeof data !== "object" || Array.isArray(data) ||
-        !(data.core?.resources && Object.hasOwn(data.core.resources, "joules") && Object.hasOwn(data.core.resources, "power") && data.powerSystem && data.cultivation && data.meta) &&
-        !(Object.hasOwn(data, "joules") && Object.hasOwn(data, "power") &&
-          ["lastUpdateAt", "highestPower", "cultivationSystem"].some(key => Object.hasOwn(data, key))))
+        !(data.core?.resources && Object.prototype.hasOwnProperty.call(data.core.resources, "joules") && Object.prototype.hasOwnProperty.call(data.core.resources, "power") && data.powerSystem && data.cultivation && data.meta) &&
+        !(Object.prototype.hasOwnProperty.call(data, "joules") && Object.prototype.hasOwnProperty.call(data, "power") &&
+          ["lastUpdateAt", "highestPower", "cultivationSystem"].some(key => Object.prototype.hasOwnProperty.call(data, key))))
       throw Error("不是有效的WIS存档");
     const migration = migrations[version] || migrations[Math.min(version, 54)] || migrations[36];
     // v65: additive third-step resources, abilities and origin treasure normalize from zero.

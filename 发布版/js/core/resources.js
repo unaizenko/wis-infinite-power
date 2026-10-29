@@ -209,7 +209,7 @@
         (result.meta[definition.owner] ||= { resources: {} }).resources[definition.shortName] = sanitize(raw);
         continue;
       }
-      if (definition.kind === "cultivation" && !Object.hasOwn(result.cultivation.systems, definition.owner))
+      if (definition.kind === "cultivation" && !Object.prototype.hasOwnProperty.call(result.cultivation.systems, definition.owner))
         result.cultivation.systems[definition.owner] = { resources: {} };
       const resources = definition.kind === "core" ? result.core.resources
         : result.cultivation.systems[definition.owner].resources;

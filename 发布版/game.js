@@ -1,6 +1,26 @@
 (() => {
   "use strict";
 
+  const BOOT = window.WIS_BOOT || {enter(){},fail(stage,error){console.error(stage,error);},ready(){},diagnostics(){return {failed:false};}};
+  let abortStartup = () => {};
+  function paintOpportunity() {
+    return new Promise(resolve => {
+      let done=false, fallback;
+      const finish=()=>{if(done)return;done=true;window.clearTimeout(fallback);resolve();};
+      fallback=window.setTimeout(finish,document.hidden?0:250);
+      if(!document.hidden && typeof window.requestAnimationFrame==="function")
+        window.requestAnimationFrame(()=>window.requestAnimationFrame(()=>window.setTimeout(finish,0)));
+    });
+  }
+  function assertBootHealthy(){if(BOOT.diagnostics().failed)throw new Error("启动已中止；请先导出原始存档并重新加载");}
+  async function bootstrap() {
+  if(BOOT.diagnostics().failed)return;
+  BOOT.enter("read-save");
+  await paintOpportunity();
+  assertBootHealthy();
+  for(const [name,value] of [["Core.Save",window.WIS?.Core?.Save?.read],["UI.App",window.WIS?.UI?.App?.create],["Simulation.Loop",window.WIS?.Simulation?.Loop?.create]])
+    if(typeof value!=="function")throw new Error("关键游戏接口缺失："+name);
+  if(typeof window.BigInt!=="function")throw new Error("浏览器缺少精确大整数 BigInt 支持");
   const CONFIG = WIS.Core.Config;
   const BUILD = WIS.Core.Build;
   const GAME_VERSION = CONFIG.gameVersion;
@@ -36,12 +56,25 @@
   } = Immortal;
 
   let savedOfflineRecovery = null;
-  let state = loadState();
+  const loadedState = loadState();
+  BOOT.enter("initialize");
+  await paintOpportunity();
+  assertBootHealthy();
+  let state = WIS.Core.State.cloneForSimulation(loadedState);
   let initialLoadComplete = false;
+  const canPerformSavedAction = () => initialLoadComplete;
+  const canPersistConfirmedState = () => initialLoadComplete && WIS.Core.Save.sessionPolicy().persistenceAllowed;
   let automationSimulation;
   let stepSimulation;
   let offlineSimulation;
   let simulationLoop;
+  abortStartup = () => {
+    const hadConfirmedStartup=initialLoadComplete;
+    initialLoadComplete=false;
+    simulationLoop?.invalidateOnlineScheduler();
+    offlineSimulation?.suspendForAway();
+    if(!hadConfirmedStartup)setStateDirect(loadedState);
+  };
   let renderPending = false;
   let lastRenderAt = 0;
   let lastUpgradeCostSortSignature = "";
@@ -193,11 +226,12 @@
   }
 
   function persistStateNow(options = {}) {
+    if(!canPersistConfirmedState())return false;
     return WIS.Core.Save.persistLive(state,simulationLoop,offlineSimulation,options);
   }
 
   function saveState(options = {}) {
-    if (WIS.Core.Runtime.isProjection()) return;
+    if (WIS.Core.Runtime.isProjection() || !canPerformSavedAction()) return false;
     // Import commit must be synchronous: the transaction cannot release the old
     // session until the newly installed state and its recovery debt are in storage.
     if (options.closing === true || options.importCommit === true) return persistStateNow(options);
@@ -230,7 +264,7 @@
   // Explicit load/player-action boundary. Simulation retains its existing
   // event checks; rendering must never be required to activate rewards.
   function playerAction(work) {
-    return (...args) => { if(simulationLoop?.isDeferredActionPending?.()||offlineSimulation?.getCatchUpStatus().locked)return false;
+    return (...args) => { if(!canPerformSavedAction()||simulationLoop?.isDeferredActionPending?.()||offlineSimulation?.getCatchUpStatus().locked)return false;
       const result = work(...args); completePlayerAction(); return result; };
   }
 
@@ -365,6 +399,7 @@
   }
 
   const UI = WIS.UI.App.create({
+    canPerformSavedAction, canPersistConfirmedState,
     saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, convertOfflineToCompensation, retryCatchUp, startCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
     captureImportState: captureImportStateSnapshot,
     restoreImportState: restoreImportStateSnapshot,
@@ -488,10 +523,7 @@
     saveState,
     effectiveDevSpeed: () => UI.effectiveDevSpeed(),
     isInitialLoadComplete: () => initialLoadComplete,
-    // A load error means the persisted payload is unsafe to overwrite, not that
-    // the in-memory fallback state is unusable. Save.persistLive already blocks
-    // writes while loadError is present, so keep the live simulation running.
-    isStateReady: () => !!state,
+    isStateReady: () => initialLoadComplete,
     epsilon: SIMULATION_EPSILON,
     simulationStepSeconds: SIMULATION_STEP_SECONDS,
     maxOnlineStepsPerFrame: MAX_ONLINE_STEPS_PER_FRAME,
@@ -549,15 +581,9 @@
   completePlayerAction();
   UI.bindEvents();
   const initialAchievementStates = achievementStates();
-  restoreOfflineRecovery(savedOfflineRecovery);
-  // restoreClosedTime owns all registration, including legacy timestamp saves.
-  const initialOfflineElapsedSeconds = 0;
-  // A tab may be created hidden, without receiving a visibilitychange event.
-  // Register its new absence separately from the older saved offline debt.
-  if (document.hidden) simulationLoop.prepareSave({ closing: true });
-
   WIS.Game = Object.freeze({
     version: GAME_VERSION,
+    canPerformSavedAction, canPersistConfirmedState,
     getState: () => state,
     getDomainState: () => WIS.Core.State.domainView(state),
     getPowerSystem: () => WIS.Core.Registries.getActivePower(state),
@@ -586,81 +612,53 @@
   });
 
   applyTheme();
+  BOOT.enter("first-view");
+  // Stock-only view avoids source/preview evaluation before a paint opportunity.
+  document.getElementById("joules").textContent=format(state.joules);
+  document.getElementById("power").textContent=format(state.power);
+  document.getElementById("joules-rate").textContent="等待恢复";
+  await paintOpportunity(); // first-view
+  assertBootHealthy();
+  BOOT.enter("register-recovery");
+  // No save or action may advance the saved watermark before this succeeds.
+  if(WIS.Core.Save.sessionPolicy().durableRecoveryAllowed)restoreOfflineRecovery(savedOfflineRecovery);
+  else simulationLoop.restoreClosedTime(null);
+  initialLoadComplete=true;
+  if(document.hidden)simulationLoop.prepareSave({closing:true});
   ensureAdvancedRealmAbilityGroups();
   switchPage("actions");
-  lastUpgradeCostSortSignature = upgradeCostSortSignature();
-  lastCultivationCostSortSignature = cultivationCostSortSignature();
-  lastUpgradeUnlockSignature = [state.highestScaleIndex, state.brickUnlocked, state.wallUnlocked,
-    stateFlagSignature(upgradeFlagKeys)].join("|");
-  lastCultivationUnlockSignature = [state.cultivation?.active, state.advancedRealmLevel,
-    stateFlagSignature(cultivationFlagKeys)].join("|");
-  lastTreasureSignature = [state.heavenlyTreasureLevel, state.mysticHeavenlyTreasureLevel,
-    state.fiveElementsTreasureUnlocked, state.fiveSpiritStonePurchased,
-    recordSignature(state.treasureImprints, WIS.Meta.Treasures.keys)].join("|");
-  lastChallengeSignature = `${state.activeChallenge}|${state.threeCorpseChallengesUnlocked}|${recordSignature(state.challengeCompletions, challengeKeys)}`;
+  markCostGroupsDirty();
   requestRender();
-  flushRender(Date.now(), { force: true });
+  flushRender(Date.now(),{force:true});
+  BOOT.ready({mode:WIS.Core.Save.sessionPolicy().mode});
   simulationLoop.start();
 
-  let initialLoadStarted = false;
-  async function finishInitialLoad() {
-    if (initialLoadStarted) return;
-    initialLoadStarted = true;
-
-    let initialOfflinePromise = Promise.resolve("");
-    try {
-      if (!WIS.Core.Save.getLoadError()) {
-        // Register the initial catch-up before releasing bootstrap. Offline owns
-        // the foreground gate while debt is running/paused/pending/recovering.
-        initialOfflinePromise = simulateOfflineProgress(initialOfflineElapsedSeconds);
-      }
-    } catch (error) {
-      console.error("WIS initial offline settlement failed to start; continuing bootstrap.", error);
-    }
-
-    // Loading the page/state and finishing historical catch-up are separate
-    // lifecycle states. Do not keep the whole live loop behind a long/yielding
-    // catch-up promise; processOnline still refuses to advance while debt exists.
-    simulationLoop.setLastTickAt(Date.now());
-    initialLoadComplete = true;
-    markCostGroupsDirty();
-    requestRender();
-    flushRender(Date.now(), { force: true });
-
-    let initialOfflineReport = "";
-    try {
-      initialOfflineReport = await initialOfflinePromise;
-    } catch (error) {
-      console.error("WIS initial offline settlement failed; continuing online play.", error);
-    }
-
-    simulationLoop.setLastTickAt(Date.now());
-    markCostGroupsDirty();
-    requestRender();
-    flushRender(Date.now(), { force: true });
-    // A transient first write failure must not abort startup before autosave is
-    // installed. The pending status remains visible until a real write succeeds.
-    try { saveState(); } catch(error) { WIS.Core.Save.noteFailure(error); }
-    if (!offlineSimulation.isCatchUpPaused() && !WIS.Core.Save.getLoadError())
-      notifyNewAchievements(initialAchievementStates);
-    if (WIS.Core.Save.getLoadError()) showNotice("原存档读取失败，已进入临时未保存会话。原文件仍保留，自动保存已停用；请导入有效存档、恢复备份，或重置后重新开始。" + WIS.Core.Save.getLoadError(), 60000);
-    else if (initialOfflineReport && state.autoCloseOfflineDialogEnabled === false) showNotice(initialOfflineReport, 6000);
-    window.setInterval(() => {
-      // A periodic save does not change production rules. Keeping its confirmed
-      // model avoids resampling at wall-clock-dependent save times. Real player
-      // actions still invalidate through saveState; normal foreground time
-      // advances the live state directly through prepareSave/the main loop.
-      if (!document.hidden) try { persistStateNow({ preserveSourceModels: true, captureOnly: true }); }
-      catch(error) { /* Save status retains the failure; keep the existing 5s cadence. */ }
-    }, 5000);
+  // Historical recovery owns its own gate. Base UI readiness never waits for
+  // its potentially long promise, and Worker writes retain their durable ACK.
+  let initialOfflineReport="";
+  try {
+    if(WIS.Core.Save.sessionPolicy().durableRecoveryAllowed)
+      initialOfflineReport=await simulateOfflineProgress(0);
+  } catch(error) {
+    WIS.Core.Save.noteFailure(error);
+    showNotice("离线恢复已暂停，剩余时间仍保留："+(error.message||error),6000);
   }
-
-  const startInitialLoad = () => { void finishInitialLoad(); };
-  if (document.hidden) window.setTimeout(startInitialLoad, 0);
-  else {
-    // Preserve first-paint preference, but do not let a missing/delayed rAF keep
-    // initialLoadComplete false forever. The guarded timer is a fail-safe only.
-    window.requestAnimationFrame(startInitialLoad);
-    window.setTimeout(startInitialLoad, 250);
+  if(!initialLoadComplete)return;
+  simulationLoop.setLastTickAt(Date.now());
+  markCostGroupsDirty();
+  requestRender();
+  flushRender(Date.now(),{force:true});
+  try {saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
+  if(!offlineSimulation.isCatchUpPaused()&&!WIS.Core.Save.getLoadError())notifyNewAchievements(initialAchievementStates);
+  if(initialOfflineReport&&state.autoCloseOfflineDialogEnabled===false)showNotice(initialOfflineReport,6000);
+  window.setInterval(()=>{
+    if(!document.hidden)try{persistStateNow({preserveSourceModels:true,captureOnly:true});}catch(_){}
+  },5000);
   }
+  window.setTimeout(()=>{
+    bootstrap().catch(error=>{
+      try{abortStartup();}catch(cleanupError){console.error("WIS startup cleanup",cleanupError);}
+      BOOT.fail(BOOT.diagnostics().stage||"initialize",error,{canRetry:false});
+    });
+  },0);
 })();

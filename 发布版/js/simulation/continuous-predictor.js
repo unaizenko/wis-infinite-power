@@ -56,7 +56,7 @@
       const logs=ds.slice(1).map((d,i)=>({n:rows[i+1].position-rows[i].position,value:d>0&&ds[i]>0?Math.log(d/ds[i]):NaN})).filter(v=>v.n>0).map(v=>v.value/v.n),mean=logs.reduce((a,b)=>a+b,0)/logs.length;
       let stable=Number.isFinite(mean)&&logs.every(v=>Math.abs(v-mean)<=config().fitTolerance);ratio=Math.exp(mean);
       const changes=ds.slice(1).map((d,i)=>d-ds[i]),rs=changes.slice(1).map((d,i)=>d/changes[i]);
-      if(rows.slice(1).every((p,i)=>p.position-rows[i].position===1)&&rs.every(v=>v>0&&v<.98)&&Math.max(...rs)-Math.min(...rs)<config().fitTolerance){const r=rs.reduce((a,b)=>a+b,0)/rs.length,f=(ds.at(-1)-r*ds.at(-2))/(1-r);if(f>=0&&Number.isFinite(f)){ratio=r;floor=f;stable=true;}}
+      if(rows.slice(1).every((p,i)=>p.position-rows[i].position===1)&&rs.every(v=>v>0&&v<.98)&&Math.max(...rs)-Math.min(...rs)<config().fitTolerance){const r=rs.reduce((a,b)=>a+b,0)/rs.length,f=(ds[ds.length-1]-r*ds[ds.length-2])/(1-r);if(f>=0&&Number.isFinite(f)){ratio=r;floor=f;stable=true;}}
       if(!stable)return null;
       parameters[k]={ratio,floor};
     }
@@ -147,24 +147,24 @@
   function rateFit(rows,outputs){if(rows.length<2||rows.some(p=>!p.rates))return null;const parameters={};
     for(const k of outputs){const values=rows.map(p=>p.rates[k]);if(values.some(v=>v.layer!==values[0].layer))return null;
       const slopes=rows.slice(1).map((p,i)=>({d:(values[i+1].value-values[i].value)/(p.position-rows[i].position),at:(p.position+rows[i].position)/2,gap:p.position-rows[i].position})).filter(p=>p.gap>0);
-      if(!slopes.length)return null;let ratio=1,delta=slopes.at(-1).d;
+      if(!slopes.length)return null;let ratio=1,delta=slopes[slopes.length-1].d;
       if(slopes.every(p=>Math.abs(p.d)<=config().coordinateFloor))delta=0;
-      else if(slopes.length>1){const logs=slopes.slice(1).map((p,i)=>Math.log(p.d/slopes[i].d)/(p.at-slopes[i].at));if(logs.every(Number.isFinite)){const mean=logs.reduce((a,b)=>a+b,0)/logs.length;if(logs.every(v=>Math.abs(v-mean)<config().fitTolerance)){ratio=Math.exp(mean);delta*=Math.pow(ratio,slopes.at(-1).gap/2+.5);}}}
+      else if(slopes.length>1){const logs=slopes.slice(1).map((p,i)=>Math.log(p.d/slopes[i].d)/(p.at-slopes[i].at));if(logs.every(Number.isFinite)){const mean=logs.reduce((a,b)=>a+b,0)/logs.length;if(logs.every(v=>Math.abs(v-mean)<config().fitTolerance)){ratio=Math.exp(mean);delta*=Math.pow(ratio,slopes[slopes.length-1].gap/2+.5);}}}
       if(!Number.isFinite(delta)||!Number.isFinite(ratio))return null;parameters[k]={ratio,delta};
       // A decaying rate-coordinate slope often follows a power sequence in
       // ordinary stock space. Fit reciprocal slopes, still a discrete sampled
       // rate model; no resource ODE or numerical integration is invoked.
       if(slopes.length>=2&&slopes.every(p=>p.d>config().coordinateFloor)){
-        const first=slopes[0],last=slopes.at(-1),gradient=(1/last.d-1/first.d)/(last.at-first.at);
-        if(Number.isFinite(gradient)&&gradient>0){const amplitude=1/gradient,age=amplitude/last.d+rows.at(-1).position-last.at;
-          const residual=Math.max(...slopes.map(p=>Math.abs(amplitude/(age+p.at-rows.at(-1).position)-p.d)/Math.max(config().coordinateFloor,p.d)));
+        const first=slopes[0],last=slopes[slopes.length-1],gradient=(1/last.d-1/first.d)/(last.at-first.at);
+        if(Number.isFinite(gradient)&&gradient>0){const amplitude=1/gradient,age=amplitude/last.d+rows[rows.length-1].position-last.at;
+          const residual=Math.max(...slopes.map(p=>Math.abs(amplitude/(age+p.at-rows[rows.length-1].position)-p.d)/Math.max(config().coordinateFloor,p.d)));
           if(Number.isFinite(age)&&age>0&&residual<=config().fitTolerance)parameters[k]={shape:'power',amplitude,age,ratio:1,delta:last.d};
         }
       }
     }return {type:'rate',outputs,parameters};
   }
   function fallbackFit(rows,outputs){
-    const layered=outputs.every(k=>rows.at(-1).coordinates[k].layer>=2||rows.every(p=>Math.abs(p.delta[k])<=config().coordinateFloor));
+    const layered=outputs.every(k=>rows[rows.length-1].coordinates[k].layer>=2||rows.every(p=>Math.abs(p.delta[k])<=config().coordinateFloor));
     return layered?(scalarFit(rows,outputs)||rateFit(rows,outputs)):(rateFit(rows,outputs)||scalarFit(rows,outputs));
   }
   function fitGroup(rows,id){

@@ -537,15 +537,15 @@
   function openOfflineProgressDialog() {
     const dialog = rawById("offline-progress-dialog");
     if (dialog?.classList.contains("offline-completed-presentation")) {
-      if (dialog.open) dialog.close();
+      if (dialog.open) WIS.UI.Dialog.close(dialog);
       dialog.classList.remove("offline-completed-presentation");
     }
-    if (dialog && !dialog.open) dialog.showModal();
+    if (dialog && !dialog.open) WIS.UI.Dialog.open(dialog);
   }
 
   function closeOfflineProgressDialog() {
     const dialog = rawById("offline-progress-dialog");
-    if (dialog?.open) dialog.close();
+    if (dialog?.open) WIS.UI.Dialog.close(dialog);
     dialog?.classList.remove("offline-completed-presentation");
   }
 
@@ -743,7 +743,7 @@
     // Settlement is complete: keep the summary visible without a modal top
     // layer intercepting clicks on the now-unlocked game underneath it.
     if (!dialog.classList.contains('offline-completed-presentation')) {
-      if (dialog.open) dialog.close();
+      if (dialog.open) WIS.UI.Dialog.close(dialog);
       dialog.classList.add('offline-completed-presentation');
     }
     if (!dialog.open) dialog.show();
@@ -936,6 +936,7 @@
   }
 
   function performSavedAction(action, update, afterCommit) {
+    if(context.canPerformSavedAction?.()===false)return false;
     const storage=WIS.Core.Save;
     let before=null;
     try {before=JSON.stringify(WIS.Core.State.toSerializable(state));} catch(error) {storage.diagnose("operation-snapshot",error);}
@@ -1168,6 +1169,7 @@
       timer.step("save");
       commitUIImportTransaction(transaction);
       installed = true;
+      window.WIS_BOOT?.ready({mode:WIS.Core.Save.sessionPolicy().mode});
       stage = "present";
       // --- import transaction ends here; settlement is its own lifecycle ---
       applyTheme();
@@ -1181,7 +1183,7 @@
       }
       // Settings must not stay stacked over the recovery window. Present the
       // lightweight recovery modal before any potentially expensive full page render.
-      byId("settings-dialog").close();
+      WIS.UI.Dialog.close(byId("settings-dialog"));
       const status = getCatchUpStatus();
       const pending = status.pendingGameSeconds > 0;
       const paused = status.phase === "paused";
@@ -1243,11 +1245,12 @@
     activePage = "actions";
     activeCultivationPage = "realms";
     WIS.Core.Save.remove();
+    window.WIS_BOOT?.ready({mode:WIS.Core.Save.sessionPolicy().mode});
     applyTheme();
     switchPage("actions");
     render({ forceGlobal: true, forcePage: true });
     saveState();
-    byId("settings-dialog").close();
+    WIS.UI.Dialog.close(byId("settings-dialog"));
     showNotice("游戏已重置");
   }
 
@@ -1259,7 +1262,7 @@
     // Older engines without Popover still render it above that modal's contents.
     if (notice.showPopover && notice.matches(":popover-open")) notice.hidePopover();
     const modal = document.activeElement?.closest?.("dialog[open]") ||
-      [...document.querySelectorAll("dialog[open]")].at(-1);
+      Array.from(document.querySelectorAll("dialog[open]")).slice(-1)[0];
     const host = modal || document.body;
     if (host && notice.parentElement !== host) host.appendChild(notice);
     notice.textContent = message;
@@ -3237,6 +3240,10 @@
     bigNumberPage.bind();
     xiuzhenPage.bind();
     const blockInteractionDuringCatchUp = (event) => {
+      if(event.target?.closest?.("#boot-status-panel"))return;
+      if(context.canPerformSavedAction?.()===false){
+        event.preventDefault();event.stopImmediatePropagation();return;
+      }
       const importControl = event.target?.closest?.("#import-save, #import-file, #restore-save-backup");
       // Import is an escape hatch from a long recovery. Its launcher and file
       // events must reach the real handlers even while settlement owns the UI.
@@ -3550,7 +3557,7 @@
     };
     const openSettings = () => {
       renderAutoCloseSetting();
-      settingsDialog.showModal();
+      WIS.UI.Dialog.open(settingsDialog);
     };
     byId("toggle-resource-panel").addEventListener("click", () => {
       const button=byId("toggle-resource-panel");
@@ -3589,18 +3596,18 @@
         handleOfflineCatchUpStatus(getCatchUpStatus());
       }
     });
-    byId("close-settings").addEventListener("click", () => settingsDialog.close());
+    byId("close-settings").addEventListener("click", () => WIS.UI.Dialog.close(settingsDialog));
     settingsDialog.addEventListener("click", (event) => {
-      if (event.target === settingsDialog) settingsDialog.close();
+      if (event.target === settingsDialog) WIS.UI.Dialog.close(settingsDialog);
     });
     byId("open-automation-manager").addEventListener("click", () => {
-      settingsDialog.close();
+      WIS.UI.Dialog.close(settingsDialog);
       renderAutomationManager(true);
-      automationDialog.showModal();
+      WIS.UI.Dialog.open(automationDialog);
     });
-    byId("close-automation-manager").addEventListener("click", () => automationDialog.close());
+    byId("close-automation-manager").addEventListener("click", () => WIS.UI.Dialog.close(automationDialog));
     automationDialog.addEventListener("click", (event) => {
-      if (event.target === automationDialog) automationDialog.close();
+      if (event.target === automationDialog) WIS.UI.Dialog.close(automationDialog);
     });
     offlineProgressDialog.addEventListener("cancel", (event) => {
       if (getCatchUpStatus().phase !== 'paused') event.preventDefault();

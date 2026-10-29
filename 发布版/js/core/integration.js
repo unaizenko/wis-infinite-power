@@ -161,7 +161,7 @@
         }
         let factor=1, improved=false;
         for(let search=0;search<8;search++){
-          const next=end.slice();for(let j=0;j<active.length;j++){const i=active[j];next[i]=B.max(z[i],B.min(B.add(z[i],h),B.add(end[i],B.mul(matrix[j].at(-1),factor))));}
+          const next=end.slice();for(let j=0;j<active.length;j++){const i=active[j];next[i]=B.max(z[i],B.min(B.add(z[i],h),B.add(end[i],B.mul(matrix[j][matrix[j].length-1],factor))));}
           const ne=(yield* sample(next));
           const nn=active.reduce((m,i)=>B.max(m,B.abs(B.sub(B.sub(next[i],z[i]),B.mul(B.mul(h,.5),B.add(a.direction[i],ne.direction[i]))))),B.ZERO);
           const old=residual.reduce((m,v)=>B.max(m,B.abs(v)),B.ZERO);

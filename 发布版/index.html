@@ -5,9 +5,134 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="WIS-无限战力系统网页试玩版" />
     <title>WIS-无限战力系统</title>
-    <link rel="stylesheet" href="styles.css?v=release-0.1.8.2-20261029-layout" />
+    <script id="wis-startup-guard">
+(function (w, d) {
+  "use strict";
+  var stage = "scripts", mode = "loading", complete = false, firstError = null, events = [], foreground = 0, last = Date.now();
+  var key = "wis-infinite-power-save-v2";
+  function bounded(value) { return String(value == null ? "" : value).slice(0, 500); }
+  function record(type, message) {
+    events.push({ at: Date.now(), stage: stage, type: type, message: bounded(message) });
+    if (events.length > 40) events.shift();
+  }
+  function node(id) { return d.getElementById(id); }
+  function show(message) {
+    var panel = node("boot-status-panel");
+    if (!panel) return;
+    panel.hidden = false;
+    node("boot-status-message").textContent = message;
+    panel.setAttribute("data-mode", mode);
+  }
+  function closeDialogs() {
+    var dialogs = d.querySelectorAll("dialog[open]"), i;
+    for (i = 0; i < dialogs.length; i++) {
+      try { if (typeof dialogs[i].close === "function") dialogs[i].close(); } catch (_) {}
+      dialogs[i].removeAttribute("open");
+    }
+  }
+  function fail(where, error) {
+    stage = where || stage;
+    var message = bounded(error && error.message || error);
+    if (!firstError) firstError = { stage: stage, message: message };
+    complete = false; mode = "failed"; record("error", message);
+    closeDialogs();
+    show("启动失败（" + firstError.stage + "）：" + firstError.message + "。原存档不会被此恢复面板改写，可先导出备份或复制诊断。");
+  }
+  function diagnostics() {
+    return { stage: stage, mode: mode, ready: complete, failed: !!firstError, firstError: firstError,
+      build: w.WIS_BUILD && w.WIS_BUILD.id || "", userAgent: bounded(w.navigator.userAgent), events: events.slice() };
+  }
+  function copyText(text, message) {
+    var box = node("boot-copy-text");
+    box.hidden = false; box.value = text; box.focus(); box.select();
+    node("boot-action-message").textContent = message;
+  }
+  function exportRaw() {
+    var text;
+    try { text = w.localStorage.getItem(key); }
+    catch (error) { node("boot-action-message").textContent = "无法读取浏览器存储：" + bounded(error.message); return; }
+    if (text === null) { node("boot-action-message").textContent = "当前网址没有可读取的原始存档。"; return; }
+    if (w.Blob && w.URL && typeof w.URL.createObjectURL === "function") {
+      try {
+        var url = w.URL.createObjectURL(new w.Blob([text], {type:"application/json"})), link = d.createElement("a");
+        link.href = url; link.download = "WIS-original-save-" + Date.now() + ".json"; node("boot-status-panel").appendChild(link); link.click();
+        link.parentNode.removeChild(link); w.setTimeout(function () { w.URL.revokeObjectURL(url); }, 1000);
+        node("boot-action-message").textContent = "已导出原始存档；未经过解析或迁移。"; return;
+      } catch (_) {}
+    }
+    copyText(text, "下载不可用，请复制下方完整原文并保存。");
+  }
+  w.WIS_BOOT = {
+    enter: function (where) { stage = where; record("stage", where); if (!firstError) show("正在启动（" + where + "），尚未开始结算。"); },
+    fail: fail,
+    ready: function (options) {
+      if (firstError) return;
+      complete = true; mode = options && options.mode || "normal"; stage = "ready"; record("ready", mode);
+      if (mode === "temporary") show("原存档读取失败，正在临时运行；自动保存与后台收益已停用。原存档仍保留，可先导出原文，再通过设置导入有效备份。");
+      else if (node("boot-status-panel")) node("boot-status-panel").hidden = true;
+    },
+    diagnostics: diagnostics
+  };
+  w.addEventListener("error", function (event) {
+    var target = event.target;
+    if (target && target.tagName === "SCRIPT") fail("scripts", new Error("脚本加载失败：" + target.getAttribute("src")));
+    else if (!complete) fail(stage, event.error || event.message || "脚本执行失败");
+  }, true);
+  w.addEventListener("unhandledrejection", function (event) { if (!complete) fail(stage, event.reason || "异步启动失败"); });
+  d.addEventListener("load", function (event) {
+    var target = event.target, src = target && target.tagName === "SCRIPT" && target.getAttribute("src");
+    if (src && w.WIS_BUILD && src.indexOf("?v=") >= 0 && src.split("?v=")[1] !== w.WIS_BUILD.id)
+      fail("scripts", new Error("脚本构建标识不一致：" + src));
+  }, true);
+  function guardInteraction(event) {
+    var target = event.target;
+    while (target && target !== d) {
+      if (target.id === "boot-status-panel") return;
+      if (target.id === "open-settings" && (!complete || firstError)) {
+        if (event.type === "click") { closeDialogs(); show(firstError ? "启动失败（" + firstError.stage + "）：" + firstError.message : "正在启动，可导出原始存档或复制诊断。"); }
+        event.preventDefault(); event.stopImmediatePropagation(); return;
+      }
+      target = target.parentNode;
+    }
+    if (!complete || firstError) {
+      if (event.type === "click" || event.type === "submit" || event.type === "change" || event.type === "input" || event.type === "pointerdown") {
+        event.preventDefault(); event.stopImmediatePropagation();
+      }
+    }
+  }
+  ["click", "pointerdown", "submit", "change", "input"].forEach(function (type) { w.addEventListener(type, guardInteraction, true); });
+  d.addEventListener("DOMContentLoaded", function () {
+    if (firstError) fail(firstError.stage, firstError.message);
+    else show("正在启动（" + stage + "），尚未开始结算。");
+    node("boot-reload").onclick = function () { w.location.reload(); };
+    node("boot-export").onclick = exportRaw;
+    node("boot-diagnostics").onclick = function () { copyText(JSON.stringify(diagnostics(), null, 2), "请复制下方诊断信息。"); };
+    if (typeof w.BigInt !== "function") fail("capabilities", new Error("浏览器缺少精确大整数 BigInt 支持，请升级浏览器；可先导出原始存档。"));
+  });
+  w.setInterval(function () {
+    var now = Date.now(), elapsed = Math.max(0, now - last); last = now;
+    if (!d.hidden && !complete && !firstError) {
+      foreground += Math.min(elapsed, 1000);
+      if (foreground >= 10000) show("启动耗时较长（" + stage + "），可先导出原始存档或复制诊断；不会自动重置。");
+    }
+  }, 500);
+}(window, document));
+    </script>
+    <link rel="stylesheet" href="styles.css?v=release-0.1.8.3-20261029-layout" />
   </head>
   <body>
+    <aside id="boot-status-panel" class="boot-status-panel" role="status" aria-live="polite">
+      <strong>WIS 启动与恢复</strong>
+      <p id="boot-status-message">正在加载游戏，尚未开始结算。</p>
+      <div class="boot-status-actions">
+        <button id="boot-reload" type="button">重新加载</button>
+        <button id="boot-export" type="button">导出原始存档</button>
+        <button id="boot-diagnostics" type="button">复制诊断</button>
+      </div>
+      <p id="boot-action-message"></p>
+      <textarea id="boot-copy-text" rows="6" aria-label="备份或诊断原文" readonly hidden></textarea>
+    </aside>
+    <noscript>游戏需要启用 JavaScript。请启用后重新加载；当前尚未开始运行。</noscript>
     <aside id="save-failure-panel" class="save-failure-panel" role="status" hidden>
       <span id="save-failure-message"></span>
       <button id="retry-failed-save" type="button">重试保存</button>
@@ -18,13 +143,13 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.8.2</small>
+          <small id="game-version" class="game-version">v0.1.8.3</small>
         </div>
         <div class="header-actions">
           <small id="online-compensation-balance" hidden></small>
           <div class="scale-progress">
-            <p>量级论 · 当前量级：<b id="current-scale">普通人</b></p>
-            <small id="next-scale-progress">下一量级：爆砖（需要 200 战力）</small>
+            <p>量级论 · 当前量级：<b id="current-scale">加载中</b></p>
+            <small id="next-scale-progress">等待存档初始化</small>
           </div>
           
           <button id="open-settings" class="settings-button" type="button" aria-label="打开设置" title="设置">⚙</button>
@@ -41,7 +166,7 @@
             <span>J</span>
             <div class="resource-value">
               <strong id="joules">0</strong>
-              <small id="joules-rate">（+1/秒）</small>
+              <small id="joules-rate">等待启动</small>
             </div>
           </div>
           <div class="resource-row">
@@ -1076,84 +1201,85 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" popover="manual" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/vendor/break_eternity.min.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/namespace.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/bignum.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/finite-progress.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/signed-ledger.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/treasure-rules.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/infinity-config.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/infinity.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/cultivation/martial-config.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/config.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/big-numbers.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/registry.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/formulas.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/penalties.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/integration.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/runtime.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/cultivation/xiuzhen.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/probability.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/compensation.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/cultivation/martial.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/high-multiverse.js?v=release-0.1.8.2-20261029"></script>
-  <script src="js/core/state.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/save.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/resources.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/cultivation/resources.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/big-number-resources.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/effects.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/sources.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/core/reset.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/power/scale-logic.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/power/scale.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/cultivation/immortal-logic.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/cultivation/immortal.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/cultivation/martial-system.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/achievements.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/crystal-interval.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/accuracy.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/fast-forward.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/treasure-ledger.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/treasures.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/cultivation/exploration-progress.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/meta/challenges.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/automation.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/profiler.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/power/scale-kernel.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/resource-groups.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/resource-dependencies.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/coupled-resource-kernel.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/coordinate-coupled-kernel.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/fixed-sources.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/discrete-map.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/predictor-groups.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/continuous-predictor.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/local-discrete-macro.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/continuous-executor.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/resource-evolution.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/strong-feedback-kernel.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/checkpoint-strategy.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/fixed-segment.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/compiled-continuous-plan.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/martial-interval.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/step.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/offline.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/worker-protocol.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/worker-client.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/offline-worker-bundle.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/offline-worker.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/simulation/loop.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/source-preview.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/format.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/cards.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/big-numbers.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/xiuzhen.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/treasures.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/infinity.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/martial.js?v=release-0.1.8.2-20261029"></script>
-    <script src="js/ui/app.js?v=release-0.1.8.2-20261029"></script>
-    <script src="game.js?v=release-0.1.8.2-20261029"></script>
+    <script src="js/core/build-config.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/vendor/break_eternity.min.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/namespace.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/bignum.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/finite-progress.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/signed-ledger.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/treasure-rules.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/infinity-config.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/infinity.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/cultivation/martial-config.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/config.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/big-numbers.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/registry.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/formulas.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/penalties.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/integration.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/runtime.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/cultivation/xiuzhen.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/probability.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/compensation.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/cultivation/martial.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/high-multiverse.js?v=release-0.1.8.3-20261029"></script>
+  <script src="js/core/state.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/save.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/resources.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/cultivation/resources.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/big-number-resources.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/effects.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/sources.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/core/reset.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/power/scale-logic.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/power/scale.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/cultivation/immortal-logic.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/cultivation/immortal.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/cultivation/martial-system.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/achievements.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/crystal-interval.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/accuracy.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/fast-forward.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/treasure-ledger.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/treasures.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/cultivation/exploration-progress.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/meta/challenges.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/automation.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/profiler.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/power/scale-kernel.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/resource-groups.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/resource-dependencies.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/coupled-resource-kernel.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/coordinate-coupled-kernel.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/fixed-sources.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/discrete-map.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/predictor-groups.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/continuous-predictor.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/local-discrete-macro.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/continuous-executor.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/resource-evolution.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/strong-feedback-kernel.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/checkpoint-strategy.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/fixed-segment.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/compiled-continuous-plan.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/martial-interval.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/step.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/offline.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/worker-protocol.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/worker-client.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/offline-worker-bundle.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/offline-worker.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/simulation/loop.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/source-preview.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/format.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/cards.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/big-numbers.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/xiuzhen.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/treasures.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/infinity.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/martial.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/dialog.js?v=release-0.1.8.3-20261029"></script>
+    <script src="js/ui/app.js?v=release-0.1.8.3-20261029"></script>
+    <script src="game.js?v=release-0.1.8.3-20261029"></script>
   </body>
 </html>

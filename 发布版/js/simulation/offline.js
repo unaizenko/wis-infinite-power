@@ -570,14 +570,14 @@
         if(!Number.isFinite(safeElapsed)||!Number.isFinite(safeClock)||safeClock<0)throw Error("入队时间无效");
         if(!catchUpInProgress&&!catchUpPaused&&!catchUpTasks.length&&catchUpCompleted)resetCatchUpSession();
         ensureCatchUpSession();
-        const tail=options.mergeWithTail?catchUpTasks.at(-1):null;
+        const tail=options.mergeWithTail?catchUpTasks[catchUpTasks.length-1]:null;
         const source=options.source==='online'?'online':'offline';
         const eligible=source==='online'&&options.compensationEligible===true;
         const speed=options.speed??(safeClock>0?safeElapsed/safeClock:1);
         const canMerge=tail&&!tail.started&&
           tail.source===source&&tail.compensationEligible===eligible&&tail.speed===speed&&
           tail.randomMode===(options.randomMode==='state'?'state':'legacy')&&tail.sealed===(options.sealed!==false);
-        const previousTail=catchUpTasks.at(-1);
+        const previousTail=catchUpTasks[catchUpTasks.length-1];
         if(previousTail&&!canMerge&&previousTail.source==='online')previousTail.sealed=true;
         let task;
         if(canMerge){task=tail;task.gameSeconds+=safeElapsed;task.clockSeconds+=safeClock;
@@ -885,7 +885,7 @@
         sessionErrorTerms = snapshot.sessionErrorTerms || resourceKeys.map(() => []);
         discreteMetrics = snapshot.discreteMetrics || discreteMetrics;
         fastForwardUsed = snapshot.fastForwardUsed ?? fastForwardUsed;
-        if(Object.hasOwn(snapshot,"fastForwardMetrics"))fastForwardMetrics = snapshot.fastForwardMetrics;
+        if(Object.prototype.hasOwnProperty.call(snapshot,"fastForwardMetrics"))fastForwardMetrics = snapshot.fastForwardMetrics;
         sessionProcessedGameSeconds = snapshot.sessionProcessedGameSeconds;
         offlineSegmentBudget = snapshot.segmentBudget;
         pendingCatchUpSeconds = snapshot?.pendingGameSeconds ?? pendingCatchUpSeconds;

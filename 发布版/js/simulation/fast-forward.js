@@ -138,7 +138,7 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
     const left=Math.min(sectionEnd,stop)-session.ticks;
     if(exact||sectionBase<20||left<4) {reason(exact?"exact-reference":"short-interval-cheaper");originalLocal();continue;}
     if(!supported()) {reason("event-or-layer-needs-original-frame");originalLocal();continue;}
-    const modelKey=()=>fingerprint()+JSON.stringify(samples.length ? vector(samples.at(-1)).map(v=>[v.sign,v.layer,
+    const modelKey=()=>fingerprint()+JSON.stringify(samples.length ? vector(samples[samples.length-1]).map(v=>[v.sign,v.layer,
       Math.floor(v.mag / Math.pow(10, Math.floor(Math.log10(Math.max(1,Math.abs(v.mag))))-2))]) : []);
     if(blockedKey && blockedKey===modelKey() && session.ticks<blockedUntil){reason("model-backoff");originalLocal();continue;}
     if(blockedKey){blockedKey=null;samples=[];carry=null;retries=0;}
@@ -188,7 +188,7 @@ function* runSteps(initial,{seconds=60,seed=.123456789,limitMs=14000,nodes=2,par
     const before=point(),start=session.ticks,eventBefore=fingerprint(),sampleTreasures={main:{...R.getState().meta.treasures},tails:{...R.getState().meta.treasureStockResidual}};
     const naturalBefore=JSON.stringify(WIS.Cultivation.ExplorationProgress.levelWords(R.getState()));
     try {
-      const plan=integratedPlan(samples.at(-1),model,n);
+      const plan=integratedPlan(samples[samples.length-1],model,n);
       global.__jointFrame=start+n;global.__percentFrames=n;
       let committed;
       try {committed=session.tick(plan,false,n);}finally{global.__percentFrames=null;}
@@ -293,7 +293,7 @@ function create() {
   function capture(kind,session){
     const state=R.getState();
     const natural={frame:session.ticks,time:session.ticks/10,level:String(state.naturalTreasureLevel),seized:!!state.unlockedAchievements.seizeFoundation};
-    if(!data.natural.length||data.natural.at(-1).level!==natural.level||data.natural.at(-1).seized!==natural.seized)data.natural.push(natural);
+    if(!data.natural.length||data.natural[data.natural.length-1].level!==natural.level||data.natural[data.natural.length-1].seized!==natural.seized)data.natural.push(natural);
     if(data.natural.length>2)data.natural.shift();
   }
   return {advance,exploration,validate,checkpoint,restore,capture,start(){},result:()=>data};
@@ -555,7 +555,7 @@ const keys=["joules","power","mana","immortalPower"];
 const vectors=s=>[s.power.joules,s.power.power,s.cultivation.mana,s.cultivation.immortalPower,
   s.cultivation.explorationAmount,s.cultivation.passiveMana,s.cultivation.explorationMana].map(B.BN);
 function columnFit(values) {
-  const last=values.at(-1); if(values.every(v=>B.eq(v,B.ZERO))) return {at:()=>B.ZERO,q:0,data:{constant:"0"}};
+  const last=values[values.length-1]; if(values.every(v=>B.eq(v,B.ZERO))) return {at:()=>B.ZERO,q:0,data:{constant:"0"}};
   assert(values.every(v=>v.sign===1 && v.layer===last.layer &&
     (v.layer>0 || global.__jointDerivedLayerZero === true)),"Unsupported fit layer");
   let s2=0,s3=0,s4=0,sy=0,s2y=0;
@@ -572,7 +572,7 @@ function fit(samples, carry, correction, validateWithheldSources=false) {
   if(!carry || rawSourceWindow) {
     const unsettled=[];
     for(let column=0;column<rows[0].length;column++) {
-      const values=rows.map(row=>row[column]),last=values.at(-1);
+      const values=rows.map(row=>row[column]),last=values[values.length-1];
       if(values.every(v=>B.eq(v,B.ZERO)))continue;
       const training=columnFit(values.slice(0,-2));
       const score=Math.max(...[1,2].map(n=>Math.abs(training.at(n).mag-values[values.length-3+n].mag)));
@@ -606,7 +606,7 @@ function fit(samples, carry, correction, validateWithheldSources=false) {
     if(unsettled.length)return {defer:true,unsettled};
   }
   const models=rows[0].map((_,column)=>{
-    const values=rows.map(row=>row[column]),original=columnFit(values),last=values.at(-1);
+    const values=rows.map(row=>row[column]),original=columnFit(values),last=values[values.length-1];
     if(!carry || last.sign===0) return original;
     const predictedHead=carry.at(carry.frames+1)[column];
     if(predictedHead.layer!==values[0].layer) return original;
@@ -753,7 +753,7 @@ function run(initial,{seconds=60,span=16,seed=0.123456789,correction=true,partit
     let event=false;
     try {
       for(let n=1;n<=predictionLimit && session.ticks<total && performance.now()<deadline;n++) {
-        const plan=predictedPlan(samples.at(-1),trajectory.at(n));
+        const plan=predictedPlan(samples[samples.length-1],trajectory.at(n));
         if(probeEvery && n%probeEvery===0) {
           // Original next-frame formula at CURRENT predicted state, isolated
           // from real commit/RNG; diagnoses intrabatch feedback, not just loot endpoints.
@@ -819,7 +819,7 @@ function values(sample) {
 function makeTrajectory(samples, degree) {
   const vectors = samples.map(values);
   const models = gainKeys.map((key, column) => {
-    const vals = vectors.map(row => row[column]), last = vals.at(-1);
+    const vals = vectors.map(row => row[column]), last = vals[vals.length-1];
     if (vals.every(value => B.eq(value, B.ZERO))) return { constant: B.ZERO };
     assert(vals.every(value => value.sign > 0 && value.layer === last.layer && value.layer > 0),
       `Unsupported layer transition in ${key}: stop prototype, never force a bad candidate`);
@@ -896,7 +896,7 @@ function run(initial, { seconds = 60, seed = 0.123456789, span = 0, sampleFrames
     const startFrame = session.ticks;
     let attempts = B.ZERO, skippedLootFrames = 0;
     for (let n = 1; n <= max && performance.now() < deadline; n++) {
-      const plan = predictedPlan(lastSamples.at(-1), trajectory(n));
+      const plan = predictedPlan(lastSamples[lastSamples.length-1], trajectory(n));
       const preProgress = B.BN(R.getState().explorationProgress);
       const result = measuredTick(plan, treasureMode === "joint");
       if (treasureMode === "joint") {
@@ -1202,7 +1202,7 @@ function sourceChange(a,b){
   return B.gt(B.abs(B.sub(a,b)),absoluteAllowance);
 }
 function column(values){
-  const last=values.at(-1);
+  const last=values[values.length-1];
   assert(values.every(v=>v.isFinite()&&v.sign>=0),'invalid-source');
   assert(values.every(v=>WIS.Simulation.Accuracy.precision(v,{relativeTolerance:.001}).resolvable),
     'original-resource-precision');
@@ -1256,7 +1256,7 @@ function model(samples,cache=null,offset=0){
   const normalized=scale&&samples.every(s=>s.manaNormalization&&sameStructure(s.sourceRule,rule));
   assert(samples.every(s=>s.sourceRule===rule)||normalized,'mixed-source-rules');
   const rows=samples.map(vector),support=WIS.Cultivation.Xiuzhen.intervalSupport(R.getState());
-  const yuan=support.discreteYuan?WIS.Cultivation.Xiuzhen.discreteYuanModel(R.getState(),rows.at(-1)[4]):null;
+  const yuan=support.discreteYuan?WIS.Cultivation.Xiuzhen.discreteYuanModel(R.getState(),rows[rows.length-1][4]):null;
   if(support.stableXian)assert(rows.every(r=>B.eq(r[4],rows[0][4])),'stable-xian-proof-invalid');
   const cols=rows[0].map((_,i)=>{
     if(i===5&&yuan)return yuan;
@@ -1435,7 +1435,7 @@ const before=fingerprint(),lootBefore=treasureKey(),balances=keys.map(k=>R.getSt
         balancesBefore:balances,balancesAfter:keys.map(k=>R.getState()[k]),gains:sample.result.resourceGains});}}
     else {
       if(samples.length>=2){const control=s=>vector(s).map((v,i)=>s.manaNormalization&&(i===2||i===7)?B.div(v,s.manaNormalization):v);
-        const prev=control(samples.at(-1)),older=control(samples.at(-2)),now=control(sample);
+        const prev=control(samples[samples.length-1]),older=control(samples[samples.length-2]),now=control(sample);
         if(now.some((v,i)=>B.eq(prev[i],older[i])&&sourceChange(v,prev[i]))){
           cooldown=0;failureCount=0;retry=null;samples=[];nextProbeTick=0;shortEventStreak=0;reason('source-step-resample');}}
       samples.push(sample);if(samples.length>4)samples.shift();}
@@ -1497,11 +1497,11 @@ const before=fingerprint(),lootBefore=treasureKey(),balances=keys.map(k=>R.getSt
     const crystalEligible=crystal&&left>=12&&session.ticks>=crystalProbeAt&&crystal.eligible();
     if(!supported()&&!crystalEligible){const support=WIS.Cultivation.Xiuzhen.intervalSupport(R.getState());local(support.supported?'special-state':'unsupported-'+support.code);continue;}
     stats.support=WIS.Cultivation.Xiuzhen.intervalSupport(R.getState()).code;
-    const repeat=exactBaseFrames(left,samples.at(-1),audit);
+    const repeat=exactBaseFrames(left,samples[samples.length-1],audit);
     if(repeat>=4){
       const before=session.checkpoint(),oldFingerprint=fingerprint();
       try{
-        const term=B.BN(.1),p=predictedPlan(samples.at(-1),[B.mul(term,repeat),...Array(6).fill(B.ZERO)]);
+        const term=B.BN(.1),p=predictedPlan(samples[samples.length-1],[B.mul(term,repeat),...Array(6).fill(B.ZERO)]);
         p.exactBaseRepeat=true;p.power.repeatJoules={term,count:repeat};p.power.rates.joulesPerSecond=B.ONE;
         global.__percentFrames=repeat;
         const result=session.tick(p,false,repeat);
@@ -1542,7 +1542,7 @@ const before=fingerprint(),lootBefore=treasureKey(),balances=keys.map(k=>R.getSt
     if(!supported()){local('crystal-feedback-exact-reprobe');continue;}
     if(session.ticks<nextProbeTick){local('short-event-backoff');continue;}
     if(samples.length<4){local('sampling');continue;}
-    const modelSignature=fingerprint()+JSON.stringify(vector(samples.at(-1)).map(v=>[v.sign,v.layer,
+    const modelSignature=fingerprint()+JSON.stringify(vector(samples[samples.length-1]).map(v=>[v.sign,v.layer,
       Math.floor(v.mag / Math.pow(10,Math.floor(Math.log10(Math.max(1,Math.abs(v.mag))))-2))]));
     if(blockedSignature&&session.ticks<blockedUntil){local('model-backoff');continue;}
     if(blockedSignature){resetModel(fingerprint(),'scheduled-resample');continue;}
@@ -1576,7 +1576,7 @@ const before=fingerprint(),lootBefore=treasureKey(),balances=keys.map(k=>R.getSt
       local(n<4?'event-neighborhood':'short-event-interval');continue;
     }
     nextProbeTick=0;shortEventStreak=0;
-    const before=session.checkpoint(),f=fingerprint(),treasures=treasureKey(),last=samples.at(-1);
+    const before=session.checkpoint(),f=fingerprint(),treasures=treasureKey(),last=samples[samples.length-1];
     let accepted=false;const trialStarted=performance.now();
     try{
       const predicted=plan(last,m,n);global.__percentFrames=n;
@@ -1615,7 +1615,7 @@ const before=fingerprint(),lootBefore=treasureKey(),balances=keys.map(k=>R.getSt
           assert(supported(sample)&&f===fingerprint()&&treasures===treasureKey(),'validation-event');}
         const right=buildModel(middle),rest=n-half-4;
         try {
-          const second=plan(middle.at(-1),right,rest);
+          const second=plan(middle[middle.length-1],right,rest);
           checkedTick({value:second,frames:rest});addSample(second);
           const check=real(true);
           assert(supported(check)&&f===fingerprint()&&treasures===treasureKey(),'validation-event');

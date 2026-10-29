@@ -54,7 +54,7 @@
     const actual=map().coordinates(state),sameDt=Math.abs((budget.learnDt||plan.microDt)-plan.microDt)<1e-9;
     let history=changed||!sameDt?[]:[...(budget.lastSignature===plan.signature?budget.history||[]:[])];
     const isMicro=plan.kind==='learn'||plan.kind==='fallback';
-    if(isMicro&&!changed){if(!history.length)history.push(plan.before);else history[history.length-1]={...history.at(-1),$progress:plan.before.$progress};history.push(actual);history=history.slice(-(c.learnSteps+1));}
+    if(isMicro&&!changed){if(!history.length)history.push(plan.before);else history[history.length-1]={...history[history.length-1],$progress:plan.before.$progress};history.push(actual);history=history.slice(-(c.learnSteps+1));}
     else if(plan.kind!=='map'||progressChanged)history=[];
     return {...budget,frames,committedSegments:budget.committedSegments+1,directWork:budget.directWork+(plan.kind==='map'?0:1),
       mapBlocks:budget.mapBlocks+(plan.kind==='map'?1:0),virtualSteps:budget.virtualSteps+(plan.kind==='map'?plan.mapPlan.steps:0),

@@ -311,7 +311,7 @@
               } finally {WIS.Simulation.Profiler.withScope('offline',()=>WIS.Simulation.Profiler.record("settlementWallMs",clock()-settlementStarted));}
             })))));}
           finally {
-            for(const key of Object.keys(WIS.tmp.rates))if(!Object.hasOwn(rates,key))delete WIS.tmp.rates[key];
+            for(const key of Object.keys(WIS.tmp.rates))if(!Object.prototype.hasOwnProperty.call(rates,key))delete WIS.tmp.rates[key];
             Object.assign(WIS.tmp.rates,rates);
           }
           const cost=clock()-began;workMs+=cost;statistics.maxWorkMs=Math.max(statistics.maxWorkMs,cost);

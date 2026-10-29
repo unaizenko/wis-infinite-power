@@ -258,6 +258,11 @@
     resetStatus();
   }
 
+  function sessionPolicy() {
+    const temporary=loadError !== null;
+    return {mode:temporary?"temporary":"normal",persistenceAllowed:!temporary,durableRecoveryAllowed:!temporary,backgroundAccrualAllowed:!temporary};
+  }
+
   let persistenceDefaults;
   function persistLive(state,simulationLoop,offlineSimulation,options = {}) {
     if (WIS.Core.Save.getLoadError()) return;
@@ -330,5 +335,5 @@
     return parsed?.data ?? parsed;
   }
 
-  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
+  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, sessionPolicy, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
 }(window.WIS));

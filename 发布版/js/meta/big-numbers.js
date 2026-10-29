@@ -325,7 +325,7 @@
   }
   const treeActive = state => treeUnlocked(state) && (maximumTree(state)===null || rankCompare(targetTreeRank(state),maximumTree(state))<=0);
   function canPurchaseTreeUpgrade(state, key) {
-    return Object.hasOwn(TREE_UPGRADES, key) && (!TREE_UPGRADES[key].unlock || I.has(state,TREE_UPGRADES[key].unlock)) && treeActive(state) && (treeState(state).phase === "explicit" || treeState(state).phase === "super" && I.has(state,"D9"))
+    return Object.prototype.hasOwnProperty.call(TREE_UPGRADES, key) && (!TREE_UPGRADES[key].unlock || I.has(state,TREE_UPGRADES[key].unlock)) && treeActive(state) && (treeState(state).phase === "explicit" || treeState(state).phase === "super" && I.has(state,"D9"))
       && (key !== "label" || B.gte(treeState(state).sequenceWork, treeDecayThresholdWork(state, targetTreeRank(state))))
       && treeState(state).upgrades[key] < Number.MAX_SAFE_INTEGER && B.gte(treeState(state).construction, treeUpgradeCost(state, key));
   }

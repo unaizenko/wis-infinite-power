@@ -86,7 +86,7 @@
     const data=result.evolution,stats=data?.stats||{realMicroSteps:1},predictor=data?.predictor?C().copy(data.predictor):null,signature=predictor?C().signature(state):null;let hard=0,soft=0;
     const reasons={...budget.hardReasons};
     if(predictor){if(predictor.mapSignature!==signature||!data.rebasedPoint?.delta){predictor.model=null;predictor.observations=[];delete predictor.policy;delete predictor.validation;predictor.blockSize=Q().initialMapSteps;hard=1;reasons.settlementBranch=(reasons.settlementBranch||0)+1;}
-      else {predictor.model=C().rebase(predictor.model,data.endpoint,data.rebasedPoint,0);if(predictor.observations.at(-1)?.position===data.rebasedPoint.position)predictor.observations[predictor.observations.length-1]=data.rebasedPoint;else predictor.observations.push(data.rebasedPoint);predictor.observations=predictor.observations.slice(-Q().observationLimit);predictor.trustRegionOrigin=data.rebasedPoint.coordinates;soft=1;}
+      else {predictor.model=C().rebase(predictor.model,data.endpoint,data.rebasedPoint,0);if(predictor.observations[predictor.observations.length-1]?.position===data.rebasedPoint.position)predictor.observations[predictor.observations.length-1]=data.rebasedPoint;else predictor.observations.push(data.rebasedPoint);predictor.observations=predictor.observations.slice(-Q().observationLimit);predictor.trustRegionOrigin=data.rebasedPoint.coordinates;soft=1;}
       predictor.mapSignature=signature;predictor.needsCalibration=false;}
     for(const [key,count] of Object.entries(stats.hardReasons||{}))reasons[key]=(reasons[key]||0)+count;
     const histogram={...budget.blockHistogram};for(const [key,count] of Object.entries(stats.blockHistogram||{}))histogram[key]=(histogram[key]||0)+count;

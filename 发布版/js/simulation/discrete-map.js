@@ -25,10 +25,10 @@
     const cfg=config();if(values.some(v=>!v||v.layer!==values[0].layer))return null;
     const deltas=values.slice(1).map((v,i)=>v.value-values[i].value);
     if(deltas.every(d=>Math.abs(d)<=cfg.coordinateFloor))return {ratio:1,delta:0,layer:values[0].layer};
-    const sign=Math.sign(deltas.at(-1));if((!signed&&sign<0)||deltas.some(d=>Math.sign(d)!==sign||Math.abs(d)<=cfg.coordinateFloor))return null;
+    const sign=Math.sign(deltas[deltas.length-1]);if((!signed&&sign<0)||deltas.some(d=>Math.sign(d)!==sign||Math.abs(d)<=cfg.coordinateFloor))return null;
     const logs=deltas.slice(1).map((d,i)=>Math.log(d/deltas[i])),mean=logs.reduce((a,b)=>a+b,0)/logs.length;
     if(!Number.isFinite(mean)||logs.some(v=>Math.abs(v-mean)>cfg.trendTolerance))return null;
-    return {ratio:Math.exp(mean),delta:deltas.at(-1),layer:values[0].layer};
+    return {ratio:Math.exp(mean),delta:deltas[deltas.length-1],layer:values[0].layer};
   }
   function fit(history,dt){
     const cfg=config();if(history.length<cfg.learnSteps+1)return null;
@@ -43,13 +43,13 @@
       const increments=values.slice(1).map((v,i)=>v.value-values[i].value);
       const relaxation=trend(increments.map(value=>({layer:0,value})),{signed:true});
       if(increments.every(v=>v>=0)&&relaxation&&relaxation.ratio>0&&relaxation.ratio<cfg.relaxationMaxRatio&&relaxation.delta!==0){
-        const r=relaxation.ratio,floor=(increments.at(-1)-r*increments.at(-2))/(1-r);
+        const r=relaxation.ratio,floor=(increments[increments.length-1]-r*increments[increments.length-2])/(1-r);
         if(Number.isFinite(floor)&&floor>=0){fit={...fit,ratio:r};floors[k]=floor;}
       }
       if(!fit)return null;
       ratios[k]=fit.ratio;
     }
-    if(history.every(p=>p.$progress))for(const k of Object.keys(history.at(-1).$progress)){
+    if(history.every(p=>p.$progress))for(const k of Object.keys(history[history.length-1].$progress)){
       const fit=trend(history.map(p=>p.$progress[k]),{signed:true});if(!fit)return null;progress[k]=fit;
     }
     return {ratios,floors,progress,dt,groups:groups().groups.map(g=>({id:g.id,keys:g.keys})),trainedSteps:history.length-1};

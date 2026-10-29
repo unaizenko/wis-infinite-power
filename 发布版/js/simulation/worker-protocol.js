@@ -15,7 +15,7 @@
   function unpack(value) {
     if(Array.isArray(value))return value.map(unpack);
     if(value&&typeof value==='object') {
-      if(Object.hasOwn(value,'$wisDecimal')) {
+      if(Object.prototype.hasOwnProperty.call(value,'$wisDecimal')) {
         const c=value.$wisDecimal;
         if(Object.keys(value).length!==1||!Array.isArray(c)||c.length!==3||
           ![-1,0,1].includes(c[0])||!Number.isInteger(c[1])||c[1]<0||!c.every(Number.isFinite))throw Error('Worker Decimal 编码无效');

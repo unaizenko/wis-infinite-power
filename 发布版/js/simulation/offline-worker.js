@@ -49,6 +49,7 @@
       try{persist();}catch(saveError){WIS.Core.Save.noteFailure(saveError);}
     }
     function start() {
+      if(WIS.Core.Save.sessionPolicy?.().durableRecoveryAllowed === false)return Promise.resolve("");
       const view=local.getCatchUpStatus();
       if(active)return activePromise;
       if(view.awaitingStart||view.phase==='paused'||view.awaySuspended||!(view.pendingGameSeconds>0))return Promise.resolve('');

@@ -20,6 +20,7 @@
     const monotonicNow=()=>window.performance?.now?window.performance.now():Date.now();
     function writeLedger(fields){getState().core.runtime.timeLedger={...ledger(),...fields};}
     function syncPendingLedger(){writeLedger({pendingContinuousTime:onlineIntervals.map(p=>({...p}))});}
+    const backgroundAllowed=()=>WIS.Core.Save.sessionPolicy?.().backgroundAccrualAllowed !== false;
     const ready=()=>context.isStateReady?context.isStateReady():isInitialLoadComplete();
     function cancelOnlineContinuation(){
       if(continuationHandle!==null){window.clearTimeout(continuationHandle);continuationHandle=null;}
@@ -129,7 +130,7 @@
       const covered=available>epsilon?available:0;
       for(const [clock,compensationEligible] of [[covered,true],[seconds-covered,false]])if(clock>0)
       {
-        const tail=onlineIntervals.at(-1);
+        const tail=onlineIntervals[onlineIntervals.length-1];
         if(tail&&tail.source!=='offline'&&tail.speed===speed&&tail.compensationEligible===compensationEligible)tail.clock+=clock;
         else onlineIntervals.push({source:'online',clock,speed,compensationEligible});
         onlineAccumulator+=clock;
@@ -292,6 +293,11 @@
     }
     function registerReturn(now,{start=true,presentation='quiet',fallbackClosedAt=null}={}){
       const p=ledger(),left=p.awaySince??fallbackClosedAt;
+      if(!backgroundAllowed()) {
+        // Only temporary watermarks move. Foreground intervals remain queued.
+        writeLedger({awaySince:document.hidden?now:null,registeredUntil:now,boundaryAt:now});
+        lastTickAt=now;offline.returnFromAway(false);return 0;
+      }
       if(left==null){
         if(onlineIntervals.some(part=>part.source==='offline'))handoffPendingRecovery();
         lastTickAt=now;offline.returnFromAway(false);return 0;
@@ -326,7 +332,7 @@
       const hold=importHold,now=Date.now();
       const elapsed=Math.max(0,now-hold.startedAt)/1000;
       lastTickAt=now;
-      if(accountElapsed&&elapsed>epsilon){
+      if(accountElapsed&&elapsed>epsilon&&backgroundAllowed()){
         // Failed/cancelled imports return the picker/read time to the old save.
         // It is registered as blocking debt so a high-value old save cannot
         // immediately saturate the host as soon as the transaction is released.
@@ -337,6 +343,12 @@
         syncPendingLedger();
         handoffImportRecovery();
         writeLedger({awaySince:null,registeredUntil:Math.max(Number(ledger().registeredUntil)||0,now),boundaryAt:now});
+      }
+      if(!backgroundAllowed()&&document.hidden){
+        // visibilitychange was held during file IO, and temporary saves never
+        // call prepareSave. Keep the remaining hidden interval out of ONLINE_EXACT.
+        const p=ledger();
+        writeLedger({awaySince:p.awaySince??now,registeredUntil:Math.max(p.registeredUntil||0,now),boundaryAt:now});
       }
       importHold=null;
       return {released:true,elapsedSeconds:elapsed};

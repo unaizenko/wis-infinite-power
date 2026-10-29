@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "release-0.1.8.2-20261029",
+  "buildId": "release-0.1.8.3-20261029",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -83,6 +83,7 @@
     "js/ui/treasures.js",
     "js/ui/infinity.js",
     "js/ui/martial.js",
+    "js/ui/dialog.js",
     "js/ui/app.js",
     "game.js"
   ]

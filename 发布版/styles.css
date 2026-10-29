@@ -936,3 +936,14 @@ button { font: inherit; }
 #martial-progress .item-content { min-width:0; flex:1 1 auto; }
 #martial-progress .purchase-control { flex:0 0 170px; min-width:0; }
 @media(max-width:900px) { #martial-progress .purchase-control { flex-basis:auto; } }
+
+/* Independent recovery controls remain usable before the runtime is ready. */
+.boot-status-panel { position:relative; z-index:2147483647; box-sizing:border-box; max-width:100%; padding:14px 18px; border-bottom:2px solid #80733b; background:#fff8dc; color:#24281f; overflow-wrap:anywhere; }
+.boot-status-panel[hidden] { display:none; }
+.boot-status-panel p { margin:6px 0; }
+.boot-status-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.boot-status-panel button { min-height:44px; padding:8px 12px; }
+.boot-status-panel textarea { box-sizing:border-box; width:100%; max-height:240px; }
+
+.wis-dialog-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9000; }
+dialog.wis-dialog-fallback[open] { display:block; position:fixed; inset:50% auto auto 50%; transform:translate(-50%,-50%); margin:0; max-width:calc(100vw - 24px); max-height:calc(100vh - 24px); overflow:auto; z-index:9001; }
