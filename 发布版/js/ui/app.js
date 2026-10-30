@@ -1961,18 +1961,18 @@
     const cancel=()=>{entry.scope.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
     const run=()=>{
       if(explorationPreviewWorks.get(key)!==entry||entry.generation!==explorationPreviewGeneration||
-        runtime.getState()!==original||document.hidden||!previewVisible(element)||explorationHoldActive){cancel();return;}
+        runtime.getState()!==original||document.hidden||!previewVisible(element)||explorationHoldActive||context.isDeferredActionPending?.()){cancel();return;}
       try {
         const progress=entry.scope.advance(performance.now()+3);
         if(!progress.done){window.setTimeout(run,0);return;}
         const attempt=entry.scope.attempt(()=>runtime.withState(snapshot,()=>{
-          const value=explorationPreviewValues({includeFinal:key==='action'});
-          const records=key==='action'?WIS.UI.SourcePreview.query(['exploration'],snapshot,{actionFinals:{exploration:value.mana}}):null;
+          const value=key==='breathing'?{mana:Immortal.breathingManaGainProgressive()}:explorationPreviewValues({includeFinal:key==='action'});
+          const records=key==='breathing'?WIS.UI.SourcePreview.query(['breathing'],snapshot,{actionFinals:{breathing:value.mana}}):key==='action'?WIS.UI.SourcePreview.query(['exploration'],snapshot,{actionFinals:{exploration:value.mana}}):null;
           return {value,records,calculatedAt:entry.startedAt,dirty:false};
         }));
         if(!attempt.done){window.setTimeout(run,0);return;}
         explorationPreviews.set(key,attempt.value);cancel();runtime.call('renderImmediately',activePage);
-      }catch(error){cancel();runtime.call('showNotice',`收益预览暂未完成：${error.message}`);}
+      }catch(error){cancel();explorationPreviews.set(key,{error:error.message,records:null,calculatedAt:entry.startedAt,dirty:false});runtime.call('renderImmediately',activePage);}
     };
     // Even cheap previews start in another host task. Long integrations yield
     // inside their work and never retain an Evaluation across callbacks.
@@ -1996,8 +1996,9 @@
     if (document.hidden || !previewVisible(element)) return null;
     syncExplorationPreviewStructure();
     // The formal action still settles exactly; only its presentation is merged.
-    if (explorationHoldActive) return null;
+    if (explorationHoldActive || context.isDeferredActionPending?.()) return null;
     let snapshot = explorationPreviews.get(key);
+    if(key==="breathing"&&snapshot&&Date.now()-snapshot.calculatedAt>=(snapshot.error?5000:1000))snapshot.dirty=true;
     if(explorationPreviewWorks.has(key))return snapshot||null;
     if (explorationPreviewRefreshPending) return snapshot || null;
     if (!snapshot && firstExplorationPreviewReady !== key) {
@@ -2267,16 +2268,14 @@
     setHiddenIfChanged(byId("exploration-action"), !immortalCultivationActive() || !state.goldenCoreUnlocked);
     if (immortalCultivationActive() && state.qiRefiningUnlocked && previewVisible(byId("breathing-preview"))) {
       const breathingElement = byId("breathing-preview");
-      if (heavyPreviewDue(breathingElement)) {
-        const manaGain = Immortal.breathingManaGainProgressive();
-        writeSourcePreview("breathing-preview", "breathing", false, { breathing: manaGain });
-      }
-      const manaGain = heavyPreviewCache.get(breathingElement).records[0].final;
+      breathingElement.classList.add("source-gain-preview");
+      const snapshot = explorationPreviewSnapshot('breathing',breathingElement);
+      if(snapshot?.records)setTextIfChanged(breathingElement,WIS.UI.SourcePreview.text(snapshot.records,format));
+      else setTextIfChanged(breathingElement,snapshot?.error?("收益暂无法计算："+snapshot.error):"收益计算中…");
       const nextManaJ = joulesForNextBaseMana();
-      const breathingJAvailable = gteBN(state.joules, 3000);
-      const breathingGainAvailable = gtBN(manaGain, ZERO);
-    setTextIfChanged(byId("next-mana-j"), breathingNextBaseManaRequirementText(nextManaJ, state.joules));
-    setDisabledIfChanged(byId("breathing-button"), !breathingJAvailable || !breathingGainAvailable);
+      setTextIfChanged(byId("next-mana-j"), breathingNextBaseManaRequirementText(nextManaJ,state.joules));
+      // Only the completed formal action decides gain eligibility.
+      setDisabledIfChanged(byId("breathing-button"),ltBN(state.joules,3000));
     }
     if (immortalCultivationActive() && state.goldenCoreUnlocked) {
     setTextIfChanged(byId("exploration-cost"), "消耗当前 10% 战力，至少消耗 1M");
@@ -2519,7 +2518,7 @@
     const currentTribulationManaExponent = minorTribulationExplorationManaExponent();
     const tribulationElement = byId("minor-tribulation-preview");
     const explorationSnapshot = explorationPreviewSnapshot("tribulation", tribulationElement);
-    if (explorationSnapshot) {
+    if (explorationSnapshot?.value) {
     const currentExplorationAmount = explorationSnapshot.value.amount;
     const nextTribulationPreview = explorationSnapshot.value.tribulationPreview;
     setPreviewText(byId("minor-tribulation-preview"), () => state.advancedRealmLevel >= 6
@@ -3365,7 +3364,14 @@
     bindManualScaleUpgrade("buy-spacetime-framework", "spacetimeFrameworkPurchased", () => WIS.Power.Scale.buyUpgrade("spacetimeFramework"));
     byId("toggle-ghost-back").addEventListener("click", toggleGhostBack);
     bindManualRealmBreakthrough("unlock-qi-refining", unlockQiRefining);
-    bindHoldButton("breathing-button", breathe);
+    bindHoldButton("breathing-button", () => {
+      cancelExplorationPreviewWorks();
+      const result=context.requestDeferredAction
+        ?context.requestDeferredAction(snapshot=>Immortal.createBreathingActionWork(snapshot))
+        :runtime.call('requestDeferredAction',snapshot=>Immortal.createBreathingActionWork(snapshot));
+      const finish=value=>{if(value!==false)markExplorationPreviewDirty();return value;};
+      return result&&typeof result.then==='function'?result.then(finish):finish(result);
+    }, {cooperative:true,canRepeat:()=>gteBN(state.joules,3000)});
     cancelExplorationHold = bindHoldButton("exploration-button", () => {
       const powerBefore = state.power;
       const finish=result=>{if(state.power!==powerBefore)markExplorationPreviewDirty();return state.power!==powerBefore?result:false;};

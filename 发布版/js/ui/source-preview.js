@@ -173,7 +173,8 @@
               final = id === "exploration" ? (!needsUnlock && actionFinals?.exploration != null ? actionFinals.exploration : I.explorationManaGainProgressive(d.cost, d.amount, d.exponent))
                 : I.previewManaGainProgressive(1, (fraction, mana) => B.mul(
                     I.explorationManaGainFromSources(sources, mana, d.exponent, true), fraction
-                  ), { linearBudget: true, googolPenalty: true }).mana;
+                  ), { linearBudget: true, googolPenalty: true, prepareRate: () => (fraction, mana) => B.mul(
+                    I.explorationManaGainFromSources(sources, mana, d.exponent, true),fraction) }).mana;
               if (id === "exploration") extra = [{ raw: d.rawAmount, final: d.amount, rawLabel: "原始探寻量", label: "有效探寻量", unit }];
             }
             break;

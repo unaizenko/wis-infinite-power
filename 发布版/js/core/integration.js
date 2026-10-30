@@ -100,6 +100,9 @@
     let skippedEvaluations=0,skippedAccepted=0,skippedRejected=0;
     let cycleFastForwardCount=0,cycleFastForwardLogicalCycles=0;
     let workOperations=0,cycleBookkeepingOperations=0;
+    // Only audited immutable scalar work can prove a deterministic precision
+    // cycle. Include the remaining clock: a slow but advancing solve is valid.
+    const stalledStates=new Set();
     const clearCycle=()=>{failedTrial=null;previousCycle=null;};
     class TrialError extends Error {}
     const stocks=z=>Object.fromEntries(keys.map((k,i)=>[k,B.max(0,expm1(z[i]))]));
@@ -212,6 +215,19 @@
       }
       while(!done){
         const a=last||(yield* sample(y));
+        if(options.detectPrecisionStall && cycleEnabled && options.cycleContextCurrent()){
+          const checkpoint=JSON.stringify([vector(y),exact(remaining),arc===null?null:exact(arc),sampleKey(a),
+            last!==null,boundaryLog===null?null:exact(boundaryLog),boundaryAmount===null?null:exact(boundaryAmount),
+            keys.map(k=>exact(smallGains[k])),midpointAccepted,shrinkingTime,
+            previousTail===null?null:exact(previousTail),diagnosis,classification,rejected>=8,
+            failedTrial,previousCycle]);
+          if(stalledStates.has(checkpoint)){
+            diagnosis={code:'precision-stalled',certified:true,message:'当前数值精度下积分重复相同状态，未提交本次收益'};
+            return result();
+          }
+          if(stalledStates.size>=32)stalledStates.delete(stalledStates.values().next().value);
+          stalledStates.add(checkpoint);
+        }
         if(!a.inverse){remaining=B.ZERO;done=true;break;}
         if(!arc){
           // Initial linear prediction is only a bracket, never the settlement.

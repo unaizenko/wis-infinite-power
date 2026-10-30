@@ -681,8 +681,8 @@
         const record=pending;
         const result=runtime.withMathPolicy(record.policy,()=>runtime.withEvaluationState(record.evaluationState,
           ()=>record.work.advance({maximumEvaluations:48,maximumOperations:4096,...options,deadline})));
-        if(result.status==='finite-time-singularity'){
-          const error=Error("动态积分具有有限时间发散证明；结算未提交");error.code=result.status;error.diagnostics=result.diagnostics;throw error;
+        if(result.status==='finite-time-singularity'||result.status==='precision-stalled'){
+          const error=Error(result.status==='precision-stalled'?"当前数值精度下无法完成本次计算，资源未扣除":"动态积分具有有限时间发散证明；结算未提交");error.code=result.status;error.diagnostics=result.diagnostics;throw error;
         }
         if(result.done)pending=null;
         return result;
@@ -720,7 +720,7 @@
       return {amount:rate};
     },{logTolerance:foreground?1e-4:1e-6,
       nextBoundary:delayed?values=>WIS.Core.Penalties.nextGoogolPenaltyBoundary(googolResource,values.amount,state):null,
-      autonomous:!!evaluationState,
+      autonomous:!!evaluationState, detectPrecisionStall:!!evaluationState,
       cycleContextCurrent:()=>runtime.isEvaluating() && runtime.getState()===evaluationState});
     let cancelled=false;
     return Object.freeze({
@@ -735,8 +735,8 @@
     try {for(;;){
       const result=work.advance({maximumEvaluations:256});
       if(result.done)return result.gains.amount;
-      if(result.status==='finite-time-singularity'){
-        const error=Error("动态积分具有有限时间发散证明；未处理时间和数值检查点保留");
+      if(result.status==='finite-time-singularity'||result.status==='precision-stalled'){
+        const error=Error(result.status==='precision-stalled'?"当前数值精度下无法完成本次计算，资源未扣除":"动态积分具有有限时间发散证明；未处理时间和数值检查点保留");
         error.code=result.status;error.continuation=work;error.diagnostics=result.diagnostics;throw error;
       }
     }}finally{work.clearMemo();}

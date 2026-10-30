@@ -1974,13 +1974,19 @@
     return settleManaGainProgressive(totalBudget, calculateGain, () => {}, false, linearBudget, undefined, googolPenalty, prepareRate);
   }
 
+  // Fixed candidate, explicit sampled Mana, and no RNG/clock writes. Only this
+  // work may memoize identical scalar samples and use exact cycle compression.
+  function prepareBreathingManaRate() {
+    return (fraction, currentMana) => mul(breathingManaGain(currentMana), fraction);
+  }
+
   function breathingManaGainProgressive() {
     const currentGain = breathingManaGain();
     if (lt(currentGain, ONE)) return WIS.Core.Penalties.applyGoogolPenalty("mana", state.mana, currentGain, state);
     return previewManaGainProgressive(
       1,
       (actionFraction, currentMana) => mul(breathingManaGain(currentMana), actionFraction),
-      { linearBudget: true, googolPenalty: true }
+      { linearBudget: true, googolPenalty: true, prepareRate: prepareBreathingManaRate }
     ).mana;
   }
 
@@ -3459,7 +3465,8 @@
     notifyNewAchievements(previousAchievements);
   }
 
-  function breathe() {
+  function breathe() { return performBreathing(); }
+  function performBreathing(prepareOnly = false) {
     if (!state.qiRefiningUnlocked) return;
     if (lt(state.joules, 3000)) return;
     if (!gt(breathingManaGain(), ZERO)) return;
@@ -3467,9 +3474,10 @@
       1,
       (actionFraction, currentMana) => mul(breathingManaGain(currentMana), actionFraction),
       () => {},
-      { linearBudget: true, googolPenalty: true }
+      { linearBudget: true, googolPenalty: true, prepareRate: prepareBreathingManaRate }
     );
-    if (!gt(gained, ZERO)) return;
+    if (prepareOnly) return gained;
+    if (!gt(gained, ZERO)) return false;
     WIS.Core.Resources.set("joules", 0);
     state.lifetimeTotalMana = add(state.lifetimeTotalMana, gained);
     state.currentRebirthTotalMana = add(state.currentRebirthTotalMana, gained);
@@ -3477,6 +3485,7 @@
     rollBaLingChiAttempts(1);
     saveState();
     render();
+    return true;
   }
 
   function minorTribulationPreviewForExploration(
@@ -3883,7 +3892,13 @@
       WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();throw error;}
   }
 
+  function createBreathingActionWork(original = runtime.getState()) {
+    return createManualManaActionWork(original, performBreathing, "吐纳");
+  }
   function createExplorationActionWork(original = runtime.getState()) {
+    return createManualManaActionWork(original, performExploration, "探寻");
+  }
+  function createManualManaActionWork(original, perform, label) {
     const R=WIS.Core.Runtime,S=WIS.Core.State,scope=WIS.Power.ScaleLogic.createDeferredDynamicRateScope();
     let status='pending';
     // The owner may enqueue time while this action is private. Nothing else
@@ -3895,26 +3910,26 @@
     return Object.freeze({
       advance(deadline=Infinity,options={}){
         if(status!=='pending')return {done:status==='ready'};
-        if(!valid())throw Error('探寻候选输入改变，旧候选失效');
+        if(!valid())throw Error(label+'候选输入改变，旧候选失效');
         const stepped=scope.advance(deadline,options);if(!stepped.done)return {done:false};
-        if(!inputsCurrent())throw Error('探寻候选输入改变，旧候选失效');
+        if(!inputsCurrent())throw Error(label+'候选输入改变，旧候选失效');
         const candidate=S.cloneForSimulation(original);
         const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
         try {
-          const attempt=scope.attempt(()=>R.withState(candidate,()=>performExploration(true)));
+          const attempt=scope.attempt(()=>R.withState(candidate,()=>perform(true)));
           if(attempt.done)status='ready';
           return {done:attempt.done};
         } finally {WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);}
       },
       commit(){
-        if(status!=='ready')throw Error('探寻候选尚未完成或已提交/取消');
-        if(!inputsCurrent())throw Error('探寻候选输入改变，旧候选失效');
+        if(status!=='ready')throw Error(label+'候选尚未完成或已提交/取消');
+        if(!inputsCurrent())throw Error(label+'候选输入改变，旧候选失效');
         const candidate=S.cloneForSimulation(original);
         const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
         try {
           const value=R.atomic(()=>{
-            const attempt=scope.attempt(()=>R.withState(candidate,performExploration));
-            if(!attempt.done)throw Error('探寻候选重放输入改变，未提交');
+            const attempt=scope.attempt(()=>R.withState(candidate,perform));
+            if(!attempt.done)throw Error(label+'候选重放输入改变，未提交');
             R.setState(candidate);return attempt.value;
           });
           status='committed';scope.cancel();return value;
@@ -4191,7 +4206,7 @@
     ].map(([id,target,dynamicResources])=>({id,target,dynamicResources,operationType:'additive',valueAt:(_s,c={})=>fixedAutomaticSources(c.factor??1)[id]})),
     fixedAutomaticSources, foregroundAutomaticGains, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
     unlockBodyIntegrationAbility, unlockMahayanaAbility, scatterAndRebuild, reincarnate,
-    explorationEnabled, createExplorationActionWork,
+    explorationEnabled, createExplorationActionWork, createBreathingActionWork,
     getManaPerSecond: automaticManaPerSecond,
     autoUpgrade: autoUpgradeImmortalAbilities,
     autoBreakthrough: autoBreakthroughImmortalRealms,
