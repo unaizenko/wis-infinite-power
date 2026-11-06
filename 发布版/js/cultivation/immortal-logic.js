@@ -16,7 +16,10 @@
     geometricAttemptsUntilSuccess,
     rollDynamicAttempts: rollProbabilityAttempts
   } = WIS.Core.Probability;
-  const { applyGoogolPenalty } = WIS.Core.Penalties;
+  const legacyApplyGoogolPenalty=WIS.Core.Penalties.applyGoogolPenalty;
+  function applyGoogolPenalty(resource,currentAmount,rate,currentState){const A=WIS.Core.Amount;if(!A?.enabled())return legacyApplyGoogolPenalty(resource,currentAmount,rate,currentState);
+    const owner=currentState||state,stock=A.isAmount(currentAmount)?currentAmount:currentAmount===owner[resource]?WIS.Core.Resources.readExact(WIS.Simulation.ResourceGroups.resourceIdFor(resource),owner):A.from(currentAmount),quantity=WIS.Core.Penalties.applyGoogolPenalty(resource,stock,A.from(rate),owner);return A.isAmount(rate)?quantity:A.project(quantity);
+  }
   const GOOGOL_PENALTY_THRESHOLD = CONFIG.googolPenalty.threshold;
   const IMMORTAL_COSTS = CONFIG.costs.immortal;
   const QI_REFINING_COST = IMMORTAL_COSTS.qiRefining;
@@ -125,8 +128,15 @@
     return maxBN(ZERO, BN(state.treasureImprints?.[key] ?? ZERO)).floor();
   }
 
+  const manualFraction=(gain,fraction)=>WIS.Core.Amount?.enabled()?WIS.Core.Amount.multiply(WIS.Core.Amount.from(gain),WIS.Core.Amount.from(fraction)):mul(gain,fraction);
+  const quantityValue=value=>WIS.Core.Amount?.enabled()&&WIS.Core.Amount.isAmount(value);
+  const stockValue=key=>WIS.Core.Amount?.enabled()?WIS.Core.Resources.readExact(['joules','power'].includes(key)?'core.'+key:'cultivation.immortal.'+key,state):state[key];
+  const dynamicStockValue=key=>WIS.Core.Amount?.enabled()?WIS.Core.Effects.dynamicResourceQuantity(state,key):WIS.Core.Effects.dynamicResourceValue(state,key);
+  const ratioPower=(value,scale,exponent)=>quantityValue(value)?WIS.Core.AmountFormulas.powerRatio(value,scale,exponent):pow(div(maxBN(ZERO,value),scale),exponent);
+  function onePlusRatioPower(value,scale,exponent){if(!quantityValue(value))return pow(add(ONE,div(maxBN(ZERO,value),scale)),exponent);const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,total=A.add(value,scale);return exponent>=0?F.powerRatio(total,scale,exponent):F.powerRatio(scale,total,-exponent);}
+  const quantityExponent=(value,exponent)=>{const A=WIS.Core.Amount;return eq(exponent,1)?A.from(value):A.from(WIS.Core.AmountFormulas.power(value,exponent));};
   function resourceMagnitude(value, scale = ONE) {
-    return log10(add(ONE, div(maxBN(ZERO, value), scale)));
+    return quantityValue(value)?WIS.Core.AmountFormulas.logOnePlusRatio(value,scale):log10(add(ONE,div(maxBN(ZERO,value),scale)));
   }
 
   function applyGainExponent(value, exponent) {
@@ -173,22 +183,19 @@
     return gt(value, ZERO) ? pow(value, daoTimeLawExponent(elapsedSeconds)) : ZERO;
   }
 
-  function daoImmortalPowerRatio(currentImmortalPower = state.immortalPower){const run=()=>daoImmortalPowerRatioUncached(currentImmortalPower);return currentImmortalPower===state.immortalPower?WIS.Core.Effects.memoFrozen("immortal.daoImmortalPowerRatio",run,state):run();}
+  function daoImmortalPowerRatio(currentImmortalPower = stockValue('immortalPower')){const run=()=>daoImmortalPowerRatioUncached(currentImmortalPower);return currentImmortalPower===state.immortalPower?WIS.Core.Effects.memoFrozen("immortal.daoImmortalPowerRatio",run,state):run();}
   function daoImmortalPowerRatioUncached(currentImmortalPower) {
-    return div(maxBN(ZERO, currentImmortalPower), daoAncestorRequirement());
+    return quantityValue(currentImmortalPower)?WIS.Core.AmountFormulas.productQuotient([currentImmortalPower],[daoAncestorRequirement()]):div(maxBN(ZERO,currentImmortalPower),daoAncestorRequirement());
   }
 
-  function daoPowerSource(currentImmortalPower = state.immortalPower) {
+  function daoPowerSource(currentImmortalPower = stockValue('immortalPower')) {
     if (!daoAncestorActive() || !state.daoPowerUnlocked) return ZERO;
-    return mul(DAO_ANCESTOR_CONFIG.powerBase, pow(
-      add(ONE, daoImmortalPowerRatio(currentImmortalPower)),
-      DAO_ANCESTOR_CONFIG.powerExponent
-    ));
+    return mul(DAO_ANCESTOR_CONFIG.powerBase, onePlusRatioPower(currentImmortalPower,daoAncestorRequirement(),DAO_ANCESTOR_CONFIG.powerExponent));
   }
 
-  function daoAssimilationQ(currentImmortalPower = state.immortalPower) {
+  function daoAssimilationQ(currentImmortalPower = stockValue('immortalPower')) {
     if (!daoAncestorActive() || !state.daoAssimilationUnlocked) return ONE;
-    const magnitude = log10(add(ONE, daoImmortalPowerRatio(currentImmortalPower)));
+    const magnitude = resourceMagnitude(currentImmortalPower,daoAncestorRequirement());
     const compressedMagnitude = log10(add(ONE, magnitude));
     return div(ONE, add(
       ONE,
@@ -196,16 +203,16 @@
     ));
   }
 
-  function daoAdjustedSoftcapExponent(exponent, currentImmortalPower = state.immortalPower) {
+  function daoAdjustedSoftcapExponent(exponent, currentImmortalPower = stockValue('immortalPower')) {
     const original = minBN(ONE, maxBN(ZERO, exponent));
     return daoAncestorActive() && state.daoAssimilationUnlocked
       ? sub(ONE, mul(sub(ONE, original), daoAssimilationQ(currentImmortalPower)))
       : original;
   }
 
-  function daoDomainExponent(currentImmortalPower = state.immortalPower) {
+  function daoDomainExponent(currentImmortalPower = stockValue('immortalPower')) {
     if (!daoAncestorActive() || !state.daoDomainUnlocked) return ONE;
-    const magnitude = log10(add(ONE, daoImmortalPowerRatio(currentImmortalPower)));
+    const magnitude = resourceMagnitude(currentImmortalPower,daoAncestorRequirement());
     return add(
       DAO_ANCESTOR_CONFIG.domainBaseExponent,
       mul(DAO_ANCESTOR_CONFIG.domainGrowthCoefficient, log10(add(ONE, magnitude)))
@@ -222,35 +229,6 @@
     return pow10(logRequirement);
   }
 
-  const QI_LAYER_COST_BLOCK_SIZE = 256;
-  const qiLayerCostBlocks = new Map();
-  // 2,097,152 layers of complete costs: about eight times the current 269k
-  // natural range. Eviction changes only recomputation, never the sum order.
-  const QI_LAYER_COST_CACHE_LIMIT = 8192;
-  const qiWorkClock = () => typeof performance !== "undefined" ? performance.now() : Date.now();
-  const qiWorkMetrics = { slices: 0, terms: 0, blocks: 0, cpuMs: 0, maxSliceMs: 0, completed: 0, cancelled: 0 };
-  const qiDeferredWorks = new WeakMap();
-  const qiWorkFailures = new WeakSet();
-  let qiBatchScope = null;
-
-  function readQiCostBlock(index) {
-    const value = qiLayerCostBlocks.get(index);
-    if (value !== undefined) { qiLayerCostBlocks.delete(index); qiLayerCostBlocks.set(index, value); }
-    return value;
-  }
-  function retainQiCostBlock(index, value) {
-    qiLayerCostBlocks.delete(index);
-    qiLayerCostBlocks.set(index, value);
-    if (qiLayerCostBlocks.size > QI_LAYER_COST_CACHE_LIMIT) qiLayerCostBlocks.delete(qiLayerCostBlocks.keys().next().value);
-  }
-  function withQiBatchScope(scope, callback) {
-    const previous = qiBatchScope;
-    qiBatchScope = scope;
-    try { return callback(); } finally { qiBatchScope = previous; }
-  }
-  function qiBatchWorkMetrics() {
-    return { ...qiWorkMetrics, cacheEntries: qiLayerCostBlocks.size, cacheLimit: QI_LAYER_COST_CACHE_LIMIT };
-  }
   function qiBatchStateKey(source) {
     // Capturing new wall time is independent of the gameplay input. Every
     // gameplay field remains in this key, including in-place UI flag edits.
@@ -261,99 +239,9 @@
   // This cursor owns mathematics only. No State/Runtime/Evaluation scope or
   // partially purchased layer survives a host yield. Prefix, block and tail
   // additions have exactly the order used by qiLayerCumulativeCost.
-  function createQiBatchWork(currentLayer, mana) {
-    const startLayer = Math.max(1, Math.floor(Number(currentLayer) || 1));
-    const availableMana = maxBN(ZERO, mana);
-    let cursor = nextQiLayer(startLayer), spent = ZERO, phase = "prefix", partial = null, tail = null;
-    let result = null, cancelled = false;
-    const finish = (layer, status = "ok") => { result = { layer, cost: spent, status }; qiWorkMetrics.completed++; };
-    if (cursor === null) finish(startLayer, "representation-limit");
-    else if (!isFiniteBN(availableMana) || !gt(availableMana, ZERO)) finish(startLayer);
-    const canAdd = cost => !gt(add(spent, cost), availableMana);
-    return Object.freeze({
-      matches: (layer, amount) => !cancelled && startLayer === layer && eq(availableMana, amount),
-      result: () => result,
-      cancel() { if (!cancelled) { cancelled = true; partial = null; qiWorkMetrics.cancelled++; } },
-      advance(options = {}) {
-        const began = qiWorkClock();
-        const deadline = options.deadlineMs ?? began + 3;
-        const maxTerms = options.maximumTerms ?? 4096, maxBlocks = options.maximumBlocks ?? 256;
-        let terms = 0, blocks = 0;
-        try {
-          while (!result && !cancelled) {
-            if (terms >= maxTerms || blocks >= maxBlocks || qiWorkClock() >= deadline) break;
-            if (phase === "prefix" && (cursor - 1) % QI_LAYER_COST_BLOCK_SIZE === 0) phase = "blocks";
-            if (phase === "blocks" && cursor <= Number.MAX_SAFE_INTEGER - QI_LAYER_COST_BLOCK_SIZE) {
-              const index = Math.floor((cursor - 1) / QI_LAYER_COST_BLOCK_SIZE);
-              let cost = partial?.done ? partial.total : readQiCostBlock(index);
-              if (cost === undefined) {
-                if (!partial) partial = { cursor, last: requireNextQiLayer(cursor, QI_LAYER_COST_BLOCK_SIZE - 1), total: ZERO, done: false };
-                // Only the owning work sees an incomplete block. Check both
-                // host time and term count before computing the next term.
-                while (!partial.done && terms < maxTerms && qiWorkClock() < deadline) {
-                  partial.total = add(partial.total, qiLayerRequirement(partial.cursor)); terms++;
-                  if (partial.cursor === partial.last) partial.done = true;
-                  else partial.cursor = requireNextQiLayer(partial.cursor);
-                }
-                if (!partial.done) break;
-                cost = partial.total;
-                retainQiCostBlock(index, cost);
-              }
-              blocks++;
-              if (!isFiniteBN(cost) || !canAdd(cost)) {
-                tail = { last: requireNextQiLayer(cursor, QI_LAYER_COST_BLOCK_SIZE - 1), before: spent, fullCost: cost };
-                phase = "tail"; partial = null; continue;
-              }
-              spent = add(spent, cost); partial = null;
-              cursor = requireNextQiLayer(cursor, QI_LAYER_COST_BLOCK_SIZE);
-              continue;
-            }
-            if (phase === "blocks") {
-              tail = { last: cursor + Math.min(Number.MAX_SAFE_INTEGER - cursor, QI_LAYER_COST_BLOCK_SIZE - 1) };
-              phase = "tail";
-            }
-            const cost = qiLayerRequirement(cursor); terms++;
-            if (!isFiniteBN(cost) || !canAdd(cost)) { finish(cursor - 1); break; }
-            spent = add(spent, cost);
-            const next = nextQiLayer(cursor);
-            if (next === null) { finish(cursor, "representation-limit"); break; }
-            if (phase === "tail" && cursor === tail.last) {
-              // The old affordability scan can accept all individual terms of
-              // a rejected block through rounding. Payment still recomputes
-              // that WHOLE block, and may therefore reject the entire purchase.
-              if (tail.fullCost !== undefined) spent = add(tail.before, tail.fullCost);
-              finish(cursor); break;
-            }
-            cursor = next;
-          }
-          return { done: !!result || cancelled, cancelled, result, terms, blocks };
-        } finally {
-          const elapsed = qiWorkClock() - began;
-          qiWorkMetrics.slices++; qiWorkMetrics.terms += terms; qiWorkMetrics.blocks += blocks;
-          qiWorkMetrics.cpuMs += elapsed; qiWorkMetrics.maxSliceMs = Math.max(qiWorkMetrics.maxSliceMs, elapsed);
-        }
-      }
-    });
-  }
+  function createQiBatchWork(){return WIS.Simulation.LegacySettlementCheckpoints.retired();}
 
-  function calculateQiBatch(currentLayer, mana) {
-    let work = qiBatchScope?.work;
-    if (!work?.matches(currentLayer, mana)) {
-      work?.cancel();
-      work = createQiBatchWork(currentLayer, mana);
-      if (qiBatchScope) qiBatchScope.work = work;
-    }
-    let progress;
-    try { progress = work.result() ? { done: true, result: work.result() } : work.advance(qiBatchScope
-      ? qiBatchScope.budget : { deadlineMs: Infinity, maximumTerms: Infinity, maximumBlocks: Infinity }); }
-    catch(error) { work.cancel(); if(error && typeof error === 'object')qiWorkFailures.add(error); throw error; }
-    if (!progress.done) {
-      const error = new Error("qi-work-deferred");
-      qiDeferredWorks.set(error, work);
-      throw error;
-    }
-    return progress.result;
-  }
+  
 
   // Layer progression is exact integer work, even when its resource cost is a BigNum.
   function nextQiLayer(current, increment = 1) {
@@ -368,11 +256,7 @@
     return error;
   }
 
-  function requireNextQiLayer(current, increment = 1) {
-    const next = nextQiLayer(current, increment);
-    if (next === null) throw qiLayerRepresentationError(current);
-    return next;
-  }
+  
 
   function qiLayerRepresentationLimit(layer, shouldRender) {
     // Recovery must retain this unit's debt, rather than silently skip mandatory automation.
@@ -381,93 +265,13 @@
     return { status: "representation-limit", code: "representation-limit", purchased: 0, layer };
   }
 
-  function ensureQiLayerCostBlock(blockIndex) {
-    const targetBlock = Math.max(0, Math.floor(Number(blockIndex) || 0));
-    const blockStart = targetBlock * QI_LAYER_COST_BLOCK_SIZE;
-    const lastLayer = requireNextQiLayer(blockStart, QI_LAYER_COST_BLOCK_SIZE);
-    const cached = readQiCostBlock(targetBlock);
-    if (cached !== undefined) return cached;
-    const firstLayer = requireNextQiLayer(blockStart);
-    let blockTotal = ZERO;
-    for (let layer = firstLayer; ; layer = requireNextQiLayer(layer)) {
-      blockTotal = add(blockTotal, qiLayerRequirement(layer));
-      if (layer === lastLayer) break;
-    }
-    retainQiCostBlock(targetBlock, blockTotal);
-    return blockTotal;
-  }
+  
 
-  function qiLayerCumulativeCost(fromLayer, toLayer) {
-    const firstLayer = Math.max(1, Math.floor(Number(fromLayer) || 0));
-    const lastLayer = Math.max(0, Math.floor(Number(toLayer) || 0));
-    if (!Number.isSafeInteger(firstLayer) || !Number.isSafeInteger(lastLayer)) {
-      throw qiLayerRepresentationError(!Number.isSafeInteger(firstLayer) ? firstLayer : lastLayer);
-    }
-    if (lastLayer < firstLayer) return ZERO;
-    let layer = firstLayer;
-    let total = ZERO;
-    while (layer <= lastLayer && (layer - 1) % QI_LAYER_COST_BLOCK_SIZE !== 0) {
-      total = add(total, qiLayerRequirement(layer));
-      if (layer === lastLayer) return total;
-      layer = requireNextQiLayer(layer);
-    }
-    while (lastLayer - layer >= QI_LAYER_COST_BLOCK_SIZE - 1) {
-      const blockIndex = Math.floor((layer - 1) / QI_LAYER_COST_BLOCK_SIZE);
-      total = add(total, ensureQiLayerCostBlock(blockIndex));
-      if (lastLayer - layer === QI_LAYER_COST_BLOCK_SIZE - 1) return total;
-      layer = requireNextQiLayer(layer, QI_LAYER_COST_BLOCK_SIZE);
-    }
-    while (layer <= lastLayer) {
-      total = add(total, qiLayerRequirement(layer));
-      if (layer === lastLayer) return total;
-      layer = requireNextQiLayer(layer);
-    }
-    return total;
-  }
+  function qiLayerCumulativeCost(){return WIS.Simulation.LegacySettlementCheckpoints.retired();}
 
-  function maxAffordableQiLayer(currentLayer, mana) {
-    const result = maxAffordableQiLayerChecked(currentLayer, mana);
-    if (result.status === "representation-limit") throw qiLayerRepresentationError(result.layer);
-    return result.layer;
-  }
+  function maxAffordableQiLayer(){return WIS.Simulation.LegacySettlementCheckpoints.retired();}
 
-  function maxAffordableQiLayerChecked(currentLayer, mana) {
-    const startingLayer = Math.max(1, Math.floor(Number(currentLayer) || 1));
-    let nextLayer = nextQiLayer(startingLayer);
-    const limit = (layer) => ({ layer, status: "representation-limit" });
-    const affordable = (layer) => ({ layer, status: "ok" });
-    if (nextLayer === null) return limit(startingLayer);
-    const budget = maxBN(ZERO, mana);
-    if (!isFiniteBN(budget) || !gt(budget, ZERO)) return affordable(startingLayer);
-    let spent = ZERO;
-    const canAddCost = (cost) => !gt(add(spent, cost), budget);
-
-    while ((nextLayer - 1) % QI_LAYER_COST_BLOCK_SIZE !== 0) {
-      const cost = qiLayerRequirement(nextLayer);
-      if (!isFiniteBN(cost) || !canAddCost(cost)) return affordable(nextLayer - 1);
-      spent = add(spent, cost);
-      const followingLayer = nextQiLayer(nextLayer);
-      if (followingLayer === null) return limit(nextLayer);
-      nextLayer = followingLayer;
-    }
-    while (nextLayer <= Number.MAX_SAFE_INTEGER - QI_LAYER_COST_BLOCK_SIZE) {
-      const blockIndex = Math.floor((nextLayer - 1) / QI_LAYER_COST_BLOCK_SIZE);
-      const blockCost = ensureQiLayerCostBlock(blockIndex);
-      if (!isFiniteBN(blockCost) || !canAddCost(blockCost)) break;
-      spent = add(spent, blockCost);
-      nextLayer = requireNextQiLayer(nextLayer, QI_LAYER_COST_BLOCK_SIZE);
-    }
-    const lastLayerInBlock = nextLayer + Math.min(Number.MAX_SAFE_INTEGER - nextLayer, QI_LAYER_COST_BLOCK_SIZE - 1);
-    while (nextLayer <= lastLayerInBlock) {
-      const cost = qiLayerRequirement(nextLayer);
-      if (!isFiniteBN(cost) || !canAddCost(cost)) return affordable(nextLayer - 1);
-      spent = add(spent, cost);
-      const followingLayer = nextQiLayer(nextLayer);
-      if (followingLayer === null) return limit(nextLayer);
-      nextLayer = followingLayer;
-    }
-    return affordable(nextLayer - 1);
-  }
+  
 
   function qiLayerProgress() {
     return Math.max(0, (Math.max(1, Number(state.currentQiLayer) || 1) - 1) /
@@ -563,6 +367,7 @@
   }
 
   function baLingChiFitnessMultiplier() {
+    if(WIS.Core.Amount?.enabled())return immortalCultivationActive()?WIS.Meta.Treasures.affineValue(state,'baLingChi',.002,1):ONE;
     return immortalCultivationActive() ? add(ONE, mul(baLingChiCount(), 0.002)) : ONE;
   }
 
@@ -588,7 +393,7 @@
 
   function manaJRawBonus() {
     const exponent = state.advancedRealmLevel >= IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel ? 0.83 : 0.8;
-    return state.qiRefiningUnlocked ? mul(10, pow(maxBN(ZERO, state.mana), exponent)) : ZERO;
+    return state.qiRefiningUnlocked ? mul(10,ratioPower(stockValue('mana'),1,exponent)) : ZERO;
   }
 
   function manaJBonus() {
@@ -612,8 +417,8 @@
       : MAGIC_TREASURE_MANA_CURVE_CONFIG.baseEarlyExponent;
   }
 
-  function magicTreasureManaCurve(mana = state.mana) {
-    const currentMana = maxBN(ZERO, mana);
+  function magicTreasureManaCurve(mana = stockValue('mana')) {
+    const currentMana = quantityValue(mana)?mana:maxBN(ZERO,mana);
     const earlyExponent = magicTreasureManaExponent();
     return smoothPowerSoftcap(
       currentMana,
@@ -657,7 +462,7 @@
     return WIS.Core.Effects.value("trueSpiritTransformation", state);
   }
 
-  function qiManaPowerSource(){return qiRefiningChallengeActive()?mul(add(ONE,maxBN(ZERO,state.mana)),qiLayerManaSourceMultiplier()):ZERO;}
+  function qiManaPowerSource(){if(!qiRefiningChallengeActive())return ZERO;if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.multiply(WIS.Core.Amount.add(stockValue('mana'),1),qiLayerManaSourceMultiplier());return mul(add(ONE,maxBN(ZERO,state.mana)),qiLayerManaSourceMultiplier());}
   function externalSources(_state, context = {}) {
     if (!immortalCultivationActive()) return [];
     return [
@@ -902,25 +707,25 @@
     return BREATHING_REALM_CONFIGS[cultivationRealmLevel()] ?? BREATHING_REALM_CONFIGS[1];
   }
 
-  function breathingManaDecayMultiplier(currentMana = state.mana) {
+  function breathingManaDecayMultiplier(currentMana = stockValue('mana')) {
     if (!manaRealmBottleneckActive()) return ONE;
     const { manaScale } = breathingRealmConfig();
-    return pow(add(ONE, div(maxBN(ZERO, currentMana), manaScale)), -0.25);
+    return onePlusRatioPower(currentMana,manaScale,-.25);
   }
 
-  function rawBaseBreathingManaGain(currentMana = state.mana, currentJoules = state.joules) {
-    if (lt(currentJoules, 3000)) return ZERO;
+  function rawBaseBreathingManaGain(currentMana = stockValue('mana'), currentJoules = stockValue('joules')) {
+    if(quantityValue(currentJoules)?WIS.Core.Amount.compare(currentJoules,3000)<0:lt(currentJoules,3000))return ZERO;
     const { base } = breathingRealmConfig();
-    const jMagnitude = log10(div(currentJoules, 3000));
+    const jMagnitude = quantityValue(currentJoules)?WIS.Core.AmountFormulas.logRatio(currentJoules,3000):log10(div(currentJoules,3000));
     const jCurve = pow(add(ONE, jMagnitude), breathingJCurveExponent());
     return mul(mul(base, jCurve), breathingManaDecayMultiplier(currentMana));
   }
 
-  function baseBreathingManaGain(currentMana = state.mana) {
+  function baseBreathingManaGain(currentMana = stockValue('mana')) {
     return rawBaseBreathingManaGain(currentMana).floor();
   }
 
-  function effectiveBaseBreathingManaGain(currentMana = state.mana) {
+  function effectiveBaseBreathingManaGain(currentMana = stockValue('mana')) {
     const rawBase = rawBaseBreathingManaGain(currentMana);
     const flooredBase = rawBase.floor();
     return gt(flooredBase, ZERO) ? flooredBase : rawBase;
@@ -939,7 +744,7 @@
       .reduce((total, value) => total + value, 0);
   }
 
-  function breathingManaGain(currentMana = state.mana) {
+  function breathingManaGain(currentMana = stockValue('mana')) {
     if (!immortalCultivationActive() || !state.qiRefiningUnlocked) return ZERO;
     const breathingSource = breathingManaSource(currentMana);
     return gt(breathingSource, ZERO)
@@ -947,7 +752,7 @@
       : ZERO;
   }
 
-  function breathingManaSource(currentMana = state.mana) {
+  function breathingManaSource(currentMana = stockValue('mana')) {
     if (!immortalCultivationActive() || !state.qiRefiningUnlocked) return ZERO;
     return calculateSourceGain({
       base: effectiveBaseBreathingManaGain(currentMana),
@@ -961,7 +766,7 @@
   }
 
   function auraControlPotentialMultiplier(
-    currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power")
+    currentPower = dynamicStockValue('power')
   ) {
     return add(ONE, mul("1.5", resourceMagnitude(currentPower, "3.033e15")));
   }
@@ -971,7 +776,7 @@
   }
 
   function immortalRealmDivineAbilityPotentialMultiplier(
-    currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules")
+    currentJoules = dynamicStockValue('joules')
   ) {
     return add(ONE, mul("0.75", resourceMagnitude(currentJoules, "2.092e20")));
   }
@@ -981,25 +786,24 @@
   }
 
   function descendRealmPotentialTreasureMultiplier(
-    currentPower = WIS.Core.Effects.dynamicResourceValue(state, "power")
+    currentPower = dynamicStockValue('power')
   ) {
     return minBN(10, add(ONE, mul("0.75", resourceMagnitude(currentPower, "8.368e22"))));
   }
 
-  function manaMultiplierGroups(currentMana = state.mana) {
+  function manaMultiplierGroups(currentMana = stockValue('mana')) {
     const groups = WIS.Core.Effects.groups("mana", "regionMultiplier", state);
     (groups["境界"] ||= []).push({ name: "当前境界瓶颈", value: cultivationBottleneckManaMultiplier(currentMana) });
     return groups;
   }
 
-  function manaGainMultiplier(currentMana = state.mana) {
+  function manaGainMultiplier(currentMana = stockValue('mana')) {
     return multiplyEffectGroups(manaMultiplierGroups(currentMana));
   }
 
-  function bottleneckManaMultiplier(requirement, active, currentMana = state.mana) {
+  function bottleneckManaMultiplier(requirement, active, currentMana = stockValue('mana')) {
     if (!active || !gt(requirement, ZERO)) return 1;
-    const ratio = div(maxBN(ZERO, currentMana), requirement);
-    return div(ONE, add(ONE, mul(1.5, pow(ratio, 4))));
+    return div(ONE,add(ONE,mul(1.5,ratioPower(currentMana,requirement,4))));
   }
 
   function immortalPowerUnlocked() {
@@ -1012,13 +816,13 @@
     return immortalPowerUnlocked() ? immortalPowerRealmCost(state.advancedRealmLevel) : ZERO;
   }
 
-  function immortalPowerProgressRatio(currentImmortalPower = state.immortalPower) {
+  function immortalPowerProgressRatio(currentImmortalPower = stockValue('immortalPower')) {
     const requirement = nextImmortalPowerRealmCost();
     if (!gt(requirement, ZERO)) return 0;
-    return Math.min(1, Math.max(0, toNumber(div(maxBN(ZERO, currentImmortalPower), requirement), 1)));
+    return Math.min(1, Math.max(0, toNumber(quantityValue(currentImmortalPower)?WIS.Core.AmountFormulas.productQuotient([currentImmortalPower],[requirement]):div(maxBN(ZERO,currentImmortalPower),requirement),1)));
   }
 
-  function immortalPowerManaSuppressionExponent(currentImmortalPower = state.immortalPower) {
+  function immortalPowerManaSuppressionExponent(currentImmortalPower = stockValue('immortalPower')) {
     if (WIS.Cultivation.Xiuzhen?.yinYang(state)) return 1;
     if (!immortalPowerUnlocked()) return 1;
     if (state.advancedRealmLevel >= 7) {
@@ -1031,14 +835,13 @@
     );
   }
 
-  function applyImmortalPowerManaSuppression(gain, currentImmortalPower = state.immortalPower) {
+  function applyImmortalPowerManaSuppression(gain, currentImmortalPower = stockValue('immortalPower')) {
     return applyGainExponent(gain, immortalPowerManaSuppressionExponent(currentImmortalPower));
   }
 
-  function immortalPowerBasePerSecond(currentMana = state.mana) {
+  function immortalPowerBasePerSecond(currentMana = stockValue('mana')) {
     if (!immortalPowerUnlocked()) return ZERO;
-    const scaledMana = div(maxBN(ZERO, currentMana), IMMORTAL_POWER_CONFIG.manaScale);
-    return pow(scaledMana, IMMORTAL_POWER_CONFIG.manaExponent);
+    return ratioPower(currentMana,IMMORTAL_POWER_CONFIG.manaScale,IMMORTAL_POWER_CONFIG.manaExponent);
   }
 
   function immortalPowerMultiplierGroups() {
@@ -1077,7 +880,7 @@
       : 0;
   }
 
-  function selfCorpseImmortalPowerLimitExponent(currentImmortalPower = state.immortalPower) {
+  function selfCorpseImmortalPowerLimitExponent(currentImmortalPower = stockValue('immortalPower')) {
     const config = IMMORTAL_POWER_CONFIG.daluo;
     const progress = resourceMagnitude(currentImmortalPower, config.selfCorpseScale);
     return div(ONE, add(ONE, mul(config.selfCorpseCoefficient, progress)));
@@ -1095,7 +898,7 @@
     );
   }
 
-  function immortalPowerBeforeGoogolPenaltyPerSecond(currentMana = state.mana) {
+  function immortalPowerBeforeGoogolPenaltyPerSecond(currentMana = stockValue('mana')) {
     const gain = calculateRegionGain([immortalPowerBasePerSecond(currentMana)], {
       multipliers: [immortalPowerMultiplier()],
       exponents: [immortalPowerRegionExponent()]
@@ -1103,7 +906,7 @@
     return WIS.Cultivation.Xiuzhen.applyDaoWuYa(state,applyDaoTimeLaw(gain));
   }
 
-  function immortalPowerPerSecond(currentMana = state.mana) {
+  function immortalPowerPerSecond(currentMana = stockValue('mana')) {
     return applyGoogolPenalty(
       "immortalPower", state.immortalPower,
       immortalPowerBeforeGoogolPenaltyPerSecond(currentMana), state
@@ -1165,7 +968,7 @@
     return exponent;
   }
 
-  function lawImmortalPowerActualExponent(currentMana = state.mana) {
+  function lawImmortalPowerActualExponent(currentMana = stockValue('mana')) {
     const config = IMMORTAL_POWER_CONFIG.law;
     const progress = resourceMagnitude(currentMana, config.manaScale);
     const decay = pow(div(progress, config.decayScale), config.decayExponent);
@@ -1178,7 +981,7 @@
     );
   }
 
-  function lawImmortalPowerPotentialMultiplier(currentMana = state.mana) {
+  function lawImmortalPowerPotentialMultiplier(currentMana = stockValue('mana')) {
     const progress = resourceMagnitude(currentMana, IMMORTAL_POWER_CONFIG.law.manaScale);
     const multiplier = add(ONE, pow(progress, lawImmortalPowerActualExponent(currentMana)));
     const finalMultiplier = state.lawOriginUnlocked
@@ -1189,13 +992,13 @@
       : finalMultiplier;
   }
 
-  function lawImmortalPowerMultiplier(currentMana = state.mana) {
+  function lawImmortalPowerMultiplier(currentMana = stockValue('mana')) {
     if (!state.lawUnlocked || state.activeChallenge === "severSelfCorpse") return ONE;
     return lawImmortalPowerPotentialMultiplier(currentMana);
   }
 
   function trinityImmortalPowerMultiplier(
-    currentJoules = WIS.Core.Effects.dynamicResourceValue(state, "joules")
+    currentJoules = dynamicStockValue('joules')
   ) {
     if (!state.trinityUnlocked) return ONE;
     const config = IMMORTAL_POWER_CONFIG.daluo;
@@ -1203,7 +1006,7 @@
     return add(ONE, pow(magnitude, config.trinityExponent));
   }
 
-  function unityWithDaoExponent(currentImmortalPower = state.immortalPower) {
+  function unityWithDaoExponent(currentImmortalPower = stockValue('immortalPower')) {
     if (!state.unityWithDaoUnlocked) return ONE;
     const config = IMMORTAL_POWER_CONFIG.daluo;
     const magnitude = resourceMagnitude(currentImmortalPower, IMMORTAL_POWER_CONFIG.realmCosts.daluo);
@@ -1222,7 +1025,7 @@
     ));
   }
 
-  function lawCrystalFilamentDetails(currentMana = state.mana) {
+  function lawCrystalFilamentDetails(currentMana = stockValue('mana')) {
     const lawMultiplier = lawImmortalPowerMultiplier(currentMana);
     const magnitude = log10(maxBN(ONE, lawMultiplier));
     return Object.freeze({
@@ -1233,11 +1036,11 @@
     });
   }
 
-  function lawCrystalFilamentPowerExponent(currentMana = state.mana) {
+  function lawCrystalFilamentPowerExponent(currentMana = stockValue('mana')) {
     return state.lawCrystalFilamentUnlocked ? lawCrystalFilamentDetails(currentMana).exponent : ONE;
   }
 
-  function spiritCaptureReturnMultiplier(currentImmortalPower = state.immortalPower) {
+  function spiritCaptureReturnMultiplier(currentImmortalPower = stockValue('immortalPower')) {
     if (!state.spiritCaptureReturnUnlocked) return ONE;
     const config = IMMORTAL_POWER_CONFIG.spiritCaptureReturn;
     const numerator = resourceMagnitude(currentImmortalPower, config.immortalPowerScale);
@@ -1251,14 +1054,11 @@
     );
   }
 
-  function spiritDomainJSource(currentImmortalPower = state.immortalPower) {
+  function spiritDomainJSource(currentImmortalPower = stockValue('immortalPower')) {
     if (!immortalCultivationActive() || !state.spiritDomainUnlocked) return ZERO;
     const config = IMMORTAL_POWER_CONFIG.spiritDomain;
     const source = calculateSourceGain({
-      base: mul(config.baseJoules, pow(
-        add(ONE, div(maxBN(ZERO, currentImmortalPower), config.immortalPowerScale)),
-        config.exponent
-      )),
+      base: mul(config.baseJoules, onePlusRatioPower(currentImmortalPower,config.immortalPowerScale,config.exponent)),
       multipliers: WIS.Core.Effects.values("spiritDomain", "sourceMultiplier", state)
     });
     return daoAncestorActive() && state.daoDomainUnlocked
@@ -1266,12 +1066,9 @@
       : source;
   }
 
-  function soulQualitativeChangeMultiplier(currentImmortalPower = state.immortalPower) {
+  function soulQualitativeChangeMultiplier(currentImmortalPower = stockValue('immortalPower')) {
     return state.soulQualitativeChangeUnlocked
-      ? add(ONE, pow(
-        div(maxBN(ZERO, currentImmortalPower), IMMORTAL_POWER_CONFIG.soulQualitativeChange.immortalPowerScale),
-        IMMORTAL_POWER_CONFIG.soulQualitativeChange.exponent
-      ))
+      ? add(ONE, ratioPower(currentImmortalPower,IMMORTAL_POWER_CONFIG.soulQualitativeChange.immortalPowerScale,IMMORTAL_POWER_CONFIG.soulQualitativeChange.exponent))
       : 1;
   }
 
@@ -1280,6 +1077,7 @@
   }
 
   function fiveElementsTreasureRawMultiplier() {
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Treasures.affineQuantity(state,'fiveElementsTreasure',FIVE_ELEMENTS_TREASURE_CONFIG.perItemAdditive,1);
     return add(
       ONE,
       mul(FIVE_ELEMENTS_TREASURE_CONFIG.perItemAdditive, fiveElementsTreasureCount())
@@ -1287,7 +1085,8 @@
   }
 
   function fiveElementsTreasureInternalExponent() {
-    const count = fiveElementsTreasureCount();
+    const count=WIS.Core.Amount?.enabled()?WIS.Meta.Treasures.quantity(state,'fiveElementsTreasure'):fiveElementsTreasureCount();
+    if(quantityValue(count)){const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas;return add(FIVE_ELEMENTS_TREASURE_CONFIG.minimumInternalExponent,F.productQuotient([FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentRange,FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentScale],[A.add(count,FIVE_ELEMENTS_TREASURE_CONFIG.internalExponentScale)]));}
     return add(
       FIVE_ELEMENTS_TREASURE_CONFIG.minimumInternalExponent,
       div(
@@ -1299,7 +1098,7 @@
 
   function fiveElementsTreasureMultiplierBeforeDecline() {
     if (!state.fiveElementsTreasureUnlocked) return ONE;
-    return pow(fiveElementsTreasureRawMultiplier(), fiveElementsTreasureInternalExponent());
+    const raw=fiveElementsTreasureRawMultiplier(),exponent=fiveElementsTreasureInternalExponent();return quantityValue(raw)?WIS.Core.AmountFormulas.power(raw,exponent):pow(raw,exponent);
   }
 
   function fiveElementsTreasureChance(count = fiveElementsTreasureCount()) {
@@ -1357,6 +1156,14 @@
   }
 
   function immortalCrystalIncrementSum(start, end) {
+    if(quantityValue(start)||quantityValue(end)){
+      const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,lower=A.from(start),upper=A.compare(end,lower)>0?A.from(end):lower;
+      if(A.compare(upper,lower)<=0)return ZERO;
+      const scale=BN(IMMORTAL_CRYSTAL_CONFIG.decayScale),exponent=IMMORTAL_CRYSTAL_CONFIG.decayExponent,normalized=(value,offset=0)=>onePlusRatioPower(value,scale,exponent-offset);
+      const integral=exponent===-1?mul(scale,mul(F.logRatio(A.add(scale,upper),A.add(scale,lower)),Math.LN10)):mul(div(pow(scale,-exponent),exponent+1),F.powerIncrement(A.add(scale,lower),A.subtract(upper,lower),exponent+1));
+      const endpoint=mul(sub(normalized(lower),normalized(upper)),.5),first=value=>mul(div(exponent,scale),normalized(value,1)),third=value=>mul(div(exponent*(exponent-1)*(exponent-2),pow(scale,3)),normalized(value,3));
+      return maxBN(0,add(add(integral,endpoint),sub(div(sub(first(upper),first(lower)),12),div(sub(third(upper),third(lower)),720))));
+    }
     const lower = maxBN(ZERO, BN(start));
     const upper = maxBN(lower, BN(end));
     if (!gt(upper, lower)) return ZERO;
@@ -1386,7 +1193,17 @@
     ));
   }
 
-  function immortalCrystalMultiplier(count = immortalCrystalCount()) {
+  let cachedImmortalCrystalQuantityKey=null,cachedImmortalCrystalQuantityValue=ONE;
+  function immortalCrystalMultiplier(count = WIS.Core.Amount?.enabled()?WIS.Meta.Treasures.quantity(state,'immortalCrystal'):immortalCrystalCount()) {
+    if(quantityValue(count)){
+      const A=WIS.Core.Amount,target=WIS.Meta.BigNumbers.rankQuantity(A.floor(count));
+      if(!target.tail.length)return immortalCrystalMultiplier(A.project(target));
+      const key=JSON.stringify([A.serialize(target),WIS.Core.BigNum.coordinateArithmetic.active(),runtime.getMathPolicy()]);
+      if(key===cachedImmortalCrystalQuantityKey)return cachedImmortalCrystalQuantityValue;
+      const exact=A.compare(target,IMMORTAL_CRYSTAL_EXACT_SUM_LIMIT)>=0?IMMORTAL_CRYSTAL_EXACT_SUM_LIMIT:Math.max(0,Math.floor(A.project(target).toNumber()));
+      let sum=BN(immortalCrystalExactIncrementPrefix()[exact]);if(A.compare(target,exact)>0)sum=add(sum,immortalCrystalIncrementSum(A.from(exact),target));
+      const value=add(1,mul(IMMORTAL_CRYSTAL_CONFIG.perItemAdditive,sum));cachedImmortalCrystalQuantityKey=key;cachedImmortalCrystalQuantityValue=value;return value;
+    }
     const targetCount = maxBN(ZERO, BN(count)).floor();
     if (cachedImmortalCrystalMultiplierCount !== null &&
         eq(targetCount, cachedImmortalCrystalMultiplierCount)) return cachedImmortalCrystalMultiplierValue;
@@ -1409,17 +1226,18 @@
     const start = BN(startRequirement);
     const end = BN(endRequirement);
     if (!gt(start, ZERO) || !gt(end, start)) return 0;
+    if(quantityValue(currentValue)){const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas;if(A.compare(currentValue,end)>=0)return 1;if(A.compare(currentValue,start)<=0)return 0;return Math.min(1,Math.max(0,toNumber(div(F.logRatio(currentValue,start),log10(div(end,start))),0)));}
     const current = maxBN(start, currentValue);
     return Math.min(1, Math.max(0,
       toNumber(div(sub(log10(current), log10(start)), sub(log10(end), log10(start))), 0)
     ));
   }
 
-  function celestialFiveDeclineBaseExponent(currentImmortalPower = state.immortalPower){const run=()=>celestialFiveDeclineBaseExponentUncached(currentImmortalPower);return currentImmortalPower===state.immortalPower?WIS.Core.Effects.memoFrozen("immortal.celestialFiveDeclineBaseExponent",run,state):run();}
+  function celestialFiveDeclineBaseExponent(currentImmortalPower = stockValue('immortalPower')){const run=()=>celestialFiveDeclineBaseExponentUncached(currentImmortalPower);return currentImmortalPower===state.immortalPower?WIS.Core.Effects.memoFrozen("immortal.celestialFiveDeclineBaseExponent",run,state):run();}
   function celestialFiveDeclineBaseExponentUncached(currentImmortalPower) {
     if (WIS.Cultivation.Xiuzhen?.yinYang(state)) return 1;
     const level = Math.max(0, Math.floor(Number(state.advancedRealmLevel) || 0));
-    const immortalPower = maxBN(ZERO, currentImmortalPower);
+    const immortalPower = quantityValue(currentImmortalPower)?currentImmortalPower:maxBN(ZERO,currentImmortalPower);
     const realmCosts = IMMORTAL_POWER_CONFIG.realmCosts;
     const goldenImmortalEndExponent = 1 - CELESTIAL_FIVE_DECLINES_CONFIG.goldenImmortalLoss;
     if (level === 7) {
@@ -1451,7 +1269,7 @@
     return 1;
   }
 
-  function celestialFiveDeclineExponent(currentImmortalPower = state.immortalPower){const run=()=>celestialFiveDeclineExponentUncached(currentImmortalPower);return currentImmortalPower===state.immortalPower?WIS.Core.Effects.memoFrozen("immortal.celestialFiveDeclineExponent",run,state):run();}
+  function celestialFiveDeclineExponent(currentImmortalPower = stockValue('immortalPower')){const run=()=>celestialFiveDeclineExponentUncached(currentImmortalPower);return currentImmortalPower===state.immortalPower?WIS.Core.Effects.memoFrozen("immortal.celestialFiveDeclineExponent",run,state):run();}
   function celestialFiveDeclineExponentUncached(currentImmortalPower) {
     const base = celestialFiveDeclineBaseExponent(currentImmortalPower);
     return state.flawlessJadeBodyUnlocked
@@ -1459,7 +1277,7 @@
       : base;
   }
 
-  function applyCelestialFiveDeclineToMultiplier(multiplier, currentImmortalPower = state.immortalPower) {
+  function applyCelestialFiveDeclineToMultiplier(multiplier, currentImmortalPower = stockValue('immortalPower')) {
     if (!isFiniteBN(multiplier) || isNaNBN(multiplier)) return ONE;
     const value = BN(multiplier);
     if (lt(value, ZERO)) return ONE;
@@ -1483,7 +1301,7 @@
     return !WIS.Cultivation.Xiuzhen?.yinYang(state) && immortalPowerUnlocked() && gt(nextImmortalPowerRealmCost(), ZERO);
   }
 
-  function celestialDeclineExponent(currentImmortalPower = state.immortalPower) {
+  function celestialDeclineExponent(currentImmortalPower = stockValue('immortalPower')) {
     if (WIS.Cultivation.Xiuzhen?.yinYang(state)) return 1;
     // 道祖彻底超脱天人五衰；不是缓解，也不再让任何五衰标记效果参与四类资源结算。
     if (daoAncestorActive()) return 1;
@@ -1494,7 +1312,7 @@
     return 1 - 0.16 * Math.sqrt(immortalPowerProgressRatio(currentImmortalPower));
   }
 
-  function applyCelestialDecline(gain, currentMana = state.mana, pressureGain = 0) {
+  function applyCelestialDecline(gain, currentMana = stockValue('mana'), pressureGain = 0) {
     return applyImmortalPowerManaSuppression(gain);
   }
 
@@ -1503,7 +1321,7 @@
       state.advancedRealmLevel < IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel && gt(manaProgressReferenceCost(), ZERO);
   }
 
-  function cultivationBottleneckManaMultiplier(currentMana = state.mana) {
+  function cultivationBottleneckManaMultiplier(currentMana = stockValue('mana')) {
     if (!manaRealmBottleneckActive()) return 1;
     const requirement = manaProgressReferenceCost();
     return gt(requirement, ZERO) ? bottleneckManaMultiplier(requirement, true, currentMana) : 1;
@@ -1514,6 +1332,7 @@
   }
 
   function naturalTreasureRawManaMultiplier() {
+    if(WIS.Core.Amount?.enabled()){const A=WIS.Core.Amount;return A.multiply(A.add(1,A.scale(A.fromParts(0,WIS.Cultivation.ExplorationProgress.levelWords(state)),.1)),WIS.Meta.Treasures.affineQuantity(state,'xuTianDing',.005,1));}
     return mul(add(ONE, mul(WIS.Meta.TreasureLedger.value(WIS.Cultivation.ExplorationProgress.levelWords(state)), 0.1)), xuTianDingMultiplier());
   }
 
@@ -1550,6 +1369,7 @@
   }
 
   function xuTianDingMultiplier() {
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Treasures.affineValue(state,'xuTianDing',.005,1);
     return add(ONE, mul(xuTianDingCount(), 0.005));
   }
 
@@ -1577,7 +1397,8 @@
     return decayingChance(TREASURE_RULES.phantomHeavenMirror.baseChance, TREASURE_RULES.phantomHeavenMirror.q, count, immortalTreasureChanceMultiplierBN());
   }
 
-  function phantomHeavenMirrorLoadMultiplier(count = phantomHeavenMirrorCount()) {
+  function phantomHeavenMirrorLoadMultiplier(count = WIS.Core.Amount?.enabled()?WIS.Meta.Treasures.quantity(state,'phantomHeavenMirror'):phantomHeavenMirrorCount()) {
+    if(quantityValue(count))return WIS.Core.AmountFormulas.powerWithExponent(WIS.Core.Amount.from(2),count);
     return pow(2, maxBN(ZERO, BN(count)));
   }
 
@@ -1601,7 +1422,7 @@
     return add(
       ONE,
       mul(0.23, smoothPowerSoftcap(
-        log10(add(ONE, div(mysticHeavenSpiritSlayingSwordCount(), 20))), 300, 1, 0.70, 6
+        WIS.Core.Amount?.enabled()?WIS.Core.AmountFormulas.logOnePlusRatio(WIS.Meta.Treasures.quantity(state,'mysticHeavenSpiritSlayingSword'),20):log10(add(ONE,div(mysticHeavenSpiritSlayingSwordCount(),20))),300, 1, 0.70, 6
       ))
     );
   }
@@ -1611,6 +1432,7 @@
   }
 
   function tianNiPearlRawManaMultiplier() {
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Treasures.affineQuantity(state,'tianNiPearl',.005,1);
     return add(ONE, mul(tianNiPearlCount(), 0.005));
   }
 
@@ -1653,6 +1475,7 @@
   }
 
   function fuBaoManaRatio() {
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Treasures.affineValue(state,'fuBao',.002);
     return mul(fuBaoCount(), 0.002);
   }
 
@@ -1707,7 +1530,7 @@
     return maxBN(3000, mul(3000, pow10(sub(curveTarget, ONE)))).ceil();
   }
 
-  function automaticBaseManaSources(currentMana = state.mana) {
+  function automaticBaseManaSources(currentMana = stockValue('mana')) {
     if (!immortalCultivationActive() || !state.qiRefiningUnlocked) return [];
     const sourceGains = [];
     const circulationSource = circulationManaSource(currentMana);
@@ -1716,14 +1539,14 @@
     return sourceGains;
   }
 
-  function automaticBaseManaBeforeSuppressionPerSecond(currentMana = state.mana) {
+  function automaticBaseManaBeforeSuppressionPerSecond(currentMana = stockValue('mana')) {
     const sourceGains = automaticBaseManaSources(currentMana);
     return sourceGains.length > 0
       ? finalManaGainFromSources(sourceGains, currentMana, [], false)
       : ZERO;
   }
 
-  function automaticBaseManaPerSecond(currentMana = state.mana) {
+  function automaticBaseManaPerSecond(currentMana = stockValue('mana')) {
     return applyImmortalPowerManaSuppression(
       automaticBaseManaBeforeSuppressionPerSecond(currentMana)
     );
@@ -1739,8 +1562,8 @@
 
   function automaticExplorationContext({ cache = true } = {}) {
     if (!explorationEnabled()) return null;
-    const powerCost = explorationPowerCost();
-    if (!state.roamSpiritWorldUnlocked || !state.goldenCoreUnlocked || lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return null;
+    const powerCost = explorationPowerCostValue();
+    if (!state.roamSpiritWorldUnlocked || !state.goldenCoreUnlocked || (quantityValue(powerCost)?WIS.Core.Amount.compare(powerCost,EXPLORATION_MINIMUM_POWER_COST)<0:lt(powerCost,EXPLORATION_MINIMUM_POWER_COST))) return null;
     const fullExplorationAmount = explorationAmountForCost(powerCost, { cache });
     const automaticEfficiency = automaticExplorationEfficiency();
     const explorationAmountPerSecond = mul(fullExplorationAmount, automaticEfficiency);
@@ -1754,6 +1577,17 @@
   }
 
   function nextManaProgressBoundary(currentMana = state.mana) {
+    if(quantityValue(currentMana)){
+      const A=WIS.Core.Amount,current=A.from(currentMana),max=(a,b)=>A.compare(a,b)>=0?A.from(a):A.from(b);
+      if(state.advancedRealmLevel>=IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel)return A.add(current,A.scale(max(current,IMMORTAL_POWER_CONFIG.manaScale),MANA_REALM_PROGRESS_STEP));
+      const requirement=manaProgressReferenceCost();if(!isFiniteBN(requirement)||!gt(requirement,0))return null;
+      const step=mul(requirement,MANA_REALM_PROGRESS_STEP);if(!isFiniteBN(step)||!gt(step,0))return null;
+      const R=WIS.Core.Rank,count=A.floor(A.add(A.divide(current,step),'1e-10'));
+      let boundary=A.multiply(WIS.Meta.BigNumbers.rankQuantity(R.add(count,1)),step);
+      const tolerance=max(A.scale(max(1,current),Number.EPSILON*8),A.scale(A.from(step),'1e-12'));
+      if(A.compare(boundary,A.add(current,tolerance))<=0)boundary=A.add(boundary,step);
+      return A.compare(boundary,current)>0?boundary:null;
+    }
     const current = maxBN(ZERO, currentMana);
     if (state.advancedRealmLevel >= IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel) {
       const reference = maxBN(current, IMMORTAL_POWER_CONFIG.manaScale);
@@ -1804,6 +1638,67 @@
     };
   }
 
+  // Model75 retains the existing low-realm averaging/segment law. Only its
+  // balances, linear fractions and unspent action quota change representation.
+  function settleManaQuantityProgressive(totalBudget,calculateGain,commitBudget,applyToState,linearBudget,maximumBudgetForSegment,googolPenalty,prepareRate){
+    const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,budget=Number(totalBudget);
+    if(!Number.isFinite(budget)||budget<0||typeof calculateGain!=='function')throw Object.assign(Error('Manual quantity budget invalid'),{code:'amount-invalid'});
+    let remaining=A.from(budget),total=A.from(0),current=stockValue('mana'),segments=0;
+    const normalize=value=>{
+      const detail=A.isAmount(value)||WIS.Core.BigNum.isDecimal(value)||typeof value!=='object'?{mana:value}:value;
+      if(!detail||!('mana' in detail))throw Object.assign(Error('Manual quantity rate missing'),{code:'formula-representation'});
+      return {detail,mana:A.from(detail.mana)};
+    };
+    const evaluate=(fraction,amount)=>normalize(calculateGain(fraction,amount));
+    const average=(a,b)=>({detail:{...a.detail,mana:A.scale(A.add(a.mana,b.mana),.5)},mana:A.scale(A.add(a.mana,b.mana),.5)});
+    const result=capped=>({mana:A.project(total),quantities:{mana:total},budgetUsed:A.project(A.subtract(A.from(budget),remaining)),budgetUsedQuantity:A.serialize(A.subtract(A.from(budget),remaining)),segments,capped});
+    if(budget===0)return result(false);
+    if(googolPenalty&&linearBudget){
+      const initial=evaluate(A.from(budget),current).mana;
+      if(A.compare(current,GOOGOL_PENALTY_THRESHOLD)>=0||A.compare(A.add(current,initial),GOOGOL_PENALTY_THRESHOLD)>0){
+        const integrate=()=>{
+          const rate=prepareRate?prepareRate():calculateGain;
+          return WIS.Power.ScaleLogic.applyResourceSoftcapDynamicRateOverTime(amount=>normalize(rate(1,amount)).mana,current,budget,
+            (gain,amount)=>WIS.Core.Penalties.applyGoogolPenalty('mana',amount,gain,state),
+            {memoizeSamples:!!prepareRate,googolResource:'mana',constantGoogolRawRate:rate.constantRawRate??null});
+        };
+        total=A.from(prepareRate?runtime.withEvaluationState(WIS.Core.State.cloneForSimulation(runtime.getState()),integrate):integrate());
+        if(applyToState&&A.compare(total,0)>0)WIS.Core.Resources.creditExact('cultivation.immortal.mana',total,state);
+        commitBudget(A.from(budget),total,{mana:total},current);remaining=A.from(0);segments=1;return result(false);
+      }
+    }
+    const tolerance=Math.max(Number.EPSILON*budget*16,1e-12);
+    const commit=(fraction,gain,evaluation,stock)=>{
+      if(A.compare(fraction,0)<=0||A.compare(fraction,remaining)>0)throw Object.assign(Error('Manual action budget overrun'),{code:'amount-budget-unresolved'});
+      if(applyToState&&A.compare(gain,0)>0)WIS.Core.Resources.creditExact('cultivation.immortal.mana',gain,state);
+      commitBudget(fraction,gain,evaluation.detail,stock);total=A.add(total,gain);current=A.add(current,gain);remaining=A.subtract(remaining,fraction);segments++;
+    };
+    while(A.compare(remaining,0)>0&&segments<MANA_PROGRESSIVE_MAX_SEGMENTS){
+      const slots=Math.max(1,MANA_PROGRESSIVE_MAX_SEGMENTS-segments),requested=maximumBudgetForSegment(current,remaining,slots);
+      let fraction=A.from(requested);
+      if(A.compare(fraction,0)<=0)fraction=remaining;
+      else {if(A.compare(fraction,tolerance)<0)fraction=A.from(tolerance);if(A.compare(fraction,remaining)>0)fraction=remaining;}
+      const full=evaluate(fraction,current),evaluation=linearBudget&&A.compare(full.mana,0)>0?average(full,evaluate(fraction,A.add(current,full.mana))):full;
+      let boundary=nextManaProgressBoundary(current),needed=boundary?A.subtract(boundary,current):A.from(0);
+      let gainTolerance=boundary?A.scale(A.compare(boundary,1)>0?boundary:A.from(1),Number.EPSILON*16):A.from(0);
+      if(boundary&&A.compare(gainTolerance,'1e-12')<0)gainTolerance=A.from('1e-12');
+      if(linearBudget&&boundary&&A.compare(evaluation.mana,A.add(needed,gainTolerance))>0){
+        const reference=A.compare(current,1)>0?current:A.from(1),projected=A.add(current,evaluation.mana),startLog=F.log10(reference),endLog=F.log10(A.compare(projected,reference)>0?projected:reference),span=maxBN(0,sub(endLog,startLog)),estimate=toNumber(div(span,Math.log10(1+MANA_REALM_PROGRESS_STEP)),Infinity);
+        if(!Number.isFinite(estimate)||estimate>slots){
+          const adaptive=A.from(pow10(add(startLog,div(span,slots)))),delta=A.subtract(adaptive,current);
+          if(A.compare(delta,needed)>0){needed=delta;boundary=adaptive;gainTolerance=A.scale(A.compare(boundary,1)>0?boundary:A.from(1),Number.EPSILON*16);if(A.compare(gainTolerance,'1e-12')<0)gainTolerance=A.from('1e-12');}
+        }
+      }
+      if(A.compare(evaluation.mana,0)<=0||!boundary||A.compare(evaluation.mana,A.add(needed,gainTolerance))<=0){commit(fraction,evaluation.mana,evaluation,current);continue;}
+      let upper=fraction,upperEvaluation=evaluation;
+      if(linearBudget)upper=A.multiply(fraction,A.divide(needed,evaluation.mana));
+      else {let lower=A.from(0);for(let i=0;i<48;i++){const middle=A.scale(A.add(lower,upper),.5),sample=evaluate(middle,current);if(A.compare(sample.mana,needed)>=0){upper=middle;upperEvaluation=sample;}else lower=middle;}}
+      if(A.compare(upper,0)<=0||A.compare(upper,fraction)>=0)commit(fraction,evaluation.mana,evaluation,current);
+      else commit(upper,needed,upperEvaluation,current);
+    }
+    const capped=A.compare(remaining,0)>0;if(capped){const evaluation=evaluate(remaining,current);commit(remaining,evaluation.mana,evaluation,current);}return result(capped);
+  }
+
   function settleManaGainProgressive(
     totalBudget,
     calculateGain,
@@ -1814,6 +1709,7 @@
     googolPenalty = false,
     prepareRate = null
   ) {
+    if(WIS.Core.Amount?.enabled())return settleManaQuantityProgressive(totalBudget,calculateGain,commitBudget,applyToState,linearBudget,maximumBudgetForSegment,googolPenalty,prepareRate);
     const budget = Math.max(0, Number(totalBudget) || 0);
     if (!(budget > 0) || typeof calculateGain !== "function") {
       return { mana: ZERO, budgetUsed: 0, segments: 0, capped: false };
@@ -1842,7 +1738,8 @@
             amount => normalizeManaEvaluation(rate(1, amount)).mana,
             currentMana, budget,
             (gain, amount) => WIS.Core.Penalties.applyGoogolPenalty("mana", amount, gain, state),
-            { memoizeSamples: !!prepareRate, googolResource: "mana" }
+            { memoizeSamples: !!prepareRate, googolResource: "mana",
+              constantGoogolRawRate: rate.constantRawRate ?? null }
           );
         };
         const mana = prepareRate
@@ -1977,29 +1874,33 @@
   // Fixed candidate, explicit sampled Mana, and no RNG/clock writes. Only this
   // work may memoize identical scalar samples and use exact cycle compression.
   function prepareBreathingManaRate() {
-    return (fraction, currentMana) => mul(breathingManaGain(currentMana), fraction);
+    const rate = (fraction, currentMana) => manualFraction(breathingManaGain(currentMana), fraction);
+    // With no realm bottleneck, neither the breathing decay nor the regional
+    // multiplier depends on sampled Mana. Effects and clocks belong to this work.
+    Object.defineProperty(rate, "constantRawRate", {
+      value: !manaRealmBottleneckActive() ? rate(1, stockValue('mana')) : null
+    });
+    return rate;
   }
 
   function breathingManaGainProgressive() {
-    const currentGain = breathingManaGain();
-    if (lt(currentGain, ONE)) return WIS.Core.Penalties.applyGoogolPenalty("mana", state.mana, currentGain, state);
     return previewManaGainProgressive(
       1,
-      (actionFraction, currentMana) => mul(breathingManaGain(currentMana), actionFraction),
+      (actionFraction, currentMana) => manualFraction(breathingManaGain(currentMana), actionFraction),
       { linearBudget: true, googolPenalty: true, prepareRate: prepareBreathingManaRate }
     ).mana;
   }
 
   function explorationManaGainProgressive(
-    powerCost = explorationPowerCost(),
+    powerCost = explorationPowerCostValue(),
     explorationAmount = explorationAmountForCost(powerCost),
     tribulationExponent = minorTribulationPreviewForExploration(explorationAmount).manaExponent
   ) {
     if (!explorationEnabled() ||
-        lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return ZERO;
+        (quantityValue(powerCost)?WIS.Core.Amount.compare(powerCost,EXPLORATION_MINIMUM_POWER_COST)<0:lt(powerCost,EXPLORATION_MINIMUM_POWER_COST))) return ZERO;
     return previewManaGainProgressive(
       1,
-      (actionFraction, currentMana) => mul(explorationPotentialManaGain(
+      (actionFraction, currentMana) => manualFraction(explorationPotentialManaGain(
         powerCost,
         currentMana,
         tribulationExponent,
@@ -2138,7 +2039,7 @@
     fullExplorationAmount,
     elapsedSeconds,
     currentMana = state.mana,
-    powerCost = explorationPowerCost(),
+    powerCost = explorationPowerCostValue(),
     currentExplorationLoad = state.minorTribulationExplorationLoad,
     automaticEfficiency = automaticExplorationEfficiency()
   ) {
@@ -2253,6 +2154,13 @@
   }
 
   function withCoupledResourceState(currentMana, currentImmortalPower, callback) {
+    if(WIS.Core.Amount?.enabled()){
+      const A=WIS.Core.Amount,mana=A.from(currentMana),ip=A.from(currentImmortalPower);
+      if(A.compare(stockValue('mana'),mana)===0&&A.compare(stockValue('immortalPower'),ip)===0)return WIS.Core.Effects.withState(state,callback);
+      const candidate=WIS.Core.State.createDraft(runtime.getState()).state;
+      for(const [key,value]of [['mana',mana],['immortalPower',ip]]){const parts=A.serialize(value);candidate[key]=BN(parts.main);candidate[key+'GainResidual']=ZERO;candidate[key+'GainResidualTail']=parts.tail.slice();}
+      return runtime.withEvaluationState(candidate,()=>WIS.Core.Effects.withState(candidate,callback));
+    }
     if (eq(state.mana, maxBN(ZERO, currentMana)) && eq(state.immortalPower, maxBN(ZERO, currentImmortalPower)))
       return WIS.Core.Effects.withState(state, callback);
     if (runtime.isEvaluating()) {
@@ -2496,7 +2404,8 @@
     };
   }
 
-  function commitAutomaticManaGain(plan, { skipTreasureRolls = false } = {}) {
+  function commitAutomaticManaGain(plan,options={}){const parts=commitAutomaticManaGainParts(plan,options);let next=parts.next();while(!next.done)next=parts.next(next.value());return next.value;}
+  function* commitAutomaticManaGainParts(plan, { skipTreasureRolls = false } = {}) {
     if (state.activeChallenge === "mortalTransformation" &&
         (gt(plan?.explorationAmount || ZERO, ZERO) || gt(plan?.explorationMana || ZERO, ZERO))) {
       throw new Error("化凡挑战期间不能提交探寻收益，请重新计算");
@@ -2513,10 +2422,18 @@
       return { ...plan, rewards, tribulationTriggered: false, eventCommitted };
     }
     if (!plan?.completed) return { ...plan, rewards, tribulationTriggered: false };
-    const explorationAccounting = gt(plan.explorationAmount, ZERO)
-      ? prepareExplorationProgress(plan.explorationAmount) : null;
-    WIS.Core.Resources.accumulateSystemResourceGain("immortal", "mana", plan.mana);
-    WIS.Core.Resources.accumulateSystemResourceGain("immortal", "immortalPower", plan.immortalPower);
+    let explorationAccounting=null;
+    if(gt(plan.explorationAmount,ZERO)){
+      if(WIS.Core.Amount?.enabled()){
+        // Initialization is a single candidate write; only the detached numeric
+        // accounting below may be retried after a proof suspension.
+        WIS.Meta.TreasureProgress.ensure(state);WIS.Cultivation.ExplorationProgress.ensure(state);
+        const owner=runtime.getState(),Q=WIS.Core.Resources,statistics=owner.meta.statistics,gain=plan.explorationAmount,current=Q.numericInputCurrent(owner,['explorationProgress','explorationProgressResidual','explorationAttemptResidual','explorationTotalApproximate']),statCurrent=Q.numericInputCurrent(statistics,['explorationTotal','explorationTotalResidual']),inputCurrent=Q.quantityInputCurrent(gain),prepare=()=>prepareExplorationQuantityProgress(gain);
+        explorationAccounting=yield Q.privateOperation(owner,prepare,prepare,result=>result,()=>owner.meta.statistics===statistics&&plan.explorationAmount===gain&&current()&&statCurrent()&&inputCurrent());
+      }else explorationAccounting=prepareExplorationProgress(plan.explorationAmount);
+    }
+    if(WIS.Core.Amount?.enabled()&&plan.quantities){for(const key of ['mana','immortalPower'])yield WIS.Core.Resources.creditExactOperation('cultivation.immortal.'+key,plan.quantities[key]||0,runtime.getState());}
+    else {WIS.Core.Resources.accumulateSystemResourceGain("immortal", "mana", plan.mana);WIS.Core.Resources.accumulateSystemResourceGain("immortal", "immortalPower", plan.immortalPower);}
     if (plan.event?.resource && plan.event?.boundary) {
       WIS.Core.Resources.rebaseSystem("immortal", plan.event.resource, plan.event.boundary);
     }
@@ -2607,7 +2524,7 @@
   // The fixed segment and current-effect preview share this exact source law.
   function fixedAutomaticExplorationManaRate(context, factor) {
     return context ? applyGoogolPenalty("mana", state.mana,
-      mul(explorationPotentialManaGain(context.powerCost, state.mana,
+      mul(explorationPotentialManaGain(context.powerCost, stockValue('mana'),
         minorTribulationExplorationManaExponent(), context.fullExplorationAmount),
         (context.automaticEfficiency ?? automaticExplorationEfficiency()) * factor), state) : ZERO;
   }
@@ -2633,7 +2550,18 @@
     return getAutomaticManaRates(currentState, options).explorationMana;
   }
 
+  function finalManaQuantityFromSources(sources,currentMana=stockValue('mana'),additional=[]){const A=WIS.Core.Amount;
+    let value=WIS.Core.Formulas.regionQuantity(sources,{multipliers:[manaGainMultiplier(currentMana),...additional],exponents:[add(WIS.Core.Effects.product('mana','regionExponent',state),greatLuoManaExponentBonus())]});
+    value=quantityExponent(value,daoTimeLawExponent());if(A.compare(value,1)>0)value=quantityExponent(value,WIS.Cultivation.Xiuzhen.daoWuYaExponent(state));return quantityExponent(value,immortalPowerManaSuppressionExponent());
+  }
+  function immortalPowerQuantityPerSecond(){const A=WIS.Core.Amount;if(!immortalPowerUnlocked())return A.from(0);let value=WIS.Core.Formulas.regionQuantity([immortalPowerBasePerSecond()],{multipliers:[immortalPowerMultiplier()],exponents:[immortalPowerRegionExponent()]});
+    value=quantityExponent(value,daoTimeLawExponent());if(A.compare(value,1)>0)value=quantityExponent(value,WIS.Cultivation.Xiuzhen.daoWuYaExponent(state));return applyGoogolPenalty('immortalPower',stockValue('immortalPower'),value,state);
+  }
   function fixedAutomaticSources(factor = WIS.Simulation.Compensation.factor()) {
+    if(WIS.Core.Amount?.enabled()){
+      const A=WIS.Core.Amount,scope=WIS.Core.Effects.continuationMemo?.(state),once=(key,compute)=>{if(!scope)return compute();key='immortal-fixed-quantity|'+factor+'|'+key;if(scope.has(key))return scope.get(key);const value=compute();scope.set(key,value);return value;},context=once('context',()=>automaticExplorationContext({cache:false})),passiveMana=once('passiveMana',()=>applyGoogolPenalty('mana',stockValue('mana'),A.scale(finalManaQuantityFromSources(automaticBaseManaSources()),factor),state)),explorationMana=once('explorationMana',()=>A.scale(fixedAutomaticExplorationManaRate(context,1),factor)),immortalPower=once('immortalPower',()=>A.scale(immortalPowerQuantityPerSecond(),factor)),mana=A.add(passiveMana,explorationMana),quantities={mana,passiveMana,explorationMana,immortalPower};
+      return {...Object.fromEntries(Object.entries(quantities).map(([key,value])=>[key,A.project(value)])),quantities,explorationAmount:context?.explorationAmountPerSecond||ZERO,circulation:gt(circulationManaPerSecond(),ZERO)};
+    }
     const context = automaticExplorationContext({ cache: false });
     const passiveMana = applyGoogolPenalty("mana", state.mana,
       mul(automaticBaseManaPerSecond(), factor), state);
@@ -2647,6 +2575,13 @@
   // Continuous stock feedback only. Exploration/loot opportunity counts and
   // qualifications still belong to the one start-of-tick FixedSources query.
   function foregroundAutomaticGains(seconds) {
+    if(WIS.Core.Amount?.enabled()){
+      const A=WIS.Core.Amount,context=automaticExplorationContext({cache:false}),factor=WIS.Simulation.Compensation.factor(),mana=stockValue('mana'),ip=stockValue('immortalPower'),integrate=WIS.Power.ScaleLogic.applyResourceSoftcapDynamicRateOverTime;
+      const quantities={
+        mana:integrate(amount=>withCoupledResourceState(amount,ip,()=>A.add(applyGoogolPenalty('mana',amount,A.scale(finalManaQuantityFromSources(automaticBaseManaSources(amount),amount),factor),state),A.scale(fixedAutomaticExplorationManaRate(context,1),factor))),mana,seconds,x=>x,{foreground:true,googolResource:'mana'}),
+        immortalPower:integrate(amount=>withCoupledResourceState(mana,amount,()=>A.scale(immortalPowerQuantityPerSecond(),factor)),ip,seconds,x=>x,{foreground:true,googolResource:'immortalPower'})};
+      return {...Object.fromEntries(Object.entries(quantities).map(([k,v])=>[k,A.project(v)])),quantities};
+    }
     const context = automaticExplorationContext({ cache: false });
     const factor = WIS.Simulation.Compensation.factor();
     const mana = state.mana, immortalPower = state.immortalPower;
@@ -2666,7 +2601,7 @@
     );
   }
 
-  function circulationManaSource(currentMana = state.mana) {
+  function circulationManaSource(currentMana = stockValue('mana')) {
     if (!circulationEffective()) return ZERO;
     const source = mul(breathingManaSource(currentMana), circulationPercent());
     return applyGainExponent(source, circulationSourceExponent());
@@ -2687,15 +2622,15 @@
   }
 
   function explorationManaGain() {
-    if (!explorationEnabled() || lt(explorationPowerCost(), EXPLORATION_MINIMUM_POWER_COST)) return ZERO;
-    const powerCost = explorationPowerCost();
+    const powerCost=explorationPowerCostValue();
+    if(!explorationEnabled()||(quantityValue(powerCost)?WIS.Core.Amount.compare(powerCost,EXPLORATION_MINIMUM_POWER_COST)<0:lt(powerCost,EXPLORATION_MINIMUM_POWER_COST)))return ZERO;
     const explorationAmount = explorationAmountForCost(powerCost);
     const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
     return explorationManaGainProgressive(powerCost, explorationAmount, tribulationPreview.manaExponent);
   }
 
   function explorationPotentialManaGain(
-    powerCost = explorationPowerCost(),
+    powerCost = explorationPowerCostValue(),
     currentMana = state.mana,
     tribulationExponent = minorTribulationExplorationManaExponent(),
     explorationAmount = explorationAmountForCost(powerCost),
@@ -2709,11 +2644,18 @@
 
   // Called inside a fresh readonly Evaluation for exactly one manual work.
   // Reward, spending, clocks and event commits occur outside this scope.
-  function prepareExplorationManaRate(explorationAmount, tribulationExponent) {
-    const sources = explorationManaSources(explorationAmount);
-    return (fraction, currentMana) => mul(explorationManaGainFromSources(
+  function prepareExplorationManaRate(explorationAmount, tribulationExponent, sourceGains = null) {
+    const sources = sourceGains ? sourceGains.slice() : explorationManaSources(explorationAmount);
+    const rate = (fraction, currentMana) => manualFraction(explorationManaGainFromSources(
       sources, currentMana, tribulationExponent, true
     ), fraction);
+    // The shared source breakdown has only the explicit realm bottleneck as a
+    // sampled-Mana dependency. Arbitrary external exponents receive no certificate.
+    Object.defineProperty(rate, "constantRawRate", {
+      value: !manaRealmBottleneckActive() && isFiniteBN(tribulationExponent) && gt(tribulationExponent, ZERO)
+        ? rate(1, stockValue('mana')) : null
+    });
+    return rate;
   }
 
   // Shared source breakdown: previews must preserve the settlement order below.
@@ -2766,7 +2708,7 @@
     return WIS.Core.Effects.value("spiritWorldAscension", state);
   }
 
-  function finalManaGainFromSources(sourceGains, currentMana = state.mana, additionalMultipliers = [], applyDecline = true, applyFourthStep = true) {
+  function finalManaGainFromSources(sourceGains, currentMana = stockValue('mana'), additionalMultipliers = [], applyDecline = true, applyFourthStep = true) {
     const gain = calculateRegionGain(sourceGains, {
       multipliers: [manaGainMultiplier(currentMana), ...additionalMultipliers],
       exponents: [add(
@@ -2782,9 +2724,8 @@
     return WIS.Core.Effects.value("flyingEscape", state);
   }
 
-  function explorationPowerCost() {
-    return mul(maxBN(ZERO, state.power), 0.1);
-  }
+  function explorationPowerCostValue(){return WIS.Core.Amount?.enabled()?WIS.Core.Amount.scale(stockValue('power'),.1):mul(maxBN(ZERO,state.power),.1);}
+  function explorationPowerCost(){const cost=explorationPowerCostValue();return quantityValue(cost)?WIS.Core.Amount.project(cost):cost;}
 
   // Two fixed arithmetic contexts, not a cache of historical states or roots.
   // Build with the active backend to retain its exact finite-precision rounding.
@@ -2808,11 +2749,11 @@
   let cachedRawExplorationAmount = ZERO;
 
   function rawExplorationAmountForCost(powerCost, { cache = true } = {}) {
-    const cost = maxBN(ZERO, powerCost);
-    if (!gt(cost, ZERO) || !isFiniteBN(cost)) return ZERO;
-    if (cache && cachedExplorationPowerCost && eq(cost, cachedExplorationPowerCost)) return cachedRawExplorationAmount;
-
-    const decimalTargetLogCost = log10(cost);
+    const A=WIS.Core.Amount,whole=quantityValue(powerCost),quantity=whole?A.from(powerCost):null,cost=whole?null:maxBN(ZERO,powerCost);
+    if(whole?A.compare(quantity,0)===0:!gt(cost,ZERO)||!isFiniteBN(cost))return ZERO;
+    const costKey=cache?whole?JSON.stringify([A.serialize(quantity),WIS.Core.BigNum.coordinateArithmetic.active()]):cost:null;
+    if(cache&&cachedExplorationPowerCost&&(whole?costKey===cachedExplorationPowerCost:typeof cachedExplorationPowerCost!=='string'&&eq(cost,cachedExplorationPowerCost)))return cachedRawExplorationAmount;
+    const decimalTargetLogCost=whole?WIS.Core.AmountFormulas.log10(quantity):log10(cost);
     const numericTargetLogCost = toNumber(decimalTargetLogCost, Infinity);
     const { standardLogCost, standardLogNumber, scale, derivativeScale,
       decimalInversionThreshold } = explorationInverseParameters();
@@ -2863,7 +2804,7 @@
       result = pow10(logAmount);
     }
     if (cache) {
-      cachedExplorationPowerCost = cost;
+      cachedExplorationPowerCost = costKey;
       cachedRawExplorationAmount = result;
     }
     return result;
@@ -2888,7 +2829,7 @@
     return WIS.Core.Effects.value("divineSense", state);
   }
 
-  function explorationBaseMana(powerCost = explorationPowerCost()) {
+  function explorationBaseMana(powerCost = explorationPowerCostValue()) {
     return mul(EXPLORATION_BASE_MANA, explorationManaAmount(explorationAmountForCost(powerCost)));
   }
 
@@ -3005,7 +2946,15 @@
     };
   }
 
+  function prepareExplorationQuantityProgress(explorationAmount){
+      const A=WIS.Core.Amount,L=WIS.Core.AmountLedger,gain=A.from(explorationAmount);
+      const combined=A.add(A.fromParts(state.explorationProgress,state.explorationProgressResidual||[]),gain),whole=WIS.Meta.BigNumbers.rankQuantity(A.floor(combined)),fraction=A.subtract(combined,whole),fractionParts=A.serialize(fraction);
+      const attemptWords=L.add(A.words(whole),state.explorationAttemptResidual||[]),attempts=L.sign(attemptWords)>0?A.project(WIS.Meta.BigNumbers.rankQuantity(A.floor(A.fromParts(0,attemptWords)))):ZERO;
+      const compaction=A.compact(A.add(A.field(state.meta.statistics,'explorationTotal'),gain)),total=compaction.value,parts=A.serialize(total);
+      return {attempts,fields:{explorationProgress:BN(fractionParts.main),explorationProgressResidual:fractionParts.tail.slice(),explorationAttemptResidual:L.subtract(attemptWords,[String(attempts)]),explorationTotal:BN(parts.main),explorationTotalResidual:parts.tail.slice(),explorationTotalApproximate:state.explorationTotalApproximate===true||compaction.compacted}};
+  }
   function prepareExplorationProgress(explorationAmount) {
+    if(WIS.Core.Amount?.enabled()){WIS.Meta.TreasureProgress.ensure(state);WIS.Cultivation.ExplorationProgress.ensure(state);return prepareExplorationQuantityProgress(explorationAmount);}
     if (!isFiniteBN(explorationAmount) || lt(explorationAmount, ZERO)) throw Error("探寻输入必须为有限非负数");
     WIS.Meta.TreasureProgress?.ensure(state);
     WIS.Cultivation.ExplorationProgress.ensure(state);
@@ -3468,19 +3417,20 @@
   function breathe() { return performBreathing(); }
   function performBreathing(prepareOnly = false) {
     if (!state.qiRefiningUnlocked) return;
-    if (lt(state.joules, 3000)) return;
+    if (WIS.Core.Amount?.enabled()?WIS.Core.Amount.compare(stockValue('joules'),3000)<0:lt(state.joules,3000)) return;
     if (!gt(breathingManaGain(), ZERO)) return;
-    const { mana: gained } = applyManaGainProgressive(
+    const settlement = applyManaGainProgressive(
       1,
-      (actionFraction, currentMana) => mul(breathingManaGain(currentMana), actionFraction),
+      (actionFraction, currentMana) => manualFraction(breathingManaGain(currentMana), actionFraction),
       () => {},
       { linearBudget: true, googolPenalty: true, prepareRate: prepareBreathingManaRate }
     );
+    const gained=settlement.quantities?.mana??settlement.mana;
     if (prepareOnly) return gained;
-    if (!gt(gained, ZERO)) return false;
+    if (quantityValue(gained)?WIS.Core.Amount.compare(gained,0)<=0:!gt(gained,ZERO)) return false;
     WIS.Core.Resources.set("joules", 0);
-    state.lifetimeTotalMana = add(state.lifetimeTotalMana, gained);
-    state.currentRebirthTotalMana = add(state.currentRebirthTotalMana, gained);
+    WIS.Core.State.addStatistic(state,'lifetimeTotalMana',gained);
+    WIS.Core.State.addStatistic(state,'currentRebirthTotalMana',gained);
     tryTianNiPearl();
     rollBaLingChiAttempts(1);
     saveState();
@@ -3580,11 +3530,12 @@
   function highestQualifiedQiLayer(currentLayer, mana) {
     const nextLayer = nextQiLayer(currentLayer);
     if (nextLayer === null) return { layer: currentLayer, status: "representation-limit" };
-    if (!isFiniteBN(mana) || !gte(mana, qiLayerRequirement(nextLayer)))
+    const qualifies=layer=>WIS.Core.Amount?.enabled()?WIS.Core.Amount.compare(mana,qiLayerRequirement(layer))>=0:gte(mana,qiLayerRequirement(layer));
+    if ((!WIS.Core.Amount?.enabled()&&!isFiniteBN(mana)) || !qualifies(nextLayer))
       return { layer: currentLayer, status: "ok" };
     let lower = nextLayer;
     let upper = Math.min(Number.MAX_SAFE_INTEGER, currentLayer + 2);
-    while (gte(mana, qiLayerRequirement(upper))) {
+    while (qualifies(upper)) {
       lower = upper;
       if (upper === Number.MAX_SAFE_INTEGER)
         return { layer: upper, status: "representation-limit" };
@@ -3592,7 +3543,7 @@
     }
     while (upper - lower > 1) {
       const middle = lower + Math.floor((upper - lower) / 2);
-      if (gte(mana, qiLayerRequirement(middle))) lower = middle;
+      if (qualifies(middle)) lower = middle;
       else upper = middle;
     }
     return { layer: lower, status: "ok" };
@@ -3626,7 +3577,7 @@
   function advanceQiLayersBatch(shouldRender = true) {
     if (!qiRefiningChallengeActive()) return 0;
     const currentLayer = Math.max(1, Math.floor(Number(state.currentQiLayer) || 1));
-    const result = highestQualifiedQiLayer(currentLayer, state.mana);
+    const result = highestQualifiedQiLayer(currentLayer, stockValue("mana"));
     if (result.status === "representation-limit") return qiLayerRepresentationLimit(currentLayer, shouldRender);
     const targetLayer = result.layer;
     if (targetLayer <= currentLayer) return 0;
@@ -3875,13 +3826,11 @@
 
   function grantThreeDeficienciesResetReward() {
     if (!hasAchievement("threeDeficiencies")) return 0;
-    const gained = applyResourceSoftcapProgressive(1000, state.power);
-    WIS.Core.Resources.add("power", gained);
-    state.totalPower = add(state.totalPower, gained);
-    state.lifetimeTotalPower = add(state.lifetimeTotalPower, gained);
-    state.currentRebirthTotalPower = add(state.currentRebirthTotalPower, gained);
+    const A=WIS.Core.Amount,gained=applyResourceSoftcapProgressive(1000,A?.enabled()?stockValue('power'):state.power);
+    if(A?.enabled())WIS.Core.Resources.creditExact('core.power',gained,state);else WIS.Core.Resources.add('power',gained);
+    for(const key of ['totalPower','lifetimeTotalPower','currentRebirthTotalPower'])WIS.Core.State.addStatistic(state,key,gained);
     runtime.call("updateScaleProgress", false);
-    return gained;
+    return WIS.Core.Amount?.isAmount(gained)?WIS.Core.Amount.project(gained):gained;
   }
 
   function explore() {
@@ -3942,18 +3891,18 @@
 
   function performExploration(prepareOnly = false) {
     if (!explorationEnabled()) return;
-    const powerCost = explorationPowerCost();
-    if (!state.goldenCoreUnlocked || lt(powerCost, EXPLORATION_MINIMUM_POWER_COST)) return;
+    const powerCost = explorationPowerCostValue();
+    if (!state.goldenCoreUnlocked || (quantityValue(powerCost)?WIS.Core.Amount.compare(powerCost,EXPLORATION_MINIMUM_POWER_COST)<0:lt(powerCost,EXPLORATION_MINIMUM_POWER_COST))) return;
     const explorationAmount = explorationAmountForCost(powerCost);
     const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
     const previewGain = explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
     if (lt(previewGain, ONE)) return;
     const explorationAccounting = prepareExplorationProgress(explorationAmount);
     const previousAchievements = achievementStates();
-    if (!WIS.Core.Resources.spend("power", powerCost)) return false;
-    const { mana: gained } = applyManaGainProgressive(
+    if(quantityValue(powerCost)?!WIS.Core.Resources.debitExact('core.power',powerCost,state):!WIS.Core.Resources.spend('power',powerCost))return false;
+    const settlement = applyManaGainProgressive(
       1,
-      (actionFraction, currentMana) => mul(explorationPotentialManaGain(
+      (actionFraction, currentMana) => manualFraction(explorationPotentialManaGain(
         powerCost,
         currentMana,
         tribulationPreview.manaExponent,
@@ -3963,9 +3912,10 @@
       () => {},
       { linearBudget: true, googolPenalty: true, prepareRate: () => prepareExplorationManaRate(explorationAmount, tribulationPreview.manaExponent) }
     );
+    const gained=settlement.quantities?.mana??settlement.mana;
     if(prepareOnly)return gained;
-    state.lifetimeTotalMana = add(state.lifetimeTotalMana, gained);
-    state.currentRebirthTotalMana = add(state.currentRebirthTotalMana, gained);
+    WIS.Core.State.addStatistic(state,'lifetimeTotalMana',gained);
+    WIS.Core.State.addStatistic(state,'currentRebirthTotalMana',gained);
 
     const rewards = processExplorationJudgements(commitExplorationProgress(explorationAccounting), explorationAmount);
     const tribulationTriggered = registerSuccessfulExploration(explorationAmount, tribulationPreview);
@@ -4160,10 +4110,10 @@
   const api = Object.freeze({
     hasReachedMahayanaThisRun, canScatterAndRebuild, canReincarnate,
     reconcileMahayanaReincarnationEffects,
-    explorationManaSources, explorationManaGainFromSources,
+    explorationManaSources, explorationManaGainFromSources, prepareExplorationManaRate,
     nextManaProgressBoundary, applyManaGainProgressive, previewManaGainProgressive,
     breathingManaGainProgressive, explorationManaGainProgressive,
-    automaticManaComponents, planAutomaticManaGain, commitAutomaticManaGain, automaticManaGainProgressive,
+    automaticManaComponents, planAutomaticManaGain, commitAutomaticManaGain, commitAutomaticManaGainParts, automaticManaGainProgressive,
     automaticBaseManaBeforeSuppressionPerSecond, automaticExplorationManaBeforeSuppressionPerSecond,
     automaticManaBeforeSuppressionPerSecond, automaticManaBeforeGoogolPenaltyPerSecond,
     celestialDeclineActive, celestialDeclineExponent, applyCelestialDecline,
@@ -4172,8 +4122,7 @@
     daoImmortalPowerRatio, daoPowerSource, daoAssimilationQ, daoAdjustedSoftcapExponent,
     daoDomainExponent,
     qiRefiningChallengeActive, qiLayerRequirement, qiLayerCumulativeCost, maxAffordableQiLayer,
-    createQiBatchWork, withQiBatchScope, qiBatchWorkMetrics, qiBatchStateKey,
-    qiDeferredWork: error => qiDeferredWorks.get(error), qiWorkFailure: error => qiWorkFailures.has(error), hasQiBatchScope: () => qiBatchScope !== null,
+    createQiBatchWork, qiBatchStateKey,
     qiLayerProgress,
     qiLayerManaMultiplier, qiLayerManaSourceMultiplier, qiGlobalSoftcapQ,
     qiManaSoftcapQ, qiAdjustedSoftcapExponent, qiChallengeReward, advanceQiLayer, advanceQiLayersBatch,
@@ -4204,7 +4153,7 @@
       ['explorationMana','mana',['joules','power','mana','immortalPower','multiverseCoefficient']],
       ['immortalPower','immortalPower',['joules','mana','immortalPower','yuanForce','multiverseCoefficient']]
     ].map(([id,target,dynamicResources])=>({id,target,dynamicResources,operationType:'additive',valueAt:(_s,c={})=>fixedAutomaticSources(c.factor??1)[id]})),
-    fixedAutomaticSources, foregroundAutomaticGains, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
+    finalManaQuantityFromSources,immortalPowerQuantityPerSecond, fixedAutomaticSources, foregroundAutomaticGains, automaticBaseManaPerSecond, automaticExplorationAmountPerSecond, automaticExplorationManaGain, automaticExplorationManaPerSecond, automaticManaPerSecond, circulationEffective, circulationManaSource, circulationManaPerSecond, circulationPercent, circulationSourceExponent, explorationManaGain, explorationPotentialManaGain, silverTadpoleScriptExplorationExponent, minorTribulationTriggerLoad, spiritWorldAscensionExplorationMultiplier, finalManaGainFromSources, flyingEscapeMultiplier, explorationPowerCost, rawExplorationAmountForCost, explorationAmountForCost, explorationManaAmount, divineSenseMultiplier, explorationBaseMana, rollMysteriousGreenBottleAttempts, rollFuBaoAttempts, rollNaturalTreasureAttempts, rollXuTianDingAttempts, rollWanYaoFanAttempts, rollPhantomHeavenMirrorAttempts, rollMysticHeavenSacredTreeAttempts, rollMysticHeavenSpiritSlayingSwordAttempts, rollBaLingChiAttempts, rollSeizeFoundationAttempts, processExplorationJudgements, addExplorationProgress, tryTianNiPearl, longevityCost, qiSpellCost, foundationSpellCost, goldenCoreLongevityCost, longevity800Cost, heavenlyTreasureCost, trueSpiritTransformationCost, mysticHeavenlyTreasureCost, manualImmortalAbilityHistory, hasManuallyUpgradedImmortalAbility, recordManualProgress, recordManualRealmBreakthrough, autoUpgradeImmortalAbilities, autoBreakthroughImmortalRealms, chooseCultivation, grantMahayanaReincarnationEffects, unlockQiRefining, breathe, minorTribulationPreviewForExploration, registerSuccessfulExploration, unlockFoundation, unlockGoldenCore, unlockAdvancedRealm, unlockImmortalLife, buyQiSpell, unlockCirculation, unlockManaLiquefaction, unlockTechnique, buyFoundationSpell, buyLongevity, buyGoldenCoreLongevity, unlockManaSolidification, unlockMagicTreasure, unlockMinorTechnique, unlockFlyingEscape, unlockMaterialControl, unlockDivineSense, unlockGreatCultivator, unlockSecondNascentSoul, buyLongevity800, unlockManaAbility, unlockVoidRefinementAbility, buyHeavenlyTreasure, buyTrueSpiritTransformation, buyMysticHeavenlyTreasure, grantThreeDeficienciesResetReward, explore,
     unlockBodyIntegrationAbility, unlockMahayanaAbility, scatterAndRebuild, reincarnate,
     explorationEnabled, createExplorationActionWork, createBreathingActionWork,
     getManaPerSecond: automaticManaPerSecond,

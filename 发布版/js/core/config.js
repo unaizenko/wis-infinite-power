@@ -105,6 +105,9 @@
   ].map(([name, threshold, strength, growth, removedAtRealm, removedBy]) => Object.freeze({ name, threshold: BN(threshold), strength, growth, removedAtRealm, removedBy })));
 
   const challenges = Object.freeze({
+    martialDragon:Object.freeze({name:'化龙',system:'martial',catalogSystem:'武道',martialPrerequisite:'dragonTransform',unlockAchievementKey:'martialDragon',maxCompletions:1,targetMartialAbility:'dragonTransform',targetMartialAbilityLevel:1,resourceName:'仅秘境流能力生效且可购买；保留基础转换',rewardDescription:'化龙九变倍率提升至1+0.03log10(1+体)次方'}),
+    martialSeverDao:Object.freeze({name:'仙三斩道',system:'martial',catalogSystem:'武道',martialPrerequisite:'immortalPlatform',unlockAchievementKey:'martialImmortalPlatform',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='地表').power,resourceName:'J、战力正向获取速率变为sqrt(1+g)-1',rewardDescription:'登仙台指数系数由0.025提高至0.04'}),
+    martialAutumn: Object.freeze({name:'秋风未动蝉先觉',system:'martial',catalogSystem:'武道',martialPrerequisite:'shenJin',unlockAchievementKey:'martialGodBody',maxCompletions:1,targetMartialBody:20000,targetMartialHeart:2000,targetMartialJ:3.033e16,targetMartialPower:3.033e15,resourceName:'心不再弱化或解除普通J/战力量级软上限；其它心效果保持',rewardDescription:'心获取×50'}),
     martialStealHeaven: Object.freeze({ name:"盗天机", system:"martial", catalogSystem:"武道", martialPrerequisite:"stealHeaven", maxCompletions:1, targetMartialHeart:30, resourceName:"关闭全部心对普通J/战力软上限的解除与弱化", rewardDescription:"依据当前心指数提升气、体获取，指数渐近上限1.15；解锁自动炼心" }),
     martialIntentQi: Object.freeze({ name:"意与气合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialQi:100, targetMartialJ:1e9, resourceName:"禁用气的独立J来源", rewardDescription:"气的独立J来源×3；完成成就·内三合的条件之一" }),
     martialHeartIntent: Object.freeze({ name:"心与意合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialHeart:40, resourceName:"心转换效率×0.5", rewardDescription:"心转换效率×2；完成成就·内三合的条件之一" }),
@@ -170,25 +173,17 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.8.4", saveVersion: 73,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.2.0.0", saveVersion: 75,
+    closedBatchVersion: 2,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
-    offlineHierarchy: Object.freeze({ baseSegments:64, macroMaxSeconds:300, splitFactor:4, maxDepth:3,
-      maxDirectWork:8192, microSeconds:0.1, splitThreshold:0.001, mapEnabled:true,
-      learnSteps:8, initialMapSteps:16, minimumMapSteps:16, maxMapSteps:4096,
-      progressBins:8, trendTolerance:0.025, relaxationMaxRatio:0.98, validationTolerance:0.03, coordinateFloor:1e-11, maxValidationFailures:3,
-      allowFallbackBeyondBudget:false }),
-    offlinePredictor:Object.freeze({rebaseObservations:3,learnSteps:8,observationLimit:12,initialMapSteps:16,maxMapSteps:1048576,
-      conditionLimit:1e8,fitTolerance:.025,validationTolerance:.03,coordinateFloor:1e-11,
-      hardFailureTolerance:.3,maxFailures:3,maxCoordinateTravelSinceFit:1,sentinelTravel:.25,sentinelMinimumSteps:32,
-      mapStepTiers:Object.freeze([16,64,256,1024]),profitWindow:8,maxRejectRatio:.5,minProfitableSteps:2,fallbackSeconds:20,cooldownSeconds:300,consecutiveRejects:2,fallbackMaxMicroCoordinateTravel:.05,
-      fallbackCoordinateTravel:.001,coordinateTolerance:.0001,shockRatio:4,validationMaxInterval:8,
-      checkpointMinSeconds:.1,checkpointMaxSeconds:300,checkpointCoordinateTravel:.03,progressSamples:9,rateSumBins:8}),
-    coupledFastProfile:Object.freeze({policy:"NORMAL",policies:Object.freeze({STRICT:{additive:false,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:0},NORMAL:{additive:true,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:1e-8},AGGRESSIVE:{additive:true,multiplicativeCoordinateTolerance:0,maxCoordinateDrift:1e-6}})}),
-    coupledKernel:Object.freeze({enabled:true,groups:Object.freeze(["scale","immortal"])}),
-    scaleKernel:Object.freeze({enabled:true,trajectorySamples:8,diagnosticCoupledIntervals:false}),
-    fixedSettlement: Object.freeze({ version: 2, offlineSeconds: 60, workBudgetMs: 9, discreteCadenceSeconds: 0.1, onlineSeconds: 1, onlineBacklogSeconds: 2, onlineCollectionSeconds: 0.2 }),
+    legacySettlementLimits: Object.freeze({
+      hierarchy:Object.freeze({maxDepth:3}),
+      predictor:Object.freeze({observationLimit:12,maxMapSteps:1048576,conditionLimit:1e8,fitTolerance:.025,
+        mapStepTiers:Object.freeze([16,64,256,1024]),consecutiveRejects:2,cooldownSeconds:300,profitWindow:8})
+    }),
+    fixedSettlement: Object.freeze({ version: 3, offlineSeconds: 60, workBudgetMs: 9, discreteCadenceSeconds: 0.1, onlineSeconds: 1, onlineBacklogSeconds: 2, onlineCollectionSeconds: 0.2 }),
     googolPenalty: Object.freeze({
       threshold: BN("1e100"),
       defaultStrength: BN(1),

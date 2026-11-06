@@ -10,6 +10,8 @@
     Object.freeze({ base: denominator === 1 ? numerator : BN(numerator).div(denominator),
       scale, exponent, coefficient: 1, immortal, type: "power", baseChance: denominator / numerator });
   const rules = Object.freeze({
+    emperorImprint: exponential(1e18,.001), sacredBodyImprint: exponential(1e6,.1), godBodyImprint: exponential(1e6,.1), sourceStoneImprint: exponential(1e19,.001),
+    lawImprint: exponential(100000, .5),
     originImprint: exponential(100, 1/3, "1e-5", true),
     fitnessMembershipCard: exponential(200, .97), superLollipop: exponential(2000, .98),
     skyCrystal: power(200, 10, .5), fiveSpiritStone: exponential(2000, .99),

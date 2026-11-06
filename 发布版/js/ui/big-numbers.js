@@ -10,12 +10,12 @@
       if (B.gt(n, 0) && B.lt(n, 0.001)) return WIS.UI.Format.scientificMultiplier(n);
       return context.format(n, digits);
     };
-    const rankText = value => typeof value==="number" && Number.isSafeInteger(value) ? String(value) : WIS.UI.Format.number(value,0);
+    const rankText = WIS.UI.Format.rank;
     const quantity = (value, order) => `${f(value, 2)} ${M.SYMBOLS[order]}`;
     const rows = [], milestones = [], treeRows = [];
     function renderTree() {
       const v = M.treeView(state), locked = context.getCatchUpStatus().locked === true;
-      text("tree-target", v.phase === "complete" ? `TREE(${rankText(v.rank)})` : B.lt(v.rank,3)
+      text("tree-target", v.phase === "complete" ? `TREE(${rankText(v.rank)})` : M.rankCompare(v.rank,3)<0
         ? `目标：TREE(${rankText(v.target)})` : `TREE(${rankText(v.rank)}) → TREE(${rankText(v.target)})`);
       for (const phase of ["explicit", "super", "complete"]) $("tree-" + phase).hidden = v.phase !== phase;
       $("tree-construction-panel").hidden = v.phase !== "explicit" && !(v.phase === "super" && v.superPointIncome);
@@ -36,7 +36,7 @@
         });
       }
       if (v.phase === "explicit") {
-        text("tree-sequence-title", B.eq(v.labels,3) ? "三标签坏序列" : `${rankText(v.labels)}标签坏序列`);
+        text("tree-sequence-title", M.rankCompare(v.labels,3)===0 ? "三标签坏序列" : `${rankText(v.labels)}标签坏序列`);
         text("tree-sequence", `当前：T${context.format(v.currentIndex, 0)}`);
         const thresholdText = `T${context.format(v.thresholdIndex, 0)}`;
         const decayText = `T${context.format(v.decayIndex, 0)}`;
@@ -86,8 +86,8 @@
       $("tree-tab").setAttribute("aria-selected", String(selected === "tree"));
       if (!selected) return;
       if (selected === "tree") { renderTree(); return; }
-      const v = M.view(state), order = v.dominantOrder, graham = B.gt(v.gIndex,0);
-      text("big-number-page-dominant", B.gte(v.tree.rank,3) ? `TREE(${rankText(v.tree.rank)})` : graham ? `G${rankText(v.gIndex)}` : quantity(v.amounts[order], order));
+      const v = M.view(state), order = v.dominantOrder, graham = M.rankCompare(v.gIndex,0)>0;
+      text("big-number-page-dominant", M.rankCompare(v.tree.rank,3)>=0 ? `TREE(${rankText(v.tree.rank)})` : graham ? `G${rankText(v.gIndex)}` : quantity(v.amounts[order], order));
       text("big-number-secondary", graham ? `次级：${quantity(v.amounts[4], 4)}；Q = ${f(v.amounts[4], 2)}`
         : order > 0 ? `次级：${quantity(v.amounts[order - 1], order - 1)}` : "更高阶符号尚未解锁");
       $("super-fractal-panel").hidden = !graham;
@@ -110,15 +110,15 @@
         button.textContent = done ? "已强化" : next ? "强化" : "需要上一分形";
       });
       if (graham) {
-        const maximum = M.maximumG(state), complete = maximum !== null && B.gte(v.gIndex,maximum);
+        const maximum = M.maximumG(state), complete = maximum !== null && M.rankCompare(v.gIndex,maximum)>=0;
         text("super-fractal-next", complete ? treeUnlocked ? `G${rankText(v.gIndex)} · 本阶段完成；大数·树已开放` : `G${rankText(v.gIndex)} · 本阶段完成；完成古戈尔成就后开放大数·树` : `下一阶位：G${rankText(M.rankAdd(v.gIndex,1))}`);
         text("super-fractal-progress", complete ? "本阶段已完成" : `${f(v.progress)} / ${f(v.requirement)}`);
         $("super-fractal-bar").value = complete ? 100 : Math.min(100, B.toNumber(B.mul(B.div(v.progress,v.requirement),100), 0));
         text("super-fractal-sources", `当前进度速度：${f(v.speed)}%/秒 · 基础：${M.BASE_SUPER_SPEED}%/秒 · Graham里程碑：×${v.milestoneMultiplier} · 超越分形：×${f(v.fractalMultiplier)}`);
-        const nextTarget = M.MILESTONES.find(g => B.gt(g,v.gIndex));
+        const nextTarget = M.MILESTONES.find(g => M.rankCompare(g,v.gIndex)>0);
         milestones.forEach(({ el, rank }) => {
-          el.classList.toggle("complete", B.gte(v.gIndex,rank)); el.classList.toggle("next", nextTarget === rank);
-          el.textContent = `G${rank}${B.gte(v.gIndex,rank) ? " ✓" : nextTarget === rank ? " · 下一目标" : ""}`;
+          el.classList.toggle("complete", M.rankCompare(v.gIndex,rank)>=0); el.classList.toggle("next", nextTarget === rank);
+          el.textContent = `G${rank}${M.rankCompare(v.gIndex,rank)>=0 ? " ✓" : nextTarget === rank ? " · 下一目标" : ""}`;
         });
       }
     }

@@ -18,7 +18,10 @@
     immortalPower: "仙灵力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N", multiverseCoefficient: "多元宇宙系数N²"
   };
   const primary = Object.keys(names);
-  const penalty = (resource, gain, state) => WIS.Core.Penalties.applyGoogolPenalty(resource, state[resource], gain, state);
+  const quantityModel=()=>WIS.Core.Amount?.enabled()?WIS.Core.Amount:null;
+  const display=value=>WIS.Core.Amount?.isAmount(value)?WIS.Core.Amount.project(value):B.BN(value);
+  const stock=(resource,state)=>quantityModel()?WIS.Simulation.ResourceGroups.readExact(state,resource):state[resource];
+  const penalty = (resource, gain, state) => WIS.Core.Penalties.applyGoogolPenalty(resource, stock(resource,state), quantityModel()?quantityModel().from(gain):gain, state);
   // actionFinals may reuse only exact action results computed synchronously by
   // this caller for currentState. It is ignored for an unlock candidate.
   function query(ids, currentState = R.getState(), { assumeUnlocked = false, includeProcess = false, actionFinals = null } = {}) {
@@ -49,7 +52,8 @@
           exponent: I.minorTribulationPreviewForExploration(amount).manaExponent };
       };
       function resourceFinal(resource, raw, id) {
-        if (!B.gt(raw, 0)) return B.ZERO;
+        const A=quantityModel();if (A?A.compare(raw,0)<=0:!B.gt(raw, 0)) return B.ZERO;
+        if(A){if(resource==='joules'||resource==='power')return S.previewSourceQuantity(resource,raw,id);return penalty(resource,I.finalManaQuantityFromSources([raw],stock('mana',state)),state);}
         if (resource === "joules" || resource === "power") {
           const adjusted = resource === "power" ? S.challengeAdjustedPowerSource(raw, id) : raw;
           const region = resource === "power" ? S.preSoftcapPowerGainFromSources([adjusted]) : S.preSoftcapJGainFromSources([adjusted]);
@@ -64,20 +68,20 @@
       // Source multipliers are already included in raw and must not be applied twice.
       function processFor(id, resource) {
         const steps = [];
-        const add = (label, op, value, groups) => steps.push({ label, op, value: B.BN(value), groups });
+        const add = (label, op, value, groups) => steps.push({ label, op, value: display(value), groups });
         const note = label => steps.push({ label, op: "note" });
-        const product = values => values.reduce((total, value) => B.mul(total, value), B.ONE);
+        const product = values => quantityModel()?display(values.reduce((total,value)=>quantityModel().multiply(total,value),quantityModel().from(1))):values.reduce((total, value) => B.mul(total, value), B.ONE);
         const grouped = (label, op, groups, total, bonus = B.ZERO) => {
           const factors = Object.entries(groups).map(([name, effects]) => ({
             name, value: product(effects.map(effect => effect.value))
           })).filter(group => !B.eq(group.value, 1));
           add(label, op, total ?? product(factors.map(group => group.value)), factors);
-          if (!B.eq(bonus, 0)) steps[steps.length - 1].bonus = B.BN(bonus);
+          if (!B.eq(bonus, 0)) steps[steps.length - 1].bonus = display(bonus);
         };
         const exponent = (label, value) => { if (!B.eq(value, 1)) add(label, "power", value); };
         const time = () => exponent("时间法则", I.daoTimeLawExponent());
         const googol = () => {
-          const amount = WIS.Cultivation.Xiuzhen.resourceKeys.includes(resource) ? WIS.Cultivation.Xiuzhen.amount(state, resource) : state[resource];
+          const amount = WIS.Cultivation.Xiuzhen.resourceKeys.includes(resource) ? WIS.Cultivation.Xiuzhen.amount(state, resource) : stock(resource,state);
           const value = WIS.Core.Penalties.googolPenaltyMultiplier(resource, amount, state);
           if (!B.eq(value, 1)) add("古戈尔惩罚", "multiply", value);
         };
@@ -95,11 +99,12 @@
           const progressive = id === "training";
           add((manaSource && I.qiRefiningChallengeActive() ? "法力来源软上限" : "资源软上限") +
             (progressive ? "（起始指数）" : ""), "softcap",
-            S.resourceSoftcapExponent(state[resource], manaSource ? "mana" : "normal"));
-          const planet = S.planetSuppressionSoftcapExponent(state[resource]);
+            S.resourceSoftcapExponent(stock(resource,state), manaSource ? "mana" : "normal"));
+          const planet = S.planetSuppressionSoftcapExponent(stock(resource,state));
           if (!B.eq(planet, 1)) add("星球压制" + (progressive ? "（起始指数）" : ""), "softcap", planet);
           if (progressive) note("单次锻炼按库存变化分段结算软上限，以上为起始参数");
           else googol();
+          if(WIS.Cultivation.Martial.active(state)&&state.activeChallenge==='martialSeverDao')add("仙三斩道", "shiftedPower", .5);
         } else if (resource === "mana") {
           const exploration = ["exploration", "explorationNormal", "explorationFuBao", "automaticExploration"].includes(id);
           const automatic = id === "automaticExploration";
@@ -142,7 +147,7 @@
         let raw = B.ZERO, final, resource = "power", unit = "秒", extra = [];
         switch (id) {
           case "baseJ": raw = state.powerSystem.active === "scale" ? B.ONE : B.ZERO; resource = "joules"; break;
-          case "fitness": raw = S.fitnessJBonus(); resource = "joules"; break;
+          case "fitness": raw = quantityModel()?S.fitnessJQuantityBonus():S.fitnessJBonus(); resource = "joules"; break;
           case "achievement": raw = S.achievementJBonus(); resource = "joules"; break;
           case "killingIntent": raw = S.killingIntentJBonus(); resource = "joules"; break;
           case "elementalization": raw = S.elementalizationJSource(); resource = "joules"; break;
@@ -162,24 +167,22 @@
             const automatic = id === "automaticExploration";
             const active = !automatic || state.roamSpiritWorldUnlocked;
             const sources = id === "explorationNormal" ? [d.sources[0]] : id === "explorationFuBao" ? [d.sources[1]] : d.sources;
-            raw = active ? B.sum(sources) : B.ZERO; unit = automatic ? "秒" : "次";
+            raw = active ? quantityModel()?sources.reduce((sum,v)=>quantityModel().add(sum,v),quantityModel().from(0)):B.sum(sources) : B.ZERO; unit = automatic ? "秒" : "次";
             if (automatic) {
               const efficiency = WIS.Core.Config.exploration.automaticEfficiency;
-              raw = B.mul(raw, efficiency);
+              raw = quantityModel()?quantityModel().scale(raw,efficiency):B.mul(raw, efficiency);
               final = I.getAutomaticExplorationManaRate(state);
               extra = [{ raw: active ? B.mul(d.rawAmount, efficiency) : B.ZERO,
                 final: active ? B.mul(d.amount, efficiency) : B.ZERO, rawLabel: "原始探寻量", label: "有效探寻量", unit }];
             } else {
               final = id === "exploration" ? (!needsUnlock && actionFinals?.exploration != null ? actionFinals.exploration : I.explorationManaGainProgressive(d.cost, d.amount, d.exponent))
-                : I.previewManaGainProgressive(1, (fraction, mana) => B.mul(
-                    I.explorationManaGainFromSources(sources, mana, d.exponent, true), fraction
-                  ), { linearBudget: true, googolPenalty: true, prepareRate: () => (fraction, mana) => B.mul(
-                    I.explorationManaGainFromSources(sources, mana, d.exponent, true),fraction) }).mana;
+                : I.previewManaGainProgressive(1, (fraction, mana) => {const gain=I.explorationManaGainFromSources(sources, mana, d.exponent, true);return quantityModel()?quantityModel().multiply(gain,fraction):B.mul(gain,fraction);}, { linearBudget: true, googolPenalty: true,
+                    prepareRate: () => I.prepareExplorationManaRate(d.amount, d.exponent, sources) }).mana;
               if (id === "exploration") extra = [{ raw: d.rawAmount, final: d.amount, rawLabel: "原始探寻量", label: "有效探寻量", unit }];
             }
             break;
           }
-          case "immortalPower": raw = I.immortalPowerBasePerSecond(); final = I.immortalPowerPerSecond(); resource = id; break;
+          case "immortalPower": raw = I.immortalPowerBasePerSecond(); final = quantityModel()?I.immortalPowerQuantityPerSecond():I.immortalPowerPerSecond(); resource = id; break;
           case "xianForce":
           case "yuanForce":
           case "nieForce":
@@ -193,12 +196,12 @@
           default: {
             const source = externalSources().find(s => s.id === id);
             if (!source) throw Error(`未注册的来源预览：${id}`);
-            raw = source.value; resource = source.target;
+            raw = quantityModel()?source.quantity:source.value; resource = source.target;
           }
         }
         if (["power", "joules"].includes(resource) && state.powerSystem.active !== "scale") raw = final = B.ZERO;
         return { id, name: names[id] || externalSources().find(s => s.id === id)?.name || id,
-          resource, raw: B.BN(raw), final: B.BN(final ?? resourceFinal(resource, raw, id)), unit, extra,
+          resource, raw: display(raw), final: display(final ?? resourceFinal(resource, raw, id)), unit, extra:extra.map(row=>({...row,raw:display(row.raw),final:display(row.final)})),
           ...(includeProcess ? { process: processFor(id, resource),
             extraProcess: extra.length ? [{ label: "探寻量：神识", op: "multiply", value: B.BN(I.divineSenseMultiplier()) }] : [] } : {}) };
       }

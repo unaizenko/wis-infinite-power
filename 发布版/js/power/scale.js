@@ -32,7 +32,7 @@
   function effects(state) {
     if (state.powerSystem?.active !== "scale") return [];
     return [
-      { id: "gym", name: "跑步", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power","martialQi"], value: (current) => WIS.Power.ScaleLogic.gymMultiplier(current) },
+      { id: "gym", name: "跑步", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["power","martialQi","martialBody"], value: (current) => WIS.Power.ScaleLogic.gymMultiplier(current) },
       { id: "exercise", name: "运动", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, dynamicResources: ["joules","martialBody"], value: (current) => WIS.Power.ScaleLogic.exerciseMultiplier(current) },
       { id: "water", name: "击水", group: "强化", target: "joules", layer: "regionMultiplier", dynamic: true, value: (current) => current.waterPurchased ? WIS.Power.ScaleLogic.waterPotentialJMultiplier(current) : 1 },
       { id: "ghostBackJ", name: "鬼背", group: "行动", target: "joules", layer: "regionMultiplier", value: WIS.Power.ScaleLogic.ghostBackJMultiplier(state) },
@@ -64,7 +64,7 @@
       { id: "mountainShatter", name: "崩岳", group: "量级论", target: "power", layer: "regionExponent", value: state.mountainShatterPurchased ? 1.015 : 1 },
       { id: "bioenergy", name: "生物能源", group: "量级论", target: "joules", layer: "regionMultiplier", value: state.bioenergyPurchased ? 3 : 1 },
       { id: "continentCollapse", name: "大陆崩溃", group: "量级论", target: "rock", layer: "sourceExponent", dynamic: true, dynamicResources: ["power"], value: (current) => current.continentCollapsePurchased ? WIS.Power.ScaleLogic.continentCollapsePotentialExponent(current) : 1 },
-      { id: "skyCrystal", name: "天晶", group: "宝物", target: "rock", layer: "sourceMultiplier", celestialFiveDecline: true, value: add(ONE, mul(state.treasureImprints.skyCrystal, 0.05)) },
+      { id: "skyCrystal", name: "天晶", group: "宝物", target: "rock", layer: "sourceMultiplier", celestialFiveDecline: true, value:WIS.Core.Amount?.enabled()?WIS.Meta.Treasures.affineValue(state,'skyCrystal',.05,1):add(ONE,mul(state.treasureImprints.skyCrystal,.05)) },
       { id: "waveEye", name: "波动眼", group: "量级论", target: "killingIntent", layer: "sourceExponent", value: state.waveEyePurchased ? 1.75 : 1 },
       { id: "elementalAwakening", name: "元素觉醒", group: "量级论", target: "elementalization", layer: "sourceExponent", value: state.elementalAwakeningPurchased ? 1.52 : 1 },
       { id: "moonfall", name: "月落", group: "量级论", target: "rock", layer: "sourceMultiplier", value: state.moonfallPurchased ? 50 : 1 },
@@ -123,29 +123,35 @@
     return { joules: passiveJ, power: passivePower, rates };
   }
 
-  function commitAutomaticGains(state, result, { writeRates = true, powerPeak } = {}) {
+  function commitAutomaticGains(state,result,options={}){const steps=commitAutomaticGainsParts(state,result,options);let next=steps.next();while(!next.done)next=steps.next(next.value());return next.value;}
+  function* commitAutomaticGainsParts(state, result, { writeRates = true, powerPeak } = {}) {
     const plan = result || { joules: ZERO, power: ZERO, rates: {} };
     if (writeRates) Object.assign(WIS.tmp.rates, plan.rates);
-    if (plan.repeatJoules) {
+    if(WIS.Core.Amount?.enabled()&&plan.quantities)yield WIS.Core.Resources.creditExactOperation("core.joules",plan.quantities.joules||0,state);
+    else yield ()=>{if (plan.repeatJoules) {
       const { term, count } = plan.repeatJoules;
       if (!Number.isSafeInteger(count) || count < 1 || !WIS.Core.BigNum.isFiniteBN(term) ||
           !WIS.Core.BigNum.gte(term,0) || !WIS.Core.BigNum.eq(mul(term,count),plan.joules))
         throw Error("J重复收益计划无效，未提交");
       Object.assign(state.core.resources, WIS.Core.Resources.prepareTerms(state.core.resources,"joules",[`${term}*${count}`]));
-    } else WIS.Core.Resources.add("joules", plan.joules);
-    WIS.Core.Resources.add("power", plan.power);
-    if (powerPeak) {
+    } else WIS.Core.Resources.add("joules", plan.joules);};
+    if(WIS.Core.Amount?.enabled()&&plan.quantities)yield WIS.Core.Resources.creditExactOperation("core.power",plan.quantities.power||0,state);else yield ()=>WIS.Core.Resources.add("power", plan.power);
+    yield ()=>{if (powerPeak) {
       // Unit-local observation of credited stock, never a published statistic.
       const owner = state.powerSystem.systems.scale.progress;
       powerPeak.value = powerPeak.owner === owner
         ? WIS.Core.BigNum.max(powerPeak.value, state.power) : state.power;
+      if(WIS.Core.Amount?.enabled()){
+        const A=WIS.Core.Amount,value=WIS.Core.Resources.readExact('core.power',state);
+        powerPeak.exactValue=powerPeak.owner===owner&&powerPeak.exactValue&&A.compare(powerPeak.exactValue,value)>0?powerPeak.exactValue:value;
+      }
       powerPeak.owner = owner;
-    }
-    state.lifetimeTotalJ = add(state.lifetimeTotalJ, plan.joules);
-    state.currentRebirthTotalJ = add(state.currentRebirthTotalJ, plan.joules);
-    state.totalPower = add(state.totalPower, plan.power);
-    state.lifetimeTotalPower = add(state.lifetimeTotalPower, plan.power);
-    state.currentRebirthTotalPower = add(state.currentRebirthTotalPower, plan.power);
+    }};
+    yield WIS.Core.State.addStatisticOperation(state,"lifetimeTotalJ",WIS.Core.Amount?.enabled()&&plan.quantities?plan.quantities.joules:plan.joules);
+    yield WIS.Core.State.addStatisticOperation(state,"currentRebirthTotalJ",WIS.Core.Amount?.enabled()&&plan.quantities?plan.quantities.joules:plan.joules);
+    yield WIS.Core.State.addStatisticOperation(state,"totalPower",WIS.Core.Amount?.enabled()&&plan.quantities?plan.quantities.power:plan.power);
+    yield WIS.Core.State.addStatisticOperation(state,"lifetimeTotalPower",WIS.Core.Amount?.enabled()&&plan.quantities?plan.quantities.power:plan.power);
+    yield WIS.Core.State.addStatisticOperation(state,"currentRebirthTotalPower",WIS.Core.Amount?.enabled()&&plan.quantities?plan.quantities.power:plan.power);
     return plan;
   }
 
@@ -196,7 +202,7 @@
     id: "scale", name: "量级论", thresholds, tierIndexForPower, currentTier, nextTier, progress,
     getAvailableActions: WIS.Power.ScaleLogic.getActionIds,
     getAvailableUpgrades: WIS.Power.ScaleLogic.getUpgradeIds,
-    getEffects: effects, calculateAutomaticGains, commitAutomaticGains, update, afterStep,
+    getEffects: effects, calculateAutomaticGains, commitAutomaticGains, commitAutomaticGainsParts, update, afterStep,
     rollPassiveTreasure, snapshotTreasureTransient, restoreTreasureTransient, resetTransient,
     getJPerSecond: WIS.Power.ScaleLogic.getJPerSecond,
     getPowerPerSecond: WIS.Power.ScaleLogic.getPowerPerSecond,

@@ -53,6 +53,7 @@
     const freshDomain = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(createFreshState()));
     const current = WIS.Core.State.toFlat(currentDomain);
     const fresh = WIS.Core.State.toFlat(freshDomain);
+    const currentTails=clone(currentDomain.meta.statistics.amountTails||{}),freshTails=clone(freshDomain.meta.statistics.amountTails||{});
     const result = profile.base === "current" ? currentDomain : freshDomain;
     const preserve = typeof profile.preserve === "function" ? profile.preserve(current, context) : profile.preserve;
     preserve.forEach((key) => {
@@ -64,7 +65,19 @@
     preservePaths.forEach((path) => setPath(result, path, getPath(currentDomain, path)));
     const clearPaths = typeof profile.clearPaths === "function" ? profile.clearPaths(currentDomain, context) : profile.clearPaths;
     clearPaths.forEach((path) => setPath(result, path, getPath(freshDomain, path)));
-    const progressKeys = ["treasureProgressFinite", "treasureCredits", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureProgressPending", "treasureProgressStatus", "treasureQualifications", "treasureProgressVersion"];
+    const A=WIS.Core.Amount,S=WIS.Core.State;
+    if(A?.enabled()){
+      const map={};for(const key of S.statisticKeys){
+        const path=Object.entries(S.fieldGroups).find(([,keys])=>keys.includes(key))[0]+'.'+key;
+        let owner=profile.base==='current'?currentDomain:freshDomain;
+        if(preserve.includes(key))owner=currentDomain;if(clear.includes(key))owner=freshDomain;
+        if(preservePaths.some(p=>path===p||path.startsWith(p+'.')))owner=currentDomain;
+        if(clearPaths.some(p=>path===p||path.startsWith(p+'.')))owner=freshDomain;
+        const tail=(owner===currentDomain?currentTails:freshTails)[key];if(tail?.length)map[key]=clone(tail);
+      }
+      result.meta.statistics.amountTails=map;
+    }
+    const progressKeys = ["treasureBatch", "treasureProgressFinite", "treasureCredits", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureProgressPending", "treasureProgressStatus", "treasureQualifications", "treasureProgressVersion"];
     if (preserve.includes("treasureImprints")) progressKeys.forEach(key => { result.meta[key] = clone(currentDomain.meta[key]); });
     if (clear.includes("treasureImprints") || clearPaths.includes("meta.treasures"))
       progressKeys.forEach(key => { result.meta[key] = clone(freshDomain.meta[key]); });
@@ -76,7 +89,7 @@
       result.bestQiLayer = current.bestQiLayer;
     }
     if (profile.rebirthLevel) {
-      currentRebirthStatistics.forEach((key) => { result[key] = clone(fresh[key]); });
+      currentRebirthStatistics.forEach((key) => { result[key] = clone(fresh[key]);if(A?.enabled())delete result.meta.statistics.amountTails[key]; });
       result.reincarnationElapsedSeconds = clone(fresh.reincarnationElapsedSeconds);
     }
     if(clear.includes("explorationProgress")) {
@@ -95,7 +108,7 @@
     }
     Object.entries(overrides).forEach(([key, value]) => {
       if (key.includes(".")) setPath(result, key, value);
-      else result[key] = clone(value);
+      else {result[key] = clone(value);if(A?.enabled()&&S.statisticKeys.includes(key))delete result.meta.statistics.amountTails[key];}
     });
     WIS.Cultivation.Xiuzhen?.reset(result, currentDomain, id, overrides.activeChallenge);
     if(id!=="scatter")result.meta.highMultiverse=WIS.Meta.HighMultiverse.rebirthState(currentDomain);

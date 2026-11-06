@@ -47,12 +47,17 @@
   // A 309+ digit coefficient can therefore become Infinity and be misparsed.
   // Move the decimal point BEFORE entering that parser. Only the bounded
   // significand is rounded by Decimal; the exact word remains in the ledger.
+  const literalProjections=new Map();let literalProjectionCharacters=0;
   function project(raw) {
-    const cache = injectedCache;
-    return cache ? cache.get('project', raw, prepared => uncached_project(prepared)) : uncached_project(raw);
+    const text=typeof raw==='string'?raw:typeof raw==='number'?String(raw):null,eligible=WIS.Core.Amount?.enabled()&&text!==null&&text.length<=8192;
+    if(eligible&&literalProjections.has(text)){const entry=literalProjections.get(text);literalProjections.delete(text);literalProjections.set(text,entry);return Decimal.fromComponents_noNormalize(entry.sign,entry.layer,entry.mag);}
+    const literal=eligible&&WIS.Core.BigNum.isNumericText(text);
+    const cache = injectedCache,result=cache ? cache.get('project', raw, prepared => uncached_project(prepared)) : uncached_project(raw);
+    if(literal){const characters=text.length+48;while(literalProjections.size>=4096||literalProjectionCharacters+characters>2097152){const key=literalProjections.keys().next().value;literalProjectionCharacters-=literalProjections.get(key).characters;literalProjections.delete(key);}literalProjections.set(text,Object.freeze({sign:result.sign,layer:result.layer,mag:result.mag,characters}));literalProjectionCharacters+=characters;}return result;
   }
   function counted(raw) {
     if(/^-?@sum:/.test(String(raw)))return {term:String(raw),count:1n};
+    if(!String(raw).includes('*'))return {term:String(raw),count:1n};
     const match = /^(.*?)\*([1-9]\d*)$/.exec(String(raw));
     if (!match) return { term: String(raw), count: 1n };
     if (match[2].length > MAX_DIGITS) throw new LedgerError("账本重复次数超过安全容量，输入保留");

@@ -1,8 +1,11 @@
 (function defineUIFormat(WIS) {
   "use strict";
-  const { BN, abs: absBN, div: divBN, gt, gte, isFiniteBN, isNaNBN, toNumber } = WIS.Core.BigNum;
+  const { BN:legacyBN, abs: absBN, div: divBN, gt, gte, isFiniteBN, isNaNBN, toNumber } = WIS.Core.BigNum;
+  // Presentation is the only generic projection boundary for complete values.
+  const displayValue=value=>WIS.Core.Amount?.isAmount(value)?WIS.Core.Amount.project(value):value;
+  const BN=value=>legacyBN(displayValue(value));
   function formatCompact(value, divisor, suffix) {
-    const scaled = toNumber(divBN(value, divisor));
+    const scaled = toNumber(divBN(displayValue(value), displayValue(divisor)));
     const rounded = Math.abs(scaled) >= 999.995
       ? Math.sign(scaled) * 999.99
       : Number(scaled.toFixed(2));
@@ -96,7 +99,7 @@
 
   // Multiplier-only display; ordinary resources and costs keep k/M.
   function scientificMultiplier(value) {
-    const decimal = WIS.Core.BigNum.parseFinite(value);
+    const decimal = WIS.Core.BigNum.parseFinite(displayValue(value));
     if (!decimal || decimal.lt(0)) return "—";
     if (decimal.eq(0) || decimal.eq(1)) return decimal.toString();
     if (decimal.layer >= 2 && decimal.mag < 0) return formatLargeDecimal(decimal);
@@ -157,11 +160,29 @@
     return percent.toFixed(1) + "%";
   }
 
+  // Rank presentation shares scientific notation across G and TREE; residual words remain visible.
+  function formatRankNumber(value){
+    return gte(absBN(BN(value)),1000)?scientificMultiplier(value):formatNumber(value,0);
+  }
+  function formatRank(value){
+    const R=WIS.Core.Rank,L=WIS.Core.SignedLedger;
+    if(!R)return formatRankNumber(value);
+    const rank=R.read(value);if(typeof rank==='number')return formatRankNumber(rank);
+    const words=R.difference(rank,0);if(!words.length)return '0';
+    return words.map((word,index)=>{
+      const negative=word.startsWith('-'),raw=negative?word.slice(1):word,m=/^(.*)\*([1-9]\d*)$/.exec(raw),decimal=/^(\d+)e([+-]?\d+)$/.exec(raw);
+      let text;if(m)text=formatRankNumber(L.project(m[2]))+' × '+formatRankNumber(L.project(m[1]));
+      else if(decimal&&decimal[1]!=='1'&&L.project(raw).eq(L.project('1e'+decimal[2])))text=formatRankNumber(L.project(decimal[1]))+' × '+formatRankNumber(L.project('1e'+decimal[2]));
+      else text=formatRankNumber(L.project(raw));
+      return (index?negative?' − ':' + ':negative?'−':'')+text;
+    }).join('');
+  }
+
   const formatCost = (value) => formatNumber(value, 0);
   WIS.UI.Format = Object.freeze({
     elapsedTime: formatElapsedTime, gameCalendar: formatGameCalendar, multiplierGroups: formatMultiplierGroups, progressPercentage,
     compact: formatCompact,
-    number: formatNumber,
+    number: formatNumber, rank: formatRank,
     cost: formatCost,
     scientificMultiplier, smallMultiplier: formatSmallMultiplier
   });

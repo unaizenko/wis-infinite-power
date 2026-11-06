@@ -1,7 +1,7 @@
 (function registerMartialSystem(WIS) {
   "use strict";
   const M=WIS.Cultivation.Martial, B=WIS.Core.BigNum;
-  const dependencies=["martialQi","martialBody","martialHeart","joules","power"];
+  const dependencies=["martialQi","martialBody","martialHeart","martialSoul","joules","power"];
   const sourceMemoKey=Symbol("martial sources");
   function sourceValues(state) {
     const memo=WIS.Core.Effects.scopeMemo(state);
@@ -26,18 +26,31 @@
   // they never read highestPower or a collection-specific context.
   WIS.Core.Sources.register("martial",sources,{highestPowerIndependent:true,descriptorContextIndependent:true});
   WIS.Core.Effects.register("martial",effects,{highestPowerEffects:[]});
-  function install(state,martial) {
+  function install(state,martial,{reward=false,credit=null}={}) {
     WIS.Core.Runtime.assertMutable();
+    const rewardMeta=reward?M.prepareGainRewards(state,martial,credit):null;
     state.cultivation={...state.cultivation,systems:{...state.cultivation.systems,martial}};
+    if(rewardMeta)state.meta=rewardMeta;
+    M.clearGainReceipts(martial);
     WIS.Core.Effects.invalidate();
   }
   for (const shortName of ["qi","body","heart","soul"]) {
     const entry=s=>M.get(s).resources[shortName];
     WIS.Core.Registries.resources.register({id:`cultivation.martial.${shortName}`,kind:"cultivation",owner:"martial",shortName,snapshot:false,
       get:s=>entry(s).amount,
+      getExact:s=>WIS.Core.Amount.field(entry(s)),
+      setExact(s,value){const A=WIS.Core.Amount,m=M.normalize(M.get(s)),e=m.resources[shortName];Object.assign(e,A.boundedFieldParts(value));if(A.compare(value,A.field(e,'peak'))>0)Object.assign(e,A.boundedFieldParts(value,'peak'));install(s,m);return value;},
       set(s,value) { WIS.Core.Runtime.assertMutable();const v=B.parseFinite(value);if(!v||B.lt(v,0))throw Error("武道资源非法"); const m=M.normalize(M.get(s)),e=m.resources[shortName];e.amount=v;e.peak=B.max(e.peak,v);install(s,m);return v; },
       add(s,delta,terms) {
         WIS.Core.Runtime.assertMutable();
+        if(WIS.Core.Amount?.enabled()){
+          const A=WIS.Core.Amount,L=WIS.Core.AmountLedger,income=L.safeNormalize(terms||[delta]),sign=L.strict.sign(income);if(!sign)return entry(s).amount;
+          const m=M.normalize(M.get(s)),e=m.resources[shortName],change=A.fromParts(0,sign>0?income:L.negate(income)),value=A.fromParts(0,[...A.words(A.field(e)),...income]);
+          Object.assign(e,A.boundedFieldParts(value),A[sign>0?'boundedFieldParts':'fieldParts'](A.add(A.field(e,sign>0?'total':'spent'),change),sign>0?'total':'spent'));
+          if(A.compare(value,A.field(e,'peak'))>0)Object.assign(e,A.boundedFieldParts(value,'peak'));
+          if(shortName==='heart'&&sign<0)M.applyHeartSpendRewards(s,m,change);
+          install(s,m,{reward:true,credit:sign>0?{key:shortName,value:change}:null});return e.amount;
+        }
         if (!terms && !B.parseFinite(delta)) throw Error("武道新增资源非法");
         if (!terms && B.eq(delta,0)) return entry(s).amount;
         const m=M.normalize(M.get(s)),e=m.resources[shortName];
@@ -45,7 +58,7 @@
         const total=B.sub(next,e.amount);
         e.amount=next;e.total=B.add(e.total,B.max(0,total));e.spent=B.add(e.spent,B.max(0,B.mul(total,-1)));e.peak=B.max(e.peak,next);
         if (shortName === "heart" && B.lt(total,0)) M.applyHeartSpendRewards(s,m,B.mul(total,-1));
-        install(s,m);return next;
+        install(s,m,{reward:true,credit:B.gt(total,0)?{key:shortName,value:total}:null});return next;
       }
     });
   }

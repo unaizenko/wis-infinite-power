@@ -43,6 +43,17 @@
     ["lingXi", "绝技·灵犀一指", "jueji", 1, 8, { heart: 30 }, [], "拥有直感时，根据当前心进一步增强集中来源。", "jueji"],
     ["duoMing", "绝技·夺命十三剑", "jueji", 13, 2, { heart: 30 }, [], "随等级提升杀气来源。", "jueji"],
     ["shenDao", "绝技·神刀斩", "jueji", 1, 12, { heart: 60 }, [], "提升鬼脑来源。", "jueji"]
+    ,['warGod','神功·战神图录','shengong',1,5000,{heart:1000},['changSheng','tianMo','ciHang'],'气、体、心、神魂自身的绝对与相对衰减幂减半；作用于分段累计成本。'],
+    ['shenJin','神劲','neijia',1,3000,{body:10000,heart:1000},['danJin','yiSui'],'需内三合成就；体独立战力来源的基础增长指数由1.25提升至1.50。'],
+    ['mindPlanet','识海星球','devour',3,[1200,3600,10800],{heart:500},['crystalMeditation'],'每秒分别为气、体提供2L√(1+心)基础投入，经获取倍率、累计需求和衰减结算。'],
+    ['lifeCore','命核','devour',1,3000,{body:5000},['geneEnergy'],'需基因源能3级；体独立战力来源乘[1+log10(1+体)]²。'],
+    ['innerWorld','体内世界','devour',1,15000,{qi:50000,body:50000,heart:2000},['mindPlanet','lifeCore'],'需识海星球3级；每秒心/神魂基础投入为0.5/0.05×min(气,体)，经累计需求及衰减；解锁源能法则成就。'],
+    ['divineKingdom','神国','devour',1,80000,{qi:500000,body:500000,heart:10000},['innerWorld'],'全局J、战力获取指数乘1+0.01log10(1+Σlog10(1+四资源))。'],
+    ['otherShore','彼岸','shroud',1,10000,{body:30000},['shenQiao'],'已解锁神速时，其倍率额外乘[1+log10(1+体)]²。'],
+    ['daoPalace','道宫','shroud',1,30000,{qi:150000,heart:3000},['otherShore'],'已解锁的杀意实质、能量循环各自倍率额外乘1+0.5log10²(1+气)。'],
+    ['fourPoles','四极','shroud',1,100000,{body:1000000,heart:15000},['daoPalace'],'已解锁的元素化、极意完整正向来源提升至E次方，E=1+0.08h/(10+h)，h=log10(1+体)。']
+    ,['dragonTransform','化龙九变','shroud',9,200000,{body:2000000},['fourPoles'],'共9级；体门槛和神魂费用每级翻倍；打岩来源倍率×5^L，挑战·化龙奖励进一步提高该倍率的指数。'],
+    ['immortalPlatform','登仙台','shroud',1,200000000,{body:1000000000,heart:100000},['dragonTransform'],'需化龙九变9级；神魂累计转换指数E=1+0.025log10(1+心)，保留库存与衰减；仙三斩道完成后系数提升至0.04。']
   ].map(([key,name,branch,maxLevel,price,requirements,prerequisites,description,group]) => Object.freeze({ key,name,branch,family:branch === "neijia" ? "human" : ["devour","shroud"].includes(branch) ? branch : "golden",maxLevel,price,upgradeResource:upgradeResources[key] || "soul",requirements:Object.freeze(requirements),prerequisites:Object.freeze(prerequisites),description,group,slot:branch === "inner" && key !== "taiXuan" }));
   const balance = Object.freeze({
     absolute:Object.freeze({qi:Object.freeze({threshold:1000,power:.25}),body:Object.freeze({threshold:1000,power:.25}),heart:Object.freeze({threshold:120,power:.25}),soul:Object.freeze({threshold:100,power:.15})}),

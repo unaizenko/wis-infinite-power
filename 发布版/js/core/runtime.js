@@ -138,9 +138,15 @@
 
   function evaluationResource(key, source = state) {
     const current = source === state ? currentState() : source;
-    return key === "highestPower" && evaluationScope?.state === current && evaluationScope.highestPowerOverride !== undefined
+    const value=key === "highestPower" && evaluationScope?.state === current && evaluationScope.highestPowerOverride !== undefined
       ? evaluationScope.highestPowerOverride : current?.[key];
+    return WIS.Core.Amount?.isAmount(value)?WIS.Core.Amount.project(value):value;
   }
+  function evaluationQuantity(key,source=state){const current=source===state?currentState():source,A=WIS.Core.Amount;
+    if(key==='highestPower'&&evaluationScope?.state===current&&evaluationScope.highestPowerOverride!==undefined)return A.from(evaluationScope.highestPowerOverride);
+    return key==='highestPower'?WIS.Core.State.readStatistic(current,key):WIS.Simulation.ResourceGroups.readExact(current,key);
+  }
+  function hasResourceEvaluationOverride(key,source=state){const current=source===state?currentState():source;return key==='highestPower'&&evaluationScope?.state===current&&evaluationScope.highestPowerOverride!==undefined;}
   // A field-only formula probe: the formal state and every write guard remain
   // installed. Effects owns a private cache overlay for the audited dependency.
   function withHighestPowerEvaluation(value, callback) {
@@ -259,7 +265,7 @@
   }
 
   WIS.Core.Runtime = Object.freeze({
-    evaluationResource, withHighestPowerEvaluation,
+    evaluationResource, evaluationQuantity,hasResourceEvaluationOverride, withHighestPowerEvaluation,
     getEvaluationStatistics: () => ({ ...evaluationStatistics }),
     resetEvaluationStatistics: () => { for (const key of Object.keys(evaluationStatistics)) evaluationStatistics[key] = 0; },
     withEvaluationState, isEvaluating: () => evaluationScope !== null, assertMutable, atomic, state, bind, setState, withState, withProjection, withRandomSource, withTreasurePrediction,

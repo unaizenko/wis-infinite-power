@@ -500,7 +500,8 @@ button { font: inherit; }
 .settings-row > div:first-child { min-width: 0; }
 .settings-row p { overflow-wrap: anywhere; }
 .settings-row > button { flex: 0 0 auto; min-height: 44px; white-space: nowrap; }
-.settings-toggle[aria-checked="true"] { color: #fff; background: var(--accent); border-color: var(--accent); }
+.secondary-button.settings-toggle[aria-checked="true"] { color: var(--primary-text); background: var(--accent); border-color: var(--accent); }
+.secondary-button.settings-toggle[aria-checked="true"]:hover { background: var(--accent-hover); }
 .settings-header > button { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
 .theme-options { display: flex; flex: 0 0 auto; padding: 3px; background: var(--quiet); border: 1px solid var(--border); border-radius: 6px; }
 .theme-options label { position: relative; min-width: 58px; padding: 7px 10px; border-radius: 4px; color: var(--muted); font-size: 12px; text-align: center; cursor: pointer; }
@@ -947,3 +948,12 @@ button { font: inherit; }
 
 .wis-dialog-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9000; }
 dialog.wis-dialog-fallback[open] { display:block; position:fixed; inset:50% auto auto 50%; transform:translate(-50%,-50%); margin:0; max-width:calc(100vw - 24px); max-height:calc(100vh - 24px); overflow:auto; z-index:9001; }
+
+/* Native-only backup settings; the hidden attribute remains authoritative. */
+.native-backup-settings { overflow-wrap: anywhere; padding: 18px 24px; }
+.native-backup-settings h3 { margin: 0 0 5px; font-size: 14px; }
+.native-backup-settings p { margin: 8px 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.native-backup-settings label { font-size: 12px; }
+.native-backup-settings button { min-height: 44px; }
+.native-backup-settings .backup-controls { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; }
+.native-backup-settings select { font: inherit; padding: 0.45rem; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 0.4rem; }

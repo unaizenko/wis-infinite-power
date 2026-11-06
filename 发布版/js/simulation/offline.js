@@ -324,7 +324,7 @@
           fastForwardEnabled: true,
           fastForwardMetrics,
           fastForwardApplicable: true,
-          sourceSupport: { supported: true, kind: "hierarchical-discrete-map", ...CONFIG.offlineHierarchy },
+          sourceSupport: { supported: true, kind: "frozen-offline-v2" },
           segmentBudget: WIS.Simulation.CheckpointStrategy.snapshot(offlineSegmentBudget),
           actualThroughput: recentThroughput,
           recentFastForward: recentFastForward ? {...recentFastForward,spanHistogram:{...recentFastForward.spanHistogram},reasonCounts:{...recentFastForward.reasonCounts}} : null,
@@ -912,6 +912,7 @@
         if (!(pendingCatchUpSeconds > epsilon)) return null;
         return {
           version: 2,
+          ...(WIS.Core.Amount?.enabled()?{numericModelVersion:getState().meta.closedBatchModel===2?2:1}:{}),
           settlementRule: CONFIG.fixedSettlement.version,
           offlineSegmentSeconds: CONFIG.fixedSettlement.offlineSeconds,
           confirmedSources:{...confirmedSources},
@@ -1007,11 +1008,11 @@
         catchUpOriginalClockLocked = true;
         const capabilityRecovery=!processedEvidence&&snapshot.paused===true&&
           snapshot.pauseReason?.eventCommitted!==true&&!(Number(snapshot.pauseReason?.reportedProcessedSeconds)>0)&&
-          WIS.Simulation.CompiledContinuousPlan.isCapabilityError(snapshot.pauseReason?.error);
+          WIS.Simulation.LegacySettlementCheckpoints.isCapabilityError(snapshot.pauseReason?.error);
         if(capabilityRecovery){
           if(snapshot.pauseReason.error.code!=='scale-external-feedback-unvalidated')
             for(const task of catchUpTasks)task.optimizationDisabled=true;
-          WIS.Simulation.CompiledContinuousPlan.recordFallback(snapshot.pauseReason.error.code);
+          WIS.Simulation.LegacySettlementCheckpoints.recordFallback(snapshot.pauseReason.error.code);
         }
         catchUpPaused = snapshot.paused === true&&!capabilityRecovery;
         catchUpPauseReason = catchUpPaused ? snapshot.pauseReason : null;
@@ -1137,7 +1138,6 @@
         if (!prepareQueueHead()) return Promise.resolve("");
         const generation = ++catchUpGeneration;
         ensureCatchUpSession();
-        const previousAchievements = achievementStates();
         catchUpOriginalClockLocked = true;
         catchUpInProgress = true;
         catchUpCompleted = false;
@@ -1410,7 +1410,7 @@
             catchUpSessionStartedAt=Date.now();
           }
           if (!catchUpPaused && recordCurrentAchievements()) markAchievementsDirty();
-          if (!catchUpPaused) notifyNewAchievements(previousAchievements);
+          if (!catchUpPaused) notifyNewAchievements();
           const completed = !catchUpPaused && catchUpTasks.length === 0 && !(pendingCatchUpSeconds > epsilon);
           const report = completed
             ? formatOfflineProgressReport(catchUpOriginalClockSeconds, catchUpSessionBefore)

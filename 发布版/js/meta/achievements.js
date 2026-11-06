@@ -43,7 +43,7 @@
 
   function challengesUnlocked() {
     return hasAchievement("scale4") || state.cultivation.active === "martial" &&
-      ["stealHeaven", "innerHarmony", "innate"].some(key=>state.meta.martialQualifications?.[key] === true ||
+      ["stealHeaven", "innerHarmony", "innate", "shenJin", "dragonTransform", "immortalPlatform"].some(key=>state.meta.martialQualifications?.[key] === true ||
         (WIS.Cultivation.Martial.get(state).abilities[key] || 0)>0);
   }
 
@@ -76,12 +76,14 @@
   }
 
   function greatHeavenlyVenerableMultiplier(current) {
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Achievements.has(current,'greatHeavenlyVenerable')?WIS.Core.AmountFormulas.power(WIS.Core.Amount.add(1,WIS.Meta.Treasures.quantity(current,'originImprint')),.5):WIS.Core.BigNum.ONE;
     return WIS.Meta.Achievements.has(current, "greatHeavenlyVenerable")
       ? WIS.Core.BigNum.pow(WIS.Core.BigNum.add(1, WIS.Meta.Treasures.count(current,"originImprint")), .5)
       : WIS.Core.BigNum.ONE;
   }
   function ordinaryTreasureRequirementDivisor(current) {
     const B=WIS.Core.BigNum;
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Achievements.has(current,'universe')?B.pow(B.add(1,WIS.Core.AmountFormulas.logOnePlusRatio(WIS.Meta.Treasures.quantity(current,'cosmicWill'))),.5):B.ONE;
     return WIS.Meta.Achievements.has(current,"universe")
       ? B.pow(B.add(1,B.log10(B.add(1,WIS.Meta.Treasures.count(current,"cosmicWill")))),.5) : B.ONE;
   }
@@ -94,6 +96,11 @@
       { key:"infiniteMultiverse", name:"无限多元", description:"抵达N³。", reward:'无限点数获取×当前N的阶位；当前 ×'+format(multiverseAchievementMultiplier(state,"infiniteMultiverse"),2), completed:completedAchievement("infiniteMultiverse",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=3n) },
       { key:"silverSea", name:"银海", description:"抵达N^99。", reward:"当前达到单体宇宙且TREE≥3时，每秒自动获得当前无限转生收益的1%。", completed:completedAchievement("silverSea",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=99n) },
       { key:"thickEarth", system:"仙道", name:"厚土", description:"抵达仙道·修真道·第九步。", reward:'本源自然奖励数量×当前N的阶位，与道源叠加；当前 ×'+format(multiverseAchievementMultiplier(state,"thickEarth"),2), completed:completedAchievement("thickEarth",(WIS.Cultivation.Xiuzhen.get(state).highestRealm||0)>=16) },
+      {key:'martialGodBody',system:'武道',name:'打破虚空，见神不坏',description:'解锁神劲。',reward:'解锁武道挑战·秋风未动蝉先觉',completed:completedAchievement('martialGodBody',(WIS.Cultivation.Martial.get(state).abilities.shenJin||0)>0)},
+      {key:'martialFourPoles',system:'武道',name:'四极',description:'解锁四极。',reward:'解锁烙印·帝经、圣体、神王体、源石',completed:completedAchievement('martialFourPoles',(WIS.Cultivation.Martial.get(state).abilities.fourPoles||0)>0)},
+      {key:'martialDragon',system:'武道',name:'化龙',description:'解锁化龙九变。',reward:'解锁挑战·化龙',completed:completedAchievement('martialDragon',(WIS.Cultivation.Martial.get(state).abilities.dragonTransform||0)>0)},
+      {key:'martialImmortalPlatform',system:'武道',name:'仙台',description:'解锁登仙台。',reward:'解锁挑战·仙三斩道',completed:completedAchievement('martialImmortalPlatform',(WIS.Cultivation.Martial.get(state).abilities.immortalPlatform||0)>0)},
+      {key:'martialEnergyLaw',system:'武道',name:'源能法则',description:'解锁体内世界。',reward:'解锁武道宝物·烙印·法则',completed:completedAchievement('martialEnergyLaw',(WIS.Cultivation.Martial.get(state).abilities.innerWorld||0)>0)},
       { key:"martialHarmony", system:"武道", name:"内三合", description:"完成意与气合、心与意合、气与力合三项武道挑战。", reward:"炼心保留相当于炼心前当前心的气、体，不足时按现有数量保留；解锁自动神魂", completed:completedAchievement("martialHarmony",["martialIntentQi","martialHeartIntent","martialQiPower"].every(key=>challengeCompletionCount(key)>0)) },
       { key:"martialInnate", system:"武道", name:"先天", description:"完成任督二脉挑战。", reward:"气获取×2", completed:completedAchievement("martialInnate",challengeCompletionCount("martialMeridians")>0) },
       { key:"yuan", system:"仙道", name:"元", description:"突破仙道境界·第二步·碎涅。", reward:"解锁仙道宝物烙印·元晶", completed:completedAchievement("yuan",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=6) },
@@ -206,7 +213,7 @@
       { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", WIS.Core.BigNum.gte(state.meta.bigNumbers?.tree?.rank??0,3)) },
       { key: "seventhTree", name: "第七颗树？", description: "抵达 TREE(10)。", reward: "无限点数基础获取增速改为等差数列", completed: completedAchievement("seventhTree", WIS.Core.BigNum.gte(state.meta.bigNumbers?.tree?.rank??0,10)) },
       { key: "trueG1", name: "真 G1", description: "首次完成大数挑战·真 G1。", reward: "所有分形获取 ×10", completed: hasAchievement("trueG1") },
-      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G需求^0.95", completed: hasAchievement("trueGraham") },
+      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G进度需求大于1时取^0.95；小于或等于1时不变", completed: hasAchievement("trueGraham") },
       { key: "trueTree3", name: "真 TREE3", description: "首次完成大数挑战·真 TREE3。", reward: "树构造点获取 ×3", completed: hasAchievement("trueTree3") }
     );
 
@@ -281,6 +288,9 @@
       return state.meta.achievements?.[key] === true;
     },
     record(state, key) {
+      if(key==='martialDragon')state.meta.martialQualifications={...state.meta.martialQualifications,dragonTransform:true};
+      if(key==='martialImmortalPlatform')state.meta.martialQualifications={...state.meta.martialQualifications,immortalPlatform:true};
+      if(key==='martialGodBody')state.meta.martialQualifications={...state.meta.martialQualifications,shenJin:true};
       if (key === "tree3") state.meta.infinity = {...state.meta.infinity, unlocked:true};
       if (state.meta.achievements[key] === true) return false;
       state.meta.achievements[key] = true;

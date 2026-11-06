@@ -7,13 +7,15 @@
     if (!value) throw Error("TREE 资源容器不存在");
     return value;
   };
-  WIS.Core.Registries.resources.register({
+  const exactAdapter=R.storedDefinition({id:'meta.bigNumbers.construction',kind:'meta',owner:'bigNumbers',shortName:'construction',container:requireTree,snapshot:false});
+  WIS.Core.Registries.resources.register({...exactAdapter,
     id: "meta.bigNumbers.construction", kind: "meta", owner: "bigNumbers", shortName: "construction",
     // Keep the established public core/cultivation snapshot shape. Save owns TREE.
     snapshot: false,
     get: state => tree(state)?.construction,
-    set(state, value) { requireTree(state).construction = value; return value; },
+    set(state, value) {if(WIS.Core.Amount?.enabled())return exactAdapter.set(state,value);requireTree(state).construction = value; return value; },
     add(state, delta, terms) {
+      if(WIS.Core.Amount?.enabled())return exactAdapter.add(state,delta,terms);
       const current = requireTree(state);
       if (!terms && !B.parseFinite(delta)) throw Error("树构造点新增值无效");
       if (!terms && B.eq(delta, 0)) return current.construction;

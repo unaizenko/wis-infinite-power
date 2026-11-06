@@ -16,6 +16,8 @@
     ['C4','systems','圆环之理',100,['C3'],null,null,'ringChallenge',3,0,'解锁无限挑战·圆环之理。'],
     ['C5','systems','体系多元',500,['C4'],null,null,'systemsMultiverse',4,0,'解锁体系进入多元的突破资格。'],
     ['C6','systems','体系高阶多元',1500,['C5'],null,null,'systemsHighMultiverse',5,0,'解锁高阶多元的突破资格。'],
+    ['C7-1','systems','体系重置',500,['C6'],null,null,'cultivationReset',6,0,'在体系页主动重置当前体系资源、境界、能力及自动化进度，保留体系选择和共享进度；挑战中不可用。'],
+    ['C7-2','systems','体系切换',500,['C6'],null,null,'cultivationSwitch',6,1,'在体系页重置体系进度并切换仙道或武道；保留J、战力、大数、宝物、成就、挑战奖励与历史统计。'],
     ['D1-1','numbers','超越葛立恒',1,[],null,null,'grahamCap',0,0,'允许突破G65及以上阶位。'],
     ['D1-2','numbers','超越树',1,[],null,null,'treeCap',0,1,'允许突破TREE(4)及以上阶位。'],
     ['D2-1','numbers','分形递进',2,['D1-1'],null,null,'fractal',1,0,'前一级分形资源强化后一级获取。'],

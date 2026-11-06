@@ -18,7 +18,7 @@
   BOOT.enter("read-save");
   await paintOpportunity();
   assertBootHealthy();
-  for(const [name,value] of [["Core.Save",window.WIS?.Core?.Save?.read],["UI.App",window.WIS?.UI?.App?.create],["Simulation.Loop",window.WIS?.Simulation?.Loop?.create]])
+  for(const [name,value] of [["Core.Save",window.WIS?.Core?.Save?.read],["Core.Save.readWork",window.WIS?.Core?.Save?.readWork],["Core.Save.prepareWork",window.WIS?.Core?.Save?.prepareWork],["UI.App",window.WIS?.UI?.App?.create],["Simulation.Loop",window.WIS?.Simulation?.Loop?.create]])
     if(typeof value!=="function")throw new Error("关键游戏接口缺失："+name);
   if(typeof window.BigInt!=="function")throw new Error("浏览器缺少精确大整数 BigInt 支持");
   const CONFIG = WIS.Core.Config;
@@ -56,7 +56,7 @@
   } = Immortal;
 
   let savedOfflineRecovery = null;
-  const loadedState = loadState();
+  const loadedState = await loadState();
   BOOT.enter("initialize");
   await paintOpportunity();
   assertBootHealthy();
@@ -123,9 +123,11 @@
     return WIS.Core.State.fresh();
   }
 
-  function loadState() {
+  async function loadState() {
     try {
-      const saved = WIS.Core.Save.read();
+      const work=WIS.Core.Save.readWork();
+      while(!work.advance({maximumOperations:512,deadline:performance.now()+3}).done){await new Promise(resolve=>window.setTimeout(resolve,0));assertBootHealthy();}
+      const saved = work.result();
       savedOfflineRecovery = saved?.offlineRecovery ?? null;
       return saved ? saved.state : freshDefaultState();
     } catch (error) {
@@ -412,6 +414,7 @@
     planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages,
     achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
     challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt,
+    onNativeAppState: active => simulationLoop?.setNativeAppActive(active),
     captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0,
     requestDeferredAction:job=>simulationLoop?.requestDeferredAction(job),
     isDeferredActionPending:()=>simulationLoop?.isDeferredActionPending?.()===true,
@@ -511,6 +514,9 @@
   simulationLoop = WIS.Simulation.Loop.create({
     getState: () => state,
     advanceGameStep: stepSimulation.advanceGameStep,
+    prepareOnlineWork: stepSimulation.prepareOnlineWork,
+    onlineStateKey: stepSimulation.onlineStateKey,
+    onOnlineSettlementError: error => WIS.Core.Runtime.call('showNotice','本次结算暂时无法完成，资源和待结算时间已保留。可在设置中导出存档。'),
     invalidateDeferredQi: stepSimulation.invalidateDeferredQi,
     hasDeferredQi: stepSimulation.hasDeferredQi,
     beginTransaction: stepSimulation.beginTransaction,
@@ -580,7 +586,6 @@
 
   completePlayerAction();
   UI.bindEvents();
-  const initialAchievementStates = achievementStates();
   WIS.Game = Object.freeze({
     version: GAME_VERSION,
     canPerformSavedAction, canPersistConfirmedState,
@@ -649,7 +654,7 @@
   requestRender();
   flushRender(Date.now(),{force:true});
   try {saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
-  if(!offlineSimulation.isCatchUpPaused()&&!WIS.Core.Save.getLoadError())notifyNewAchievements(initialAchievementStates);
+  if(!offlineSimulation.isCatchUpPaused()&&!WIS.Core.Save.getLoadError())notifyNewAchievements();
   if(initialOfflineReport&&state.autoCloseOfflineDialogEnabled===false)showNotice(initialOfflineReport,6000);
   window.setInterval(()=>{
     if(!document.hidden)try{persistStateNow({preserveSourceModels:true,captureOnly:true});}catch(_){}

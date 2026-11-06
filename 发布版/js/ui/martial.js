@@ -133,6 +133,9 @@
       const note = el("p", "进入挑战会重置资源与能力；已获得的挑战资格永久保留，可退出后重试。", "martial-note"); challenges.append(note);
       const list = challenges.querySelector(".item-list") || el("div", "", "item-list"); challenges.append(list);
       for (const [key, name, description, reward] of [
+        ['martialDragon','化龙','仅秘境流能力生效且可购买；基础资源转换保留。目标：挑战内解锁化龙九变1级。','化龙九变倍率提升至1+0.03log10(1+体)次方。'],
+        ['martialSeverDao','仙三斩道','J、战力正向获取速率削弱为sqrt(1+g)-1。目标：战力达到地表（'+f(WIS.Core.Config.challenges.martialSeverDao.targetMartialPower)+'）。','登仙台指数系数由0.025提高至0.04。'],
+        ['martialAutumn','秋风未动蝉先觉','心不再弱化或解除普通J/战力软上限。目标：体≥20000、心≥2000、J≥3.033e16、战力≥3.033e15。','心获取×50。'],
         ["martialStealHeaven", "盗天机", "挑战中关闭心对正常量级软上限的解除与弱化。目标：当前心达到30。", "按当前心提升气、体获取指数，解锁自动炼心。"],
         ["martialIntentQi", "意与气合", "气提供的J来源停用。目标：当前气≥100，且J≥1e9。", "气的J来源×3。三合挑战全部完成后解锁自动神魂。"],
         ["martialHeartIntent", "心与意合", "炼心效率减半。目标：当前心≥40。", "炼心效率×2。三合挑战全部完成后解锁自动神魂。"],
@@ -143,7 +146,8 @@
         row.article.id = "martial-challenge-" + key;
         const prerequisiteKey = WIS.Core.Config.challenges[key]?.martialPrerequisite;
         const prerequisite = C.abilities.find(a => a.key === prerequisiteKey);
-        if (prerequisite) row.content.append(el("p", `开启资格：解锁${prerequisite.name}；资格获得后永久保留。`));
+        if(key==='martialAutumn')row.content.append(el('p','开启资格：成就·打破虚空，见神不坏；资格获得后永久保留。'));
+        else if (prerequisite) row.content.append(el("p", `开启资格：解锁${prerequisite.name}；资格获得后永久保留。`));
         const rewardText = el("p", "奖励：" + reward); row.content.append(rewardText);
         const status = el("span");
         const start = button("开启挑战", "martial-challenge-button-" + key, () => {
@@ -173,6 +177,18 @@
       const qualification = { stealHeaven: "盗天机挑战", innerHarmony: "三合挑战", innate: "任督二脉挑战" }[key];
       if (qualification) return `${qualification}资格${level || s.meta?.martialQualifications?.[key] ? "已获得" : "未获得"}`;
       if (!level) return "未解锁";
+      if(!M.abilityEnabled(s,key))return "化龙挑战期间禁用";
+      if(key==='dragonTransform')return "打岩来源倍率 ×"+f(M.abilityMultiplier(s,key,level));
+      if(key==='immortalPlatform')return "神魂累计转换指数 "+f(M.abilityMultiplier(s,key,level))+"（作用于累计需求与边际成本，保留衰减）";
+      if(key==='warGod')return '四资源绝对/相对衰减幂×0.5（累计成本生效）';
+      if(key==='shenJin')return '体独立战力来源基础增长指数1.50；解锁见神不坏成就';
+      if(key==='mindPlanet')return '每秒气、体各基础投入 '+f(2*level)+'×√(1+心)，经获取倍率、累计需求及衰减';
+      if(key==='innerWorld')return '每秒心/神魂基础投入0.5/0.05×min(气,体)，经获取倍率、累计需求及衰减';
+      if(key==='divineKingdom')return '全局J、战力获取 ^'+f(M.abilityMultiplier(s,key,level));
+      if(key==='fourPoles')return '元素化、极意完整正向来源 ^'+f(M.abilityMultiplier(s,key,level))+'（需解锁原能力）';
+      if(key==='otherShore')return '神速倍率额外 ×'+f(M.abilityMultiplier(s,key,level))+'（需解锁神速）';
+      if(key==='daoPalace')return '杀意实质、能量循环倍率各额外 ×'+f(M.abilityMultiplier(s,key,level))+'（需解锁原能力）';
+      if(key==='lifeCore')return '体独立战力来源 ×'+f(M.abilityMultiplier(s,key,level));
       if (key === "changSheng") {
         if (!M.get(s).abilities.changSheng) return "清空所有内功与龙象进度；初始自然气为0，内功价格 ×10";
         const p = M.captureChangSheng(s);
@@ -181,7 +197,7 @@
       if (["tianMo","ciHang"].includes(key)) return `每消耗1心基础获得10${key === "tianMo" ? "气" : "体"}；实际收益按扣费后的资源计算减速`;
       if (["kuHai","mingQuan","shenQiao"].includes(key)) return `${{kuHai:"呼吸法",mingQuan:"极限运动",shenQiao:"鬼背战力"}[key]}倍率 ×${f(M.abilityMultiplier(s,key,level))}` + (key === "shenQiao" ? "；取消鬼背J惩罚（激活时生效）" : "（需解锁原强化）");
       if (key === "reverseArt") return running === "martialMeridians" ? "名额加成暂不生效（挑战限 1 项）" : "内功名额 +1";
-      if (key === "qianKun") return `招式战力来源 +${f(M.qiPowerSource(s, level))}/秒`;
+      if (key === "qianKun") return `招式战力来源 +${f(B.mul(M.qiPowerSource(s, level),M.imprintMultiplier(s,'emperorImprint',.4)))}/秒`;
       if (key === "jiaYi") return "凝气、锻体效率 ×4；气的J来源、体的战力来源 ×0.5";
       if (["jiuYang", "longXiang"].includes(key) && running === "martialIntentQi") return "气的J来源已被挑战停用";
       const target = {
@@ -209,7 +225,7 @@
       $("martial-final-sources").textContent = `最终获取：气 +${f(finals[0].final)} J/秒；体 +${f(finals[1].final)} 战力/秒；招式 +${f(finals[2].final)} 战力/秒。`;
       for (const row of heartRows) {
         const need = M.heartRequirement(row.name), reached = B.gte(M.amount(s, "heart"), need);
-        const status = s.activeChallenge === "martialStealHeaven" ? "挑战中停用" : reached ? "已解除" : `已弱化 ${f(B.mul(M.heartExponent(s, row.name, 0), 100))}%`;
+        const status = ["martialStealHeaven","martialAutumn"].includes(s.activeChallenge) ? "挑战中停用" : reached ? "已解除" : `已弱化 ${f(B.mul(M.heartExponent(s, row.name, 0), 100))}%`;
         row.value.textContent = `${row.name}：心 ${f(need)} · ${status}`;
       }
       for (const row of abilities) {
@@ -239,7 +255,7 @@
         row.start.textContent = running ? "退出挑战" : count ? "重试（无额外奖励）" : "开启挑战";
         row.start.disabled = locked() || !enabled || (!running && !meta.challengeStartable(row.key));
       }
-      $("martial-challenge-count").textContent = `完成 ${completed}/5`;
+      $("martial-challenge-count").textContent = `完成 ${completed}/${challengeRows.length}`;
     }
     function renderSummary() {
       mount(); const s = R.getState(), enabled = active(s); $("martial-summary").hidden = !enabled;

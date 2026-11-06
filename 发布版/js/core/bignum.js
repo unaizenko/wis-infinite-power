@@ -19,7 +19,10 @@
   }
   const microStepMemo=Object.freeze({create:()=>new Map(),run:withMicroStepMemo,enable(value=true){memoEnabled=value===true;},mode(value){if(!['identity','coordinate'].includes(value))throw Error('未知 memo 模式');memoMode=value;},reset(){for(const key of Object.keys(memoStatistics))memoStatistics[key]=0;},statistics:()=>({...memoStatistics})});
 
+  const unprojected=value=>value&&typeof value==='object'&&['wis-amount','wis-rank','wis-rank-exact-value'].includes(value.kind);
+  function requireProjection(value){if(!unprojected(value))return;throw Object.assign(new Error(value.kind==='wis-amount'?'精确余额必须显式投影或使用Amount运算':'精确阶位必须显式投影或使用Rank运算'),{code:value.kind==='wis-amount'?'amount-projection-required':'rank-projection-required'});}
   function BN(value = 0) {
+    requireProjection(value);
     if (value instanceof Decimal) return value;
     if (value === null || value === undefined || value === "") return new Decimal(0);
     try {
@@ -125,13 +128,14 @@
   });
 
   function isDecimal(value) { return value instanceof Decimal; }
-  function add(a, b) { return coordinateDepth?cAdd(BN(a),BN(b)):BN(a).add(b); }
-  function sub(a, b) { return coordinateDepth?cAdd(BN(a),BN(b).neg()):BN(a).sub(b); }
-  function mul(a, b) { return coordinateDepth?cMul(BN(a),BN(b)):BN(a).mul(b); }
-  function div(a, b) { return coordinateDepth?cDiv(BN(a),BN(b)):BN(a).div(b); }
+  function add(a, b) { requireProjection(b); return coordinateDepth?cAdd(BN(a),BN(b)):BN(a).add(b); }
+  function sub(a, b) { requireProjection(b); return coordinateDepth?cAdd(BN(a),BN(b).neg()):BN(a).sub(b); }
+  function mul(a, b) { requireProjection(b); return coordinateDepth?cMul(BN(a),BN(b)):BN(a).mul(b); }
+  function div(a, b) { requireProjection(b); return coordinateDepth?cDiv(BN(a),BN(b)):BN(a).div(b); }
   let countOperations=false;const operationCounts={pow:0,log:0};
   const operationMetrics=Object.freeze({enable(v=true){countOperations=v;},reset(){operationCounts.pow=operationCounts.log=0;},snapshot:()=>({...operationCounts})});
   function pow(a, b) {
+    requireProjection(a);requireProjection(b);
     if(countOperations)operationCounts.pow++;
     if(coordinateDepth)return cPow(BN(a),BN(b));
     if(!microMemo)return BN(a).pow(b);
@@ -145,7 +149,7 @@
     if(microMemo.pow.has(key)){microMemo.hits++;return microMemo.pow.get(key);}
     const value=base.pow(exponent);microMemo.powComputed++;microMemo.pow.set(key,value);return value;
   }
-  function pow10(exponent) { if(countOperations)operationCounts.pow++;return coordinateDepth?cPow(TEN,BN(exponent)):TEN.pow(exponent); }
+  function pow10(exponent) { requireProjection(exponent); if(countOperations)operationCounts.pow++;return coordinateDepth?cPow(TEN,BN(exponent)):TEN.pow(exponent); }
   function sqrt(value) {
     const decimal = BN(value);
     if (lt(decimal, ZERO)) return new Decimal(Number.NaN);
@@ -164,15 +168,16 @@
     if(microMemo.log.has(key)){microMemo.hits++;return microMemo.log.get(key);}
     const result=n.log10();microMemo.logComputed++;microMemo.log.set(key,result);return result;
   }
-  function max(a, b) { return BN(a).max(b); }
-  function min(a, b) { return BN(a).min(b); }
+  function max(a, b) { requireProjection(b); return BN(a).max(b); }
+  function min(a, b) { requireProjection(b); return BN(a).min(b); }
   function abs(value) { return BN(value).abs(); }
-  function gt(a, b) { return BN(a).gt(b); }
-  function gte(a, b) { return BN(a).gte(b); }
-  function lt(a, b) { return BN(a).lt(b); }
-  function lte(a, b) { return BN(a).lte(b); }
-  function eq(a, b) { return BN(a).eq(b); }
+  function gt(a, b) { requireProjection(b); return BN(a).gt(b); }
+  function gte(a, b) { requireProjection(b); return BN(a).gte(b); }
+  function lt(a, b) { requireProjection(b); return BN(a).lt(b); }
+  function lte(a, b) { requireProjection(b); return BN(a).lte(b); }
+  function eq(a, b) { requireProjection(b); return BN(a).eq(b); }
   function isFiniteBN(value) {
+    if(unprojected(value))return false;
     try {
       const result = value instanceof Decimal ? value : new Decimal(value);
       return result.isFinite() && !result.isNan();
@@ -181,6 +186,7 @@
     }
   }
   function isNaNBN(value) {
+    if(unprojected(value))return true;
     if (value instanceof Decimal) return value.isNan();
     try { return new Decimal(value).isNan(); } catch { return true; }
   }

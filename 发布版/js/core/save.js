@@ -57,6 +57,7 @@
     if (recovery == null) return null;
     if (!isRecord(recovery) || ![1,2].includes(recovery.version) || !Array.isArray(recovery.tasks) || !recovery.tasks.length)
       throw Error("离线任务格式无效");
+    if(WIS.Core.Amount?.enabled())WIS.Core.AmountMigration.assertEnvelope(recovery,75);
     const rule = WIS.Core.Config.fixedSettlement;
     if (recovery.settlementRule != null &&
         (![1, rule.version].includes(recovery.settlementRule) || recovery.offlineSegmentSeconds !== rule.offlineSeconds))
@@ -96,6 +97,7 @@
   // online cadence and cumulative work accounting are never replayed or reset.
   function migrateRecovery(recovery, schemaVersion = WIS.Core.Config.saveVersion) {
     if (recovery == null) return null;
+    if(WIS.Core.Config.saveVersion>=75)WIS.Core.ClosedBatchMigration?.recovery(recovery);
     const rule = WIS.Core.Config.fixedSettlement;
     const oldRule = recovery.settlementRule === 1 || recovery.settlementRule == null && schemaVersion < 72;
     const segmentBudget = oldRule && recovery.segmentBudget
@@ -104,23 +106,38 @@
       // independently of the recovery rule recorded by the source envelope.
       : schemaVersion < 71 && recovery.segmentBudget?.predictor
         ? { ...recovery.segmentBudget, predictor: null } : recovery.segmentBudget;
-    const validated = validateRecovery({ ...recovery, segmentBudget });
+    if(WIS.Core.Amount?.enabled())WIS.Core.AmountMigration.assertEnvelope(recovery,schemaVersion);
+    const validated = validateRecovery({ ...recovery, segmentBudget,...(WIS.Core.Amount?.enabled()?{numericModelVersion:recovery.numericModelVersion||1}:{}) });
     return { ...validated, settlementRule: rule.version, offlineSegmentSeconds: rule.offlineSeconds,
       fastForwardUsed: false, fastForwardMetrics: null,
       tasks: validated.tasks.map(({ random, ...task }) => ({ ...task, fastForward: null })) };
   }
-  function prepare(parsed) {
+  function prepare(parsed) {return prepareInput(parsed,null);}
+  function prepareInput(parsed,preparation) {return WIS.Core.State.normalizationTask('save-input',[parsed,preparation],()=>prepareInputSteps(parsed,preparation));}
+  function* prepareInputSteps(parsed,preparation) {
     if (!isRecord(parsed) || (parsed.game !== undefined && parsed.game !== "WIS-无限战力系统"))
       throw Error("不是WIS存档");
     const schemaVersion = Number(parsed.schemaVersion ?? parsed.version ?? 36);
+    if(WIS.Core.Config.saveVersion>=75&&WIS.Core.ClosedBatchMigration)WIS.Core.ClosedBatchMigration.recovery(parsed.offlineRecovery);
+    if(parsed.numericModelVersion===2&&parsed.settlementRule!==3)throw Error('数值模型2缺少结算规则3');
+    if(WIS.Core.Amount?.enabled())WIS.Core.AmountMigration.assertEnvelope(parsed,schemaVersion);
     // Explicit imports from the known martial lab are compatible. Never read
     // its localStorage key or accept unknown test formats as official saves.
     if (parsed.testVariant != null && (parsed.testVariant !== "martial-test-20261002" || schemaVersion !== 70))
       throw Error("不支持的测试版存档");
-    let data = unwrap(parsed);
+    let data=preparation?.data;
+    if(!data){
+    data = unwrap(parsed);
+    yield ()=>WIS.Core.State.validateContainerShapes(data);
+    yield ()=>WIS.Core.State.validateRankSchema(data,schemaVersion);
     if(parsed.encoding!=null) {
       if(parsed.encoding!=='sparse-v1'||schemaVersion<61||!data?.core?.resources||!data.powerSystem||!data.cultivation||!data.meta)throw Error('稀疏存档格式无效');
-      const defaults=WIS.Core.State.toSerializable(WIS.Core.State.fresh());
+      const fresh=()=>{const create=()=>WIS.Core.State.toSerializable(WIS.Core.State.fresh());return WIS.Core.Amount?.enabled()&&schemaVersion<75?WIS.Core.Amount.withLegacy(create):create();};
+      const defaults=yield ()=>schemaVersion<74&&WIS.Meta.BigNumbers?.withLegacyRanks?WIS.Meta.BigNumbers.withLegacyRanks(fresh):fresh();
+      // The source schema owns whether a precision context existed. Future
+      // defaults must not fabricate metadata before legacy validation/migration.
+      if(schemaVersion<74&&defaults.meta?.bigNumbers)delete defaults.meta.bigNumbers.rankBasis;
+      if(WIS.Core.Config.saveVersion>=75&&parsed.numericModelVersion!==2){defaults.meta.closedBatchModel=1;delete defaults.meta.treasureBatch;}
       const expand=(value,base)=>{
         if(value===undefined)return base;
         if(!isRecord(value)||WIS.Core.BigNum.isDecimal(value))return value;
@@ -128,18 +145,12 @@
       };
       data=expand(data,defaults);
     }
-    const domain = data?.core?.resources;
-    const resources = domain ? [domain, data.cultivation?.systems?.immortal?.resources] : [data];
-    for (const container of resources.filter(Boolean)) for (const key of ["joules", "power", "mana", "immortalPower"])
-      for (const suffix of ["", "GainResidual"]) {
-        const value = container[key + suffix];
-        if (value != null && (!(typeof value === "string" || typeof value === "number" || WIS.Core.BigNum.isDecimal(value)) ||
-            (typeof value === "string" && !value.trim()) || !WIS.Core.BigNum.isFiniteBN(value) || (suffix === "" && WIS.Core.BigNum.lt(value, 0))))
-          throw Error("存档资源含非法数值");
-      }
-    const candidate = WIS.Core.State.migrate(schemaVersion, data);
-    const offlineRecovery = migrateRecovery(parsed.offlineRecovery, schemaVersion);
-    WIS.Core.Runtime.withState(candidate, () => WIS.Core.Effects.withIsolatedState(candidate, () => {
+    if(preparation){data=preparation.scope?.seal(data)??data;preparation.data=data;}
+    }
+    const candidate = yield ()=>WIS.Core.State.migrate(schemaVersion, data,preparation?.migrationContext);
+    const offlineRecovery = yield ()=>migrateRecovery(parsed.offlineRecovery, schemaVersion);
+    if(WIS.Core.Config.saveVersion>=75&&WIS.Core.ClosedBatchMigration){if(parsed.numericModelVersion===2&&candidate.meta.closedBatchModel!==2)throw Error('数值模型2状态标识不匹配');if(parsed.numericModelVersion!==2)candidate.meta.closedBatchModel=1;yield ()=>WIS.Core.ClosedBatchMigration.upgrade(candidate);}
+    yield ()=>WIS.Core.Runtime.withState(candidate, () => WIS.Core.Effects.withIsolatedState(candidate, () => {
       WIS.Meta.TreasureProgress.ensure(candidate);
       WIS.Cultivation.ExplorationProgress?.validate?.(candidate);
       for (const key of WIS.Meta.Treasures.keys) {
@@ -149,6 +160,32 @@
       }
     }));
     return { schemaVersion, state: candidate, data, offlineRecovery };
+  }
+  // Candidate migration may restart its pure outer preparation after an inner
+  // proof suspends. Completed arithmetic tasks remain private to this work.
+  function prepareWork(parsed,{isCurrent=()=>true}={}) {
+    const text=JSON.stringify(parsed,(_key,value)=>{if(typeof value==='number'&&!Number.isFinite(value)||['function','symbol','bigint'].includes(typeof value))throw Error('存档必须为有效JSON数据');return value;});
+    // One private immutable-input preparation per work. Mathematical retries
+    // retain the expanded prefix; they never rebuild defaults or parse JSON.
+    // Nothing is published before migration and all post-checks complete.
+    const Exact=WIS.Core.RankExact,scope=Exact&&WIS.Core.Amount?.enabled()?WIS.Core.State.createLoadNormalizationScope():null,input=scope?scope.seal(JSON.parse(text)):JSON.parse(text),preparation={data:null,scope,migrationContext:Exact?WIS.Core.State.createMigrationContext():null},evaluate=()=>scope?scope.run(()=>prepareInput(input,preparation)):prepareInput(input,preparation);
+    if(Exact){const inner=Exact.createWork(evaluate,{isCurrent}),release=()=>{scope?.close();preparation.data=null;preparation.migrationContext?.close();preparation.migrationContext=null;};return Object.freeze({...inner,
+      advance(options){try{const next=inner.advance(options);if(next.done)release();return next;}catch(error){release();throw error;}},
+      runSync(){try{return inner.runSync();}finally{release();}},cancel(){release();inner.cancel();}});}
+    let value=null,done=false,cancelled=false,error=null;
+    const check=()=>{if(cancelled)throw Object.assign(Error('load cancelled'),{code:'rank-work-cancelled'});if(error)throw error;if(!isCurrent()){error=Object.assign(Error('load owner changed'),{code:'rank-work-stale'});throw error;}};
+    return {advance({deadline=Infinity}={}){check();if(performance.now()>=deadline&&!done)return {done:false,operations:0};try{if(!done){value=evaluate();done=true;}return {done:true,operations:0};}catch(e){error=e;throw e;}},result(){check();return done?value:null;},cancel(){cancelled=true;preparation.data=null;preparation.migrationContext?.close();preparation.migrationContext=null;value=null;}};
+  }
+  function readWork() {
+    const text=localStorage.getItem(storageKey());let work=null,value=null,done=false,cancelled=false,failure=null;
+    const current=()=>!cancelled&&localStorage.getItem(storageKey())===text;
+    return {advance(options){if(cancelled)throw Object.assign(Error('load cancelled'),{code:'rank-work-cancelled'});if(failure)throw failure;
+      try {if(!current())throw Object.assign(Error('storage changed during load'),{code:'rank-work-stale'});
+        if(done)return {done:true,operations:0};
+        if(text){if(!work)work=prepareWork(JSON.parse(text),{isCurrent:current});const next=work.advance(options);if(!next.done)return next;value=work.result();}
+        acknowledgedText=text;loadError=null;done=true;return {done:true,operations:0};
+      }catch(error){if(!failure){failure=error;loadError=String(error.message||error);noteFailure(error,'原存档读取失败，已保留原文并停用自动保存。');}throw error;}
+    },result(){if(failure)throw failure;return done?value:null;},cancel(){cancelled=true;work?.cancel();value=null;}};
   }
   function read() {
     try {
@@ -301,6 +338,8 @@
     };
     meta.treasureProgressStatus=strip(meta.treasureProgressStatus);
     function prune(value,defaults,key='') {
+      // Required numerical context must not be reconstructed from fresh defaults.
+      if(key==='rankBasis'&&WIS.Core.Config.saveVersion>=74)return value;
       if(['lastUpdateAt','randomState','joules','power'].includes(key))return value;
       if(value&&typeof value==='object'&&!Array.isArray(value)&&!WIS.Core.BigNum.isDecimal(value)) {
         const out={};for(const k of Object.keys(value).sort()){const v=value[k],next=prune(v,defaults?.[k],k);if(next!==undefined)out[k]=next;}
@@ -315,7 +354,9 @@
 
   function envelope(state, includeExportMetadata = true, options = {}) {
     state = WIS.Core.State.cloneForSimulation(state);
+    WIS.Core.State.validateRankSchema(state,WIS.Core.Config.saveVersion,true);
     WIS.Meta.TreasureProgress?.ensure(state);
+    WIS.Core.ClosedBatchMigration?.validate(state);
     WIS.Cultivation.ExplorationProgress?.ensure?.(state);
     const offlineRecovery = Object.prototype.hasOwnProperty.call(options, 'offlineRecoveryOverride')
       ? options.offlineRecoveryOverride
@@ -325,6 +366,7 @@
       encoding: "sparse-v1",
       schemaVersion: WIS.Core.Config.saveVersion,
       version: WIS.Core.Config.saveVersion,
+      ...(WIS.Core.Amount?.enabled()?{numericModelVersion:state.meta.closedBatchModel===2?2:1,numericTailPolicyVersion:1,...(state.meta.closedBatchModel===2?{settlementRule:3}:{})}:{}),
       ...(includeExportMetadata ? { exportedAt: new Date().toISOString() } : {}),
       ...(offlineRecovery ? { offlineRecovery } : {}),
       data: sparseData(state)
@@ -335,5 +377,5 @@
     return parsed?.data ?? parsed;
   }
 
-  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, sessionPolicy, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
+  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, prepareWork, readWork, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, sessionPolicy, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
 }(window.WIS));

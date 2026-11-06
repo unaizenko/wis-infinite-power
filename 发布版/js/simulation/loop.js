@@ -3,12 +3,16 @@
   WIS.Simulation.Loop=Object.freeze({create(context){
     const {getState,offline,requestRender,flushRender,saveState,effectiveDevSpeed,isInitialLoadComplete}=context;
     const epsilon=context.epsilon;
+    let nativeHidden=false;
+    const isHidden=()=>document.hidden||nativeHidden;
+    function setNativeAppActive(active){nativeHidden=!active;handleVisibilityChange();}
     let lastTickAt=Date.now(),started=false,preparingSave=false;
     let onlineAccumulator=0,stepping=false;
     let importHold=null,importHoldSequence=0;
     let continuationHandle=null,schedulerGeneration=0;
     let manualQi=null;
     let deferredAction=null;
+    let onlineWork=null,onlineFailure=null,publishedSinceRender=false;
     const onlineIntervals=(getState().core.runtime.timeLedger.pendingContinuousTime||[]).map(p=>({...p}));
     onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);
     const stepSeconds=context.simulationStepSeconds||0.1;
@@ -18,27 +22,45 @@
     let tickRemaining=0;
     const ledger=()=>getState().core.runtime.timeLedger;
     const monotonicNow=()=>window.performance?.now?window.performance.now():Date.now();
+    let continuationChannel=null,channelTask=null,channelSequence=0n,channelDisabled=false,lastTimerTaskAt=monotonicNow();
+    function closeContinuationChannel(){const channel=continuationChannel;continuationChannel=null;channelTask=null;channel?.port1.close?.();channel?.port2.close?.();}
+    function queueOnlineTask(callback){
+      if(!WIS.Core.Amount?.enabled()||typeof window.MessageChannel!=='function'||channelDisabled)return window.setTimeout(callback,0);
+      const now=monotonicNow();if(now-lastTimerTaskAt>=100){lastTimerTaskAt=now;return window.setTimeout(callback,0);}
+      try{
+        if(!continuationChannel){const channel=new window.MessageChannel();continuationChannel=channel;channel.port1.onmessage=({data})=>{
+          if(continuationChannel!==channel||channelTask?.id!==data)return;
+          const run=channelTask.callback;channelTask=null;channel.port1.unref?.();channel.port2.unref?.();run();
+        };channel.port1.unref?.();channel.port2.unref?.();}
+        const id=String(++channelSequence);channelTask={id,callback};continuationChannel.port1.ref?.();continuationChannel.port2.ref?.();continuationChannel.port2.postMessage(id);return {kind:'quantity-message-task',id};
+      }catch(error){closeContinuationChannel();channelDisabled=true;lastTimerTaskAt=now;return window.setTimeout(callback,0);}
+    }
+
     function writeLedger(fields){getState().core.runtime.timeLedger={...ledger(),...fields};}
     function syncPendingLedger(){writeLedger({pendingContinuousTime:onlineIntervals.map(p=>({...p}))});}
     const backgroundAllowed=()=>WIS.Core.Save.sessionPolicy?.().backgroundAccrualAllowed !== false;
     const ready=()=>context.isStateReady?context.isStateReady():isInitialLoadComplete();
     function cancelOnlineContinuation(){
-      if(continuationHandle!==null){window.clearTimeout(continuationHandle);continuationHandle=null;}
+      if(continuationHandle!==null){if(continuationHandle?.kind!=='quantity-message-task')window.clearTimeout(continuationHandle);continuationHandle=null;}closeContinuationChannel();
     }
-    function cancelQiWork(){manualQi?.scope.work?.cancel();manualQi=null;context.invalidateDeferredQi?.();}
+    function cancelQiWork(){manualQi=null;context.invalidateDeferredQi?.();}
     function cancelDeferredAction(reason='cancelled'){
       const owner=deferredAction;if(!owner)return false;
       deferredAction=null;
       try{owner.job.cancel?.(reason);}finally{owner.resolve(false);}
       return true;
     }
-    function invalidateOnlineScheduler(){schedulerGeneration++;cancelOnlineContinuation();cancelQiWork();cancelDeferredAction('scheduler-invalidated');}
+    function cancelOnlineWork(){const owner=onlineWork;onlineWork=null;owner?.job.close?.();}
+    function onlineInputKey(){return context.onlineStateKey?.(getState());}
+    function failureStillCurrent(){if(!onlineFailure)return false;if(onlineFailure.key!==onlineInputKey()){onlineFailure=null;return false;}return true;}
+    function invalidateOnlineScheduler(){cancelOnlineWork();onlineFailure=null;schedulerGeneration++;cancelOnlineContinuation();cancelQiWork();cancelDeferredAction('scheduler-invalidated');}
     function deferredActionBlocked(status=offline.getCatchUpStatus()){
-      return onlineBlocked(status)||importHold||document.hidden||!ready()||ledger().awaySince!==null||
+      return onlineBlocked(status)||importHold||isHidden()||!ready()||ledger().awaySince!==null||
         status.awaitingStart===true&&status.presentation==='blocking';
     }
     function requestDeferredAction(factory){
       if(deferredAction||manualQi||context.hasDeferredQi?.()||deferredActionBlocked())return Promise.resolve(false);
+      cancelOnlineWork();onlineFailure=null;
       const original=getState(),generation=schedulerGeneration;
       let job;
       try{job=typeof factory==='function'?factory(original):factory;
@@ -68,36 +90,14 @@
         return false;
       }
     }
-    function reportQiFailure(){
-      if(WIS.Core.Runtime.has('showNotice'))WIS.Core.Runtime.call('showNotice','炼气计算未完成，本次购买未提交；进度时间已保留。');
-    }
-    function advanceManualQi(){
-      const job=manualQi,I=WIS.Cultivation.ImmortalLogic;
-      if(job.original!==getState()||job.generation!==schedulerGeneration||job.key!==I.qiBatchStateKey(getState())){
-        job.scope.work?.cancel();manualQi=null;return false;
-      }
-      try{
-        // Resume only pure math. A completed result re-enters the original
-        // one-shot payment under this slice's existing transaction.
-        if(job.scope.work&&!job.scope.work.result()){
-          try{if(!job.scope.work.advance().done)return false;}
-          catch(error){job.scope.work.cancel();manualQi=null;reportQiFailure();return false;}
-        }
-        job.value=I.withQiBatchScope(job.scope,()=>I.advanceQiLayersBatch(job.shouldRender));
-        manualQi=null;return job.value>0;
-      }catch(error){
-        if(I.qiDeferredWork(error))return false;
-        job.scope.work?.cancel();manualQi=null;
-        if(I.qiWorkFailure(error)){reportQiFailure();return false;}
-        throw error;
-      }
-    }
+    
+    function advanceManualQi(){const job=manualQi,I=WIS.Cultivation.ImmortalLogic;if(job.original!==getState()||job.generation!==schedulerGeneration||job.key!==I.qiBatchStateKey(getState())){manualQi=null;return false;}try{job.value=I.advanceQiLayersBatch(job.shouldRender);manualQi=null;return true;}catch(error){manualQi=null;throw error;}}
     function requestQiBatch(shouldRender=true){
       // Manual and automatic work share the same owner; repeated clicks do not
       // queue purchases or steal another slice from a pending automatic step.
-      if(deferredAction||manualQi||context.hasDeferredQi?.()||importHold||document.hidden||!isInitialLoadComplete()||onlineBlocked())return 0;
+      if(deferredAction||manualQi||context.hasDeferredQi?.()||importHold||isHidden()||!isInitialLoadComplete()||onlineBlocked())return 0;
       const job={original:getState(),generation:schedulerGeneration,
-        key:WIS.Cultivation.ImmortalLogic.qiBatchStateKey(getState()),scope:{},shouldRender,value:0};
+        key:WIS.Cultivation.ImmortalLogic.qiBatchStateKey(getState()),shouldRender,value:0};
       manualQi=job;processOnline();return job.value;
     }
     function setLastTickAt(value){
@@ -117,7 +117,7 @@
     function eligible(){return WIS.Simulation.Compensation?.eligibleAtEnqueue?.(getState())===true;}
     function enqueueForegroundAt(now,{leaving=false}={}){
       const previous=lastTickAt;lastTickAt=now;
-      if(!isInitialLoadComplete()||ledger().awaySince!==null||(!leaving&&document.hidden))return 0;
+      if(!isInitialLoadComplete()||ledger().awaySince!==null||(!leaving&&isHidden()))return 0;
       const status=offline.getCatchUpStatus();
       if(status.clockSuspended||status.treasureRecovery?.active||status.phase==='paused'||((status.phase==='running'||status.pendingGameSeconds>epsilon)&&status.presentation==='blocking'))return 0;
       const seconds=Math.max(0,now-previous)/1000;
@@ -158,10 +158,12 @@
         (getState().core.runtime.onlineCadenceRemaining>epsilon?getState().core.runtime.onlineCadenceRemaining:stepSeconds);
     }
     function hasRunnableOnlineWork(flush=false){
-      if(importHold||document.hidden||!isInitialLoadComplete())return false;
+      if(importHold||isHidden()||!isInitialLoadComplete())return false;
       if(onlineBlocked())return false;
       if(deferredAction)return true;
       if(manualQi)return true;
+      if(failureStillCurrent())return false;
+      if(onlineWork)return true;
       dropEmptyOnlineHeads();
       if(!onlineIntervals.length)return false;
       if(onlineIntervals[0].source==='offline')return true;
@@ -175,7 +177,7 @@
     function drainOnlineSlice(flush=false){
       const status=offline.getCatchUpStatus();
       if(deferredAction&&deferredActionBlocked(status))cancelDeferredAction('action-blocked');
-      if(onlineBlocked(status)){cancelDeferredAction('online-blocked');return {progressed:false,blocked:true,needsContinuation:false,hitOfflineBarrier:false,steps:0};}
+      if(onlineBlocked(status)){cancelOnlineWork();cancelDeferredAction('online-blocked');return {progressed:false,blocked:true,needsContinuation:false,hitOfflineBarrier:false,steps:0};}
       if(deferredAction){
         let progressed=false;
         stepping=true;context.beginTransaction?.();
@@ -185,13 +187,13 @@
         // separate host tasks, even when this candidate finished very quickly.
         return {progressed,blocked:false,needsContinuation:hasRunnableOnlineWork(flush),hitOfflineBarrier:false,steps:0};
       }
-      const previousAchievements=context.achievementStates?.();
+      if(failureStillCurrent()&&!manualQi)return {progressed:false,blocked:true,needsContinuation:false,steps:0};
       const sliceStartedAt=monotonicNow();
       let progressed=false,hitOfflineBarrier=false,blocked=false,treasureRecoveryRequired=false,steps=0;
       stepping=true;context.beginTransaction?.();
       try {
         if(manualQi)progressed=advanceManualQi();
-        while(!manualQi&&steps<maxSteps&&onlineIntervals.length){
+        while(!manualQi&&!failureStillCurrent()&&steps<maxSteps&&onlineIntervals.length){
           dropEmptyOnlineHeads();
           if(!onlineIntervals.length)break;
           // Budget is checked only between complete atomic settlements. The first
@@ -213,31 +215,40 @@
           const cadence=currentCadence();
           if(availableGame+epsilon<cadence&&!flush&&offlineIndex<0)break;
           const part=onlineIntervals[0],seconds=Math.min(cadence,part.clock*part.speed);
-          const result=context.advanceGameStep(seconds,true,{
+          let result;
+          if(typeof context.prepareOnlineWork==='function'){
+            if(onlineWork&&(onlineWork.part!==part||onlineWork.generation!==schedulerGeneration||!onlineWork.job.checksInputOnAdvance&&onlineWork.job.valid?.()===false)){cancelOnlineWork();break;}
+            try {
+              if(!onlineWork){onlineWork={part,generation:schedulerGeneration,seconds,job:context.prepareOnlineWork(seconds,{source:'online',compensationEligible:part.compensationEligible,clockRatio:1/part.speed,logicalTickRemaining:cadence,atomicCadence:true})};break;}
+              const owner=onlineWork,next=owner.job.advance(Math.min(sliceStartedAt+onlineSliceBudgetMs,monotonicNow()+3));
+              if(!next.done){if(monotonicNow()-sliceStartedAt<onlineSliceBudgetMs)continue;break;}
+              result=context.advanceGameStep(owner.seconds,true,{foreground:true,preparedOnlineSegment:next.token});onlineWork=null;
+            } catch(error){
+              cancelOnlineWork();
+              if(error?.code==='rank-work-stale')break;
+              onlineFailure={key:onlineInputKey(),code:error?.code||'online-settlement-failed'};
+              context.onOnlineSettlementError?.(error);blocked=true;break;
+            }
+          }else {
+          result=context.advanceGameStep(seconds,true,{
             foreground:true,
             timeSegment:{source:'online',compensationEligible:part.compensationEligible,clockRatio:1/part.speed},
             deferAutomation:seconds+epsilon<cadence
           });
-          const processed=Math.max(0,Math.min(seconds,Number(result?.processedSeconds)||0));
-          // An unfinished Qi calculation has committed no part of this step.
-          // Keep its complete debt and let the existing single owner resume it.
-          if(result?.qiDeferred)break;
-          if(result?.qiWorkFailed){
-            reportQiFailure();
-            blocked=true;break;
           }
+          const processed=Math.max(0,Math.min(seconds,Number(result?.processedSeconds)||0));
           if(!(processed>0)){
             treasureRecoveryRequired=result?.treasureRecoveryRequired===true;
             blocked=true;break;
           }
-          progressed=true;steps++;
+          progressed=true;steps++;publishedSinceRender=true;
           const clock=processed/part.speed;
           part.clock=Math.max(0,part.clock-clock);
           onlineAccumulator=Math.max(0,onlineAccumulator-clock);
           if(part.clock<=epsilon)onlineIntervals.shift();
-          tickRemaining=Math.max(0,cadence-processed);
+          tickRemaining=result?.clockCommitted===true?Math.max(0,Number(result.logicalTickRemaining)||0):Math.max(0,cadence-processed);
           getState().core.runtime.onlineCadenceRemaining=tickRemaining||stepSeconds;
-          getState().totalElapsedSeconds+=clock;
+          if(result?.clockCommitted!==true)getState().totalElapsedSeconds+=clock;
           // Match the old end-unit play-time achievement check.
           const rates={...WIS.tmp.rates};
           if(!getState().unlockedAchievements?.trainingUp&&getState().totalElapsedSeconds>=600)
@@ -245,7 +256,9 @@
           Object.assign(WIS.tmp.rates,rates);
           if(monotonicNow()-sliceStartedAt>=onlineSliceBudgetMs)break;
         }
-        if(previousAchievements)context.notifyNewAchievements?.(previousAchievements);
+        // Only confirmed work can change the presented achievement set.
+        // A pending proof must not dirty the page through the legacy notifier.
+        if(progressed)context.notifyNewAchievements?.();
       } finally {
         // A deferred save must see time already debited from the accumulator.
         // prepareSave may record elapsed time, but cannot reenter this step loop.
@@ -262,19 +275,25 @@
       const needsContinuation=!hitOfflineBarrier&&!blocked&&hasRunnableOnlineWork(flush);
       return {progressed,blocked,needsContinuation,hitOfflineBarrier,steps};
     }
+    function flushOnlineRender(now){
+      // A private proof changes no confirmed display values. Still flush any
+      // presentation requested independently by input/status handlers.
+      if(!onlineWork||publishedSinceRender){requestRender();publishedSinceRender=false;}
+      flushRender(now);
+    }
     function scheduleOnlineContinuation(){
-      if(continuationHandle!==null||!hasRunnableOnlineWork(false))return false;
+      if(continuationHandle!==null)return false;if(!hasRunnableOnlineWork(false)){closeContinuationChannel();return false;}
       const generation=schedulerGeneration;
-      continuationHandle=window.setTimeout(()=>{
+      continuationHandle=queueOnlineTask(()=>{
         // A cancelled callback may already be queued. It must not clear the
         // current generation's handle or cancel a newly acquired action owner.
         if(generation!==schedulerGeneration)return;
         continuationHandle=null;
-        if(importHold||document.hidden){cancelDeferredAction('inactive-host');return;}
+        if(importHold||isHidden()){cancelOnlineWork();cancelDeferredAction('inactive-host');closeContinuationChannel();return;}
         const result=drainOnlineSlice(false);
-        requestRender();flushRender(Date.now());
-        if(result.needsContinuation&&generation===schedulerGeneration)scheduleOnlineContinuation();
-      },0);
+        flushOnlineRender(Date.now());
+        if(result.needsContinuation&&generation===schedulerGeneration)scheduleOnlineContinuation();else closeContinuationChannel();
+      });
       return true;
     }
     function processOnline(flush=false){
@@ -295,7 +314,7 @@
       const p=ledger(),left=p.awaySince??fallbackClosedAt;
       if(!backgroundAllowed()) {
         // Only temporary watermarks move. Foreground intervals remain queued.
-        writeLedger({awaySince:document.hidden?now:null,registeredUntil:now,boundaryAt:now});
+        writeLedger({awaySince:isHidden()?now:null,registeredUntil:now,boundaryAt:now});
         lastTickAt=now;offline.returnFromAway(false);return 0;
       }
       if(left==null){
@@ -312,7 +331,7 @@
       // Recovery owns the entire FIFO; online entries retain ONLINE_EXACT.
       if(onlineIntervals.some(part=>part.source==='offline'))handoffPendingRecovery();
       writeLedger({awaySince:null,registeredUntil:Math.max(from,now),boundaryAt:now});lastTickAt=now;
-      if(document.hidden){writeLedger({awaySince:now});offline.suspendForAway();}
+      if(isHidden()){writeLedger({awaySince:now});offline.suspendForAway();}
       else offline.returnFromAway(start);
       return seconds;
     }
@@ -344,7 +363,7 @@
         handoffImportRecovery();
         writeLedger({awaySince:null,registeredUntil:Math.max(Number(ledger().registeredUntil)||0,now),boundaryAt:now});
       }
-      if(!backgroundAllowed()&&document.hidden){
+      if(!backgroundAllowed()&&isHidden()){
         // visibilitychange was held during file IO, and temporary saves never
         // call prepareSave. Keep the remaining hidden interval out of ONLINE_EXACT.
         const p=ledger();
@@ -357,7 +376,7 @@
       const now=Date.now();
       if(!isInitialLoadComplete()){lastTickAt=now;return;}
       if(importHold){lastTickAt=now;return;}
-      if(document.hidden)return;
+      if(isHidden())return;
       if(deferredAction&&deferredActionBlocked())cancelDeferredAction('action-blocked');
       if(onlineBlocked()&&(manualQi||context.hasDeferredQi?.()))invalidateOnlineScheduler();
       // Recovery publishes its own small progress view. Re-rendering every
@@ -382,12 +401,12 @@
       if((finalStatus.awaitingStart===true||finalStatus.phase==='paused')&&finalStatus.presentation==='blocking'){
         lastTickAt=now;return;
       }
-      requestRender();flushRender(now);
+      flushOnlineRender(now);
     }
     function handleVisibilityChange(){
       if(!ready()||importHold)return;
       const now=Date.now();
-      if(document.hidden){if(markAway(now))saveState();}
+      if(isHidden()){if(markAway(now))saveState();}
       else if(ledger().awaySince!==null){registerReturn(now);saveState();}
       requestRender();flushRender(now,{force:true});
     }
@@ -396,10 +415,10 @@
       if(preparingSave||offline.isInternalWork?.()||!ready())return false;
       preparingSave=true;
       try{
-        if(options.closing===true||document.hidden)markAway(Date.now());
+        if(options.closing===true||isHidden())markAway(Date.now());
         else if(!importHold) {
           enqueueForegroundAt(Date.now());
-          if(options.captureOnly!==true&&!deferredAction)processOnline();
+          if(options.captureOnly!==true&&!deferredAction&&!onlineWork&&!onlineFailure)processOnline();
         }
       }finally{syncPendingLedger();preparingSave=false;}
       return true;
@@ -446,7 +465,7 @@
       document.addEventListener('visibilitychange',handleVisibilityChange);
       window.setInterval(runMainTick,context.logicIntervalMs);
     }
-    return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,
+    return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,setNativeAppActive,
       prepareSave,restoreClosedTime,handoffImportRecovery,enqueueForegroundAt,captureForegroundTime,beginImportHold,finishImportHold,
       invalidateOnlineScheduler,requestQiBatch,requestDeferredAction,cancelDeferredAction,
       isDeferredActionPending:()=>!!deferredAction,

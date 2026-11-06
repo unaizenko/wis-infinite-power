@@ -10,6 +10,11 @@
   "use strict";
   var stage = "scripts", mode = "loading", complete = false, firstError = null, events = [], foreground = 0, last = Date.now();
   var key = "wis-infinite-power-save-v2";
+  var nativeHost = w.Capacitor && typeof w.Capacitor.isNativePlatform === "function" && w.Capacitor.isNativePlatform() === true;
+  if (nativeHost) {
+    try { new Function("class C { #x; static has(o) { return #x in o; } }; return C.has(new C());")(); }
+    catch (_) { firstError = { stage: "capabilities", message: "系统 WebView 版本过低，请更新 Android System WebView" }; }
+  }
   function bounded(value) { return String(value == null ? "" : value).slice(0, 500); }
   function record(type, message) {
     events.push({ at: Date.now(), stage: stage, type: type, message: bounded(message) });
@@ -52,6 +57,16 @@
     try { text = w.localStorage.getItem(key); }
     catch (error) { node("boot-action-message").textContent = "无法读取浏览器存储：" + bounded(error.message); return; }
     if (text === null) { node("boot-action-message").textContent = "当前网址没有可读取的原始存档。"; return; }
+    if (nativeHost) {
+      try {
+        var p = w.Capacitor.Plugins;
+        p.Filesystem.writeFile({path:"WIS-original-save-" + Date.now() + ".json",data:text,directory:"CACHE",encoding:"utf8"})
+          .then(function (file) { return p.Share.share({files:[file.uri],title:"WIS 原始存档"}); })
+          .then(function () { node("boot-action-message").textContent = "已打开存档分享，请确认已保存备份。"; })
+          .catch(function (error) { copyText(text, "分享失败：" + bounded(error.message) + "。请复制完整原文备份。"); });
+      } catch (error) { copyText(text, "分享不可用，请复制完整原文备份。" ); }
+      return;
+    }
     if (w.Blob && w.URL && typeof w.URL.createObjectURL === "function") {
       try {
         var url = w.URL.createObjectURL(new w.Blob([text], {type:"application/json"})), link = d.createElement("a");
@@ -118,7 +133,7 @@
   }, 500);
 }(window, document));
     </script>
-    <link rel="stylesheet" href="styles.css?v=release-0.1.8.4-20261030-layout" />
+    <link rel="stylesheet" href="styles.css?v=release-0.2.0.0-20261106-g-reward-r1" />
   </head>
   <body>
     <aside id="boot-status-panel" class="boot-status-panel" role="status" aria-live="polite">
@@ -143,7 +158,7 @@
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.8.4</small>
+          <small id="game-version" class="game-version">v0.2.0.0</small>
         </div>
         <div class="header-actions">
           <small id="online-compensation-balance" hidden></small>
@@ -755,6 +770,14 @@
                 <div class="purchase-control"><span id="yuan-crystal-count">数量：0</span><small id="yuan-crystal-chance">等待计算进度</small><small id="yuan-crystal-effect">元力倍率 ×1.000</small></div>
               </article>
 
+              <article class="item-row" id="emperor-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·帝经</h2><p>四极成就解锁；按实际获得战力独立累计进度，需求1e18×1000^n；武道战力独立来源×(1+n)^0.4。</p></div><div class="purchase-control"><span id="emperor-imprint-count">数量：0</span><small id="emperor-imprint-chance">等待计算进度</small><small id="emperor-imprint-effect"></small></div></article>
+              <article class="item-row" id="sacred-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·圣体</h2><p>四极成就解锁；按实际获得体独立累计进度，需求1e6×10^n；体获取×(1+n)^0.25。</p></div><div class="purchase-control"><span id="sacred-body-imprint-count">数量：0</span><small id="sacred-body-imprint-chance">等待计算进度</small><small id="sacred-body-imprint-effect"></small></div></article>
+              <article class="item-row" id="god-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·神王体</h2><p>四极成就解锁；按实际获得体独立累计进度，需求1e6×10^n；气获取×(1+n)^0.25。</p></div><div class="purchase-control"><span id="god-body-imprint-count">数量：0</span><small id="god-body-imprint-chance">等待计算进度</small><small id="god-body-imprint-effect"></small></div></article>
+              <article class="item-row" id="source-stone-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·源石</h2><p>四极成就解锁；按实际获得J独立累计进度，需求1e19×1000^n；武道J独立来源×(1+n)^0.4。</p></div><div class="purchase-control"><span id="source-stone-imprint-count">数量：0</span><small id="source-stone-imprint-chance">等待计算进度</small><small id="source-stone-imprint-effect"></small></div></article>
+              <article class="item-row" id="law-imprint-treasure" data-catalog-system="武道" hidden>
+                <div class="item-content"><h2>烙印·法则</h2><p>源能法则成就解锁；实际获得气、体合计积累进度，第n枚需求为100000×2^n，增强基因源能倍率。</p></div>
+                <div class="purchase-control"><span id="law-imprint-count">数量：0</span><small id="law-imprint-chance">等待计算进度</small><small id="law-imprint-effect">基因源能倍率额外 ×1</small></div>
+              </article>
               <article class="item-row" id="five-spirit-stone-treasure" hidden>
                 <div class="item-content"><h2>五灵石</h2><p>极意实际产生战力时，按有效时间持续积累进度，达到需求获得奖励；数量永久保留，并提供独立 J 与战力来源。</p></div>
                 <div class="purchase-control"><span id="five-spirit-stone-count">数量：0</span><small id="five-spirit-stone-chance">等待计算进度</small><small id="five-spirit-stone-effect">独立 J +0/秒；独立战力 +0/秒</small></div>
@@ -1101,6 +1124,19 @@
           <input id="import-file" type="file" accept="application/json,.json" hidden />
         </section>
 
+        <section id="native-backup-settings" class="settings-recovery native-backup-settings" hidden>
+          <h3>本地自动备份</h3>
+          <p>选择手机中的文件夹保存独立备份。应用启动或回到前台时，到期会补一份；不会在关闭期间后台运行。</p>
+          <p id="backup-directory-label">尚未选择目录</p>
+          <div class="backup-controls">
+            <button id="backup-directory" class="secondary-button" type="button">选择备份目录</button>
+            <button id="backup-toggle" class="secondary-button settings-toggle" type="button" role="switch" aria-checked="false" disabled>已关闭</button>
+            <label>备份间隔 <select id="backup-interval" aria-label="备份间隔"><option value="6">6小时</option><option value="12">12小时</option><option value="24">24小时</option></select></label>
+            <button id="backup-now" class="secondary-button" type="button" disabled>立即备份</button>
+          </div>
+          <p id="backup-last">尚无成功备份</p><p id="backup-status" role="status" aria-live="polite"></p>
+        </section>
+
         <details id="save-recovery-tools" class="settings-recovery">
           <summary>存档恢复与故障处理</summary>
           <section class="settings-row">
@@ -1201,85 +1237,96 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" popover="manual" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/vendor/break_eternity.min.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/namespace.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/bignum.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/finite-progress.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/signed-ledger.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/treasure-rules.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/infinity-config.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/infinity.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/cultivation/martial-config.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/config.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/big-numbers.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/registry.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/formulas.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/penalties.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/integration.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/runtime.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/cultivation/xiuzhen.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/probability.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/compensation.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/cultivation/martial.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/high-multiverse.js?v=release-0.1.8.4-20261030"></script>
-  <script src="js/core/state.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/save.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/resources.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/cultivation/resources.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/big-number-resources.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/effects.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/sources.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/core/reset.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/power/scale-logic.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/power/scale.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/cultivation/immortal-logic.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/cultivation/immortal.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/cultivation/martial-system.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/achievements.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/crystal-interval.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/accuracy.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/fast-forward.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/treasure-ledger.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/treasures.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/cultivation/exploration-progress.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/meta/challenges.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/automation.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/profiler.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/power/scale-kernel.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/resource-groups.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/resource-dependencies.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/coupled-resource-kernel.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/coordinate-coupled-kernel.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/fixed-sources.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/discrete-map.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/predictor-groups.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/continuous-predictor.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/local-discrete-macro.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/continuous-executor.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/resource-evolution.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/strong-feedback-kernel.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/checkpoint-strategy.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/fixed-segment.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/compiled-continuous-plan.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/martial-interval.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/step.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/offline.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/worker-protocol.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/worker-client.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/offline-worker-bundle.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/offline-worker.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/simulation/loop.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/source-preview.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/format.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/cards.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/big-numbers.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/xiuzhen.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/treasures.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/infinity.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/martial.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/dialog.js?v=release-0.1.8.4-20261030"></script>
-    <script src="js/ui/app.js?v=release-0.1.8.4-20261030"></script>
-    <script src="game.js?v=release-0.1.8.4-20261030"></script>
+    <script src="js/core/build-config.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/vendor/break_eternity.min.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/namespace.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/bignum.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/closed-form-batch.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/stable-product-quotient.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/finite-progress.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/signed-ledger.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/rank.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/rank-math.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/rank-certified-math.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/rank-projection.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/rank-exact.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/rank-g-cost.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/rank-budget.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/rank-basis.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/rank-settlement.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/amount-products.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/amount-ledger.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/amount.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/amount-formulas.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/treasure-rules.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/infinity-config.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/infinity.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/martial-config.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/config.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/big-numbers.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/closed-rank-cost.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/closed-rank-settlement.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/registry.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/formulas.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/penalties.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/integration.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/runtime.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/xiuzhen.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/probability.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/compensation.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/martial-amount.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/martial.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/high-multiverse.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/amount-migration.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+  <script src="js/core/state.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/save.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/resources.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/resources.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/big-number-resources.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/effects.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/sources.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/reset.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/power/scale-logic.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/power/scale.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/immortal-logic.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/immortal.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/martial-system.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/achievements.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/fast-forward.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/treasure-ledger.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/treasures.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/closed-treasures.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/exploration-progress.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/cultivation/closed-natural.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/core/closed-batch-migration.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/meta/challenges.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/automation.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/profiler.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/resource-groups.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/fixed-sources.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/predictor-groups.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/strong-feedback-checkpoint.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/legacy-settlement-checkpoints.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/checkpoint-strategy.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/fixed-segment.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/step.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/offline.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/worker-protocol.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/worker-client.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/offline-worker-bundle.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/offline-worker.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/simulation/loop.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/source-preview.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/format.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/cards.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/big-numbers.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/xiuzhen.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/treasures.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/infinity.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/martial.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/dialog.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/native-platform.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="js/ui/app.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
+    <script src="game.js?v=release-0.2.0.0-20261106-g-reward-r1"></script>
   </body>
 </html>

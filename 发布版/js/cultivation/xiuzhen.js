@@ -1,6 +1,6 @@
 (function defineXiuzhen(WIS) {
   "use strict";
-  const B = WIS.Core.BigNum, L = () => WIS.Meta.TreasureLedger;
+  const B = WIS.Core.BigNum, L = () => WIS.Core.Amount?.enabled()?WIS.Core.AmountLedger:WIS.Meta.TreasureLedger;
   const realms = Object.freeze([
     ["第一步·化神", "mana", "1e50"], ["第一步·婴变", "mana", "1e60"],
     ["第一步·问鼎", "xianForce", "1e8"], ["第二步·窥涅", "yuanForce", "1e5"],
@@ -51,8 +51,9 @@
     resources: Object.fromEntries(resourceKeys.map(k => [k, entry()])), manaDebitResidual: [],
     manaSpent: B.ZERO, manaSpentResidual: [], shengProgress: {} });
   const nonnegative = value => {
-    if (!B.isFiniteBN(value ?? 0) || B.lt(value ?? 0, 0)) throw Error("修真道存档含非法余额");
-    return B.BN(value ?? 0);
+    const parsed=B.parseFinite(value ?? 0);
+    if (!parsed || parsed.lt(0)) throw Error("修真道存档含非法余额");
+    return parsed;
   };
   const tails = values => {
     if (values == null) return [];
@@ -62,6 +63,13 @@
   const rank = value => Math.min(realms.length, Math.max(0, Math.floor(Number(value) || 0)));
   // Statistics are independent of current-run unlock/achievement qualification.
   const lifetimeRealmLevel = n => Math.max(rank(n.lifetimeHighestRealm), rank(n.highestRealm), rank(n.realm), rank(n.history?.realm));
+  // Lifetime scale is a display classification, independent of current-run activity.
+  function statisticsScaleName(state) {
+    const high = WIS.Meta.HighMultiverse.get(state);
+    if (high.order !== '0' || (high.highest?.order ?? '0') !== '0') return '高阶多元';
+    const level = lifetimeRealmLevel(get(state));
+    return level >= 11 ? '多元宇宙' : level >= 7 ? '单体宇宙' : null;
+  }
   function statisticsRealmName(state, lifetime = false) {
     const n = get(state), level = lifetime ? lifetimeRealmLevel(n) : rank(n.realm);
     // Current Xiuzhen realm only rises within a run; resets clear it (scatter retains it).
@@ -73,18 +81,23 @@
     if (typeof raw !== "object" || Array.isArray(raw)) throw Error("空玄·生余量格式无效");
     const result = {};
     for (const [key, point] of Object.entries(raw)) {
+      WIS.Core.FiniteProgress.validate(point);
       if (!shengKeys.includes(key) || !point || point.version !== 1 || !B.eq(point.requirement,1) ||
           !B.isFiniteBN(point.remaining) || B.lt(point.remaining,0) || B.gt(point.remaining,1) || !B.isFiniteBN(point.carry))
         throw Error("空玄·生余量无效");
-      const words = L().normalize([1,B.BN(point.remaining).neg(),point.carry]);
+      const residual=WIS.Core.Amount?.enabled()?(point.residual||[]).map(String):[];
+      const words = L().normalize([1,B.BN(point.remaining).neg(),point.carry,...residual]);
       if (L().sign(words) < 0 || L().compare(words,[1]) >= 0) throw Error("空玄·生余量越界");
-      result[key] = {version:1,requirement:"1",remaining:String(point.remaining),carry:String(point.carry)};
+      result[key] = WIS.Core.Amount?.enabled()?(WIS.Core.FiniteProgress.isCanonical(point)&&point.requirement==="1"?point:WIS.Core.FiniteProgress.record(1,point.remaining,point.carry,residual)):{version:1,requirement:"1",remaining:String(point.remaining),carry:String(point.carry)};
     }
     return result;
   }
   function normalize(raw) {
     const n = fresh();
-    if (!raw || typeof raw !== "object") return n;
+    if (raw === undefined || raw === null) return n;
+    const records=[['',raw],...['resources','abilities','history','history.abilities','shengProgress',...resourceKeys.map(k=>'resources.'+k)].map(path=>[path,path.split('.').reduce((v,k)=>v?.[k],raw)])];
+    for(const [path,value] of records)if(value!==undefined && !(path==="shengProgress"&&value===null) && (!value || typeof value!=="object" || Array.isArray(value) || B.isDecimal(value)))
+      throw Object.assign(Error("修真道存档容器无效："+path),{code:'SAVE_SHAPE',path:'cultivation.systems.immortal.xiuzhen'+(path?'.'+path:'')});
     n.entered = raw.entered === true; n.realm = n.entered ? rank(raw.realm) : 0;
     n.highestRealm = Math.max(n.realm, rank(raw.highestRealm));
     n.history = { entry: raw.history?.entry === true, realm: rank(raw.history?.realm),
@@ -93,6 +106,7 @@
     n.abilities = Object.fromEntries(abilities.filter(a => raw.abilities?.[a.key] === true).map(a => [a.key, true]));
     for (const key of resourceKeys) {
       const from = raw.resources?.[key] || {}, to = n.resources[key];
+      if(WIS.Core.Amount?.enabled()){for(const field of ["amount","total","spent","peak"])Object.assign(to,WIS.Core.Amount[field==='spent'?'fieldParts':'boundedFieldParts'](WIS.Core.Amount.field(from,field),field));continue;}
       for (const k of ["amount", "total", "spent", "peak"]) to[k] = nonnegative(from[k]);
       for (const k of ["residual", "totalResidual", "spentResidual"]) to[k] = tails(from[k]);
       for (const field of ["amount","total","spent"]) if(typeof from[field]==="string") {
@@ -111,6 +125,7 @@
     if(typeof raw.manaSpent==="string")n.manaSpentResidual=L().subtract([raw.manaSpent,...n.manaSpentResidual],[n.manaSpent]);
     n.manaSpent = L().value(L().normalize([n.manaSpent,...n.manaSpentResidual]));
     n.manaSpentResidual = [];
+    if(WIS.Core.Amount?.enabled())Object.assign(n,WIS.Core.Amount.fieldParts(WIS.Core.Amount.field(raw,"manaSpent"),"manaSpent"));
     n.shengProgress = normalizeSheng(raw.shengProgress);
     return n;
   }
@@ -125,8 +140,9 @@
   const yinYang = state => state.activeChallenge === "yinVoidYangReal";
   const has = (state, key) => active(state) && !sealed(state) && get(state).abilities[key] === true;
   const tailKey = field => field === "amount" ? "residual" : field + "Residual";
-  const words = (e, field = "amount") => [String(B.BN(e[field]))];
-  function write(e, terms, field = "amount", accounting = L()) {
+  const words = (e, field = "amount") => WIS.Core.Amount?.enabled()?WIS.Core.Amount.words(WIS.Core.Amount.field(e,field)):[String(B.BN(e[field]))];
+  function write(e, terms, field = "amount", accounting = L(), exact = false) {
+    if(WIS.Core.Amount?.enabled()){Object.assign(e,WIS.Core.Amount[exact||field==='spent'?'fieldParts':'boundedFieldParts'](WIS.Core.Amount.fromParts(0,terms),field));return;}
     const normalized = accounting.normalize(terms);
     if (accounting.sign(normalized) < 0) throw Error("修真道账本余额不足，未提交");
     const value = accounting.value(normalized);
@@ -148,11 +164,20 @@
     return state;
   }
   function amount(state, key) { return B.BN(get(state).resources[key].amount); }
+  const quantity=(state,key)=>WIS.Core.Amount.field(get(state).resources[key]);
+  const fullAmount=(state,key)=>WIS.Core.Amount?.enabled()?quantity(state,key):amount(state,key);
+  const isQuantity=value=>WIS.Core.Amount?.enabled()&&WIS.Core.Amount.isAmount(value);
+  const divided=(value,divisor)=>isQuantity(value)?WIS.Core.Amount.divide(value,divisor):B.div(value,divisor);
+  const powerRatio=(value,divisor,exponent)=>isQuantity(value)?WIS.Core.AmountFormulas.powerRatio(value,divisor,exponent):B.pow(B.div(value,divisor),exponent);
+  const powerOnePlusRatio=(value,divisor,exponent)=>isQuantity(value)?WIS.Core.AmountFormulas.powerOnePlusRatio(value,divisor,exponent):B.pow(B.add(1,B.div(value,divisor)),exponent);
+  const logOnePlusRatio=(value,divisor)=>isQuantity(value)?WIS.Core.AmountFormulas.logOnePlusRatio(value,divisor):B.log10(B.add(1,B.div(value,divisor)));
+
   function availableWords(state, key) {
     return key === "mana" ? WIS.Core.Resources.balance(state.cultivation.systems.immortal.resources, "mana")
       : words(get(state).resources[key]);
   }
   function canSpend(state, key, cost) {
+    if(WIS.Core.Amount?.enabled()){const A=WIS.Core.Amount,price=A.from(cost);return !!labels[key]&&A.compare(price,0)>0&&A.compare(A.fromParts(0,availableWords(state,key)),price)>=0;}
     try {
       return !!labels[key] && B.isFiniteBN(cost) && B.gt(cost, 0) && (key === "mana" ? WIS.Core.Resources.ledger() : L()).compare(availableWords(state, key), [cost]) >= 0;
     } catch (error) {
@@ -164,16 +189,16 @@
   }
   function debit(state, key, cost) {
     if (!canSpend(state, key, cost)) return false;
-    const n = get(state), remaining = (key === "mana" ? WIS.Core.Resources.ledger() : L()).subtract(availableWords(state, key), [cost]);
+    const n = get(state), remaining = (key === "mana" ? WIS.Core.Resources.ledger() : L()).subtract(availableWords(state, key), WIS.Core.Amount?.enabled()?WIS.Core.Amount.words(cost):[cost]);
     if (key === "mana") {
       const e = { amount: state.mana }, spent = { amount: n.manaSpent, residual: n.manaSpentResidual };
-      write(e, remaining, "amount", WIS.Core.Resources.ledger()); write(spent, L().add(words(spent), [cost]));
+      write(e, remaining, "amount", WIS.Core.Resources.ledger()); write(spent, L().add(words(spent), WIS.Core.Amount?.enabled()?WIS.Core.Amount.words(cost):[cost]),"amount",L(),true);
       Object.assign(state.cultivation.systems.immortal.resources,
         WIS.Core.Resources.prepareTerms({}, "mana", [e.amount, ...e.residual]));
       n.manaDebitResidual = [];
       n.manaSpent = spent.amount; n.manaSpentResidual = spent.residual;
     } else {
-      const e = n.resources[key]; write(e, remaining); write(e, L().add(words(e, "spent"), [cost]), "spent");
+      const e = n.resources[key]; write(e, remaining); write(e, L().add(words(e, "spent"), WIS.Core.Amount?.enabled()?WIS.Core.Amount.words(cost):[cost]), "spent");
     }
     return true;
   }
@@ -181,8 +206,9 @@
     WIS.Core.Runtime.assertMutable();
     const old = get(state), mana = state.mana, residual = state.manaGainResidual,
       tail = state.cultivation.systems.immortal.resources.manaGainResidualTail;
-    state.cultivation.systems.immortal.xiuzhen = normalize(old);
-    try { const result = work(get(state)); WIS.Core.Effects?.invalidate(); return result; }
+    const draft=WIS.Core.Amount?.enabled()?WIS.Core.State.createDraft(state):null;
+    state.cultivation.systems.immortal.xiuzhen = draft?get(draft.state):normalize(old);
+    try { const result = work(get(state));if(draft)state.cultivation.systems.immortal.xiuzhen=draft.finishValue(get(state)); WIS.Core.Effects?.invalidate(); return result; }
     catch (error) { state.cultivation.systems.immortal.xiuzhen = old; state.mana = mana; state.manaGainResidual = residual; state.cultivation.systems.immortal.resources.manaGainResidualTail = tail; throw error; }
   }
   function canBreakthrough(state) {
@@ -218,7 +244,7 @@
     });
     // Mie can award retained progress. Its payment, ownership and every treasure
     // ledger must roll back together if even one recalculation fails.
-    return key === "kongJieMie" ? L().transaction(state,purchase) : purchase();
+    return key === "kongJieMie" ? WIS.Meta.TreasureLedger.transaction(state,purchase) : purchase();
   }
   // Shared by production sources/effects and the current-effect UI preview.
   const abilityMultiplierRules = Object.freeze({
@@ -235,18 +261,19 @@
   // Same ln(1+x) function at every magnitude. The small-x series prevents
   // Decimal's represented 1+x from rounding to 1 and erasing positive income.
   function ln1p(value) {
+    if(isQuantity(value))return B.mul(WIS.Core.AmountFormulas.logOnePlusRatio(value),Math.LN10);
     const x=B.BN(value);
     return B.lt(x,"1e-5")
       ? B.mul(x,B.add(B.sub(1,B.div(x,2)),B.sub(B.div(B.mul(x,x),3),B.div(B.pow(x,3),4))))
       : B.BN(B.add(1,x)).ln();
   }
-  const log1p10 = value => B.div(ln1p(value),Math.LN10);
+  const log1p10 = value => isQuantity(value)?WIS.Core.AmountFormulas.logOnePlusRatio(value):B.div(ln1p(value),Math.LN10);
   function abilityMultiplier(state, key) {
     if (!has(state, key)) return 1;
-    const pLog = () => B.add(1, B.log10(B.add(1, B.div(amount(state,"nieForce"),"1e4"))));
-    const nLog = () => log1p10(amount(state,"universeCoefficient"));
-    const oLog = () => log1p10(WIS.Meta.Treasures.count(state,"originImprint"));
-    if (key === "innerWorld") return B.pow(B.add(1,log1p10(log1p10(B.div(amount(state,"nieForce"),"1e4")))),.25);
+    const pLog = () => B.add(1,logOnePlusRatio(fullAmount(state,"nieForce"),"1e4"));
+    const nLog = () => log1p10(fullAmount(state,"universeCoefficient"));
+    const oLog=()=>log1p10(WIS.Core.Amount?.enabled()?WIS.Meta.Treasures.quantity(state,'originImprint'):WIS.Meta.Treasures.count(state,'originImprint'));
+    if (key === "innerWorld") {const stock=fullAmount(state,"nieForce"),inner=isQuantity(stock)&&WIS.Core.Amount.wordView(stock).length>1?logOnePlusRatio(stock,"1e4"):log1p10(divided(stock,"1e4"));return B.pow(B.add(1,log1p10(inner)),.25);}
     if (key === "spiritualGod") return 5;
     if (key === "spokenLaw") return B.pow(pLog(),1.5);
     if (key === "mergeHeaven") return B.pow(B.add(1,B.mul(10,nLog())),.5);
@@ -260,7 +287,7 @@
       const H=WIS.Meta.HighMultiverse;
       if (!H.active(state)) return B.ONE;
       if (key === "eternalMultiverse") {
-        const best=H.highest(state), l=B.log10(B.add(1,best.coefficient));
+        const best=H.highest(state), l=WIS.Core.Amount?.enabled()?log1p10(WIS.Core.Amount.field(best,'coefficient')):B.log10(B.add(1,best.coefficient));
         // Bounded coefficient term makes every higher tier at least as strong,
         // even when promotion roots an enormous coefficient down near one.
         return B.pow10(B.add(B.sub(best.order,3),B.div(l,B.add(1,l))));
@@ -273,33 +300,33 @@
     if (key === "kongLingYuan") return 100;
     const rule = abilityMultiplierRules[key];
     if (!rule || !has(state, key)) return 1;
-    return B.pow(B.add(1, amount(state, rule[0])), rule[1]);
+    return powerOnePlusRatio(fullAmount(state,rule[0]),1,rule[1]);
   }
-  const yuanCrystalMultiplier = state => B.add(1,B.mul(WIS.Meta.Treasures.count(state,"yuanCrystal"),.002));
+  const yuanCrystalMultiplier = state => WIS.Meta.Treasures.affineValue(state,"yuanCrystal",.002,1);
   const immortalAchievementMultiplier = state => WIS.Meta.Achievements?.greatHeavenlyVenerableMultiplier(state) ?? B.ONE;
-  const yuanFromXian = x => B.pow(B.add(1, B.div(x, "1e8")), .75);
+  const yuanFromXian = x => powerOnePlusRatio(x,"1e8",.75);
   const thirdStepActive = state => active(state) && !sealed(state) && get(state).realm >= 7;
   const fourthStepActive = state => active(state) && !sealed(state) && get(state).realm >= 11;
   const fifthStepActive = state => active(state) && !sealed(state) && get(state).realm >= 12;
   // Globally smooth production and stock decay; no gameplay threshold/cap.
   const compressUniverseRate = rate => B.mul(10,ln1p(ln1p(B.div(rate,10))));
-  const universeStockDecay = stock => B.pow(B.add(1,B.div(stock,1000)),.5);
+  const universeStockDecay = stock => powerOnePlusRatio(stock,1000,.5);
   const universeGainMultiplier = state => B.mul(B.mul(abilityMultiplier(state,"innerWorld"),abilityMultiplier(state,"zunYang")),abilityMultiplier(state,"virtualOrigin"));
-  const finalUniverseRate = (rate,stock,multiplier=B.ONE) => B.div(B.mul(compressUniverseRate(rate),multiplier),universeStockDecay(stock));
+  const finalUniverseRate = (rate,stock,multiplier=B.ONE) => WIS.Core.StableProductQuotient.evaluate([compressUniverseRate(rate),multiplier],[universeStockDecay(stock)]);
   const highMultiverseRawRate = state => fifthStepActive(state)
-    ? compressUniverseRate(B.pow(B.div(amount(state,"nieForce"),"1e12"),.25)) : B.ZERO;
+    ? compressUniverseRate(powerRatio(fullAmount(state,"nieForce"),"1e12",.25)) : B.ZERO;
   const daoWuYaExponent = state => fourthStepActive(state) && has(state,"daoWuYa")
-    ? B.add(1,B.mul(.5,ln1p(B.div(log1p10(amount(state,"multiverseCoefficient")),2)))) : B.ONE;
+    ? B.add(1,B.mul(.5,ln1p(B.div(log1p10(fullAmount(state,"multiverseCoefficient")),2)))) : B.ONE;
   const applyDaoWuYa = (state,gain) => B.gt(gain,1) ? B.pow(gain,daoWuYaExponent(state)) : gain;
-  const multiverseRate = state => fourthStepActive(state) ? B.pow(B.div(amount(state,"universeCoefficient"),1000),.5) : B.ZERO;
+  const multiverseRate = state => fourthStepActive(state) ? powerRatio(fullAmount(state,"universeCoefficient"),1000,.5) : B.ZERO;
   function thirdStepRates(state) {
     let nieForce = B.ZERO, universeCoefficient = B.ZERO;
     if (!thirdStepActive(state)) return { nieForce, universeCoefficient, multiverseCoefficient:multiverseRate(state) };
-    nieForce = B.mul(B.pow(B.div(amount(state,"yuanForce"),"1e16"),.25),
+    nieForce = B.mul(powerRatio(fullAmount(state,"yuanForce"),"1e16",.25),
       B.mul(abilityMultiplier(state,"spiritualGod"),abilityMultiplier(state,"mergeHeaven")));
     nieForce = B.mul(nieForce,B.mul(abilityMultiplier(state,"eternalMultiverse"),abilityMultiplier(state,"tierNie")));
     // The three universe abilities multiply after compression in rates().
-    if (has(state,"emptyGate")) universeCoefficient = B.div(B.pow(B.div(amount(state,"nieForce"),"1e4"),.25),300);
+    if (has(state,"emptyGate")) universeCoefficient = B.div(powerRatio(fullAmount(state,"nieForce"),"1e4",.25),300);
     return { nieForce:applyDaoWuYa(state,B.mul(nieForce,immortalAchievementMultiplier(state))), universeCoefficient, multiverseCoefficient:multiverseRate(state) };
   }
   function originProgressGain(state) { return B.mul(B.mul("1e-5",abilityMultiplier(state,"originBody")),abilityMultiplier(state,"kongNieZhang")); }
@@ -310,18 +337,38 @@
   }
   function captureSheng(state) {
     if (!has(state,"kongXuanSheng")) return {rate:B.ZERO,keys:[]};
-    const rate = B.BN(WIS.Meta.Treasures.count(state,"originImprint"));
-    return {rate,keys:B.gt(rate,0) ? WIS.Core.Runtime.withState(state,()=>shengKeys.filter(key => WIS.Meta.TreasureProgress.qualification(state,key) === null)) : []};
+    const A=WIS.Core.Amount,full=A?.enabled()?WIS.Meta.Treasures.quantity(state,'originImprint'):null,rate=full?A.project(full):B.BN(WIS.Meta.Treasures.count(state,'originImprint'));
+    return {rate,...(full?{quantityRate:full}:{}),keys:B.gt(rate,0) ? WIS.Core.Runtime.withState(state,()=>shengKeys.filter(key => WIS.Meta.TreasureProgress.qualification(state,key) === null)) : []};
   }
   function awardSheng(state, seconds, frozen = captureSheng(state)) {
     WIS.Core.Runtime.assertMutable();
     if (!Number.isFinite(seconds) || seconds < 0 || !B.isFiniteBN(frozen.rate) || B.lt(frozen.rate,0)) throw Error("空玄·生结算无效");
     if (!(seconds > 0) || !B.gt(frozen.rate,0) || !frozen.keys.length) return;
+    if(WIS.Core.Amount?.enabled()){
+      const A=WIS.Core.Amount,F=WIS.Core.FiniteProgress,rate=A.from(frozen.quantityRate??frozen.rate),gain=A.scale(rate,seconds);
+      if(!B.eq(A.project(rate),frozen.rate))throw Error('Sheng frozen rate projection mismatch');
+      return WIS.Meta.TreasureLedger.transaction(state,()=>transaction(state,n=>{
+        // The gain is fixed for this invocation. Canonical Amount identity
+        // includes every prior low word; only equal full inputs share work.
+        const completed=new Map();let emptyPoint=null;
+        for(const key of frozen.keys){if(!shengKeys.includes(key))throw Error('Unknown Sheng reward');
+          const point=n.shengProgress[key]||(emptyPoint ||= F.create(1)),prior=F.quantity(point);
+          let result=completed.get(prior);
+          if(!result){const total=A.add(prior,gain),whole=WIS.Meta.BigNumbers.rankQuantity(A.floor(total));result={whole,fraction:A.subtract(total,whole),point:null};}
+          if(A.compare(result.whole,0)>0)WIS.Meta.Treasures.add(state,key,result.whole,{applyAwardMultiplier:false});
+          const next=result.point||F.create(1,result.fraction);n.shengProgress[key]=next;
+          // Only internally confirmed immutable points can be shared. Other
+          // representations keep the original per-field construction path.
+          if(F.isCanonical?.(next))result.point=next;
+          if(completed.size<shengKeys.length)completed.set(prior,result);
+        }
+      }));
+    }
     const gain = B.mul(frozen.rate,seconds), F = WIS.Core.FiniteProgress, ledger = L();
     if (!B.isFiniteBN(gain)) throw Error("空玄·生收益无法表示");
     // Frozen source eligibility is deliberately not read again after natural
     // loot. Each treasure owns its fractional remainder, including across saves.
-    return L().transaction(state,()=>transaction(state,n=>{
+    return WIS.Meta.TreasureLedger.transaction(state,()=>transaction(state,n=>{
       for (const key of frozen.keys) {
         if (!shengKeys.includes(key)) throw Error("空玄·生宝物来源无效");
         const point = n.shengProgress[key] || F.create(1);
@@ -344,9 +391,9 @@
   function rawRates(state) {
     let xianForce = B.ZERO, yuanForce = B.ZERO;
     if (!has(state, "xianForce") && !has(state, "yuanForce")) return { xianForce, yuanForce, ...thirdStepRates(state) };
-    const x = amount(state, "xianForce");
+    const x = fullAmount(state, "xianForce");
     if (has(state, "xianForce")) {
-      xianForce = B.mul("2e4", B.add(1, B.log10(B.add(1, B.div(state.immortalPower, "1e40")))));
+      xianForce = B.mul("2e4", B.add(1, logOnePlusRatio(WIS.Core.Amount?.enabled()?WIS.Core.Resources.readExact('cultivation.immortal.immortalPower',state):state.immortalPower,"1e40")));
       if (has(state, "materialSpirit")) xianForce = B.mul(xianForce, abilityMultiplier(state, "materialSpirit"));
       if (has(state, "rules")) xianForce = B.mul(xianForce, abilityMultiplier(state, "rules"));
     }
@@ -359,95 +406,57 @@
     return { xianForce:applyDaoWuYa(state,B.mul(xianForce,achievement)), yuanForce:applyDaoWuYa(state,B.mul(B.mul(yuanForce,achievement),yuanCrystalMultiplier(state))), ...thirdStepRates(state) };
   }
   function rates(state) {
-    const raw = rawRates(state);
+    const raw = rawRates(state),A=WIS.Core.Amount,penalized=key=>A?.enabled()?A.project(WIS.Core.Penalties.applyGoogolPenalty(key,fullAmount(state,key),A.from(raw[key]),state)):WIS.Core.Penalties.applyGoogolPenalty(key,amount(state,key),raw[key],state);
     return {
-      xianForce: WIS.Core.Penalties.applyGoogolPenalty("xianForce", amount(state, "xianForce"), raw.xianForce, state),
-      yuanForce: WIS.Core.Penalties.applyGoogolPenalty("yuanForce", amount(state, "yuanForce"), raw.yuanForce, state),
-      nieForce:raw.nieForce, universeCoefficient:finalUniverseRate(raw.universeCoefficient,amount(state,"universeCoefficient"),universeGainMultiplier(state)), multiverseCoefficient:finalUniverseRate(raw.multiverseCoefficient,amount(state,"multiverseCoefficient"))
+      xianForce:penalized('xianForce'),yuanForce:penalized('yuanForce'),
+      nieForce:raw.nieForce, universeCoefficient:finalUniverseRate(raw.universeCoefficient,fullAmount(state,"universeCoefficient"),universeGainMultiplier(state)), multiverseCoefficient:finalUniverseRate(raw.multiverseCoefficient,fullAmount(state,"multiverseCoefficient"))
     };
   }
-  function intervalSupport(state) {
-    if (thirdStepActive(state)) return { supported:false, code:"third-step-coupled-sources" };
-    if (!has(state, "xianForce") && !has(state, "yuanForce")) return { supported: true, code: "no-xiuzhen-source" };
-    // Existing one-way interval models do not represent stock-dependent Googol feedback.
-    if (resourceKeys.some(key => has(state, key) && B.gte(amount(state, key), WIS.Core.Config.googolPenalty.threshold)))
-      return { supported: false, code: "xiuzhen-googol-feedback" };
-    const feedback = ["materialSpirit", "crystal", "worldAura", "rules", "divineArt"].filter(k => has(state,k));
-    if (feedback.length) return { supported: false, code: "xiuzhen-feedback", feedback };
-    // The source chain reads IP, X and Y only. With IP production disabled,
-    // X has no continuous dependency; its original .1s word can be counted.
-    // The interval planner still guards every purchase, realm and reward.
-    const stableXian = !WIS.Cultivation.ImmortalLogic.immortalPowerUnlocked();
-    const x=amount(state,"xianForce"), bounded=B.isFiniteBN(x)&&B.gte(x,0)&&B.lte(x,"1e12");
-    // Body is admitted only with a proved constant X word. J, power and mana
-    // remain coupled model columns, checked at the middle and endpoint.
-    if(has(state,"body")&&(!stableXian||!bounded))return {supported:false,code:"xiuzhen-body-domain",stableXian};
-    const discreteYuan=stableXian&&bounded&&has(state,"yuanForce");
-    return { supported: true, stableXian, discreteYuan, maxFrames:65536,
-      code:has(state,"body")?"xiuzhen-stable-xian-body":discreteYuan?"xiuzhen-discrete-yuan":has(state,"yuanForce")?"xiuzhen-one-way":stableXian?"xiuzhen-stable-xian":"xiuzhen-ip-to-xian" };
-  }
-  function discreteYuanModel(state, term) {
-    const support=intervalSupport(state), maxFrames=65536;
-    if(!support.discreteYuan)return null;
-    if(!B.isFiniteBN(term)||B.lt(term,0))throw Error("invalid-xian-repeat");
-    const initial=words(get(state).resources.xianForce), cache=new Map(), sums=new Map();
-    const multiplier=B.mul(yuanCrystalMultiplier(state),immortalAchievementMultiplier(state));
-    const diagnostics={evaluations:0,blocks:0,maxRelativeBound:0};
-    function at(n) {
-      if(!Number.isSafeInteger(n)||n<1||n>maxFrames+1)throw Error("discrete-yuan-index");
-      if(cache.has(n))return cache.get(n);
-      // n=1 reads the confirmed start balance. Income from that frame is
-      // visible only to n=2. Count ledger words, including signed residuals.
-      const x=L().value(n===1?initial:L().add(initial,[`${term}*${n-1}`]));
-      if(!B.isFiniteBN(x)||B.lt(x,0)||B.gt(x,"1e12"))throw Error("discrete-yuan-domain");
-      const value=B.mul(B.mul(yuanFromXian(x),multiplier),.1);diagnostics.evaluations++;cache.set(n,value);return value;
-    }
-    function bounds(a,b) {
-      const count=b-a+1;
-      if(count<=2){const value=count===1?at(a):B.add(at(a),at(b));return [value,value];}
-      // For this concave sequence, the chord bounds the discrete sum below;
-      // its middle point (or middle pair) bounds it above. No continuous-time
-      // integral or final-stock rate substitutes for the original recurrence.
-      const lo=B.mul(B.add(at(a),at(b)),count/2),mid=Math.floor((a+b)/2);
-      const hi=count%2?B.mul(at(mid),count):B.mul(B.add(at(mid),at(mid+1)),count/2);
-      if(B.gt(lo,B.mul(hi,1+1e-12)))throw Error("discrete-yuan-concavity");
-      const gap=B.toNumber(B.div(B.abs(B.sub(hi,lo)),B.max(lo,"1e-300")),Infinity);
-      if(gap>2e-5){const left=bounds(a,mid),right=bounds(mid+1,b);return [B.add(left[0],right[0]),B.add(left[1],right[1])];}
-      diagnostics.blocks++;return [B.mul(lo,1-1e-12),B.mul(hi,1+1e-12)];
-    }
-    function sum(n) {
-      if(!Number.isSafeInteger(n)||n<0||n>maxFrames)throw Error("discrete-yuan-span");
-      if(!n)return B.ZERO;if(sums.has(n))return sums.get(n);
-      const [lo,hi]=bounds(1,n),value=B.div(B.add(lo,hi),2);
-      diagnostics.maxRelativeBound=Math.max(diagnostics.maxRelativeBound,B.toNumber(B.div(B.sub(hi,lo),value),Infinity));
-      sums.set(n,value);return value;
-    }
-    return {kind:"discrete-yuan",at,sum,diagnostics,maxFrames};
-  }
+  function intervalSupport(){return WIS.Simulation.LegacySettlementCheckpoints.retired();}
+  function discreteYuanModel(){return WIS.Simulation.LegacySettlementCheckpoints.retired();}
   function plan(state, seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) throw Error("修真道结算时长无效");
-    const r = rates(state);
-    return Object.fromEntries(resourceKeys.map(k => [k, B.mul(r[k], seconds * WIS.Simulation.Compensation.factor())]));
+    const r = rates(state),factor=WIS.Simulation.Compensation.factor();
+    if(WIS.Core.Amount?.enabled()){
+      const A=WIS.Core.Amount,duration=A.scale(seconds,factor),quantities=Object.fromEntries(resourceKeys.map(k=>[k,A.multiply(r[k],duration)]));
+      return {...Object.fromEntries(resourceKeys.map(k=>[k,A.project(quantities[k])])),quantities};
+    }
+    return Object.fromEntries(resourceKeys.map(k => [k, B.mul(r[k], seconds * factor)]));
   }
-  function prepare(state, gains) {
-    if (gains && resourceKeys.some(k => !B.isFiniteBN(gains[k] ?? 0) || B.lt(gains[k] ?? 0, 0)))
-      throw Error("修真道新增收益无效，未提交");
-    if (!gains || resourceKeys.every(k => B.eq(gains[k] ?? 0, 0))) return get(state);
-    const n = normalize(get(state));
-      for (const k of resourceKeys) {
+  function prepareResource(e,k,gains){
         const gain = gains[k] ?? B.ZERO;
         if (!B.isFiniteBN(gain) || B.lt(gain, 0)) throw Error("修真道新增收益无效，未提交");
-        let income = [gain];
+        let income = WIS.Core.Amount?.enabled()&&gains.quantities?.[k]?WIS.Core.Amount.words(gains.quantities[k]):[gain];
         const repeat = gains.repeat?.[k];
         if (repeat) {
           if (!Number.isSafeInteger(repeat.count) || repeat.count < 1 || !B.isFiniteBN(repeat.term) || B.lt(repeat.term,0) ||
               !B.eq(B.mul(repeat.term,repeat.count),gain)) throw Error("修真道重复收益计划无效，未提交");
           income = [`${repeat.term}*${repeat.count}`];
         }
-        const e = n.resources[k]; write(e, L().add(words(e), income));
-        write(e, L().add(words(e, "total"), income), "total"); e.peak = B.max(e.peak, e.amount);
-      }
-    return n;
+        write(e, L().add(words(e), income));
+        write(e, L().add(words(e, "total"), income), "total"); if(WIS.Core.Amount?.enabled()){const A=WIS.Core.Amount;if(A.compare(A.field(e),A.field(e,"peak"))>0)Object.assign(e,A.boundedFieldParts(A.field(e),"peak"));}else e.peak = B.max(e.peak, e.amount);
+    return e;
+  }
+  function prepare(state, gains) {
+    if (gains && resourceKeys.some(k => !B.isFiniteBN(gains[k] ?? 0) || B.lt(gains[k] ?? 0, 0)))
+      throw Error("修真道新增收益无效，未提交");
+    if (!gains || resourceKeys.every(k => B.eq(gains[k] ?? 0, 0))) return get(state);
+    const draft=WIS.Core.Amount?.enabled()?WIS.Core.State.createDraft(state):null,n=draft?get(draft.state):normalize(get(state));
+      for (const k of resourceKeys) prepareResource(n.resources[k],k,gains);
+    return draft?draft.finishValue(n):n;
+  }
+  function prepareOperation(state,gains){
+    const perform=()=>prepare(state,gains);if(!WIS.Core.Amount?.enabled()||!gains)return perform;
+    const Q=WIS.Core.Resources,C=WIS.Core.CertifiedRankMath,original=get(state),owner=state.cultivation.systems.immortal,source=owner.xiuzhen,resourceOwner=original.resources,quantityOwner=gains.quantities,repeatOwner=gains.repeat;
+    const gainCurrent=Q.numericInputCurrent(gains,resourceKeys),quantities=resourceKeys.map(k=>quantityOwner?.[k]),quantityChecks=quantities.map(value=>Q.quantityInputCurrent(value)),entries=resourceKeys.map(k=>original.resources[k]),entryChecks=entries.map(e=>Q.numericInputCurrent(e,['amount','residual','total','totalResidual','peak','peakResidual'])),repeats=resourceKeys.map(k=>repeatOwner?.[k]),repeatChecks=repeats.map(row=>row?Q.numericInputCurrent(row,['term','count']):()=>true);
+    const current=()=>state.cultivation.systems.immortal===owner&&owner.xiuzhen===source&&original.resources===resourceOwner&&gains.quantities===quantityOwner&&gains.repeat===repeatOwner&&gainCurrent()&&resourceKeys.every((k,i)=>original.resources[k]===entries[i]&&entryChecks[i]()&&quantityOwner?.[k]===quantities[i]&&quantityChecks[i]()&&repeatOwner?.[k]===repeats[i]&&repeatChecks[i]());
+    return Q.privateOperation(state,perform,()=>C.task('xiuzhen-resource-preparation',function*(){
+      if(resourceKeys.some(k=>!B.isFiniteBN(gains[k]??0)||B.lt(gains[k]??0,0)))throw Error('修真道新增收益无效，未提交');
+      if(resourceKeys.every(k=>B.eq(gains[k]??0,0)))return original;
+      const resources={...original.resources};
+      for(const k of resourceKeys)resources[k]=yield ()=>prepareResource({...original.resources[k]},k,gains);
+      return {...original,resources};
+    }),result=>result,current);
   }
   function commit(state, gains) {
     const n = prepare(state, gains);
@@ -503,8 +512,8 @@
     if (profile === "scatter") return; // same lower-tier retention as other retained abilities
     const old = get(previous), n = fresh();
     n.history = normalize(old).history; n.highestRealm = old.highestRealm; n.lifetimeHighestRealm = lifetimeRealmLevel(old);
-    for (const key of resourceKeys) for (const field of ["total", "totalResidual", "spent", "spentResidual", "peak"])
-      n.resources[key][field] = Array.isArray(old.resources[key][field]) ? old.resources[key][field].slice() : old.resources[key][field];
+    for (const key of resourceKeys) for (const field of ["total", "totalResidual", "spent", "spentResidual", "peak",...(WIS.Core.Amount?.enabled()?["peakResidual"]:[])])
+      n.resources[key][field] = Array.isArray(old.resources[key][field]) ? old.resources[key][field].slice() : old.resources[key][field]??(field==='peakResidual'?[]:B.ZERO);
     n.manaSpent = old.manaSpent; n.manaSpentResidual = old.manaSpentResidual.slice();
     if (challengeKey === "yinVoidYangReal" && old.abilities.yuanForce) n.abilities.yuanForce = true;
     state.cultivation.systems.immortal.xiuzhen = n;
@@ -535,11 +544,11 @@
     if (next?.run()) changes = 1 + automation(state, kind);
     return changes;
   }
-  WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, statisticsRealmName, unlocked, available, active,
-    sealed, qiPathSealed, yinYang, has, amount, words, availableWords, canSpend, canBreakthrough, breakthrough,
-    canBuy, buy, fifthStepActive, highMultiverseRawRate, fourthStepActive, daoWuYaExponent, applyDaoWuYa, multiverseRate, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, commit, effects, abilityView, softcapRemoved, reset, automation,
+  WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, statisticsRealmName, statisticsScaleName, unlocked, available, active,
+    sealed, qiPathSealed, yinYang, has, amount, quantity,words, availableWords, canSpend, canBreakthrough, breakthrough,
+    canBuy, buy, fifthStepActive, highMultiverseRawRate, fourthStepActive, daoWuYaExponent, applyDaoWuYa, multiverseRate, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, prepareOperation, commit, effects, abilityView, softcapRemoved, reset, automation,
     universeGainMultiplier,
-    universeStockMultiplier(state,key) { return B.div(1,universeStockDecay(amount(state,key))); },
+    universeStockMultiplier(state,key) { return B.div(1,universeStockDecay(fullAmount(state,key))); },
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },
     spendResource(state, key, cost) { return transaction(state, () => debit(state, key, cost)); } });
 }(window.WIS));

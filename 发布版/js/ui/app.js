@@ -80,7 +80,7 @@
     const canAffordMana = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "mana", cost);
     const canAffordImmortalPower = (cost) => WIS.Core.Resources.canAffordSystem("immortal", "immortalPower", cost);
     
-    const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, achievementStates, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent: formatSoftcapExponentWith, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt, beginImportTransaction, commitImportTransaction, rollbackImportTransaction, captureForegroundTime } = context;
+    const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent: formatSoftcapExponentWith, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt, beginImportTransaction, commitImportTransaction, rollbackImportTransaction, captureForegroundTime } = context;
   const CONFIG = WIS.Core.Config;
   const BUILD = WIS.Core.Build;
   const formatSmallMultiplier = WIS.UI.Format.smallMultiplier;
@@ -293,6 +293,8 @@
     const structuralPages = new Set(PAGE_NAMES);
     let structureKey = "", structureRevision = 0, renderingStructure = false;
     const heavyPreviewCache = new WeakMap();
+    const sourcePreviewWorks = new Map();
+    let sourcePreviewAttempts = new WeakMap();
     const HEAVY_PREVIEW_REFRESH_MS = 1000;
     const dirtyCostGroupPages = new Set(["upgrades", "cultivation"]);
     let achievementsDirty = true;
@@ -968,7 +970,7 @@
     byId("save-failure-message").textContent=status.message;
   }
 
-  function exportSave() {
+  function captureExportText() {
     // Export captures the current foreground watermark but never forces online
     // settlement; the pending ordered time ledger travels with the snapshot.
     const capturedAt = Date.now();
@@ -976,7 +978,19 @@
     const snapshot = WIS.Core.State.cloneForSimulation(state);
     snapshot.lastUpdateAt = capturedAt;
     const payload = WIS.Core.Save.envelope(snapshot);
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    return JSON.stringify(payload, null, 2);
+  }
+
+  function exportSave() {
+    const text = captureExportText();
+    if (WIS.UI.NativePlatform?.isNative()) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      void WIS.UI.NativePlatform.exportText(text, `WIS-存档-${timestamp}.json`)
+        .then(() => safeOperationNotice("已打开存档分享，请确认已保存备份。"))
+        .catch(error => { WIS.Core.Save.diagnose("export", error); safeOperationNotice("存档分享失败：" + error.message + "。请保留页面并重试。"); });
+      return;
+    }
+    const blob = new Blob([text], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -1130,7 +1144,10 @@
       }
       timer.step("parse");
       stage = "prepare";
-      const prepared = WIS.Core.Save.prepare(parsed);
+      const work=WIS.Core.Save.prepareWork(parsed,{isCurrent:()=>importTransaction===transaction&&!transaction.committed});
+      let prepared;
+      try{while(!work.advance({maximumOperations:512,deadline:performance.now()+3}).done)await new Promise(resolve=>window.setTimeout(resolve,0));prepared=work.result();}
+      finally{work.cancel();}
       timer.step("prepare");
       stage = "install";
       // Validation and migration have no access to the current task queue.
@@ -1153,7 +1170,6 @@
       markAchievementsDirty();
       markGlobalDirty();
       markPagesDirty();
-      const previousAchievements = achievementStates();
       timer.step("install");
       // The installed state now owns its unsettled time. Registering the
       // recovery task and the foreground gate has to happen in this same
@@ -1200,7 +1216,7 @@
       showNotice(!pending ? "存档已导入"
         : paused ? "存档已读取，离线结算保留为暂停状态，可在离线窗口重试"
         : "存档已读取，正在恢复离线进度", pending ? 6000 : 1400);
-      if (!paused) notifyNewAchievements(previousAchievements);
+      if (!paused) notifyNewAchievements();
       timer.step("present");
       timer.finish();
     } catch (error) {
@@ -1821,15 +1837,15 @@
     const bigVisible = big.unlocked || (requirements.cosmic && requirements.achievement);
     setHiddenIfChanged(byId("big-number-resource"), !bigVisible);
     if (bigVisible) {
-      const v = M.view(state), order = v.dominantOrder;
+      const v = M.headerSummary(state);
       const f = value => gtBN(value, ZERO) && !gteBN(value, 0.001)
         ? WIS.UI.Format.scientificMultiplier(value) : format(value, 2);
-      const rankText = value => typeof value === "number" && Number.isSafeInteger(value) ? String(value) : WIS.UI.Format.number(value, 0);
-      setTextIfChanged(byId("big-number-dominant"), gteBN(v.tree.rank, 3) ? `TREE(${rankText(v.tree.rank)})` : gtBN(v.gIndex, ZERO)
-        ? `G${rankText(v.gIndex)}` : `${f(v.amounts[order])} ${v.symbols[order]}`);
-      setTextIfChanged(byId("big-number-rate"), gteBN(v.tree.rank, 3) ? "当前 TREE 层级已完成" : gtBN(v.gIndex, ZERO)
+      const rankText = WIS.UI.Format.rank;
+      setTextIfChanged(byId("big-number-dominant"), v.phase === 'tree' ? `TREE(${rankText(v.treeRank)})` : v.phase === 'g'
+        ? `G${rankText(v.gIndex)}` : `${f(v.amount)} ${v.symbol}`);
+      setTextIfChanged(byId("big-number-rate"), v.phase === 'tree' ? "当前 TREE 层级已完成" : v.phase === 'g'
         ? `超分形 ${f(v.progress)}% · +${f(v.speed)}%/秒`
-        : `（+${f(v.rates[order])}/秒）`);
+        : `（+${f(v.rate)}/秒）`);
     }
     const n = X.get(state), active = immortalCultivationActive() && X.available(state);
     const status=getCatchUpStatus();
@@ -1909,8 +1925,38 @@
   }
 
   // Local presentation snapshots only. Never used by explore()/settlement.
+  // Only automatic presentation work backs off. First/explicit requests keep
+  // their normal paint, retry and continuation contract; no ledger is written.
+  function previewBacklogActive() {
+    let pending = 0;
+    for (const part of runtime.getState().core?.runtime?.timeLedger?.pendingContinuousTime || []) {
+      pending += Math.max(0, Number(part.clock) || 0);
+      if (pending >= 0.15) return true;
+    }
+    return false;
+  }
+  function previewRefreshDelay(urgent = false) {
+    return !urgent && previewBacklogActive() ? 5000 : 1000;
+  }
+  function previewContinuationDelay(urgent = false) {
+    return !urgent && previewBacklogActive() ? 100 : 16;
+  }
+  let previewBacklogSeen = false;
+  function syncPreviewBacklog() {
+    const active = previewBacklogActive();
+    if (previewBacklogSeen && !active) {
+      // Retain displayed values, but request one final fresh snapshot as soon
+      // as online debt leaves the throttled range (also covers an empty queue).
+      markExplorationPreviewDirty();
+      const training = heavyPreviewCache.get(rawById('conversion-preview'));
+      if (training) training.at = -Infinity;
+      dirtyPages.add(activePage);
+    }
+    previewBacklogSeen = active;
+  }
   const explorationPreviews = new Map();
   const explorationPreviewWorks = new Map();
+  const explorationPreviewAttempts = new Map();
   let explorationPreviewGeneration = 0;
   let explorationPreviewRefreshPending = false;
   const firstExplorationPreviewPending = new Set();
@@ -1928,7 +1974,7 @@
       // Read the current state only now. No captured values/Evaluation survive
       // this scheduling boundary, so load replacement cannot publish old data.
       firstExplorationPreviewReady = key;
-      try { runtime.call("renderImmediately", activePage); }
+      try { publishPreview({urgent:true}); }
       finally { firstExplorationPreviewReady = null; }
     });
   }
@@ -1945,34 +1991,61 @@
     "daoAssimilationUnlocked", "daoDomainUnlocked", "immortalApertureLevel", "lawUnlocked"
   ];
   let explorationStructureState = null, explorationStructureKey = null;
-  function markExplorationPreviewDirty() {
-    cancelExplorationPreviewWorks();
+  function markExplorationPreviewDirty(resetRetry = true) {
+    cancelExplorationPreviewWorks(resetRetry);
     for (const snapshot of explorationPreviews.values()) snapshot.dirty = true;
   }
-  function cancelExplorationPreviewWorks() {
+  function cancelExplorationPreviewWorks(resetRetry = true) {
+    cancelSourcePreviewWorks(resetRetry);
+    if(resetRetry)explorationPreviewAttempts.clear();
     explorationPreviewGeneration++;
-    for(const entry of explorationPreviewWorks.values())entry.scope.cancel();
+    for(const entry of explorationPreviewWorks.values()){entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();}
     explorationPreviewWorks.clear();
   }
+  function publishPreview({urgent = false} = {}) {
+    // A new preview changes text, not page structure. A structural request
+    // would invalidate the cache revision it has just published.
+    runtime.call(!urgent && previewBacklogActive() ? 'render' : 'renderImmediately',WIS.Core.Amount?.enabled()?undefined:activePage);
+  }
   function startExplorationPreviewWork(key,element) {
+    const last=explorationPreviewAttempts.get(key);
+    const urgent=!explorationPreviews.has(key)||!last||last.urgent===true;
+    if(WIS.Core.Amount?.enabled())explorationPreviewAttempts.set(key,{at:performance.now(),urgent});
     const original=runtime.getState(),snapshot=WIS.Core.State.cloneForSimulation(original);
-    const entry={original,snapshot,generation:explorationPreviewGeneration,scope:WIS.Power.ScaleLogic.createDeferredDynamicRateScope(),startedAt:Date.now()};
+    const entry={original,snapshot,urgent,retry:explorationPreviewAttempts.get(key),generation:explorationPreviewGeneration,scope:WIS.Power.ScaleLogic.createDeferredDynamicRateScope(),startedAt:Date.now()};
     explorationPreviewWorks.set(key,entry);
-    const cancel=()=>{entry.scope.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
+    if(key==='breathing'&&WIS.Core.Amount?.enabled()){entry.detailEffects=WIS.Core.Effects.createFrozenScope(snapshot);entry.detailWork=WIS.Core.CertifiedRankMath.createWork(()=>runtime.withState(snapshot,()=>entry.detailEffects.run(()=>joulesForNextBaseMana())));}
+    const cancel=()=>{entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
+    const current=()=>explorationPreviewWorks.get(key)===entry&&entry.generation===explorationPreviewGeneration&&runtime.getState()===original&&!document.hidden&&previewVisible(element)&&!explorationHoldActive&&!context.isDeferredActionPending?.();
+    const calculate=()=>{
+      const valueQuery=()=>key==='breathing'?{mana:Immortal.breathingManaGainProgressive(),...(entry.detailWork?{nextManaJ:entry.detailWork.result()}: {})}:explorationPreviewValues({includeFinal:key==='action'});
+      const C=WIS.Core.CertifiedRankMath,whole=WIS.Core.Amount?.enabled();
+      const value=whole?C.task('action-preview-value',function*(){return yield valueQuery;}):valueQuery();
+      const recordsQuery=()=>key==='breathing'?WIS.UI.SourcePreview.query(['breathing'],snapshot,{actionFinals:{breathing:value.mana}}):key==='action'?WIS.UI.SourcePreview.query(['exploration'],snapshot,{actionFinals:{exploration:value.mana}}):null;
+      const records=whole?C.task('action-preview-records',function*(){return yield recordsQuery;}):recordsQuery();
+      return {value,records,calculatedAt:entry.startedAt,dirty:false};
+    };
+    if(WIS.Core.Amount?.enabled()){
+      entry.previewEffects=WIS.Core.Effects.createFrozenScope(snapshot);
+      entry.previewWork=WIS.Core.CertifiedRankMath.createWork(()=>entry.previewEffects.run(()=>runtime.withEvaluationState(snapshot,()=>{
+        const attempt=entry.scope.attempt(calculate);if(!attempt.done)throw Error('协作预览缺少已完成的积分子任务');return attempt.value;
+      })),{isCurrent:current});
+    }
     const run=()=>{
-      if(explorationPreviewWorks.get(key)!==entry||entry.generation!==explorationPreviewGeneration||
-        runtime.getState()!==original||document.hidden||!previewVisible(element)||explorationHoldActive||context.isDeferredActionPending?.()){cancel();return;}
+      if(!current()){cancel();if(WIS.Core.Amount?.enabled())window.setTimeout(()=>{if(explorationPreviewAttempts.get(key)===entry.retry&&!document.hidden&&previewVisible(element))publishPreview({urgent:entry.urgent});},previewRefreshDelay(entry.urgent));return;}
       try {
+        if(entry.detailWork){const detail=entry.detailWork.advance({deadline:performance.now()+3,maximumOperations:256});if(!detail.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}}
+        if(entry.previewWork){
+          const next=entry.previewWork.advance({deadline:performance.now()+3,maximumOperations:256});
+          if(!next.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}
+          const value={...entry.previewWork.result(),sampledAt:entry.startedAt,calculatedAt:Date.now()};explorationPreviews.set(key,value);if(entry.retry)entry.retry.urgent=false;cancel();publishPreview({urgent:entry.urgent});return;
+        }
         const progress=entry.scope.advance(performance.now()+3);
         if(!progress.done){window.setTimeout(run,0);return;}
-        const attempt=entry.scope.attempt(()=>runtime.withState(snapshot,()=>{
-          const value=key==='breathing'?{mana:Immortal.breathingManaGainProgressive()}:explorationPreviewValues({includeFinal:key==='action'});
-          const records=key==='breathing'?WIS.UI.SourcePreview.query(['breathing'],snapshot,{actionFinals:{breathing:value.mana}}):key==='action'?WIS.UI.SourcePreview.query(['exploration'],snapshot,{actionFinals:{exploration:value.mana}}):null;
-          return {value,records,calculatedAt:entry.startedAt,dirty:false};
-        }));
+        const attempt=entry.scope.attempt(()=>runtime.withState(snapshot,calculate));
         if(!attempt.done){window.setTimeout(run,0);return;}
-        explorationPreviews.set(key,attempt.value);cancel();runtime.call('renderImmediately',activePage);
-      }catch(error){cancel();explorationPreviews.set(key,{error:error.message,records:null,calculatedAt:entry.startedAt,dirty:false});runtime.call('renderImmediately',activePage);}
+        explorationPreviews.set(key,attempt.value);cancel();publishPreview({urgent:entry.urgent});
+      }catch(error){cancel();explorationPreviews.set(key,{error:error.message,records:null,calculatedAt:WIS.Core.Amount?.enabled()?Date.now():entry.startedAt,dirty:false});if(entry.retry)entry.retry.urgent=false;publishPreview({urgent:entry.urgent});}
     };
     // Even cheap previews start in another host task. Long integrations yield
     // inside their work and never retain an Evaluation across callbacks.
@@ -1988,8 +2061,11 @@
       current.unlockedAchievements.seizeFoundation, current.unlockedAchievements.greatLuo,
       ...Object.values(current.challengeCompletions || {})].join("|");
     if (current !== explorationStructureState || key !== explorationStructureKey) {
+      const resetRetry=!WIS.Core.Amount?.enabled()||key!==explorationStructureKey;
       explorationStructureState = current; explorationStructureKey = key;
-      markExplorationPreviewDirty();
+      // Every new root still retires old work. Only explicit/discrete changes
+      // reset the retry interval; ordinary commits must not restart it per frame.
+      markExplorationPreviewDirty(resetRetry);
     }
   }
   function explorationPreviewSnapshot(key, element) {
@@ -1998,7 +2074,7 @@
     // The formal action still settles exactly; only its presentation is merged.
     if (explorationHoldActive || context.isDeferredActionPending?.()) return null;
     let snapshot = explorationPreviews.get(key);
-    if(key==="breathing"&&snapshot&&Date.now()-snapshot.calculatedAt>=(snapshot.error?5000:1000))snapshot.dirty=true;
+    if(key==="breathing"&&snapshot&&Date.now()-snapshot.calculatedAt>=(snapshot.error?5000:previewRefreshDelay()))snapshot.dirty=true;
     if(explorationPreviewWorks.has(key))return snapshot||null;
     if (explorationPreviewRefreshPending) return snapshot || null;
     if (!snapshot && firstExplorationPreviewReady !== key) {
@@ -2006,6 +2082,8 @@
       return null;
     }
     if (!snapshot || snapshot.dirty) {
+      const last=explorationPreviewAttempts.get(key),elapsed=performance.now()-last?.at;
+      if(WIS.Core.Amount?.enabled()&&last!==undefined&&elapsed>=0&&elapsed<previewRefreshDelay(last.urgent))return snapshot||null;
       startExplorationPreviewWork(key,element);
     }
     return snapshot;
@@ -2017,7 +2095,7 @@
     explorationPreviewRefreshPending = true;
     afterExplorationPreviewPaint(() => {
       explorationPreviewRefreshPending = false;
-      if (!document.hidden && previewVisible(element)) runtime.call("renderImmediately", activePage);
+      if (!document.hidden && previewVisible(element)) publishPreview({urgent:true});
     });
   }
 
@@ -2071,12 +2149,42 @@
     setTextIfChanged(element, compute());
     rememberPreview(element);
   }
+  function cancelSourcePreviewWorks(resetRetry = true) {
+    if(resetRetry)sourcePreviewAttempts=new WeakMap();
+    for(const entry of sourcePreviewWorks.values()){entry.work?.cancel();entry.effects?.cancel();}sourcePreviewWorks.clear();
+  }
+  function scheduleTrainingPreview(element,sourceIds,options) {
+    if(sourcePreviewWorks.has(element))return;
+    const last=sourcePreviewAttempts.get(element),elapsed=performance.now()-last?.at;
+    if(last!==undefined&&elapsed>=0&&elapsed<previewRefreshDelay(last.urgent))return;
+    const urgent=!heavyPreviewCache.has(element)||!last||last.urgent===true;
+    const retry={at:performance.now(),urgent};sourcePreviewAttempts.set(element,retry);
+    const original=runtime.getState(),revision=structureRevision,entry={original,revision,urgent,work:null,effects:null};sourcePreviewWorks.set(element,entry);
+    if(!heavyPreviewCache.has(element))setTextIfChanged(element,'正在计算收益…');
+    const current=()=>sourcePreviewWorks.get(element)===entry&&runtime.getState()===original&&structureRevision===revision&&!document.hidden&&!importTransaction&&previewVisible(element);
+    const cancel=()=>{entry.work?.cancel();entry.effects?.cancel();if(sourcePreviewWorks.get(element)===entry)sourcePreviewWorks.delete(element);};
+    const run=()=>{
+      if(!current()){cancel();window.setTimeout(()=>{if(sourcePreviewAttempts.get(element)===retry&&!document.hidden&&!importTransaction&&previewVisible(element))publishPreview({urgent:entry.urgent});},previewRefreshDelay(entry.urgent));return;}
+      try{
+        if(!entry.work){const snapshot=WIS.Core.State.cloneForSimulation(original);entry.effects=WIS.Core.Effects.createFrozenScope(snapshot);entry.work=WIS.Core.CertifiedRankMath.createWork(()=>runtime.withState(snapshot,()=>entry.effects.run(()=>{const C=WIS.Core.CertifiedRankMath,records=C.task('training-source-records',function*(){return yield ()=>WIS.UI.SourcePreview.query(Array.isArray(sourceIds)?sourceIds:[sourceIds],snapshot,options);}),nextPowerJ=C.task('training-next-power-cost',function*(){return yield ()=>joulesForNextBasePower();});return {records,nextPowerJ};})),{isCurrent:current});}
+        const next=entry.work.advance({deadline:performance.now()+3,maximumOperations:256});
+        if(!next.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}
+        const {records,nextPowerJ}=entry.work.result();if(!current()){cancel();return;}
+        setTextIfChanged(element,WIS.UI.SourcePreview.text(records,format));rememberPreview(element,records);heavyPreviewCache.get(element).nextPowerJ=nextPowerJ;retry.urgent=false;cancel();publishPreview({urgent:entry.urgent});
+      }catch(error){if(current()){setTextIfChanged(element,'收益预览暂不可用：'+error.message);rememberPreview(element,[{final:ZERO}]);retry.urgent=false;}cancel();}
+    };
+    afterExplorationPreviewPaint(run);
+  }
   function writeSourcePreview(elementId, sourceIds, assumeUnlocked = false, actionFinals = null) {
     const element = byId(elementId);
     if (!previewVisible(element)) return [];
     // Presentation only: never feeds settlement or candidate evaluation.
     // Actions independently recompute their exact result when invoked.
     if (!heavyPreviewDue(element)) return heavyPreviewCache.get(element).records;
+    if(WIS.Core.Amount?.enabled()&&sourceIds==='training'){
+      scheduleTrainingPreview(element,sourceIds,{assumeUnlocked,actionFinals});
+      return heavyPreviewCache.get(element)?.records||[{final:ZERO}];
+    }
     const records = WIS.UI.SourcePreview.write(element, sourceIds, format,
       runtime.getState(), { assumeUnlocked, actionFinals });
     rememberPreview(element, records);
@@ -2108,8 +2216,8 @@
       // The latest hypothetical action preview drives its display eligibility.
       // Purchases/actions force a refresh; settlement never reads this cache.
       const conversion = writeSourcePreview("conversion-preview", "training", false)[0].final;
-      const nextPowerJ = joulesForNextBasePower();
-    setTextIfChanged(byId("next-power-j"), `下一战力所需：${format(nextPowerJ, 0)} J`);
+      const nextPowerJ = WIS.Core.Amount?.enabled()?heavyPreviewCache.get(byId("conversion-preview"))?.nextPowerJ:joulesForNextBasePower();
+    setTextIfChanged(byId("next-power-j"),nextPowerJ===undefined?"下一战力所需：计算中…":`下一战力所需：${format(nextPowerJ, 0)} J`);
     setDisabledIfChanged(byId("train-button"), ltBN(conversion, ONE));
     }
     if (renderUpgrades) {
@@ -2194,8 +2302,8 @@
     setPreviewText(byId("ghost-man-transformation-preview"), () => `${state.ghostManTransformationPurchased ? "当前：" : "解锁后："}打岩生效等级 ${state.ghostManTransformationPurchased ? effectiveRockLevel() : `${effectiveRockLevel()} + 健身实际 ${state.runningLevel}`}`);
     setPreviewText(byId("destroy-country-preview"), () => `${state.destroyCountryPurchased ? "当前：" : "解锁后："}打岩 ×1e4；打岩上限 +50`);
     setPreviewText(byId("human-ghost-transformation-preview"), () => `${state.humanGhostTransformationPurchased ? "当前：" : "解锁后："}健身生效等级 ${state.humanGhostTransformationPurchased ? effectiveFitnessLevel() : `${state.runningLevel} + 打岩实际 ${state.rockLevel}`}`);
-    setPreviewText(byId("killing-intent-substance-preview"), () => `${state.killingIntentSubstancePurchased ? "当前：" : "解锁后："}杀气提取比例 ×5`);
-    setPreviewText(byId("energy-cycle-preview"), () => `${state.energyCyclePurchased ? "当前：" : "解锁后："}鬼脑来源 ×12`);
+    setPreviewText(byId("killing-intent-substance-preview"), () => `${state.killingIntentSubstancePurchased ? "当前：" : "解锁后："}杀气提取比例 ×${format(mulBN(5,WIS.Cultivation.Martial.abilityMultiplier(state,"daoPalace")),3)}`);
+    setPreviewText(byId("energy-cycle-preview"), () => `${state.energyCyclePurchased ? "当前：" : "解锁后："}鬼脑来源 ×${format(mulBN(12,WIS.Cultivation.Martial.abilityMultiplier(state,"daoPalace")),3)}`);
     setPreviewText(byId("mountain-shatter-preview"), () => `${state.mountainShatterPurchased ? "当前：" : "解锁后："}战力区域 ^1.015`);
     setPreviewText(byId("bioenergy-preview"), () => `${state.bioenergyPurchased ? "当前：" : "解锁后："}J 区域 ×3`);
     writeSourcePreview("elementalization-preview", "elementalization", true);
@@ -2259,7 +2367,7 @@
     setPreviewText(byId("superpower-evolution-preview"), () => `${state.superpowerEvolutionPurchased ? "当前：" : "解锁后："}异能指数 1.06`);
     setPreviewText(byId("earth-split-preview"), () => `${state.earthSplitPurchased ? "当前：" : "解锁后："}崩山指数 ${(1.1 + 0.02 * Math.log10(1 + state.rockLevel / 10)).toFixed(3)}；打岩上限 +20`);
     setPreviewText(byId("mental-domain-preview"), () => `${state.mentalDomainPurchased ? "当前：" : "解锁后："}鬼脑来源倍率 ×5`);
-    setPreviewText(byId("godspeed-preview"), () => `${state.godspeedPurchased ? "当前：" : "解锁后："}音速移动指数 ${format(godspeedPotentialExponent(), 3)}；音速移动倍率 ×${format(sonicMovementMultiplierForExponent(godspeedPotentialExponent()), 2)}`);
+    setPreviewText(byId("godspeed-preview"), () => `${state.godspeedPurchased ? "当前：" : "解锁后："}音速移动指数 ${format(godspeedPotentialExponent(), 3)}；音速移动倍率 ×${format(mulBN(sonicMovementMultiplierForExponent(godspeedPotentialExponent()),WIS.Cultivation.Martial.abilityMultiplier(state,"otherShore")), 2)}`);
     setPreviewText(byId("subtle-preview"), () => `${state.subtlePurchased ? "当前：" : "解锁后："}集中来源 ^1.05`);
     setPreviewText(byId("sky-split-preview"), () => `${state.skySplitPurchased ? "当前：" : "解锁后："}鬼脑来源倍率 ×${format(skySplitPotentialMultiplier(), 2)}`);
     }
@@ -2272,8 +2380,8 @@
       const snapshot = explorationPreviewSnapshot('breathing',breathingElement);
       if(snapshot?.records)setTextIfChanged(breathingElement,WIS.UI.SourcePreview.text(snapshot.records,format));
       else setTextIfChanged(breathingElement,snapshot?.error?("收益暂无法计算："+snapshot.error):"收益计算中…");
-      const nextManaJ = joulesForNextBaseMana();
-      setTextIfChanged(byId("next-mana-j"), breathingNextBaseManaRequirementText(nextManaJ,state.joules));
+      const nextManaJ = WIS.Core.Amount?.enabled()?snapshot?.value?.nextManaJ:joulesForNextBaseMana();
+      setTextIfChanged(byId("next-mana-j"),nextManaJ===undefined?"下一档基础法力计算中…":breathingNextBaseManaRequirementText(nextManaJ,state.joules));
       // Only the completed formal action decides gain eligibility.
       setDisabledIfChanged(byId("breathing-button"),ltBN(state.joules,3000));
     }
@@ -2305,6 +2413,13 @@
       toggleClassIfChanged(martialCard, "selected", martialSelected);
       setTextIfChanged(martialButton, martialSelected ? "已选择" : cultivationSelected ? "已选择其他体系" : cultivationBlocked ? "五弊挑战中不可选择" : "选择武道");
       setDisabledIfChanged(martialButton, cultivationSelected || cultivationBlocked);
+    }
+    if(activePage==='cultivation'){
+      const I=WIS.Meta.Infinity,unlocked=I.has(state,'C7-1')||I.has(state,'C7-2'),locked=getCatchUpStatus().locked;
+      setHiddenIfChanged(byId('cultivation-management'),!unlocked||!cultivationSelected);
+      for(const [id,target,upgrade] of [['cultivation-reset',null,'C7-1'],['cultivation-switch-immortal','immortal','C7-2'],['cultivation-switch-martial','martial','C7-2']]){
+        setHiddenIfChanged(byId(id),!I.has(state,upgrade));setDisabledIfChanged(byId(id),locked||I.cultivationActionStatus(state,target)!=='ready');
+      }
     }
     setHiddenIfChanged(byId("cultivation-choices"), cultivationSelected);
     setTextIfChanged(byId("cultivation-status"), immortalSelected
@@ -2771,12 +2886,21 @@
     setTextIfChanged(byId("five-spirit-stone-count"), `×${format(currentFiveSpiritStoneCount, 0)}`);
     setTextIfChanged(byId("five-spirit-stone-chance"), treasureProgressText("fiveSpiritStone"));
     writeSourcePreview("five-spirit-stone-effect", ["fiveSpiritStoneJ", "fiveSpiritStonePower"], false);
+    for(const [key,id,name,source,base,ratio,effect,p] of [["emperorImprint","emperor-imprint","帝经","战力","1e18","1000","武道战力独立来源",0.4],["sacredBodyImprint","sacred-body-imprint","圣体","体","1e6","10","体获取",0.25],["godBodyImprint","god-body-imprint","神王体","体","1e6","10","气获取",0.25],["sourceStoneImprint","source-stone-imprint","源石","J","1e19","1000","武道J独立来源",0.4]]){
+      const count=WIS.Meta.Treasures.count(state,key);setHiddenIfChanged(byId(id+"-treasure"),!hasAchievement("martialFourPoles")&&!gtBN(count,ZERO));
+      setTextIfChanged(byId(id+"-count"),"×"+format(count,0));setTextIfChanged(byId(id+"-chance"),treasureProgressText(key));setTextIfChanged(byId(id+"-effect"),effect+" ×"+format(WIS.Cultivation.Martial.imprintMultiplier(state,key,p),4));
+    }
+    const lawCount=WIS.Meta.Treasures.count(state,'lawImprint');
+    setHiddenIfChanged(byId('law-imprint-treasure'),!hasAchievement('martialEnergyLaw')&&!gtBN(lawCount,ZERO));
+    setTextIfChanged(byId('law-imprint-count'),'×'+format(lawCount,0));
+    setTextIfChanged(byId('law-imprint-effect'),'基因源能倍率额外 ×'+format(WIS.Cultivation.Martial.lawMultiplier(state),4)+'（需拥有基因源能）');
+    setTextIfChanged(byId('law-imprint-chance'),treasureProgressText('lawImprint'));
     WIS.UI.Cards.updateCatalogGroupCounts(byId("treasure-list"), "宝物");
     }
     if (renderStatistics) {
     setTextIfChanged(byId("statistics-highest-j"), format(state.lifetimeHighestJ));
     setTextIfChanged(byId("statistics-highest-power"), format(state.lifetimeHighestPower));
-    setTextIfChanged(byId("statistics-highest-scale"), SCALE_THRESHOLDS[state.lifetimeHighestScaleIndex].name);
+    setTextIfChanged(byId("statistics-highest-scale"), WIS.Cultivation.Xiuzhen.statisticsScaleName(state) || SCALE_THRESHOLDS[state.lifetimeHighestScaleIndex].name);
     setTextIfChanged(byId("statistics-total-j"), format(state.lifetimeTotalJ));
     setTextIfChanged(byId("statistics-total-power"), format(state.lifetimeTotalPower));
     setTextIfChanged(byId("statistics-highest-realm"), WIS.Cultivation.Xiuzhen.statisticsRealmName(state, true) || cultivationRealmName(state.lifetimeHighestCultivationRealmLevel));
@@ -2998,11 +3122,13 @@
 
   function render(options) {
     const diag=WIS.Simulation?.FixedSegment?.diagnostics;
-    return diag ? diag.measure("render",()=>renderNow(options)) : renderNow(options);
+    const draw=()=>renderNow(options),run=()=>WIS.Core.Amount?.enabled()?WIS.Core.CertifiedRankMath.withWork(()=>WIS.Core.Effects.withFrozenState(runtime.getState(),draw)):draw();
+    return diag ? diag.measure("render",run) : run();
   }
   function renderNow({ forceGlobal = false, forcePage = false } = {}) {
     if (!WIS.Core.Runtime.canPresentState()) return;
     renderCatchUpNotice(getCatchUpStatus());
+    syncPreviewBacklog();
     syncExplorationPreviewStructure();
     const nextStructureKey = [state.cultivation.active, state.powerSystem.active, state.advancedRealmLevel,
       state.highestScaleIndex, state.activeChallenge, state.permanentRootLevel, state.scatterRetentionLevel].join("|");
@@ -3278,8 +3404,9 @@
     document.querySelectorAll(".nav-item").forEach((button) => {
       button.addEventListener("click", () => switchPage(button.dataset.page));
     });
-    bindHoldButton("train-button", () => train(true), {
-      repeatAction: () => train(false),
+    const trainingAction=manual=>{if(!WIS.Core.Amount?.enabled())return train(manual);cancelExplorationPreviewWorks();const factory=snapshot=>WIS.Power.ScaleLogic.createTrainingActionWork(snapshot,manual);return context.requestDeferredAction?context.requestDeferredAction(factory):runtime.call('requestDeferredAction',factory);};
+    bindHoldButton("train-button", () => trainingAction(true), {
+      repeatAction: () => trainingAction(false),cooperative:WIS.Core.Amount?.enabled()===true,
       canRepeat: () => hasAchievement("lightningFiveWhip")
     });
     bindHoldButton("buy-running", buyRunning);
@@ -3518,6 +3645,16 @@
       if (state.activeChallenge === "blackHole") exitChallenge();
       else startChallenge("blackHole");
     });
+    const cultivationControls=document.createElement('section');cultivationControls.id='cultivation-management';cultivationControls.className='infinity-details';cultivationControls.hidden=true;
+    cultivationControls.innerHTML='<h3>体系管理</h3><p>清空体系当前资源、境界、能力及自动化进度；保留J、战力、大数、宝物、成就、挑战奖励、历史统计与永久重修奖励、宝物资格。挑战或离线结算进行中不可操作。</p><button type="button" id="cultivation-reset">重置当前体系</button> <button type="button" id="cultivation-switch-immortal">切换到仙道</button> <button type="button" id="cultivation-switch-martial">切换到武道</button>';
+    rawById('cultivation-choices').after(cultivationControls);
+    for(const [id,target] of [['cultivation-reset',null],['cultivation-switch-immortal','immortal'],['cultivation-switch-martial','martial']])rawById(id).addEventListener('click',()=>{
+      const I=WIS.Meta.Infinity;if(getCatchUpStatus().locked||I.cultivationActionStatus(state,target)!=='ready')return;
+      const name=target==='immortal'?'仙道':target==='martial'?'武道':'当前体系';
+      if(!window.confirm((target?'重置体系进度并切换到'+name:'重置当前体系进度')+'？资源、境界、能力及自动化进度将清空；共享进度、历史、永久奖励及宝物资格保留。'))return;
+      runtime.call('cancelDeferredAction','cultivation-reset');cancelExplorationHold();cancelExplorationPreviewWorks();
+      performSavedAction(()=>I.changeCultivation(state,target),()=>{resetCultivationPage();structuralPages.add('cultivation');markCostGroupsDirty();showNotice(target?'已切换到'+name:'当前体系进度已重置');});
+    });
     document.querySelectorAll("[data-cultivation]").forEach((button) => {
       button.addEventListener("click", () => { chooseCultivation(button.dataset.cultivation); context.completePlayerAction(); });
     });
@@ -3539,6 +3676,7 @@
     const saveBeforeLeaving = () => {
       try { saveState({ closing: true }); }
       catch(error) { WIS.Core.Save.noteFailure(error); }
+      return !WIS.Core.Save.status().unsaved && context.canPersistConfirmedState?.() !== false && WIS.Core.Save.sessionPolicy().persistenceAllowed !== false && !importTransaction;
     };
     window.addEventListener("beforeunload", event => {
       saveBeforeLeaving();
@@ -3550,6 +3688,62 @@
       }
     });
     window.addEventListener("pagehide", saveBeforeLeaving);
+    let nativeBackup = null, nativeActive = true;
+    const backupSection = byId("native-backup-settings");
+    if (WIS.UI.NativePlatform?.isNative() && window.Capacitor.Plugins?.WisBackup) {
+      backupSection.hidden = false;
+      const paintBackup = status => {
+        byId("backup-directory-label").textContent = status.directoryName || "尚未选择目录";
+        byId("backup-toggle").textContent = status.enabled ? "已开启" : "已关闭";
+        byId("backup-toggle").setAttribute("aria-checked", String(status.enabled));
+        byId("backup-interval").value = String(status.hours);
+        byId("backup-last").textContent = status.lastSuccess ? "上次成功：" + new Date(status.lastSuccess).toLocaleString() : "尚无成功备份";
+        byId("backup-status").textContent = status.error || status.lastError || status.message || "";
+        for (const id of ["backup-directory","backup-toggle","backup-interval","backup-now"]) byId(id).disabled = status.busy;
+        byId("backup-toggle").disabled = status.busy || !status.directory;
+        byId("backup-now").disabled = status.busy || !status.directory;
+      };
+      nativeBackup = WIS.UI.NativePlatform.createBackupController({
+        bridge: window.Capacitor.Plugins.WisBackup,
+        capture: captureExportText,
+        ready: () => context.canPersistConfirmedState?.() === true &&
+          WIS.Core.Save.sessionPolicy().persistenceAllowed === true &&
+          !importTransaction && !importSave.pending && !getCatchUpStatus().locked,
+        active: () => nativeActive && !document.hidden,
+        onChange: paintBackup
+      });
+      const backupAction = work => { void work().catch(error => {
+        byId("backup-status").textContent = "本地备份设置失败：" + error.message;
+        safeOperationNotice("本地备份设置失败：" + error.message);
+      }); };
+      byId("backup-directory").addEventListener("click", () => backupAction(async () => {
+        await nativeBackup.choose(); await nativeBackup.check();
+      }));
+      byId("backup-toggle").addEventListener("click", () => backupAction(async () => {
+        await nativeBackup.configure({enabled: !nativeBackup.status().enabled}); await nativeBackup.check();
+      }));
+      byId("backup-interval").addEventListener("change", event => backupAction(async () => {
+        await nativeBackup.configure({hours: Number(event.target.value)}); await nativeBackup.check();
+      }));
+      byId("backup-now").addEventListener("click", () => { void nativeBackup.check(true); });
+      window.setInterval(() => { if (nativeActive && !document.hidden) void nativeBackup.check(); }, 30000);
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) void nativeBackup.check(); });
+      void nativeBackup.check();
+    }
+
+    if (WIS.UI.NativePlatform?.isNative()) {
+      void WIS.UI.NativePlatform.install({
+        notice: safeOperationNotice, saveBeforeLeaving,
+        onAppState: active => { if (!active) { cancelExplorationHold(); cancelExplorationPreviewWorks(); } context.onNativeAppState?.(active); nativeActive = active; if (active) void nativeBackup?.check(); },
+        closeSurface: () => {
+          const dialogs = Array.from(document.querySelectorAll("dialog[open]"));
+          const dialog = dialogs[dialogs.length - 1];
+          if (dialog) { if (dialog.dispatchEvent(new Event("cancel", {cancelable:true}))) WIS.UI.Dialog.close(dialog); return true; }
+          // Status toasts (including the exit hint) are not dismissible panels.
+          return false;
+        }
+      }).catch(error => safeOperationNotice("App 初始化失败：" + error.message));
+    }
 
     const settingsDialog = byId("settings-dialog");
     const automationDialog = byId("automation-dialog");
@@ -3665,6 +3859,12 @@
     byId("export-protected-save").addEventListener("click", () => {
       const text=WIS.Core.Save.storageSnapshot().text;
       if (!text) { showNotice("没有本地存档文件。"); return; }
+      if (WIS.UI.NativePlatform?.isNative()) {
+        void WIS.UI.NativePlatform.exportText(text, "WIS-本地原始存档.json")
+          .then(() => safeOperationNotice("已打开原始存档分享，请确认已保存备份。"))
+          .catch(error => safeOperationNotice("原始存档分享失败：" + error.message));
+        return;
+      }
       const url=URL.createObjectURL(new Blob([text],{type:"application/json"}));
       const anchor=document.createElement("a");anchor.href=url;anchor.download="WIS-本地原始存档.json";anchor.click();URL.revokeObjectURL(url);
     });

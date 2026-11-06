@@ -33,13 +33,9 @@
       // Tokens only reuse a deterministic gain plan. Treasure rolls, purchases,
       // achievements and the resource commit still execute on the live state.
       const preparedPlans = new WeakMap();
-      let deferredQi = null;
-      let qiGeneration = 0;
-      function invalidateDeferredQi() {
-        qiGeneration++;
-        deferredQi?.work.cancel();
-        deferredQi = null;
-      }
+
+
+      function invalidateDeferredQi() {}
 
 
       function stepStateKey(state) {
@@ -524,14 +520,48 @@
       }
       const onlinePrepared=new WeakMap();
       const onlineMetrics={segments:0,gameSeconds:0,compatibilitySubsteps:0,continuousSegments:0,domainClones:0,workMs:0,maxWorkMs:0};
+      function onlineStateKey(state=getState()) {return JSON.stringify({core:state.core,powerSystem:state.powerSystem,cultivation:state.cultivation,meta:state.meta},function(key,value){if(key==='timeLedger'||key==='lastUpdateAt')return undefined;const original=this[key];if(original&&typeof original==='object'){const tag=Object.prototype.toString.call(original),boxed=tag==='[object String]'||tag==='[object Number]'||tag==='[object Boolean]'||tag==='[object BigInt]';if((boxed||typeof value!=='object'||typeof original.toJSON==='function'&&!Object.prototype.hasOwnProperty.call(original,'toJSON'))&&!WIS.Core.BigNum.isDecimal(original))return {...original};}return value;});}
+      function quantityInputCheck(state) {
+        // A private work owns these exact containers. Compare all stored data
+        // directly; unfamiliar JS objects keep the defensive serializer.
+        const B=WIS.Core.BigNum,skip=key=>key==='timeLedger'||key==='lastUpdateAt',unsupported={},active=new WeakSet(),visited=new WeakSet(),rows=[];
+        function capture(owner,key){
+          const value=owner[key];if(value===null||typeof value==='string'||typeof value==='boolean'||typeof value==='number'&&Number.isFinite(value))return;
+          if(!value||typeof value!=='object')throw unsupported;
+          const prototype=Object.getPrototypeOf(value);
+          if(B.isDecimal(value)){rows.push({owner,key,value,prototype,decimal:true,sign:value.sign,layer:value.layer,mag:value.mag});return;}
+          if(WIS.Core.Amount?.isCanonicalTail?.(value)||WIS.Core.FiniteProgress?.isCanonical(value)){rows.push({owner,key,value,prototype,immutable:true});return;}
+          if(active.has(value))throw unsupported;if(visited.has(value))return;visited.add(value);active.add(value);
+          const array=Array.isArray(value);if(!array&&prototype!==Object.prototype&&prototype!==null||typeof value.toJSON==='function')throw unsupported;
+          const keys=Object.keys(value).filter(key=>!skip(key)),values=[];
+          for(const child of keys){const descriptor=Object.getOwnPropertyDescriptor(value,child);if(!descriptor||!('value' in descriptor))throw unsupported;values.push(descriptor.value);}
+          rows.push({owner,key,value,prototype,decimal:false,array,length:array?value.length:null,keys,values});
+          for(const child of keys)capture(value,child);active.delete(value);
+        }
+        try{for(const key of ['core','powerSystem','cultivation','meta'])capture(state,key);}catch(error){if(error!==unsupported)throw error;const key=onlineStateKey(state);return ()=>onlineStateKey(state)===key;}
+        return ()=>{
+          for(const row of rows){const value=row.owner[row.key];if(value!==row.value||Object.getPrototypeOf(value)!==row.prototype)return false;
+            if(row.immutable)continue;
+            if(row.decimal){if(!Object.is(value.sign,row.sign)||!Object.is(value.layer,row.layer)||!Object.is(value.mag,row.mag))return false;continue;}
+            if(row.array&&value.length!==row.length||typeof value.toJSON==='function')return false;
+            let index=0;for(const key in value){if(!Object.prototype.hasOwnProperty.call(value,key)||skip(key))continue;
+              if(key!==row.keys[index]||!Object.is(value[key],row.values[index]))return false;index++;}
+            if(index!==row.keys.length)return false;
+          }return true;
+        };
+      }
       function createOnlineWork(seconds, timeSegment={}) {
         const R=WIS.Core.Runtime,S=WIS.Core.State,E=WIS.Core.Effects,F=WIS.Simulation.FixedSegment,C=WIS.Simulation.Compensation;
         // The five-second infinite challenge shares discrete ordering across sources;
         // true offline retains its numeric policy, source and clock accounting.
-        const offlineSource=timeSegment.source==='offline';
-        const martialBatch=offlineSource&&getState().cultivation.active==='martial'&&seconds>simulationStepSeconds;
-        const original=getState(), roots=['core','powerSystem','cultivation','meta'].map(k=>original[k]);
+        if(timeSegment.source==='offline'||timeSegment.martialIntervals||timeSegment.martialCheckpoint)return WIS.Simulation.LegacySettlementCheckpoints.retired();
+        const offlineSource=false;
+        const original=getState(), roots=['core','powerSystem','cultivation','meta'].map(k=>original[k]),inputKey=WIS.Core.Amount?.enabled()?null:onlineStateKey(original);
+        const inputCurrent=WIS.Core.Amount?.enabled()?quantityInputCheck(original):()=>onlineStateKey(original)===inputKey;
+        const current=()=>getState()===original&&inputCurrent();
         let candidate=S.cloneForSimulation(original), closed=false, workMs=0, remaining=seconds;
+        const Budget=WIS.Core.RankBudget?.Budget,budgetSession=WIS.Core.Config.saveVersion>=74&&Budget?Budget.createSession({isCurrent:()=>!closed}):null;
+        const withBudget=fn=>budgetSession?Budget.withSession(budgetSession,fn):fn();
         // Recovery bridges share the same clock cursor as Loop's online part.
         // Keep its per-step subtraction order across commits/save-resume; a
         // rounded bridge budget must never become a new source-sampling tail.
@@ -545,54 +575,17 @@
         const result={processedSeconds:0,resourceGains:Object.fromEntries(fixedKeys().map(k=>[k,ZERO])),operations:0,gainedPearls:ZERO,clockCommitted:true,compatibilitySubsteps:0};
         let rates={...WIS.tmp.rates},candidateTick=WIS.tmp.tick;
         const transients=()=>[WIS.Core.Registries.getActivePower(candidate)?.snapshotTreasureTransient?.(),WIS.Core.Registries.getActiveCultivation(candidate)?.snapshotTreasureTransient?.()];
-        let transient=transients();
+        let transient=transients(),sliceDeadline=Infinity,activePreparation=null,activeCommit=null;
         function restoreTransient(values){WIS.Core.Registries.getActivePower(candidate)?.restoreTreasureTransient?.(values[0]);WIS.Core.Registries.getActiveCultivation(candidate)?.restoreTreasureTransient?.(values[1]);}
-        let effectInterval=null,effectSignature=null,effectState=null;
-        const partitionReplay=offlineSource&&getState().cultivation.active==='martial'&&(timeSegment.martialIntervals||timeSegment.martialReplayPartitions);
-        let partitionRemaining=simulationStepSeconds;
-        let martialCheckpoint=WIS.Simulation.MartialInterval.validateCheckpoint(timeSegment.martialCheckpoint),intervalCooldown=0,uncertaintyShadows=null;
-        const intervalStats={realMicroSteps:0,mapAccepted:0,mapRejected:0,virtualSteps:0,maximumBlockSteps:0};
-        function formalMartial(state,dt){
-          const before=getState();try{R.setState(state);const work=createOnlineWork(dt,{source:'offline',clockRatio:timeSegment.clockRatio,compensationEligible:timeSegment.compensationEligible,martialReplayPartitions:true});
-          let outcome;do{outcome=work.advance(Infinity);}while(!outcome.done);
-          const value=onlinePrepared.get(outcome.token);onlinePrepared.delete(outcome.token);return value;
-          }finally{R.setState(before);E.invalidate();}
-        }
-        function prepareCadence(dt,defer,boundary,covered){
-          const prepare=()=>C.withFactor(covered?2:1,()=>F.prepare(candidate,dt,{borrowSources:true,
-            runAchievementAutomations:defer?undefined:runAchievementAutomations,automationOpportunities:boundary.continuous?Math.max(1,Math.ceil(dt/simulationStepSeconds-1e-9)):1,offline:false,compiledResources:effectInterval?.evaluate}));
-          if(!martialBatch)return prepare();
-          // Only descriptors with unchanged non-resource inputs are reusable.
-          // Numeric sources, heart pressure and dynamic effects are freshly
-          // evaluated every cadence. The cache belongs to this private work.
-          const scale=candidate.powerSystem.systems.scale,meta=candidate.meta;
-          const {runElapsed,...infinity}=meta.infinity;
-          const signature=JSON.stringify([candidate.powerSystem.active,scale.actions,scale.upgrades,scale.history,
-            scale.progress.highestScaleIndex,scale.progress.brickUnlocked,scale.progress.wallUnlocked,
-            candidate.cultivation.systems.immortal,candidate.cultivation.systems.martial.abilities,
-            meta.achievements,meta.challenges.activeChallenge,meta.challenges.challengeCompletions,
-            CHALLENGE_DEFINITIONS[candidate.activeChallenge]?.timeToLimitSeconds?candidate.activeChallengeElapsedSeconds:0,
-            meta.treasures,meta.treasureStockResidual,meta.treasureCredits,infinity,WIS.Meta.Infinity.dynamicTempo(candidate)?runElapsed:0]);
-          if(effectState!==candidate||effectSignature!==signature){
-            effectInterval=WIS.Simulation.CompiledContinuousPlan.createInterval(candidate);
-            effectSignature=signature;effectState=candidate;
-          }
-          return effectInterval.run(prepare);
-        }
+
+
+
+        
+        function prepareCadence(dt,defer,boundary,covered){return C.withFactor(covered?2:1,()=>F.prepareWork(candidate,dt,{borrowSources:true,runAchievementAutomations:defer?undefined:runAchievementAutomations,automationOpportunities:boundary.continuous?Math.max(1,Math.ceil(dt/simulationStepSeconds-1e-9)):1,offline:false}));}
         function* run(){
           while((queueSpeed&&!cadenceEnd?queueClockRemaining*queueSpeed:remaining)>epsilon){
             if(queueSpeed&&!(cadence>epsilon))cadence=simulationStepSeconds;
-            if(martialBatch&&timeSegment.martialIntervals&&partitionRemaining===simulationStepSeconds&&intervalCooldown--<=0){
-              const accelerated=WIS.Simulation.MartialInterval.advance(candidate,remaining,{formal:formalMartial,checkpoint:martialCheckpoint,compensationEligible:timeSegment.compensationEligible===true});
-              for(const key of Object.keys(intervalStats))intervalStats[key]=key==='maximumBlockSteps'?Math.max(intervalStats[key],accelerated.stats[key]||0):intervalStats[key]+(accelerated.stats[key]||0);
-              if(accelerated.supported){candidate=accelerated.candidate;R.setState(candidate);E.invalidate();
-                martialCheckpoint=accelerated.checkpoint;uncertaintyShadows=null;Object.assign(WIS.tmp.rates,accelerated.rates);restoreTransient(accelerated.transient);
-                const value=accelerated.result,dt=accelerated.seconds;
-                remaining=Math.max(0,Number((remaining-dt).toPrecision(14)));result.processedSeconds+=dt;
-                for(const key of fixedKeys())result.resourceGains[key]=add(result.resourceGains[key],value.resourceGains[key]);
-                result.operations+=value.operations;result.gainedPearls=add(result.gainedPearls,value.gainedPearls);yield;continue;
-              }intervalCooldown=40;
-            }
+            
             // Internal bridge roundoff cannot shorten its final cadence. The
             // real queue end, challenge and compensation boundaries still cap dt.
             const horizon=queueSpeed?Math.min(queueClockRemaining*queueSpeed,
@@ -604,17 +597,18 @@
             const onlineHorizon=offlineSource?horizon:Math.min(horizon,compensationLimit);
             const boundary=findNextSimulationBoundary(candidate,onlineHorizon,{cadence,clockRatio:timeSegment.clockRatio,
               source:offlineSource?undefined:'online'});
-            let dt=partitionReplay?Math.min(boundary.seconds,partitionRemaining):boundary.seconds;
+            let dt=boundary.seconds;
             if(covered)dt=Math.min(dt,compensationLimit);
             // Loop assigns the source-tail opportunity before Step's challenge
             // cutoff. Compensation can still defer it, even when its cutoff is
             // later than the challenge deadline within this same cadence.
             const deferSeconds=offlineSource?dt:Math.min(cadence,onlineHorizon);
             const defer=!boundary.continuous&&deferSeconds+epsilon<cadence;
-            if(offlineSource&&timeSegment.martialIntervals&&martialCheckpoint&&!martialCheckpoint.disabled&&!uncertaintyShadows)uncertaintyShadows=WIS.Simulation.MartialInterval.shadows(candidate,martialCheckpoint);
+            
             const amounts=Object.fromEntries(fixedKeys().map(k=>[k,WIS.Simulation.ResourceGroups.read(candidate,k)]));
-            const unit=prepareCadence(dt,defer,boundary,covered);
-            yield;
+            const preparation=prepareCadence(dt,defer,boundary,covered);activePreparation=preparation;
+            while(!C.withFactor(covered?2:1,()=>preparation.advance(sliceDeadline)).done)yield;
+            const unit=preparation.result();activePreparation=null;yield;
             // Only automation needs to retain the pre-income domain. With no
             // eligible candidates, all remaining inputs are already captured
             // values, so mutate the private outer branch without proxy overhead.
@@ -622,9 +616,9 @@
             if(draft)candidate=draft.state;R.setState(candidate);
             // The start snapshot stays immutable while commits copy only changed containers.
             const powerPeak={};
-            const iterator=F.commitParts(candidate,unit,{projection:true,powerPeak});let part;
+            const iterator=F.commitParts(candidate,unit,{projection:true,powerPeak,rewardDeadline:()=>sliceDeadline,...(WIS.Core.Amount?.enabled()?{privateResources:callback=>WIS.Core.Resources.withPrivateCandidate(candidate,callback)}:{})});activeCommit=iterator;let part;
             do {part=C.withFactor(covered?2:1,()=>iterator.next());if(!part.done)yield;}while(!part.done);
-            const value=part.value;
+            activeCommit=null;const value=part.value;
             projectStepTimes(candidate,dt);
             WIS.Core.Registries.getActivePower(candidate)?.afterStep?.(candidate,dt,powerPeak);
             updateLifetimeStatistics();recordCurrentAchievements();WIS.Meta.BigNumbers?.syncUnlock(candidate);checkActiveChallengeCompletion();
@@ -644,68 +638,53 @@
               cadence=Math.abs(tail)<epsilon||Math.abs(tail-simulationStepSeconds)<epsilon?simulationStepSeconds:simulationStepSeconds-tail;
             }else cadence-=dt;
             candidate.core.runtime.onlineCadenceRemaining=cadence;
-            if(partitionReplay){partitionRemaining=Math.max(0,Number((partitionRemaining-dt).toPrecision(14)));if(partitionRemaining<=epsilon)partitionRemaining=simulationStepSeconds;}
-            if(uncertaintyShadows){const propagated=WIS.Simulation.MartialInterval.propagate(candidate,dt,value,uncertaintyShadows,{formal:formalMartial,checkpoint:martialCheckpoint});martialCheckpoint=propagated.checkpoint;uncertaintyShadows=propagated.states;intervalStats.realMicroSteps+=propagated.realMicroSteps;}
+            
+            
             result.processedSeconds+=dt;result.operations+=value.operations;
             result.gainedPearls=add(result.gainedPearls,value.gainedPearls);
             for(const k of fixedKeys())result.resourceGains[k]=add(result.resourceGains[k],value.resourceGains[k]);
             if(boundary.continuous)result.continuousSegments=(result.continuousSegments||0)+1;else result.compatibilitySubsteps++;
             yield;
+            if(timeSegment.atomicCadence===true)break;
           }
-          result.processedSeconds=seconds;result.remainingSeconds=0;
+          if(timeSegment.atomicCadence!==true)result.processedSeconds=seconds;result.remainingSeconds=Math.max(0,seconds-result.processedSeconds);
           if(queueSpeed)result.queueRemainingClockSeconds=queueClockRemaining;
           result.logicalTickRemaining=cadence===simulationStepSeconds?0:cadence;
-          if(martialBatch||offlineSource&&timeSegment.martialIntervals)result.evolution={stats:{...intervalStats,realMicroSteps:intervalStats.realMicroSteps+result.compatibilitySubsteps+(result.continuousSegments||0)},martialInterval:martialCheckpoint};
+          
           return result;
         }
         const iterator=run();
-        return {advance(deadline){
+        const closeWork=()=>{closed=true;activePreparation?.cancel();activePreparation=null;try{activeCommit?.return();}finally{activeCommit=null;try{iterator.return();}finally{budgetSession?.close();}}};
+        return {checksInputOnAdvance:WIS.Core.Amount?.enabled()===true,advance(deadline){
           if(closed)throw Error('在线结算段已失效');
-          let next;
-          if(martialBatch){
-            // Keep the private candidate bound for one cooperative slice. Every
-            // generator part and 0.1s event still runs in its isolated Effects scope.
-            const before=getState(),liveRates={...WIS.tmp.rates},tick=WIS.tmp.tick,liveTransient=transients(),began=monotonicNow();
-            try{R.setState(candidate);restoreTransient(transient);WIS.tmp.tick=candidateTick;
-              R.withMathPolicy(R.MathPolicy.OFFLINE_APPROX,()=>R.withProjection(()=>R.withOfflineExecution(()=>R.withRandomSource(()=>{
-                let v=(candidate.core.runtime.randomState>>>0)||0x6d2b79f5;v^=v<<13;v^=v>>>17;v^=v<<5;candidate.core.runtime.randomState=v>>>0;return (v>>>0)/4294967296;
-              },()=>{do{next=E.withIsolatedState(candidate,()=>iterator.next());E.invalidate();}while(!next.done&&monotonicNow()<deadline);}))));
-              transient=transients();candidateTick=WIS.tmp.tick;rates={...WIS.tmp.rates};
-            }finally{restoreTransient(liveTransient);R.setState(before);WIS.tmp.tick=tick;E.invalidate();Object.assign(WIS.tmp.rates,liveRates);}
-            const cost=monotonicNow()-began;workMs+=cost;onlineMetrics.workMs+=cost;onlineMetrics.maxWorkMs=Math.max(onlineMetrics.maxWorkMs,cost);
-            if(next.done){closed=true;const token=Object.freeze({kind:'online-segment-v1',seconds});
-              onlinePrepared.set(token,{candidate,roots,result,rates,candidateTick,transient,workMs,offlineSource});return {done:true,token};}
-            return {done:false};
-          }
+          if(!current()){closeWork();throw Object.assign(Error('online candidate input changed'),{code:'rank-work-stale'});}
+          sliceDeadline=deadline;let next;
+          
           do {
             const before=getState(),liveRates={...WIS.tmp.rates},tick=WIS.tmp.tick,liveTransient=transients(),began=monotonicNow();
             try{R.setState(candidate);restoreTransient(transient);WIS.tmp.tick=candidateTick;
               next=R.withMathPolicy(offlineSource?R.MathPolicy.OFFLINE_APPROX:R.MathPolicy.ONLINE_EXACT,()=>R.withProjection(()=>R.withOfflineExecution(()=>R.withRandomSource(()=>{
                 let v=(candidate.core.runtime.randomState>>>0)||0x6d2b79f5;v^=v<<13;v^=v>>>17;v^=v<<5;candidate.core.runtime.randomState=v>>>0;return (v>>>0)/4294967296;
-              },()=>E.withIsolatedState(candidate,()=>iterator.next())))));
+              },()=>E.withIsolatedState(candidate,()=>withBudget(()=>iterator.next()))))));
               transient=transients();candidateTick=WIS.tmp.tick;rates={...WIS.tmp.rates};
-            }finally{restoreTransient(liveTransient);R.setState(before);WIS.tmp.tick=tick;E.invalidate();Object.assign(WIS.tmp.rates,liveRates);}
+            }catch(error){closeWork();throw error;}finally{restoreTransient(liveTransient);R.setState(before);WIS.tmp.tick=tick;E.invalidate();Object.assign(WIS.tmp.rates,liveRates);}
             const cost=monotonicNow()-began;workMs+=cost;onlineMetrics.workMs+=cost;onlineMetrics.maxWorkMs=Math.max(onlineMetrics.maxWorkMs,cost);
-            if(next.done){closed=true;const token=Object.freeze({kind:'online-segment-v1',seconds});
-              onlinePrepared.set(token,{candidate,roots,result,rates,candidateTick,transient,workMs,offlineSource});return {done:true,token};}
+            if(next.done){closed=true;budgetSession?.close();const token=Object.freeze({kind:'online-segment-v1',seconds});
+              onlinePrepared.set(token,{candidate,roots,result,rates,candidateTick,transient,workMs,offlineSource,current});return {done:true,token};}
           }while(monotonicNow()<deadline);
           return {done:false};
-        },close(){closed=true;}};
+        },valid:()=>!closed&&current(),close:closeWork};
       }
       const fixedKeys=()=>WIS.Simulation.ResourceGroups.keys;
-      function martialOfflineSpan(seconds,intervals=false){
-        const cadence=getState().core.runtime.onlineCadenceRemaining;
-        // Interval works preserve historical 0.1-second partitions internally,
-        // including both pieces of a partial cadence. Batch the transactions,
-        // not the source sampling or automation opportunities.
-        return Math.min(seconds,(intervals||!cadence||cadence===simulationStepSeconds)&&getState().activeChallenge!=='infinityFast'?(intervals?300:20):simulationStepSeconds);
-      }
+      
       function installOnlineSegment(token) {
         const value=onlinePrepared.get(token),state=getState();
+        if(value?.current&&!value.current())throw Object.assign(Error('online candidate input changed'),{code:'rank-work-stale'});
         if(!value||value.roots.some((root,i)=>root!==[state.core,state.powerSystem,state.cultivation,state.meta][i]))throw Error('在线段起始状态已改变');
         onlinePrepared.delete(token);
         // New time registration belongs to the live queue, never to the candidate.
         value.candidate.core.runtime.timeLedger=state.core.runtime.timeLedger;
+        value.candidate.core.runtime.lastUpdateAt=state.core.runtime.lastUpdateAt;
         Object.assign(state,{core:value.candidate.core,powerSystem:value.candidate.powerSystem,cultivation:value.candidate.cultivation,meta:value.candidate.meta});
         WIS.tmp.tick=value.candidateTick;Object.assign(WIS.tmp.rates,value.rates);
         WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(value.transient[0]);
@@ -718,6 +697,11 @@
           onlineMetrics.compatibilitySubsteps+=value.result.compatibilitySubsteps;
         }
         if(value.result.operations)markCostGroupsDirty();markAchievementsDirty();
+        // End-unit invalidation clears transient source rates. Publish only the
+        // gains in this installed candidate, after all hooks, as the direct
+        // exact path already does. An unfinished work keeps the old display.
+        if(WIS.Core.Amount?.enabled()&&value.result.processedSeconds>0)
+          for(const key of fixedKeys())WIS.tmp.rates[key+'PerSecond']=div(value.result.resourceGains?.[key]??ZERO,value.result.processedSeconds);
         return value.result;
       }
 
@@ -728,38 +712,7 @@
         // source/option means exact, even when called by an Offline runner.
         const policy=source==='offline'||source==null&&options.offline===true ? R.MathPolicy.OFFLINE_APPROX : R.MathPolicy.ONLINE_EXACT;
         const run=()=>R.withMathPolicy(policy,()=>profiler.withScope(scope,()=>profiler.measure('totalStep',()=>advanceProfiledStep(elapsedSeconds,silentTreasureRolls,options))));
-        if (!options.foreground || options.preparedOnlineSegment || options.preparedFixedSegment) return run();
-        const I=WIS.Cultivation.ImmortalLogic,original=getState();
-        const signature=[elapsedSeconds,silentTreasureRolls,source,options.timeSegment?.clockRatio,
-          options.timeSegment?.compensationEligible,options.deferAutomation].join('|');
-        if(deferredQi && (deferredQi.original!==original || deferredQi.generation!==qiGeneration ||
-            deferredQi.signature!==signature || deferredQi.key!==I.qiBatchStateKey(original))) invalidateDeferredQi();
-        const qiScope={work:deferredQi?.work};
-        if(deferredQi && !qiScope.work.result()) {
-          try {
-            const progress=qiScope.work.advance();
-            if(!progress.done)return {processedSeconds:0,remainingSeconds:elapsedSeconds,qiDeferred:true};
-          } catch(error) {
-            invalidateDeferredQi();
-            return {processedSeconds:0,remainingSeconds:elapsedSeconds,qiWorkFailed:true,error};
-          }
-        }
-        try {
-          const result=I.withQiBatchScope(qiScope,run);
-          deferredQi=null;
-          return result;
-        } catch(error) {
-          const work=I.qiDeferredWork(error);
-          if(!work){
-            invalidateDeferredQi();
-            if(I.qiWorkFailure(error))return {processedSeconds:0,remainingSeconds:elapsedSeconds,qiWorkFailed:true,error};
-            throw error;
-          }
-          // advanceAtomicStep has already restored all roots, transients,
-          // notifications and rates. Only pure math remains between callbacks.
-          deferredQi={work,original,generation:qiGeneration,signature,key:I.qiBatchStateKey(original)};
-          return {processedSeconds:0,remainingSeconds:elapsedSeconds,qiDeferred:true};
-        }
+        return run();
       }
       function advanceProfiledStep(elapsedSeconds, silentTreasureRolls, options = {}) {
         if (options.preparedOnlineSegment) return installOnlineSegment(options.preparedOnlineSegment);
@@ -939,15 +892,10 @@
       }
 
       return Object.freeze({
-        invalidateDeferredQi, hasDeferredQi:()=>deferredQi!==null,
-        prepareOnlineWork:createOnlineWork, findNextSimulationBoundary, onlineMetrics:()=>({...onlineMetrics}),
+        invalidateDeferredQi, hasDeferredQi:()=>false,
+        prepareOnlineWork:createOnlineWork, onlineStateKey, findNextSimulationBoundary, onlineMetrics:()=>({...onlineMetrics}),
         restoreOnlineMetrics(point){if(point)for(const k of ['segments','gameSeconds','compatibilitySubsteps','continuousSegments'])onlineMetrics[k]=point[k];},
-        planOfflineMacro(seconds,options={}) {
-          const fast=getState().activeChallenge==='infinityFast', martial=getState().cultivation.active==='martial';
-          const bound=nextChallengeTimeBoundarySeconds(martial?martialOfflineSpan(seconds,options.martialIntervals!==false):fast?WIS.Meta.Infinity.rapidChallengeStepSeconds(getState(),seconds):seconds);
-          const R=WIS.Core.Runtime;
-          return R.withMathPolicy(R.MathPolicy.OFFLINE_APPROX,()=>WIS.Simulation.FixedSegment.planOffline(getState(),seconds,{...options,hardBoundary:bound}));
-        },
+        planOfflineMacro(){return WIS.Simulation.LegacySettlementCheckpoints.retired();},
         prepareFixedWork(seconds, options={}) {
           if(options.frozenOffline===true)return WIS.Simulation.FixedSegment.createWork(getState(),seconds,{
             offline:true,frozenOffline:true,clockRatio:options.clockRatio,
@@ -960,23 +908,7 @@
               recordCurrentAchievements();
             }
           });
-          if(getState().activeChallenge==='infinityFast'||getState().cultivation.active==='martial')return createOnlineWork(
-            nextChallengeTimeBoundarySeconds(getState().cultivation.active==='martial'?martialOfflineSpan(seconds,options.martialIntervals===true):WIS.Meta.Infinity.rapidChallengeStepSeconds(getState(),seconds)),
-            {source:'offline',clockRatio:options.clockRatio,martialIntervals:options.martialIntervals,martialCheckpoint:options.martialCheckpoint});
-          return WIS.Simulation.FixedSegment.createWork(getState(),
-            findNextSimulationBoundary(getState(),seconds,{source:'offline',clockRatio:options.clockRatio}).seconds,
-            {offline:true,runAchievementAutomations,compiledResources:options.compiledMicro?WIS.Simulation.CompiledContinuousPlan.compile().prepareResources:null,clockRatio:options.clockRatio,sourceProfile:options.sourceProfile,mapPlan:options.mapPlan,evolutionPlan:options.evolutionPlan,
-                beforeEndEvents(candidate,dt) {
-                  projectStepTimes(candidate,dt);
-                  WIS.Core.Registries.getActivePower(candidate)?.afterStep?.(candidate,dt);
-                  updateLifetimeStatistics();
-                  // Include achievements enabled by segment-end resources/loot.
-                  recordCurrentAchievements();
-                },afterAutomation(candidate) {
-                  updateLifetimeStatistics();
-                  const changed=recordCurrentAchievements();
-                  return checkActiveChallengeCompletion()||changed;
-                }});
+          return WIS.Simulation.LegacySettlementCheckpoints.retired();
         },
         requestSave, beginTransaction, endTransaction,
         projectStepTimes, calculateAutomaticStepPlan,

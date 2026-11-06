@@ -7,7 +7,7 @@
     "有效探寻量": "探寻", "周天；成功吐纳另计": "周天、吐纳", "实际产生仙灵力": "仙灵力获取"
   });
   const sourcesByKey = Object.freeze({
-    originImprint:"涅力获取", fitnessMembershipCard: "健身", superLollipop: "健身", skyCrystal: "打岩", fiveSpiritStone: "极意",
+    lawImprint:"实际获得气、体", originImprint:"涅力获取", fitnessMembershipCard: "健身", superLollipop: "健身", skyCrystal: "打岩", fiveSpiritStone: "极意",
     cosmicFiber: "当前量级停留时间", cosmicWill: "当前量级停留时间",
     tianNiPearl: "探寻、周天、吐纳", baLingChi: "周天、吐纳",
     mysteriousGreenBottle: "探寻", fuBao: "探寻", xuTianDing: "探寻", wanYaoFan: "探寻",
@@ -54,10 +54,13 @@
     return "当前无法获取";
   }
   function acquisition(key, info, format) {
+    if(['emperorImprint','sacredBodyImprint','godBodyImprint','sourceStoneImprint'].includes(key)){const source={emperorImprint:'战力',sacredBodyImprint:'体',godBodyImprint:'体',sourceStoneImprint:'J'}[key];return '来源：实际获得'+source+'（独立累计）\n进度：'+format(info.progress,4)+' / '+format(info.demand,4)+'\n'+(info.pausedReason==='当前未选择武道'||info.pausedReason==='尚未取得四极成就'?info.pausedReason:'实际正向入账累计；预览、扣款与读取存档不计入');}
+    if(key==='lawImprint')return '来源：实际获得气、体（合计入账量）\n进度：'+format(info.progress,4)+' / '+format(info.demand,4)+'\n'+(info.pausedReason==='当前未选择武道'||info.pausedReason==='尚未取得源能法则成就'?info.pausedReason:'转换、自动产出与实际资源奖励均可积累；预览不计入');
     const sources = (info.sources || []).map(s => sourceNames[s]).filter(Boolean).join("、") || sourcesByKey[key] || "暂无来源";
     const direct = B.gt(info.shengRate || 0, 0);
     const lines = ["来源：" + sources];
     if (direct) lines.push(`空玄·生：每秒 +${format(info.shengRate, 4)} 件`);
+    if(info.closedHigh){lines.push(`进度收入：每秒 ${format(info.rate,4)}`);const reason=pauseReason(key,info);if(reason)lines.push(reason);return lines.join('<br>');}
     const blocked = info.remainderCertainty === 'blocked' || info.precision?.state === "blocked";
     if (blocked) {
       const failed = /ledger|invalid|failed|capacity/.test(info.precision?.code || "");

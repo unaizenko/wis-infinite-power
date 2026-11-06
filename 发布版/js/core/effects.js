@@ -18,6 +18,19 @@
     else WIS.Simulation?.Profiler?.record("effectsMemoHit");
     return frozenMemo.get(key);
   }
+  // Resume only unfinished pure stages owned by the existing frozen candidate.
+  // A suspended thunk is retried outside its generator; completed prefixes stay put.
+  const frozenStepsKey=Symbol('frozen preparation steps');
+  function runFrozenSteps(state,key,factory){
+    const scope=tickSnapshot?.quantityContinuation&&canonical(state)===frozenState?frozenMemo:null;
+    let tasks=scope?.get(frozenStepsKey);if(scope&&!tasks){tasks=new Map();scope.set(frozenStepsKey,tasks);}
+    let job=tasks?.get(key);if(!job){job={iterator:factory(),next:null};tasks?.set(key,job);}
+    try{
+      if(!job.next)job.next=job.iterator.next();
+      while(!job.next.done){const value=job.next.value();job.next=job.iterator.next(value);}
+      const result=job.next.value;tasks?.delete(key);return result;
+    }catch(error){if(!WIS.Core.CertifiedRankMath?.isSuspension(error))tasks?.delete(key);throw error;}
+  }
   const canonical = s => s === WIS.Core.Runtime?.state ? WIS.Core.Runtime.getState() : s;
   let evaluationState = null;
   let evaluationValues = null;
@@ -31,7 +44,7 @@
       context.evaluationState === evaluationState && context.evaluationValues === evaluationValues && context.revision === invalidationRevision;
   }
   const dynamicResourceKeys = new Set(["joules", "power"]);
-  const dynamicReadStates = new WeakMap();
+  const dynamicReadStates = new WeakMap(),dynamicReadOrigins=new WeakMap();
 
   function printableEffectValue(value) {
     try {
@@ -45,6 +58,9 @@
   }
 
   function reportInvalidEffect(effect, rawValue, error = null, phase = "value") {
+    // A cooperative proof yield is control flow, not an invalid multiplier.
+    // Preserve it before diagnostics/cache/quarantine can observe a fake value.
+    if(WIS.Core.CertifiedRankMath?.isSuspension(error))throw error;
     const provider = effect?.provider || "unknown-provider";
     const id = effect?.id || "unknown-effect";
     const key = `${provider}\u0000${id}\u0000${phase}`;
@@ -65,6 +81,9 @@
       invalidEffects.delete(oldestKey);
     }
     invalidEffects.set(key, record);
+    // A missing proof is a failed settlement input, never the neutral value
+    // of a successfully evaluated multiplier. Legacy quarantine stays intact.
+    if(WIS.Core.Amount?.enabled()&&error&&(/^(amount-|rank-cost-|rank-budget-)/.test(error.code||'')||error.code==='formula-representation'||error instanceof WIS.Core.SignedLedger.LedgerError))throw error;
     if (!previous && typeof console !== "undefined" && typeof console.error === "function") {
       console.error("[WIS] 已隔离非法效果值", record);
     }
@@ -94,6 +113,11 @@
     const treasureConfig = WIS.Core.Config.scaleTreasures?.cosmicFiber;
     const fallback = Number(WIS.Core.Config.challenges?.galaxy?.dynamicResourceExponent);
     if (!treasureConfig) return Number.isFinite(fallback) && fallback > 0 ? BN(fallback) : ONE;
+    if(WIS.Core.Amount?.enabled()){
+      const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,count=WIS.Meta.Treasures.quantity(source,'cosmicFiber');
+      const diminishing=F.powerRatio(A.add(count,treasureConfig.galaxyDecayScale),treasureConfig.galaxyDecayScale,treasureConfig.galaxyDecayExponent);
+      return add(treasureConfig.galaxyBaseExponent,mul(treasureConfig.galaxyPerItemExponent,F.productQuotient([count],[diminishing])));
+    }
     const count = treasureCount(source, "cosmicFiber");
     const diminishing = pow(add(ONE, div(count, treasureConfig.galaxyDecayScale)), treasureConfig.galaxyDecayExponent);
     return add(
@@ -115,6 +139,19 @@
     return memoFrozen("dynamicResource:"+resourceKey+":"+String(rawValue),()=>pow(maxBN(ZERO, rawValue), galaxyDynamicResourceExponent(state)),state);
   }
 
+  function dynamicResourceQuantity(source,resourceKey){
+    const A=WIS.Core.Amount,R=WIS.Core.Runtime;source=canonical(source);while(dynamicReadOrigins.has(source))source=dynamicReadOrigins.get(source);
+    if(!A)throw Error('Exact quantity module unavailable');
+    if(!A.enabled())return A.from(dynamicResourceValue(source,resourceKey));
+    if(R.hasResourceEvaluationOverride(resourceKey,source))return R.evaluationQuantity(resourceKey,source);
+    const value=resourceKey==='highestPower'?WIS.Core.State.readStatistic(source,resourceKey):WIS.Simulation.ResourceGroups.readExact(source,resourceKey);
+    if(value===null)throw Object.assign(Error('Unknown dynamic quantity: '+resourceKey),{code:'amount-adapter-required'});
+    if(!dynamicResourceKeys.has(resourceKey))return value;
+    if(activeChallenge(source)==='galaxy')return A.from(0);
+    if(galaxyCompletionCount(source)<1)return value;
+    return A.from(WIS.Core.AmountFormulas.power(value,galaxyDynamicResourceExponent(source)));
+  }
+
   function effectDynamicResources(effect) {
     if (!Array.isArray(effect?.dynamicResources)) return [];
     return [...new Set(effect.dynamicResources.filter((key) => dynamicResourceKeys.has(key)))];
@@ -131,7 +168,7 @@
           : Reflect.get(target, property, receiver);
       }
     });
-    dynamicReadStates.set(view, resourceSet);
+    dynamicReadStates.set(view, resourceSet);dynamicReadOrigins.set(view,state);
     return view;
   }
 
@@ -218,7 +255,7 @@
       values: new Map(),
       groups: new Map(),
       products: new Map(),
-      providerCalls: 0
+      providerCalls: 0, providerEntries:null, completedProviders:new Set()
     };
   }
 
@@ -273,7 +310,8 @@
     }
     if (!snapshot || snapshot.ready) return snapshot;
     const profileStart=performance.now();
-    for (const [providerId, provider] of providers.entries()) {
+    for (const [providerId, provider] of (snapshot.providerEntries ||= [...providers.entries()])) {
+      if(snapshot.completedProviders.has(providerId))continue;
       statistics.providerCalls += 1;
       snapshot.providerCalls += 1;
       let effects;
@@ -282,7 +320,7 @@
         if (!Array.isArray(effects)) throw new TypeError("效果提供器必须返回数组");
       } catch (error) {
         reportInvalidEffect({ provider: providerId, id: "provider", name: providerId }, undefined, error, "provider");
-        continue;
+        snapshot.completedProviders.add(providerId);continue;
       }
       for (const effect of effects) {
         const resolved=WIS.Core.Formulas.descriptor(effect,{provider:providerId,refresh:current=>provider(current)?.find(v=>v.id===effect.id)?.value});
@@ -301,6 +339,7 @@
         bucket.push(resolved);
         snapshot.byTargetLayer.set(key, bucket);
       }
+      snapshot.completedProviders.add(providerId);
     }
     WIS.Simulation?.Profiler?.record("effectsBuild",performance.now()-profileStart);
     snapshot.ready = true;
@@ -396,6 +435,21 @@
       const previous=frozenState,previousMemo=frozenMemo;frozenState=state;frozenMemo=sharedMemo||new Map();
       try{return callback();}finally{frozenState=previous;frozenMemo=previousMemo;}
     });
+  }
+
+  // Private continuation over one immutable start domain. Only the caller's
+  // work retains this handle; all active globals are restored on every return.
+  function createFrozenScope(state,{isCurrent=()=>true}={}) {
+    state=canonical(state);const policy=WIS.Core.Runtime.getMathPolicy(),model=WIS.Core.Amount?.enabled(),providerCount=providers.size;
+    let snapshot=createSnapshot(state),memo=new Map(),closed=false;snapshot.quantityContinuation=true;
+    const stale=()=>{throw Object.assign(Error('frozen effect scope changed'),{code:'effect-scope-stale'});};
+    return Object.freeze({run(callback){
+      if(closed||providers.size!==providerCount||WIS.Core.Runtime.getMathPolicy()!==policy||WIS.Core.Amount?.enabled()!==model||!isCurrent())stale();
+      if(typeof callback!=='function'||callback.constructor?.name==='AsyncFunction')throw TypeError('frozen effect callback must be synchronous');
+      const previous=captureEvaluationContext();tickSnapshot=snapshot;frozenState=state;frozenMemo=memo;evaluationState=null;evaluationValues=null;
+      try{const value=callback();if(value&&typeof value.then==='function')throw TypeError('frozen effect scope cannot return Promise');return value;}
+      finally{tickSnapshot=previous.snapshot;frozenState=previous.state;frozenMemo=previous.memo;evaluationState=previous.evaluationState;evaluationValues=previous.evaluationValues;}
+    },cancel(){closed=true;memo.clear();snapshot=null;}});
   }
 
   function withHighestPowerEvaluation(state, callback) {
@@ -585,10 +639,11 @@
 
   WIS.Core.Effects = Object.freeze({
     captureEvaluationContext, matchesEvaluationContext, supportsHighestPowerEvaluation, withHighestPowerEvaluation,
-    register, describe:state=>[...providers.entries()].flatMap(([provider,fn])=>(fn(state)||[]).map(e=>({provider,id:e.id,target:e.target,layer:e.layer,operationType:WIS.Core.Formulas.descriptor(e).operationType,valueAt:WIS.Core.Formulas.descriptor(e).valueAt,dynamicResources:[...new Set([...(e.dynamicResources||[]),...(e.celestialFiveDecline?["immortalPower"]:[])])]}))), beginTick, invalidate, getRevision, withState, withIsolatedState, withFrozenState, compileInterval,
-    dynamicResourceValue, galaxyDynamicResourceExponent, memoFrozen, scopeMemo:state=>frozenState===canonical(state)?frozenMemo:null,
+    runFrozenSteps, register, providerIds:()=>[...providers.keys()], describe:state=>[...providers.entries()].flatMap(([provider,fn])=>(fn(state)||[]).map(e=>({provider,id:e.id,target:e.target,layer:e.layer,operationType:WIS.Core.Formulas.descriptor(e).operationType,valueAt:WIS.Core.Formulas.descriptor(e).valueAt,dynamicResources:[...new Set([...(e.dynamicResources||[]),...(e.celestialFiveDecline?["immortalPower"]:[])])]}))), beginTick, invalidate, getRevision, withState, withIsolatedState, withFrozenState, createFrozenScope, continuationMemo:state=>tickSnapshot?.quantityContinuation&&canonical(state)===frozenState?frozenMemo:null, compileInterval,
+    dynamicResourceValue, dynamicResourceQuantity, galaxyDynamicResourceExponent, memoFrozen, scopeMemo:state=>frozenState===canonical(state)?frozenMemo:null,
     collect, values, groups, product, value,
     getStatistics, resetStatistics, getInvalidEffects, resetInvalidEffects
   });
   WIS.Core.Effects.register("infinity", WIS.Meta.Infinity.effects, {highestPowerEffects: []});
 }(window.WIS));
+

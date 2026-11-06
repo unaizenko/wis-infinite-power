@@ -33,56 +33,92 @@
   }
   // The supplied domain is a single start snapshot. This entry never advances
   // clocks, buys anything, reads tmp.rates, or integrates through new balances.
+  let quantityProfileTaskId=0n;
   function query(snapshot, {resourcesOnly=false,resourceProfile=null}={}) {
     evaluations++;
     return R.withState(snapshot, () => E.withFrozenState(snapshot, () => {
       const S = WIS.Power.ScaleLogic, I = WIS.Cultivation.ImmortalLogic;
       const X = WIS.Cultivation.Xiuzhen, T = WIS.Meta.Treasures, P = WIS.Meta.TreasureProgress;
       const factor = WIS.Simulation.Compensation.factor();
+      const continuation=WIS.Core.Amount?.enabled()?E.continuationMemo?.(snapshot):null,cacheKey='fixed-source-query|'+factor+'|'+resourcesOnly;
+      let entry=continuation?.get(cacheKey);if(continuation&&(!entry||entry.resourceProfile!==resourceProfile)){entry={resourceProfile,values:new Map(),taskKey:"quantity-source-profile|"+(++quantityProfileTaskId)};continuation.set(cacheKey,entry);}
+      const once=(key,compute)=>{if(!entry)return compute();if(entry.values.has(key))return entry.values.get(key);const value=compute();entry.values.set(key,value);return value;};
+      const steps=function*(){
       const scale = snapshot.powerSystem.active === "scale", immortal = snapshot.cultivation.active === "immortal";
       if (snapshot.powerSystem.active && !scale || snapshot.cultivation.active && !immortal && snapshot.cultivation.active !== "martial")
         throw Error("当前体系尚无固定来源适配；资产和剩余时间保留");
       // Resource-only offline evolution already validated these rates at this
       // exact snapshot. Reuse that profile while sampling progress sources.
-      const evaluated=resourceProfile||WIS.Simulation.ResourceGroups.evaluate(snapshot,{factor});
+      const evaluated=yield ()=>once('resources',()=>resourceProfile||WIS.Simulation.ResourceGroups.evaluate(snapshot,{factor}));
       const {rates,cultivation}=evaluated;
-      const profile={kind:"ContinuousRateProfile",rates,cultivation,groups:evaluated.groups.map(g=>g.keys)};
+      const profile={kind:"ContinuousRateProfile",...(WIS.Core.Amount?.enabled()?{numericModelVersion:1}:{}),rates,...(evaluated.quantities?{quantities:evaluated.quantities}:{}),cultivation,groups:evaluated.groups.map(g=>g.keys)};
       if(resourcesOnly)return profile;
-      const drivers = {
+      const drivers = yield ()=>once('drivers',()=>({
         fitness: scale && B.gt(S.fitnessJBonus(), 0), rock: scale && B.gt(S.rockPowerPerSecond(), 0),
         intent: scale && B.gt(S.ultimateIntentPowerSource(), 0), circulation: cultivation.circulation,
         xianForce:B.gt(rates.xianForce,0), immortalPower: B.gt(cultivation.immortalPower, 0)
-      };
-      const rewards = T.keys.map(key => {
+      }));
+      const A=WIS.Core.Amount,whole=A?.enabled(),addUnit=(units,value)=>whole?A.add(units,value):B.add(units,value);
+      const rewards=[];for(const key of T.keys)rewards.push(yield ()=>once('reward|'+key,()=>{
         const eligible = P.qualification(snapshot, key) === null;
         if (!eligible) return {key, eligible:false};
         let units = P.explorationKeys.includes(key) ? cultivation.explorationAmount : B.ZERO;
-        if (["tianNiPearl", "baLingChi"].includes(key) && drivers.circulation) units = B.add(units,1);
-        if (["fitnessMembershipCard", "superLollipop"].includes(key) && drivers.fitness) units = B.add(units,1);
+        if(whole)units=A.from(cultivation.quantities?.explorationAmount??units);
+        if (["tianNiPearl", "baLingChi"].includes(key) && drivers.circulation) units = addUnit(units,1);
+        if (["fitnessMembershipCard", "superLollipop"].includes(key) && drivers.fitness) units = addUnit(units,1);
         if (key === "skyCrystal" && drivers.rock || key === "fiveSpiritStone" && drivers.intent ||
             ["immortalCrystal", "fiveElementsTreasure"].includes(key) && drivers.immortalPower ||
-            key === "yuanCrystal" && drivers.xianForce || ["cosmicFiber", "cosmicWill"].includes(key)) units = B.add(units,1);
-        if (key === "originImprint") units = rates.nieForce;
-        return { key, eligible, units: finite(units,key),
+            key === "yuanCrystal" && drivers.xianForce || ["cosmicFiber", "cosmicWill"].includes(key)) units = addUnit(units,1);
+        if (key === "originImprint") units = whole?evaluated.quantities.nieForce:rates.nieForce;
+        return { key, eligible, units: finite(whole?A.project(units):units,key),...(whole?{quantityUnits:units}:{}),
           // A capped source is fixed at the START demand; later stock still
           // pays its escalating cumulative demand through TreasureProgress.
-          gain: finite(B.min(P.unitGain(snapshot,key),P.requirement(key,T.count(snapshot,key),snapshot)),key),
+          gain: finite(B.min(P.unitGain(snapshot,key),P.requirement(key,whole?T.quantity(snapshot,key):T.count(snapshot,key),snapshot)),key),
           award: finite(T.getTreasureAwardMultiplier(snapshot,key),key) };
-      });
-      const XP=WIS.Cultivation.ExplorationProgress, cap=XP.capWords(snapshot);
-      return { ...profile, rewards, silverSeaRate:WIS.Meta.Infinity.silverSeaRate(snapshot), sheng:X.captureSheng(snapshot), changSheng:WIS.Cultivation.Martial.captureChangSheng(snapshot),
+      }));
+      const XP=WIS.Cultivation.ExplorationProgress, cap=yield ()=>once('natural-cap',()=>XP.capWords(snapshot));
+      const silverSeaQuantityRate=whole?yield ()=>once('silver-sea-quantity',()=>WIS.Meta.Infinity.silverSeaQuantityRate(snapshot)):null;
+      const silverSeaRate=yield ()=>once('silver-sea-rate',()=>whole?A.project(silverSeaQuantityRate):WIS.Meta.Infinity.silverSeaRate(snapshot));
+      const sheng=yield ()=>once('sheng',()=>X.captureSheng(snapshot)),changSheng=yield ()=>once('chang-sheng',()=>WIS.Cultivation.Martial.captureChangSheng(snapshot));
+      const martialPassive=yield ()=>once('martial-passive',()=>WIS.Cultivation.Martial.capturePassive(snapshot));
+      return { ...profile, martialPassive, rewards, silverSeaRate,...(whole?{silverSeaQuantityRate}:{}), sheng,changSheng,
         natural: { eligible: immortal && snapshot.goldenCoreUnlocked, cap },
         seizeEligible: immortal && !snapshot.unlockedAchievements?.seizeFoundation,
         // Current six automatic sources have no continuous asset debit.
         // Breathing, training and manual exploration are actions/conversions,
         // deliberately excluded from time sources and compensation.
         processes: [], caps: {} };
+      };
+      // Only the retained immutable source scope owns a resumable profile.
+      // Every completed phase and reward row stays in this private iterator.
+      if(entry)return WIS.Core.CertifiedRankMath.task(entry.taskKey,steps);
+      const iterator=steps();let next=iterator.next();while(!next.done){const value=typeof next.value==='function'?next.value():undefined;next=iterator.next(value);}return next.value;
     }));
   }
   // General fixed-process contract: a resource-limited process cannot run on
   // missing input, even if its nominal output is positive. Duration remains a
   // Decimal until consumption is computed; no positive-underflow -> full-span.
-  function calculate(balances, rates, seconds, processes = [], caps = {}) {
+  function calculateExact(balances,rates,seconds,processes,caps,rateQuantities){
+    const A=WIS.Core.Amount;finite(seconds,'seconds');const duration=A.from(seconds),quantities={},debitQuantities={},activeQuantities=[];
+    const read=k=>balances.core&&balances.cultivation?WIS.Simulation.ResourceGroups.readExact(balances,k):A.from(balances[k]||0);
+    const minimum=(a,b)=>A.compare(a,b)<=0?a:b,available=(a,b)=>A.compare(a,b)<=0?A.from(0):A.subtract(a,b);
+    for(const key of keys()){
+      const rate=A.from(rateQuantities?.[key]??finite(rates[key]||0,key));
+      if(rateQuantities?.[key]!==undefined&&!B.eq(A.project(rate),finite(rates[key]||0,key)))throw Object.assign(Error('Full and projected source rate disagree: '+key),{code:'formula-representation'});
+      quantities[key]=A.multiply(rate,duration);debitQuantities[key]=A.from(0);
+    }
+    for(const process of processes){let active=duration;
+      for(const [key,rate] of Object.entries(process.consume||{})){finite(rate,key);if(B.gt(rate,0))active=minimum(active,A.divide(available(read(key),debitQuantities[key]||0),rate));}
+      activeQuantities.push(active);
+      for(const [key,rate] of Object.entries(process.consume||{}))debitQuantities[key]=A.add(debitQuantities[key]||0,A.multiply(active,finite(rate,key)));
+      for(const [key,rate] of Object.entries(process.produce||{}))quantities[key]=A.add(quantities[key]||0,A.multiply(active,finite(rate,key)));
+    }
+    for(const [key,cap] of Object.entries(caps))quantities[key]=minimum(quantities[key]||A.from(0),available(A.from(finite(cap,key)),available(read(key),debitQuantities[key]||0)));
+    const projected=map=>Object.fromEntries(Object.entries(map).map(([key,value])=>[key,A.project(value)]));
+    return {gains:projected(quantities),debits:projected(debitQuantities),active:activeQuantities.map(A.project),quantities,debitQuantities,activeQuantities};
+  }
+  function calculate(balances, rates, seconds, processes = [], caps = {}, rateQuantities=null) {
+    if(WIS.Core.Amount?.enabled())return calculateExact(balances,rates,seconds,processes,caps,rateQuantities);
     finite(seconds,"seconds");
     const gains = Object.fromEntries(keys().map(k => [k, finite(B.mul(rates[k] || 0,seconds),k)]));
     const debits = Object.fromEntries(keys().map(k => [k,B.ZERO]));

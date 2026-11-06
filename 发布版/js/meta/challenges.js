@@ -200,7 +200,7 @@
     if (challenge.system === "martial") {
       const prerequisite = challenge.martialPrerequisite;
       return state.cultivation.active === "martial" && (state.activeChallenge === challengeKey || completionCount(state, challengeKey) > 0 ||
-        state.meta.martialQualifications?.[prerequisite] === true || (WIS.Cultivation.Martial.get(state).abilities[prerequisite] || 0) > 0);
+        state.meta.martialQualifications?.[prerequisite] === true || (challenge.unlockAchievementKey ? WIS.Meta.Achievements.has(state,challenge.unlockAchievementKey) : (WIS.Cultivation.Martial.get(state).abilities[prerequisite] || 0) > 0));
     }
     if(challenge.resetLevel==='infinity')return WIS.Meta.Infinity.isChallengeActive(state,challengeKey)||(WIS.Meta.Infinity.get(state).unlocked&&WIS.Meta.Infinity.has(state,challenge.infinityUpgrade));
     if(challenge.infinityUpgrade&&!WIS.Meta.Infinity.has(state,challenge.infinityUpgrade))return false;
@@ -357,8 +357,8 @@
     let targetReached = challenge.system === "martial" ? martialGoalReached(state, challenge)
       : challenge.targetYuanForce ?
       gte(WIS.Cultivation.Xiuzhen.amount(state,"yuanForce"),challenge.targetYuanForce) && gte(state.joules,challenge.targetJAndPower) && gte(state.power,challenge.targetJAndPower)
-      : challenge.targetG ? gte(WIS.Meta.BigNumbers.get(state).gIndex,challenge.targetG)
-      : challenge.targetTree ? gte(WIS.Meta.BigNumbers.get(state).tree.rank,challenge.targetTree)
+      : challenge.targetG ? WIS.Meta.BigNumbers.rankCompare(WIS.Meta.BigNumbers.get(state).gIndex,challenge.targetG)>=0
+      : challenge.targetTree ? WIS.Meta.BigNumbers.rankCompare(WIS.Meta.BigNumbers.get(state).tree.rank,challenge.targetTree)>=0
       : challenge.targetXiuzhenRealm
       ? WIS.Cultivation.Xiuzhen.get(state).realm >= challenge.targetXiuzhenRealm
       : challenge.requiresJAndPower
@@ -405,6 +405,7 @@
 
   function martialGoalReached(current, definition) {
     const M=WIS.Cultivation.Martial, B=WIS.Core.BigNum;
+    if(definition.targetMartialAbility && (M.get(current).abilities[definition.targetMartialAbility]||0)<definition.targetMartialAbilityLevel)return false;
     for (const [field,key] of [["targetMartialQi","qi"],["targetMartialBody","body"],["targetMartialHeart","heart"]])
       if (definition[field] !== undefined && !B.gte(M.amount(current,key),definition[field])) return false;
     if (definition.targetMartialJ !== undefined && !B.gte(current.joules,definition.targetMartialJ)) return false;

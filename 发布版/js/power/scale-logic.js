@@ -65,10 +65,10 @@
   // Progressive settlement gets a fixed continuous-integration budget. Stage crossings
   // may use one additional segment per configured stage, so cost never follows magnitude.
   const RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS = 60;
-  const RESOURCE_SOFTCAP_DYNAMIC_MAX_EVALUATIONS = 32;
-  const RESOURCE_SOFTCAP_DYNAMIC_LOG_STEP = 0.05;
-  const RESOURCE_SOFTCAP_CHALLENGE_LOG_STEP = 0.5;
-  const RESOURCE_SOFTCAP_TAIL_MAX_SEGMENTS = 48;
+  
+  
+  
+  
   const CHALLENGE_DEFINITIONS = CONFIG.challenges;
   const GHOST_BRAIN_CONFIG = CONFIG.ghostBrain;
   const FOCUS_SOURCE_CURVE_CONFIG = CONFIG.focus.sourceCurve;
@@ -97,6 +97,7 @@
     return log10(add(ONE, div(maxBN(ZERO, value), scale)));
   }
 
+  function resourceMagnitudeAt(source,key,scale=ONE){return WIS.Core.Amount?.enabled()?WIS.Core.AmountFormulas.logOnePlusRatio(WIS.Core.Effects.dynamicResourceQuantity(source,key),scale):resourceMagnitude(dynamicResource(source,key),scale);}
   function dynamicResource(source, resourceKey) {
     return WIS.Core.Effects.dynamicResourceValue(source, resourceKey);
   }
@@ -126,7 +127,11 @@
   const softcapStageConstants = new Map(RESOURCE_SOFTCAP_STAGES.map(stage =>
     [stage, { strength: BN(stage.strength), growth: BN(stage.growth) }]));
 
+  const isQuantity=value=>WIS.Core.Amount?.isAmount(value)===true;
+  const stockAmount=value=>isQuantity(value)?WIS.Core.Amount.from(value):maxBN(ZERO,value);
+  const stockAbove=(value,threshold)=>isQuantity(value)?WIS.Core.Amount.compare(value,threshold)>0:gt(value,threshold);
   function baseSoftcapStageExponent(amount, stage) {
+    if(isQuantity(amount))return computeBaseSoftcapStageExponent(amount,stage);
     const decimalAmount = maxBN(ZERO, amount);
     const memo = WIS.Core.Effects.scopeMemo(state);
     if (!memo) return computeBaseSoftcapStageExponent(decimalAmount, stage);
@@ -136,6 +141,11 @@
   }
 
   function computeBaseSoftcapStageExponent(decimalAmount, stage) {
+    if(isQuantity(decimalAmount)){
+      if(!stockAbove(decimalAmount,stage.threshold))return 1;
+      const orders=WIS.Core.AmountFormulas.logRatio(decimalAmount,stage.threshold),constants=softcapStageConstants.get(stage)||stage;
+      return compatibleSoftcapExponent(div(ONE,add(ONE,add(mul(constants.strength,orders),mul(constants.growth,pow(orders,1.5))))));
+    }
     if (lte(decimalAmount, stage.threshold)) return 1;
     const overflowOrders = log10(div(decimalAmount, stage.threshold));
     const constants = softcapStageConstants.get(stage) || stage;
@@ -185,11 +195,11 @@
   }
 
   function resourceSoftcapStageExponents(currentAmount, sourceKind = "normal", applySpaceQuake = true, applyRealmAdjustments = true) {
-    const amount = maxBN(ZERO, currentAmount);
+    const amount = stockAmount(currentAmount);
     const realmLevel = resourceSoftcapRealmLevel();
     const restoreRemoved = applyRealmAdjustments && state.activeChallenge === "heavenlyFiveDeclines";
     return RESOURCE_SOFTCAP_STAGES
-      .filter((stage) => gt(amount, stage.threshold) && (restoreRemoved || resourceSoftcapStageActive(stage, realmLevel, applyRealmAdjustments, sourceKind)))
+      .filter((stage) => stockAbove(amount, stage.threshold) && (restoreRemoved || resourceSoftcapStageActive(stage, realmLevel, applyRealmAdjustments, sourceKind)))
       .map((stage) => ({
         name: stage.name,
         exponent: applyRealmAdjustments
@@ -201,7 +211,7 @@
   }
 
   function originalNormalResourceSoftcapExponent(currentAmount, applySpaceQuake, sourceKind = "normal", applyRealmAdjustments = true, omit = null) {
-    const amount = maxBN(ZERO, currentAmount);
+    const amount = stockAmount(currentAmount);
     const baseExponent = resourceSoftcapStageExponents(amount, sourceKind, applySpaceQuake, applyRealmAdjustments)
       .filter(stage => !omit || !omit(stage.name))
       .reduce((exponent, stage) => mul(exponent, stage.exponent), ONE);
@@ -259,9 +269,9 @@
     const threshold = SCALE_THRESHOLDS[challenge.requiredScaleIndex]?.power;
     const starStage = RESOURCE_SOFTCAP_STAGES.find((stage) => stage.name === "爆星");
     if (!gt(threshold, ZERO) || !starStage) return 1;
-    const amount = maxBN(ZERO, currentAmount);
+    const amount = stockAmount(currentAmount);
     const progress = Math.max(0, Math.min(1,
-      toNumber(div(log10(add(ONE, amount)), log10(add(ONE, threshold))), 0)
+      toNumber(div((isQuantity(amount)?WIS.Core.AmountFormulas.logOnePlusRatio(amount,1):log10(add(ONE, amount))), log10(add(ONE, threshold))), 0)
     ));
     const virtualAmount = mul(threshold, pow10(1 + 4 * progress));
     const baseExponent = baseSoftcapStageExponent(virtualAmount, starStage);
@@ -283,6 +293,7 @@
   }
 
   function applySoftcapExponent(rawGain, exponent) {
+    if(isQuantity(rawGain))return quantitySoftcapExponent(rawGain,exponent);
     const gain = maxBN(ZERO, rawGain);
     if (!gt(gain, ZERO)) return ZERO;
     const decimalExponent = minBN(ONE, maxBN(ZERO, exponent));
@@ -298,6 +309,7 @@
   }
 
   function applyResourceSoftcap(rawGain, currentAmount) {
+    if(isQuantity(rawGain))return infinitySoftcapGain(rawGain,currentAmount);
     const gain = maxBN(ZERO, rawGain);
     if (!gt(gain, ZERO)) return ZERO;
     return infinitySoftcapGain(gain, currentAmount);
@@ -324,9 +336,18 @@
     return originalNormalResourceSoftcapExponent(amount,spaceQuake,kind,realm,omit);
   }
   function infinitySoftcapGain(gain,amount,kind="normal",special=false) {
+    if(isQuantity(gain))return quantityInfinitySoftcapGain(gain,amount,kind,special);
     return originalInfinitySoftcapGain(gain,amount,kind,special);
   }
   function infinitySoftcapInverse(actual, amount) {
+    if(isQuantity(actual)){
+      const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,I=WIS.Meta.Infinity;
+      const upper=rawGainForSoftcappedActualGain(actual,resourceSoftcapExponent(amount));
+      if(!I.softcapWeakening(state,'恒星')&&!I.softcapWeakening(state,'宇宙结构'))return upper;
+      if(A.compare(actual,0)===0)return A.from(0);let lo=F.log10(actual),hi=F.log10(upper);
+      for(let i=0;i<80;i++){const mid=div(add(lo,hi),2);if(eq(mid,lo)||eq(mid,hi))break;if(A.compare(infinitySoftcapGain(A.from(pow10(mid)),amount),actual)<0)lo=mid;else hi=mid;}
+      return A.from(pow10(hi));
+    }
     const I=WIS.Meta.Infinity;
     if(!I.softcapWeakening(state,"恒星")&&!I.softcapWeakening(state,"宇宙结构"))return rawGainForSoftcappedActualGain(actual,resourceSoftcapExponent(amount));
     if(!gt(actual,ZERO))return ZERO;
@@ -394,6 +415,7 @@
     return measure('softcap',()=>uncachedResourceSoftcapSettlementForComponents(normalRawGain,manaRawGain,currentAmount));
   }
   function uncachedResourceSoftcapSettlementForComponents(normalRawGain, manaRawGain, currentAmount) {
+    if(isQuantity(normalRawGain)||isQuantity(manaRawGain))return quantitySoftcapComponents(normalRawGain,manaRawGain,currentAmount);
     return getResourceSoftcapBreakdown(normalRawGain, manaRawGain, currentAmount).finalTotal;
   }
 
@@ -417,10 +439,10 @@
     return state.activeChallenge === "heavenlyFiveDeclines" || resourceSoftcapStageActive(stage,realmLevel);
   }
   function nextResourceSoftcapThreshold(currentAmount) {
-    const amount = maxBN(ZERO, currentAmount);
+    const amount = stockAmount(currentAmount);
     const realmLevel = resourceSoftcapRealmLevel();
     const nextStage = RESOURCE_SOFTCAP_STAGES.find((stage) =>
-      gt(stage.threshold, amount)
+      (isQuantity(amount)?WIS.Core.Amount.compare(stage.threshold,amount)>0:gt(stage.threshold,amount))
       && effectiveResourceSoftcapStageActive(stage, realmLevel)
     );
     return nextStage?.threshold ?? null;
@@ -428,18 +450,18 @@
 
   function hasStartedUnremovedResourceSoftcap(currentAmount) {
     if (state.activeChallenge === "planetSuppression") return true;
-    const amount = maxBN(ZERO, currentAmount);
+    const amount = stockAmount(currentAmount);
     const realmLevel = resourceSoftcapRealmLevel();
     return RESOURCE_SOFTCAP_STAGES.some((stage) =>
-      lte(stage.threshold, amount)
+      (isQuantity(amount)?WIS.Core.Amount.compare(stage.threshold,amount)<=0:lte(stage.threshold,amount))
       && effectiveResourceSoftcapStageActive(stage, realmLevel)
     );
   }
 
   function resourceSoftcapIntegrationLogIndex(currentAmount) {
-    const amount = maxBN(ZERO, currentAmount);
-    if (!gt(amount, ZERO) || !isFiniteBN(amount)) return 0;
-    const logarithm = toNumber(log10(amount), NaN);
+    const amount = stockAmount(currentAmount);
+    if(isQuantity(amount)){if(WIS.Core.Amount.compare(amount,0)===0)return 0;}else if (!gt(amount, ZERO) || !isFiniteBN(amount)) return 0;
+    const logarithm = toNumber(isQuantity(amount)?WIS.Core.AmountFormulas.log10(amount):log10(amount),NaN);
     if (!Number.isFinite(logarithm)) return null;
     const scaledLog = logarithm / RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP;
     const nearestInteger = Math.round(scaledLog);
@@ -483,24 +505,30 @@
   }
 
   function nextResourceSoftcapIntegrationBoundary(currentAmount) {
-    const amount = maxBN(ZERO, currentAmount);
+    const A=WIS.Core.Amount,whole=isQuantity(currentAmount),amount=stockAmount(currentAmount);
+    const positive=value=>whole?A.compare(value,0)>0:gt(value,0),minimum=(a,b)=>whole?(A.compare(a,b)<=0?a:b):minBN(a,b);
     const nextThreshold = nextResourceSoftcapThreshold(amount);
-    if (state.activeChallenge === "planetSuppression" && !gt(amount, ZERO)) {
-      return nextThreshold ? minBN(nextThreshold, ONE) : ONE;
+    if (state.activeChallenge === "planetSuppression" && !positive(amount)) {
+      return nextThreshold ? minimum(nextThreshold,ONE) : ONE;
     }
-    if (!gt(amount, ZERO) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
+    if (!positive(amount) || !hasStartedUnremovedResourceSoftcap(amount)) return nextThreshold;
     const currentLogIndex = resourceSoftcapIntegrationLogIndex(amount);
     if (currentLogIndex === null) return nextThreshold;
     let nextLogIndex = currentLogIndex + 1;
     let nextLogBoundary = resourceSoftcapLogBoundary(nextLogIndex);
-    while (!gt(nextLogBoundary, amount) && nextLogIndex < Number.MAX_SAFE_INTEGER) {
+    while (!(whole?A.compare(nextLogBoundary,amount)>0:gt(nextLogBoundary,amount)) && nextLogIndex < Number.MAX_SAFE_INTEGER) {
       nextLogIndex += 1;
       nextLogBoundary = resourceSoftcapLogBoundary(nextLogIndex);
     }
-    return nextThreshold ? minBN(nextThreshold, nextLogBoundary) : nextLogBoundary;
+    return nextThreshold ? minimum(nextThreshold,nextLogBoundary) : nextLogBoundary;
   }
 
   function rawGainForSoftcappedActualGain(actualGain, exponent) {
+    if(isQuantity(actualGain)){
+      const A=WIS.Core.Amount,gain=A.from(actualGain),e=minBN(1,maxBN(0,exponent));
+      if(A.compare(gain,0)===0)return A.from(0);if(!gt(e,0))return null;if(gte(e,1))return gain;
+      return A.from(WIS.Core.AmountFormulas.powerOnePlusMinusOne(gain,div(1,e)));
+    }
     const gain = maxBN(ZERO, actualGain);
     if (!gt(gain, ZERO)) return ZERO;
     const decimalExponent = minBN(ONE, maxBN(ZERO, exponent));
@@ -510,12 +538,21 @@
   }
 
   function logarithmicAmountSpan(startAmount, endAmount) {
+    if(isQuantity(startAmount)||isQuantity(endAmount)){
+      const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,start=A.compare(startAmount,1)>0?A.from(startAmount):A.from(1),end=A.compare(endAmount,start)>0?A.from(endAmount):start;
+      return Math.max(0,toNumber(sub(F.log10(end),F.log10(start)),0));
+    }
     const start = maxBN(ONE, startAmount);
     const end = maxBN(start, endAmount);
     return Math.max(0, toNumber(sub(log10(end), log10(start)), 0));
   }
 
   function logarithmicAmountInterpolation(startAmount, endAmount, position = 0.5) {
+    if(isQuantity(startAmount)||isQuantity(endAmount)){
+      const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,start=A.from(startAmount),end=A.compare(endAmount,start)>0?A.from(endAmount):start,p=Math.max(0,Math.min(1,position));
+      if(A.compare(end,start)===0||p===0)return start;if(p===1)return end;if(A.compare(start,0)===0)return A.scale(end,p);
+      return A.from(F.productQuotient([start,F.powerRatio(end,start,p)],[]));
+    }
     const start = maxBN(ZERO, startAmount);
     const end = maxBN(start, endAmount);
     if (!gt(end, start)) return start;
@@ -524,6 +561,11 @@
   }
 
   function refinedProgressiveSettlement(rawGain, currentAmount, settle = applyResourceSoftcapSettlement) {
+    if(isQuantity(rawGain)){
+      const A=WIS.Core.Amount;let estimate=A.from(settle(rawGain,currentAmount));
+      for(let i=0;i<2;i++)estimate=A.from(settle(rawGain,logarithmicAmountInterpolation(currentAmount,A.add(currentAmount,estimate),.5)));
+      return estimate;
+    }
     let estimate = settle(rawGain, currentAmount);
     for (let iteration = 0; iteration < 2; iteration += 1) {
       const projectedEnd = add(currentAmount, maxBN(ZERO, estimate));
@@ -534,6 +576,7 @@
   }
 
   function applyResourceSoftcapProgressive(rawGain, currentAmount, { googolResource = null } = {}) {
+    if(WIS.Core.Amount?.enabled())return applyQuantitySoftcapProgressive(rawGain,currentAmount,{googolResource});
     // Manual training opts in. Other progressive callers keep their original law.
     const penaltyAt = amount => googolResource
       ? WIS.Core.Penalties.googolPenaltyMultiplier(googolResource, amount, state) : ONE;
@@ -645,13 +688,94 @@
     return maxBN(ZERO, settledGain);
   }
 
+  let quantityCurveSequence=0n;
+  function applyQuantitySoftcapProgressive(rawGain,currentAmount,{googolResource=null}={}) {
+    const A=WIS.Core.Amount,C=WIS.Core.CertifiedRankMath;
+    rawGain=A.from(rawGain);currentAmount=A.from(currentAmount);
+    return C.withWork(()=>{
+      const domain=runtime.getState(),scope=WIS.Core.Effects.continuationMemo?.(domain)||deferredDynamicRateScope;
+      let stateKey;
+      if(scope){
+        // These two scopes explicitly own an immutable start domain. Name its
+        // identity only inside the current arithmetic work, never across works.
+        const memo=C.memo('quantity-progressive-domains');let owner=memo.get(scope);
+        if(!owner){owner={id:memo.size+1,roots:new WeakMap(),next:0};memo.set(scope,owner);}
+        if(!owner.roots.has(domain))owner.roots.set(domain,++owner.next);
+        stateKey=['immutable-scope',owner.id,owner.roots.get(domain)];
+      }else stateKey=WIS.Core.State.toSerializable(domain);
+      const identity=value=>WIS.Core.AmountProducts.numericIdentity('quantity-progressive-inputs',value,()=>WIS.Core.AmountProducts.inputKey(A.wordView(value))??JSON.stringify(A.wordView(value)));
+      const key='quantity-progressive|'+JSON.stringify([identity(rawGain),identity(currentAmount),googolResource,runtime.getMathPolicy(),stateKey]);
+      return C.task(key,function*(){
+      const prefix='quantity-curve|'+String(++quantityCurveSequence)+'|',ZERO=A.from(0),ONE=A.from(1);
+      const add=A.add,sub=A.subtract,mul=A.multiply,div=A.divide;
+      const gt=(a,b)=>A.compare(a,b)>0,gte=(a,b)=>A.compare(a,b)>=0,lt=(a,b)=>A.compare(a,b)<0,lte=(a,b)=>A.compare(a,b)<=0,eq=(a,b)=>A.compare(a,b)===0;
+      const maxBN=(a,b)=>A.from(gte(a,b)?a:b),minBN=(a,b)=>A.from(lte(a,b)?a:b);
+      const value=(name,args,compute)=>C.task(prefix+name+'|'+JSON.stringify(args.map(A.words)),function*(){return yield compute;});
+      const penaltyAt=amount=>googolResource?WIS.Core.Penalties.googolPenaltyMultiplier(googolResource,amount,state):ONE;
+      const settle=(gain,amount)=>value('settle',[gain,amount],()=>mul(applyResourceSoftcapSettlement(gain,amount),penaltyAt(amount)));
+      const refine=(gain,amount)=>C.task(prefix+'refine|'+JSON.stringify([A.words(gain),A.words(amount)]),function*(){
+        let estimate=yield ()=>A.from(settle(gain,amount));
+        for(let i=0;i<2;i++)estimate=yield ()=>A.from(settle(gain,logarithmicAmountInterpolation(amount,A.add(amount,estimate),.5)));
+        return estimate;
+      });
+      const googol=WIS.Core.Config.googolPenalty.threshold;
+      const nextStage=amount=>{const normal=nextResourceSoftcapThreshold(amount);return googolResource&&lt(amount,googol)?(normal?minBN(normal,googol):googol):normal;};
+      const varying=amount=>hasStartedUnremovedResourceSoftcap(amount)||(googolResource&&gte(amount,googol));
+      const integrationBoundary=amount=>{
+        const normal=nextResourceSoftcapIntegrationBoundary(amount),stage=nextStage(amount);let boundary=normal&&stage?minBN(normal,stage):normal||stage;
+        const penaltyBoundary=googolResource?WIS.Core.Penalties.nextGoogolPenaltyBoundary(googolResource,amount,state):null;
+        if(penaltyBoundary)boundary=boundary?minBN(boundary,penaltyBoundary):penaltyBoundary;
+        if(googolResource&&gte(amount,googol)){const index=resourceSoftcapIntegrationLogIndex(amount);if(index!==null){const logarithmic=resourceSoftcapLogBoundary(index+1);if(gt(logarithmic,amount))boundary=boundary?minBN(boundary,logarithmic):logarithmic;}}
+        return boundary;
+      };
+      let remainingRawGain=yield ()=>maxBN(ZERO,rawGain);const initialAmount=yield ()=>maxBN(ZERO,currentAmount);
+      if(yield ()=>!gt(remainingRawGain,ZERO))return ZERO;
+      let settledAmount=initialAmount,settledGain=ZERO,continuousSegments=0,exactStageSegments=0;
+      const stageCount=RESOURCE_SOFTCAP_STAGES.length+(googolResource?1:0),maximumSegments=RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS+stageCount;
+      for(let segment=0;segment<maximumSegments;segment++){
+        if(yield ()=>!gt(remainingRawGain,ZERO))break;
+        const projectedGain=yield ()=>settle(remainingRawGain,settledAmount),projectedEnd=yield ()=>add(settledAmount,maxBN(ZERO,projectedGain)),nextStageBoundary=yield ()=>nextStage(settledAmount);
+        const canCrossStage=nextStageBoundary&&(yield ()=>gt(projectedEnd,nextStageBoundary));
+        if(continuousSegments>=RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS&&!(canCrossStage&&exactStageSegments<stageCount)){
+          const rest=yield ()=>refine(remainingRawGain,settledAmount);settledGain=yield ()=>add(settledGain,rest);remainingRawGain=ZERO;break;
+        }
+        const remainingBudget=Math.max(1,RESOURCE_SOFTCAP_PROGRESSIVE_MAX_SEGMENTS-continuousSegments),projectedLogSpan=yield ()=>logarithmicAmountSpan(settledAmount,projectedEnd),highPrecision=projectedLogSpan<=remainingBudget*RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP;
+        let nextBoundary,evaluationAmount=settledAmount;
+        if(canCrossStage&&(!highPrecision||remainingBudget<=1)){nextBoundary=nextStageBoundary;evaluationAmount=yield ()=>logarithmicAmountInterpolation(settledAmount,nextBoundary,.5);}
+        else if(highPrecision||(yield ()=>!gt(settledAmount,ZERO)||!varying(settledAmount)))nextBoundary=yield ()=>integrationBoundary(settledAmount);
+        else{
+          const adaptiveLogStep=Math.max(RESOURCE_SOFTCAP_INTEGRATION_LOG_STEP,projectedLogSpan/remainingBudget),adaptiveBoundary=yield ()=>mul(settledAmount,pow10(adaptiveLogStep));
+          nextBoundary=yield ()=>nextStageBoundary?minBN(nextStageBoundary,adaptiveBoundary):adaptiveBoundary;evaluationAmount=yield ()=>logarithmicAmountInterpolation(settledAmount,nextBoundary,.5);
+        }
+        if(!nextBoundary||(yield ()=>!gt(nextBoundary,settledAmount)||!gt(projectedEnd,nextBoundary))){const rest=yield ()=>refine(remainingRawGain,settledAmount);settledGain=yield ()=>add(settledGain,rest);remainingRawGain=ZERO;break;}
+        const exponent=yield ()=>resourceSoftcapSettlementExponent(evaluationAmount);
+        if(yield ()=>!gt(exponent,ZERO)){remainingRawGain=ZERO;break;}
+        const neededActualGain=yield ()=>maxBN(ZERO,sub(nextBoundary,settledAmount));
+        if(yield ()=>!gt(neededActualGain,ZERO)){const rest=yield ()=>refine(remainingRawGain,settledAmount);settledGain=yield ()=>add(settledGain,rest);remainingRawGain=ZERO;break;}
+        const neededRawGain=yield ()=>WIS.Meta.Infinity.softcapWeakening(state,'恒星')||WIS.Meta.Infinity.softcapWeakening(state,'宇宙结构')
+          ?infinitySoftcapInverse(rawGainForSoftcappedActualGain(div(neededActualGain,penaltyAt(evaluationAmount)),planetSuppressionSoftcapExponent(evaluationAmount)),evaluationAmount)
+          :rawGainForSoftcappedActualGain(div(neededActualGain,penaltyAt(evaluationAmount)),exponent);
+        if(!neededRawGain||(yield ()=>lt(remainingRawGain,neededRawGain))){const rest=yield ()=>refine(remainingRawGain,settledAmount);settledGain=yield ()=>add(settledGain,rest);remainingRawGain=ZERO;break;}
+        settledAmount=nextBoundary;settledGain=yield ()=>add(settledGain,neededActualGain);remainingRawGain=yield ()=>maxBN(ZERO,sub(remainingRawGain,neededRawGain));continuousSegments++;
+        if(nextStageBoundary&&(yield ()=>eq(nextBoundary,nextStageBoundary)))exactStageSegments++;
+      }
+      if(yield ()=>gt(remainingRawGain,ZERO)){const rest=yield ()=>refine(remainingRawGain,settledAmount);settledGain=yield ()=>add(settledGain,rest);}
+      return yield ()=>maxBN(ZERO,settledGain);
+    });});
+  }
+
   // Integrate a raw rate with an explicit settlement callback. Callers whose
   // provider already applies penalties must pass the identity callback. Every
   // sample, including after normal caps are removed, uses this same contract.
   // A scope belongs to one immutable action/preview. Its replay only replaces
   // an already completed integration, never a provider, event or RNG call.
-  let deferredDynamicRateScope = null;
+  let deferredDynamicRateScope = null,deferredDynamicRateSequence=0n;
   function createDeferredDynamicRateScope() {
+    const scopeId=String(++deferredDynamicRateSequence),C=WIS.Core.CertifiedRankMath;
+    function advanceRecord(record,deadline,options={}){
+      const result=runtime.withMathPolicy(record.policy,()=>runtime.withEvaluationState(record.evaluationState,()=>record.work.advance({maximumEvaluations:48,maximumOperations:4096,...options,deadline})));
+      if(result.status==='finite-time-singularity'||result.status==='precision-stalled'){const error=Error(result.status==='precision-stalled'?"当前数值精度下无法完成本次计算，资源未扣除":"动态积分具有有限时间发散证明；结算未提交");error.code=result.status;error.diagnostics=result.diagnostics;throw error;}return result;
+    }
     const records=[];let cursor=0,pending=null,cancelled=false;
     const scope={
       attempt(callback){
@@ -662,7 +786,10 @@
         finally{deferredDynamicRateScope=previous;}
       },
       acquire(args){
-        const initial=BN(args[1]),signature=[initial.sign,initial.layer,initial.mag,Number(args[2]),args[4]?.foreground===true,args[4]?.googolResource??''].join(':');
+        const A=WIS.Core.Amount,whole=A?.enabled(),initial=whole?A.from(args[1]):BN(args[1]),raw=args[4]?.constantGoogolRawRate;
+        const constantKey=raw==null?'':whole?JSON.stringify(A.serialize(A.from(raw))):(()=>{const n=BN(raw);return [n.sign,n.layer,n.mag].join(':');})();
+        const inputKey=whole?JSON.stringify(A.serialize(initial)):[initial.sign,initial.layer,initial.mag].join(':');
+        const signature=[inputKey,Number(args[2]),args[4]?.foreground===true,args[4]?.googolResource??'',constantKey].join(':');
         let record=records[cursor++];
         if(record&&record.signature!==signature)throw Error("积分候选输入改变，旧候选失效");
         if(!record){
@@ -672,18 +799,18 @@
           records.push(record);
         }
         const result=record.work.snapshot();
-        if(result.done)return result.gains.amount;
+        if(whole&&C.isWorkActive())return C.task('deferred-scalar|'+scopeId+'|'+(cursor-1)+'|'+signature,function*(){
+          if(result.done)return result.quantities?.gains.amount??result.gains.amount;
+          for(;;){const next=yield ()=>advanceRecord(record,performance.now()+1,{maximumOperations:32,maximumEvaluations:8});if(next.done)return next.quantities?.gains.amount??next.gains.amount;yield;}
+        });
+        if(result.done)return result.quantities?.gains.amount??result.gains.amount;
         pending=record;throw record;
       },
       advance(deadline=Infinity,options={}){
         if(cancelled)throw Error("积分候选已取消");
         if(!pending)return {done:true};
         const record=pending;
-        const result=runtime.withMathPolicy(record.policy,()=>runtime.withEvaluationState(record.evaluationState,
-          ()=>record.work.advance({maximumEvaluations:48,maximumOperations:4096,...options,deadline})));
-        if(result.status==='finite-time-singularity'||result.status==='precision-stalled'){
-          const error=Error(result.status==='precision-stalled'?"当前数值精度下无法完成本次计算，资源未扣除":"动态积分具有有限时间发散证明；结算未提交");error.code=result.status;error.diagnostics=result.diagnostics;throw error;
-        }
+        const result=advanceRecord(record,deadline,options);
         if(result.done)pending=null;
         return result;
       },
@@ -695,9 +822,10 @@
   function createResourceSoftcapDynamicRateWork(
     rawRateAtAmount, currentAmount, elapsedSeconds,
     settleRateAtAmount = applyResourceSoftcapSettlement,
-    { foreground = false, memoizeSamples = false, googolResource = null } = {}
+    { foreground = false, memoizeSamples = false, googolResource = null, constantGoogolRawRate = null } = {}
   ) {
-    const seconds=Number(elapsedSeconds), initial=maxBN(ZERO,currentAmount);
+    const A=WIS.Core.Amount,whole=A?.enabled(),initialQuantity=whole?A.from(currentAmount):null;
+    const seconds=Number(elapsedSeconds), initial=whole?A.project(initialQuantity):maxBN(ZERO,currentAmount);
     if(typeof rawRateAtAmount!=="function" || !Number.isFinite(seconds) || seconds<0 || !isFiniteBN(initial))
       throw Error("动态积分输入无效，结算未提交");
     // Opt-in only for an audited autonomous callback in an immutable work scope.
@@ -706,13 +834,15 @@
     const samples = memoizeSamples ? new Map() : null;
     const evaluationState=memoizeSamples && runtime.isEvaluating()?runtime.getState():null;
     const delayed=googolResource && WIS.Meta.Infinity.has(state,'B6');
-    const work=WIS.Core.Integration.createAdaptiveWork({amount:initial},seconds,(values,{leftLimit=false}={})=>{
+    const penaltyScope=whole&&evaluationState&&googolResource&&constantGoogolRawRate!==null?WIS.Core.Penalties.prepareImmutableScope(evaluationState):null;
+    const create=whole?WIS.Core.Integration.createAmountWork:WIS.Core.Integration.createAdaptiveWork;
+    let work=create({amount:whole?initialQuantity:initial},seconds,(values,{leftLimit=false}={})=>{
       const amount = values.amount;
-      const key = samples ? [amount.sign, amount.layer, amount.mag,leftLimit].join(":") : null;
+      const key = samples ? whole?JSON.stringify([A.serialize(amount),leftLimit]):[amount.sign, amount.layer, amount.mag,leftLimit].join(":") : null;
       if (samples?.has(key)) return {amount:samples.get(key)};
-      const calculate=()=>{const raw=rawRateAtAmount(values.amount);return {raw,rate:settleRateAtAmount(raw,values.amount)};};
+      const calculate=()=>{const raw=whole&&constantGoogolRawRate!==null?constantQuantity:rawRateAtAmount(values.amount);return {raw,rate:settleRateAtAmount(raw,values.amount)};};
       const {raw,rate}=leftLimit && delayed?WIS.Core.Penalties.withGoogolPenaltyLeftLimit(googolResource,amount,calculate):calculate();
-      if(!isFiniteBN(raw)||!isFiniteBN(rate)||lt(rate,0))throw Error("动态积分速率无效");
+      if(whole){A.from(raw);A.from(rate);}else if(!isFiniteBN(raw)||!isFiniteBN(rate)||lt(rate,0))throw Error("动态积分速率无效");
       if (samples) {
         if (samples.size >= 256) samples.delete(samples.keys().next().value);
         samples.set(key, rate);
@@ -722,10 +852,74 @@
       nextBoundary:delayed?values=>WIS.Core.Penalties.nextGoogolPenaltyBoundary(googolResource,values.amount,state):null,
       autonomous:!!evaluationState, detectPrecisionStall:!!evaluationState,
       cycleContextCurrent:()=>runtime.isEvaluating() && runtime.getState()===evaluationState});
-    let cancelled=false;
-    return Object.freeze({
-      advance(options){if(cancelled)throw Error("积分候选已取消");const result=work.advance(options);if(result.done)samples?.clear();return result;},
-      snapshot:()=>work.snapshot(),clearMemo(){samples?.clear();},cancel(){cancelled=true;samples?.clear();}
+    let cancelled=false, fallbackAttempted=false, priorDiagnostics=null, primaryWork=null, primaryFailure=null;
+    let additionalOperations=0,additionalSlices=0,additionalBudget=0,inverseRefusal=null;
+    const budgetCount=d=>d.budgetOperations??d.workOperations??0;
+    const constantQuantity=whole&&constantGoogolRawRate!==null?A.from(constantGoogolRawRate):null;
+    const certificateRaw=constantQuantity?A.project(constantQuantity):constantGoogolRawRate;
+    const mayInvert=!!evaluationState&&!!googolResource&&constantGoogolRawRate!==null;
+    // An operation checkpoint is deterministic across sync/async slice sizes.
+    // It selects another certified solver; it never grants a result or changes
+    // the action budget. Ordinary formal solves which finish before it are kept.
+    const inverseCheckpoint=1024;
+    const snapshot=()=>{
+      if(!mayInvert)return work.snapshot();
+      const rawValue=work.snapshot(),value=whole&&rawValue.done&&!rawValue.quantities?{...rawValue,quantities:{gains:{amount:A.from(rawValue.gains.amount)},final:{amount:A.add(initialQuantity,rawValue.gains.amount)}}}:rawValue,d=value.diagnostics;
+      if(!priorDiagnostics)return {...value,diagnostics:{...d,
+        budgetOperations:budgetCount(d)+additionalBudget,workOperations:d.workOperations+additionalOperations,slices:d.slices+additionalSlices,
+        ...(inverseRefusal?{inverseRefusal}:{} )}};
+      return {...value,diagnostics:{...d,
+        evaluations:priorDiagnostics.evaluations+(d.evaluations||0),
+        actualEvaluations:priorDiagnostics.actualEvaluations+(d.actualEvaluations||0),
+        logicalEvaluations:priorDiagnostics.logicalEvaluations+(d.logicalEvaluations||0),
+        slices:priorDiagnostics.slices+(d.slices||0)+additionalSlices,
+        budgetOperations:budgetCount(priorDiagnostics)+budgetCount(d)+additionalBudget,workOperations:priorDiagnostics.workOperations+(d.workOperations||0)+additionalOperations,
+        fallbackFrom:priorDiagnostics.diagnosis?.code||'bounded-formal-work',primary:priorDiagnostics}};
+    };
+    function advanceSlice(options={}){
+        if(cancelled)throw Error("积分候选已取消");
+        const operationLimit=options.maximumOperations??256;
+        if(whole&&operationLimit!==Infinity&&(!Number.isSafeInteger(operationLimit)||operationLimit<1))throw Object.assign(Error('proof slice budget'),{code:'rank-cost-unresolved'});
+        if(!mayInvert){const result=work.advance(options);if(result.done)samples?.clear();return result;}
+        const before=budgetCount(snapshot().diagnostics);
+        
+        const cap=mayInvert&&!fallbackAttempted&&!primaryWork
+          ?Math.min(operationLimit,Math.max(1,inverseCheckpoint-work.snapshot().diagnostics.workOperations)):operationLimit;
+        let result,boundaryFailure=null;
+        try{result=work.advance({...options,maximumOperations:cap});}catch(error){
+          if(fallbackAttempted||primaryWork||error.code!=='amount-boundary-unresolved'||error.reason!=='coordinate-origin')throw error;
+          boundaryFailure=error;
+          result={done:false,status:error.code,diagnostics:{...work.diagnostics(),diagnosis:{code:error.code,reason:error.reason,message:error.message}}};
+        }
+        // Only the domain's structurally audited constant-raw factory may enter
+        // the positive-action inverse. Autonomous/memoized alone is insufficient.
+        if(!fallbackAttempted&&mayInvert&&!result.done&&
+           (boundaryFailure||result.status==='precision-stalled'||result.diagnostics.workOperations>=inverseCheckpoint)){
+          fallbackAttempted=true;
+          const details=WIS.Core.Penalties.googolPenaltyDetails(googolResource,initial,evaluationState);
+          const fallback=WIS.Core.Integration.createGoogolScalarEndpointWork(whole?initialQuantity:initial,seconds,whole?constantQuantity:certificateRaw,{
+            q:details.baseQ,strength:details.strength,highScaleBase:WIS.Core.Config.googolPenalty.highScaleBase,
+            threshold:WIS.Core.Config.googolPenalty.threshold,delayed,
+            contextCurrent:()=>runtime.isEvaluating()&&runtime.getState()===evaluationState});
+          if(fallback){
+            priorDiagnostics=result.diagnostics;primaryWork=work;primaryFailure=boundaryFailure;if(primaryFailure)primaryWork.cancel?.();work=fallback;
+            const remaining=operationLimit-(budgetCount(snapshot().diagnostics)-before);
+            if(remaining>0)work.advance({...options,maximumOperations:remaining});
+          }else if(boundaryFailure)throw boundaryFailure;
+        }
+        // An inconclusive certificate does not turn a still-progressing formal
+        // solver into a failure. Resume it; retain its explicit precision error
+        // only if it had already proved a repeating represented state.
+        if(primaryWork&&work.snapshot().status==='precision-stalled'){
+          const refused=work.snapshot().diagnostics;
+          additionalOperations+=refused.workOperations;additionalSlices+=refused.slices;additionalBudget+=budgetCount(refused);inverseRefusal=refused.diagnosis;
+          if(primaryFailure)throw primaryFailure;
+          work=primaryWork;primaryWork=null;priorDiagnostics=null;
+        }
+        result=snapshot();if(result.done)samples?.clear();return result;
+    }
+    return Object.freeze({advance(options={}){return penaltyScope?penaltyScope.run(()=>advanceSlice(options)):advanceSlice(options);},
+      snapshot,clearMemo(){samples?.clear();},cancel(){cancelled=true;work.cancel?.();primaryWork?.cancel?.();samples?.clear();}
     });
   }
 
@@ -734,7 +928,7 @@
     const work=createResourceSoftcapDynamicRateWork(...args);
     try {for(;;){
       const result=work.advance({maximumEvaluations:256});
-      if(result.done)return result.gains.amount;
+      if(result.done)return result.quantities?.gains.amount??result.gains.amount;
       if(result.status==='finite-time-singularity'||result.status==='precision-stalled'){
         const error=Error(result.status==='precision-stalled'?"当前数值精度下无法完成本次计算，资源未扣除":"动态积分具有有限时间发散证明；未处理时间和数值检查点保留");
         error.code=result.status;error.continuation=work;error.diagnostics=result.diagnostics;throw error;
@@ -766,10 +960,10 @@
   }
 
   function activeSoftcapStages(currentAmount) {
-    const amount = maxBN(ZERO, currentAmount);
+    const amount = stockAmount(currentAmount);
     const realmLevel = resourceSoftcapRealmLevel();
     const names = RESOURCE_SOFTCAP_STAGES
-      .filter((stage) => gt(amount, stage.threshold)
+      .filter((stage) => stockAbove(amount, stage.threshold)
         && effectiveResourceSoftcapStageActive(stage, realmLevel))
       .map((stage) => stage.name);
     return names.length > 0 ? names.join("、") : "未触发";
@@ -786,7 +980,7 @@
   function gymPotentialMultiplier(source = state) {
     const currentPower = dynamicResource(source, "power");
     return mul(
-      add("1.25", mul("0.5", resourceMagnitude(currentPower))),
+      add("1.25", mul("0.5", resourceMagnitudeAt(source,"power"))),
       breathingMethodGymMultiplier(source)
     );
   }
@@ -802,7 +996,7 @@
   }
 
   function sonicMovementPotentialMultiplier(source = state) {
-    return sonicMovementMultiplierForExponent(godspeedExponent(source));
+    return mul(sonicMovementMultiplierForExponent(godspeedExponent(source)),source.godspeedPurchased ? WIS.Cultivation.Martial.abilityMultiplier(source,'otherShore') : ONE);
   }
 
   function sonicMovementMultiplier(source = state) {
@@ -815,7 +1009,7 @@
 
   function godspeedPotentialExponent(source = state) {
     const currentPower = dynamicResource(source, "power");
-    const d = resourceMagnitude(currentPower, "3.033e15");
+    const d = resourceMagnitudeAt(source,"power","3.033e15");
     const dEff = WIS.Core.Formulas.smoothPowerSoftcap(d, 300, 1, 0.35, 6);
     return add(ONE, mul("0.05", dEff));
   }
@@ -867,7 +1061,8 @@
     // must not revive the previous lifecycle's peak after that replacement.
     const peak = powerPeak?.owner === state.powerSystem.systems.scale.progress
       ? maxBN(state.power, powerPeak.value) : state.power;
-    state.highestPower = maxBN(state.highestPower, peak);
+    WIS.Core.State.maxStatistic(state,"highestPower",WIS.Core.Amount?.enabled()?WIS.Core.Resources.readExact("core.power",state):peak);
+    if(WIS.Core.Amount?.enabled()&&powerPeak?.owner===state.powerSystem.systems.scale.progress)WIS.Core.State.maxStatistic(state,"highestPower",powerPeak.exactValue||powerPeak.value);
     state.highestScaleIndex = Math.max(state.highestScaleIndex, scaleIndexForPower(state.power));
     if (state.highestScaleIndex > previousScaleIndex) state.currentScaleElapsedSeconds = 0;
     state.brickUnlocked = state.highestScaleIndex >= 1;
@@ -913,6 +1108,7 @@
   }
 
   function superLollipopTrainingMultiplier() {
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Treasures.affineValue(state,'superLollipop',SCALE_TREASURE_CONFIG.superLollipop.perItemMultiplier,1);
     return add(ONE, mul(
       superLollipopCount(),
       SCALE_TREASURE_CONFIG.superLollipop.perItemMultiplier
@@ -951,6 +1147,7 @@
   }
 
   function skyCrystalRockMultiplier() {
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Treasures.affineValue(state,'skyCrystal',.05,1);
     return add(ONE, mul(skyCrystalCount(), 0.05));
   }
 
@@ -1051,7 +1248,7 @@
 
   function exercisePotentialMultiplier(source = state) {
     const currentJoules = dynamicResource(source, "joules");
-    return add("1.1", mul("0.1", resourceMagnitude(currentJoules)));
+    return add("1.1", mul("0.1", resourceMagnitudeAt(source,"joules")));
   }
 
   function exerciseMultiplier(source = state) {
@@ -1062,7 +1259,7 @@
 
   function transcendentPotentialMultiplier(source = state) {
     const currentPower = dynamicResource(source, "power");
-    return add(ONE, mul("0.15", resourceMagnitude(currentPower)));
+    return add(ONE, mul("0.15", resourceMagnitudeAt(source,"power")));
   }
 
   function transcendentMultiplier(source = state) {
@@ -1084,7 +1281,7 @@
 
   function naturalStrengthPotentialMultiplier(source = state) {
     const currentJoules = dynamicResource(source, "joules");
-    return add(ONE, mul("0.15", resourceMagnitude(currentJoules)));
+    return add(ONE, mul("0.15", resourceMagnitudeAt(source,"joules")));
   }
 
   function powerMultiplierGroups() {
@@ -1206,7 +1403,57 @@
     return createAutomaticJRateProfile().rawRate();
   }
 
+  function quantitySoftcapExponent(value,exponent){
+    const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,gain=A.from(value),e=minBN(ONE,maxBN(ZERO,exponent));
+    if(A.compare(gain,0)===0||!gt(e,0))return A.from(0);if(gte(e,1))return gain;
+    const log=mul(F.logOnePlusRatio(gain,1),e);
+    if(!gt(log,0))throw Object.assign(Error('Positive quantity softcap has no certified positive rate'),{code:'amount-formula-unresolved'});
+    // Preserve the existing tiny-log linear branch; the regular branch uses
+    // a certified expm1 evaluation of the complete gain.
+    return A.from(lt(log,'1e-8')?mul(log,Math.LN10):F.powerOnePlusMinusOne(gain,e));
+  }
+  function quantityInterpolate(softened,raw,w){const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas;if(w<=0)return A.from(softened);if(w>=1)return A.from(raw);if(A.compare(raw,0)<=0||A.compare(softened,0)<=0)return A.from(0);return A.from(pow10(add(mul(F.log10(softened),1-w),mul(F.log10(raw),w))));}
+  function quantityInfinitySoftcapGain(gain,amount,kind='normal',special=false){
+    const A=WIS.Core.Amount,I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig,early=I.softcapWeakening(state,C.earlyLastStage),late=I.softcapWeakening(state,'宇宙结构');
+    const base=quantitySoftcapExponent(gain,originalNormalResourceSoftcapExponent(amount,true,kind,!special));
+    if((!early&&!late)||A.compare(gain,0)<=0)return base;
+    const cutoff=CONFIG.scales.findIndex(x=>x.name===C.earlyLastStage),isEarly=name=>CONFIG.scales.findIndex(x=>x.name===name)<=cutoff;
+    const shared=Math.min(early,late),strongest=Math.max(early,late),scoped=strongest>shared?quantitySoftcapExponent(gain,originalNormalResourceSoftcapExponent(amount,true,kind,!special,name=>isEarly(name)?early>late:late>early)):base;
+    const partial=quantityInterpolate(base,scoped,shared<1?(strongest-shared)/(1-shared):0);return quantityInterpolate(partial,gain,shared);
+  }
+  function quantitySoftcapComponents(normal,mana,amount){const A=WIS.Core.Amount;normal=A.from(normal);mana=A.from(mana);const split=WIS.Cultivation.ImmortalLogic.qiRefiningChallengeActive?.()===true;
+    const settled=split?A.add(quantityInfinitySoftcapGain(normal,amount),quantityInfinitySoftcapGain(mana,amount,'mana')):quantityInfinitySoftcapGain(A.add(normal,mana),amount);
+    return quantitySoftcapExponent(settled,planetSuppressionSoftcapExponent(amount));
+  }
+  function quantityPreSoftcap(values,kind){
+    return WIS.Core.Effects.runFrozenSteps(null,null,()=>quantityPreSoftcapSteps(values,kind));
+  }
+  function* quantityPreSoftcapSteps(values,kind){
+    const F=WIS.Core.Formulas;
+    const stages=yield ()=>({multipliers:[kind==='joules'?jMultiplier():powerMultiplier()],exponents:[kind==='joules'?jGainExponent():powerGainExponent()]});
+    let value=yield* F.regionQuantitySteps(values,stages);
+    const decline=yield ()=>celestialDeclineExponent();
+    value=yield* F.regionQuantitySteps([value],{exponents:[decline]});
+    const dao=yield ()=>WIS.Cultivation.ImmortalLogic.daoTimeLawExponent();
+    return yield* F.regionQuantitySteps([value],{exponents:[dao]});
+  }
+  function quantityPowerSource(value,id){const A=WIS.Core.Amount,gain=A.from(value),exponent=activePowerSourceChallengeExponent(id);return exponent>=1?gain:A.from(WIS.Core.AmountFormulas.powerOnePlusMinusOne(gain,exponent));}
+
+  // The detail view invokes the same complete-input stages as settlement.
+  function previewSourceQuantity(resource,value,id){
+    const A=WIS.Core.Amount;if(!A?.enabled()||!['joules','power'].includes(resource))throw Object.assign(Error('完整来源预览资源无效'),{code:'amount-preview-resource'});
+    const adjusted=resource==='power'?quantityPowerSource(value,id):A.from(value),region=quantityPreSoftcap([adjusted],resource),manaSource=id==='manaJ'||id==='qiManaPower',stock=WIS.Core.Resources.readExact('core.'+resource,state);
+    return martialFinalRate(WIS.Core.Penalties.applyGoogolPenalty(resource,stock,quantitySoftcapComponents(manaSource?0:region,manaSource?region:0,stock),state));
+  }
+  function quantityStageMemo(interval){
+    const scopes=new WeakMap(),stepKeys=new Map();
+    const once=(key,compute)=>{const scope=!interval?WIS.Core.Effects.continuationMemo?.(state):null;if(!scope)return compute();let values=scopes.get(scope);if(!values){values=new Map();scopes.set(scope,values);}if(values.has(key))return values.get(key);const value=compute();values.set(key,value);return value;};
+    // Each profile owns its stage identity; no value-derived key or cross-state reuse.
+    once.steps=(key,factory)=>once(key,()=>{if(!stepKeys.has(key))stepKeys.set(key,Symbol(key));return WIS.Core.Effects.runFrozenSteps(interval?null:state,stepKeys.get(key),factory);});
+    return once;
+  }
   function createAutomaticJRateProfile({interval=false}={}) {
+    const quantityOnce=quantityStageMemo(interval);
     const fixedSources = {
       achievement: achievementJBonus(),
       registered: WIS.Core.Sources.collect("joules", state)
@@ -1229,12 +1476,17 @@
         const normalRaw = manaSources.some(value=>!eq(value,ZERO)) ? preSoftcapJGainFromSources(normalSources) : totalRaw;
         return { normalRaw, manaRaw: maxBN(ZERO, sub(totalRaw, normalRaw)) };
     };
-    return {
+    const componentQuantities=()=>quantityOnce('components',()=>{const A=WIS.Core.Amount,value=source=>interval&&source.dynamicResources.length?source.quantityAt(state):source.quantity,normalSources=quantityOnce('normalSources',()=>Object.freeze([1,fitnessJQuantityBonus(),fixedSources.achievement,killingIntentJBonus(),elementalizationJSource(),...normalDescriptors.map(value)])),mana=manaDescriptors.map(value),total=quantityOnce.steps('total',()=>quantityPreSoftcapSteps([...normalSources,...mana],'joules')),normal=quantityOnce.steps('normal',function*(){const hasMana=yield ()=>mana.some(v=>A.compare(v,0)>0);return hasMana?yield* quantityPreSoftcapSteps(normalSources,'joules'):total;});return Object.freeze({normal,mana:A.subtract(total,normal)});});
+    const rawQuantity=()=>quantityOnce('raw',()=>{const q=componentQuantities();return WIS.Core.Amount.add(q.normal,q.mana);});
+    const settledQuantity=()=>quantityOnce('settled',()=>{const q=componentQuantities();return quantitySoftcapComponents(q.normal,q.mana,WIS.Core.Resources.readExact('core.joules',state));});
+    return {rawQuantity,settledQuantity,
       rawRate() {
+        if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(rawQuantity());
         const components = componentRates();
         return add(components.normalRaw, components.manaRaw);
       },
       settledRate() {
+        if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(settledQuantity());
         const components = componentRates();
         return resourceSoftcapSettlementForComponents(
           components.normalRaw,
@@ -1245,7 +1497,33 @@
     };
   }
 
+  const martialFinalRate=value=>WIS.Cultivation.Martial.limitPositiveRate(runtime.getState(),value);
+  function quantityRateAt(key,value,profile,settled){
+    const A=WIS.Core.Amount,S=WIS.Core.State,Q=WIS.Core.Resources,base=runtime.getState(),q=A.from(value),id='core.'+key;
+    const current=Q.readExact(id,base),highest=key==='power'?S.readStatistic(base,'highestPower'):null;
+    const continuation=WIS.Core.Effects.continuationMemo?.(base),profileKey='quantity-scale-profile|'+key;
+    let rateProfile=profile||continuation?.get(profileKey);
+    if(!rateProfile){rateProfile=key==='joules'?createAutomaticJRateProfile():createAutomaticPowerRateProfile();continuation?.set(profileKey,rateProfile);}
+    const evaluate=()=>WIS.Core.Effects.withState(runtime.getState(),()=>{
+      const method=settled?'settledQuantity':'rawQuantity',rate=A.from(typeof rateProfile[method]==='function'?rateProfile[method]():rateProfile[settled?'settledRate':'rawRate']());
+      return settled?martialFinalRate(WIS.Core.Penalties.applyGoogolPenalty(key,q,rate,runtime.getState())):rate;
+    });
+    if(A.compare(q,current)===0&&(!highest||A.compare(highest,q)>=0))return evaluate();
+    const candidate=S.createDraft(base).state;
+    Object.assign(candidate.core.resources,Q.prepareTerms({},key,A.words(q)));
+    if(key==='power'){
+      const historical=A.compare(highest,current)>0?highest:A.from(0),peak=A.compare(historical,q)>0?historical:q,v=A.serialize(peak);
+      candidate.highestPower=BN(v.main);candidate.meta.statistics.amountTails={...candidate.meta.statistics.amountTails,highestPower:v.tail.slice()};
+    }
+    return runtime.withEvaluationState(candidate,evaluate);
+  }
+  const automaticJRawQuantityAt=(v,p=null)=>quantityRateAt('joules',v,p,false);
+  const automaticJSettledQuantityAt=(v,p=null)=>quantityRateAt('joules',v,p,true);
+  const automaticPowerRawQuantityAt=(v,p=null)=>quantityRateAt('power',v,p,false);
+  const automaticPowerSettledQuantityAt=(v,p=null)=>quantityRateAt('power',v,p,true);
+
   function automaticJRawPerSecondAt(joulesAmount, profile = null) {
+    if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(automaticJRawQuantityAt(joulesAmount,profile));
     const evaluationJoules = maxBN(ZERO, joulesAmount);
     if (!isFiniteBN(evaluationJoules)) return automaticJRawPerSecond();
     const rateProfile = profile || createAutomaticJRateProfile();
@@ -1266,13 +1544,14 @@
   }
 
   function automaticJSettledPerSecondAt(joulesAmount, profile = null) {
+    if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(automaticJSettledQuantityAt(joulesAmount,profile));
     const evaluationJoules = maxBN(ZERO, joulesAmount);
     if (!isFiniteBN(evaluationJoules)) return automaticJPerSecond();
     const rateProfile = profile || createAutomaticJRateProfile();
     // Same-coordinate read: preserve the read-only evaluation contract.
     if (eq(evaluationJoules, state.joules)) return WIS.Core.Effects.withState(state, () => {
       const settled=measure("sourceAndSoftcap.joules",()=>rateProfile.settledRate());
-      return measure("googol.joules",()=>WIS.Core.Penalties.applyGoogolPenalty("joules",evaluationJoules,settled,state));
+      return measure("googol.joules",()=>martialFinalRate(WIS.Core.Penalties.applyGoogolPenalty("joules",evaluationJoules,settled,state)));
     });
     if (runtime.isEvaluating()) {
       const candidate = WIS.Core.State.createDraft(runtime.getState()).state;
@@ -1284,7 +1563,7 @@
     try {
       return WIS.Core.Effects.withState(state, () => {
         const settled=measure("sourceAndSoftcap.joules",()=>rateProfile.settledRate());
-        return measure("googol.joules",()=>WIS.Core.Penalties.applyGoogolPenalty("joules",evaluationJoules,settled,state));
+        return measure("googol.joules",()=>martialFinalRate(WIS.Core.Penalties.applyGoogolPenalty("joules",evaluationJoules,settled,state)));
       });
     } finally {
       state.joules = previousJoules;
@@ -1303,7 +1582,7 @@
   }
 
   function continentPowerMagnitude(source = state) {
-    return resourceMagnitude(dynamicResource(source, "power"), CONTINENT_REFERENCE_POWER);
+    return resourceMagnitudeAt(source,"power",CONTINENT_REFERENCE_POWER);
   }
 
   function elementalizationJSource(){return snapshotMemo("elementalizationJSource",elementalizationJSourceUncached);}
@@ -1359,7 +1638,7 @@
   }
 
   function myStylePotentialFitnessMultiplier(source = state) {
-    const jMagnitude = resourceMagnitude(dynamicResource(source, "joules"));
+    const jMagnitude = resourceMagnitudeAt(source,"joules");
     return add(ONE, mul("0.18", pow(jMagnitude, "0.85")));
   }
 
@@ -1368,7 +1647,7 @@
   }
 
   function carbonLimitPotentialFitnessBonus(source = state) {
-    const jMagnitude = resourceMagnitude(dynamicResource(source, "joules"));
+    const jMagnitude = resourceMagnitudeAt(source,"joules");
     return mul("0.8", pow(jMagnitude, "1.2"));
   }
 
@@ -1390,6 +1669,7 @@
   }
 
   function fitnessMembershipCardFitnessBonus() {
+    if(WIS.Core.Amount?.enabled())return WIS.Meta.Treasures.affineValue(state,'fitnessMembershipCard',.002);
     return mul(fitnessMembershipCardCount(), 0.002);
   }
 
@@ -1398,7 +1678,12 @@
   }
 
   function fitnessJBonus(){return snapshotMemo("fitnessJBonus",fitnessJBonusUncached);}
+  function fitnessJQuantityBonus(){return snapshotMemo('fitnessJQuantityBonus',()=>{
+    const A=WIS.Core.Amount;
+    return WIS.Core.Formulas.sourceQuantity({base:effectiveFitnessLevel()*2,multipliers:[A.add(mul(longevityFitnessMultiplier(),WIS.Core.Effects.product('fitness','baseMultiplier',state)),A.add(carbonLimitFitnessBonus(),WIS.Meta.Treasures.affineQuantity(state,'fitnessMembershipCard',.002))),WIS.Core.Effects.product('fitness','sourceMultiplier',state)],exponents:[fitnessSourceExponent()]});
+  });}
   function fitnessJBonusUncached() {
+    if(WIS.Core.Amount?.enabled())return WIS.Core.AmountFormulas.power(fitnessJQuantityBonus(),1);
     return calculateSourceGain({
       base: effectiveFitnessLevel() * 2,
       multipliers: [
@@ -1417,7 +1702,7 @@
   }
 
   function waterPotentialJMultiplier(source = state) {
-    return add(ONE, mul("0.14", resourceMagnitude(runtime.evaluationResource("highestPower", source))));
+    return add(ONE, mul("0.14", resourceMagnitudeAt(source,"highestPower")));
   }
 
   function runningCost(level = state.runningLevel) {
@@ -1449,13 +1734,14 @@
 
   function baseConversionGain(){return snapshotMemo("baseConversionGain",baseConversionGainUncached);}
   function baseConversionGainUncached() {
+    if(WIS.Core.Amount?.enabled()){const value=WIS.Core.Resources.readExact('core.joules',state);if(WIS.Core.Amount.compare(value,10)<0)return ZERO;return WIS.Core.AmountFormulas.floorPowerRatio(value,10,.75);}
     if (lt(state.joules, 10)) return ZERO;
     return pow(div(state.joules, 10), 0.75).floor();
   }
 
   function trainingPowerDecayMultiplier() {
     if (lte(baseConversionGain(), ONE)) return ONE;
-    const jDecades = resourceMagnitude(state.joules, TRAINING_J_DECAY_SCALE);
+    const jDecades = resourceMagnitudeAt(state,"joules",TRAINING_J_DECAY_SCALE);
     return pow(
       add(ONE, div(jDecades, TRAINING_J_DECAY_LOG_DIVISOR)),
       -TRAINING_J_DECAY_POWER
@@ -1483,17 +1769,24 @@
     return snapshotMemo("conversionGain", conversionGainUncached);
   }
 
+  function conversionGainQuantity(){return snapshotMemo('conversionGainQuantity',()=>martialFinalRate(applyResourceSoftcapProgressive(quantityPreSoftcap([quantityPowerSource(trainingPowerSource(),'training')],'power'),WIS.Core.Resources.readExact('core.power',state),{googolResource:'power'})));}
   function conversionGainUncached() {
-    return applyResourceSoftcapProgressive(
+    if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(conversionGainQuantity());
+    return martialFinalRate(applyResourceSoftcapProgressive(
       preSoftcapPowerGainFromSources([
         challengeAdjustedPowerSource(trainingPowerSource(), "training")
       ]),
       state.power,
       { googolResource: "power" }
-    );
+    ));
   }
 
   function ghostBrainPotentialPowerBonus() {
+    if(WIS.Core.Amount?.enabled()){
+      const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,highest=WIS.Core.Effects.dynamicResourceQuantity(state,'highestPower');if(A.compare(highest,0)===0)return ZERO;
+      const attenuation=F.powerRatio(A.add(highest,GHOST_BRAIN_CONFIG.attenuationScale),GHOST_BRAIN_CONFIG.attenuationScale,GHOST_BRAIN_CONFIG.attenuationExponent);
+      return F.productQuotient([F.power(highest,GHOST_BRAIN_CONFIG.highestPowerExponent)],[GHOST_BRAIN_CONFIG.divisor,attenuation]);
+    }
     const highestPower = maxBN(ZERO, state.highestPower);
     const attenuation = pow(
       add(ONE, div(highestPower, GHOST_BRAIN_CONFIG.attenuationScale)),
@@ -1640,7 +1933,7 @@
   }
 
   function intuitionPotentialFocusMultiplier(source = state) {
-    const dynamicBonus = mul("0.1", resourceMagnitude(dynamicResource(source, "power")));
+    const dynamicBonus = mul("0.1", resourceMagnitudeAt(source,"power"));
     return add(ONE, mul(dynamicBonus, source.superPerceptionPurchased ? "1.5" : ONE));
   }
 
@@ -1747,9 +2040,10 @@
   }
 
   function createAutomaticPowerRateProfile({interval=false,fast=false,policy="STRICT",prunedSources=[]}={}) {
+    const quantityOnce=quantityStageMemo(interval);
     const fitnessSource = fitnessJBonus();
     let registeredSources = WIS.Core.Sources.collect("power", state, { fitnessJBonus: fitnessSource });
-    if(fast&&!state.activeChallenge&&WIS.Core.Config.coupledFastProfile.policies[policy].additive){
+    if(fast&&!WIS.Core.Amount?.enabled()&&!state.activeChallenge&&WIS.Core.Config.coupledFastProfile.policies[policy].additive){
       // daoPower is monotone in IP. A resource-only interval has no spending;
       // fixed addends invisible at this lower bound stay invisible as IP grows.
       const anchor=registeredSources.find(s=>s.id==='daoPower');
@@ -1761,7 +2055,7 @@
         registeredSources=registeredSources.filter(s=>!removed.has(s.id));
       }
     }
-    registeredSources=registeredSources.map(source=>({...source,valueAt:interval&&source.dynamicResources.length?source.valueAt:null}));
+    if(!WIS.Core.Amount?.enabled()||interval)registeredSources=registeredSources.map(source=>({...source,valueAt:interval&&source.dynamicResources.length?source.valueAt:null}));
     const normalDescriptors=registeredSources.filter(source=>source.id!=="qiManaPower");
     const manaDescriptors=registeredSources.filter(source=>source.id==="qiManaPower");
     const componentRates = () => {
@@ -1780,12 +2074,17 @@
         const normalRaw = manaSources.some(value=>!eq(value,ZERO)) ? preSoftcapPowerGainFromSources(normalSources) : totalRaw;
         return { normalRaw, manaRaw: maxBN(ZERO, sub(totalRaw, normalRaw)) };
     };
-    return {
+    const componentQuantities=()=>quantityOnce('components',()=>{const A=WIS.Core.Amount,context=interval?{fitnessJBonus:fitnessJBonus()}:null,value=source=>quantityPowerSource(interval&&source.dynamicResources.length?source.quantityAt(state,context):source.quantity,source.id),normalSources=quantityOnce('normalSources',()=>Object.freeze([...[[focusPowerPerSecond(),'focus'],[rockPowerPerSecond(),'rock'],[ghostBrainPowerSource(),'ghostBrain'],[ultimateIntentPowerSource(),'ultimateIntent']].map(([v,id])=>quantityPowerSource(v,id)),...normalDescriptors.map(value)])),mana=manaDescriptors.map(value),total=quantityOnce.steps('total',()=>quantityPreSoftcapSteps([...normalSources,...mana],'power')),normal=quantityOnce.steps('normal',function*(){const hasMana=yield ()=>mana.some(v=>A.compare(v,0)>0);return hasMana?yield* quantityPreSoftcapSteps(normalSources,'power'):total;});return Object.freeze({normal,mana:A.subtract(total,normal)});});
+    const rawQuantity=()=>quantityOnce('raw',()=>{const q=componentQuantities();return WIS.Core.Amount.add(q.normal,q.mana);});
+    const settledQuantity=()=>quantityOnce('settled',()=>{const q=componentQuantities();return quantitySoftcapComponents(q.normal,q.mana,WIS.Core.Resources.readExact('core.power',state));});
+    return {rawQuantity,settledQuantity,
       rawRate() {
+        if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(rawQuantity());
         const components = componentRates();
         return add(components.normalRaw, components.manaRaw);
       },
       settledRate() {
+        if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(settledQuantity());
         const components = componentRates();
         return resourceSoftcapSettlementForComponents(
           components.normalRaw,
@@ -1797,6 +2096,7 @@
   }
 
   function automaticPowerRawPerSecondAt(powerAmount, profile = null) {
+    if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(automaticPowerRawQuantityAt(powerAmount,profile));
     const evaluationPower = maxBN(ZERO, powerAmount);
     if (!isFiniteBN(evaluationPower)) return automaticPowerRawPerSecond();
     const rateProfile = profile || createAutomaticPowerRateProfile();
@@ -1828,19 +2128,20 @@
   }
 
   function automaticPowerSettledPerSecondAt(powerAmount, profile = null) {
+    if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(automaticPowerSettledQuantityAt(powerAmount,profile));
     const evaluationPower = maxBN(ZERO, powerAmount);
     if (!isFiniteBN(evaluationPower)) return automaticPowerPerSecond();
     const rateProfile = profile || createAutomaticPowerRateProfile();
     // Same-coordinate read: preserve the read-only evaluation contract.
     if (eq(evaluationPower, state.power) && gte(state.highestPower, evaluationPower)) return WIS.Core.Effects.withState(state, () => {
       const settled=measure("sourceAndSoftcap.power",()=>rateProfile.settledRate());
-      return measure("googol.power",()=>WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state));
+      return measure("googol.power",()=>martialFinalRate(WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state)));
     });
     if (runtime.isEvaluating() && eq(evaluationPower, state.power) &&
         WIS.Core.Effects.supportsHighestPowerEvaluation() && WIS.Core.Sources.supportsHighestPowerEvaluation()) {
       return runtime.withHighestPowerEvaluation(evaluationPower, () => {
         const settled=measure("sourceAndSoftcap.power",()=>rateProfile.settledRate());
-        return measure("googol.power",()=>WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state));
+        return measure("googol.power",()=>martialFinalRate(WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state)));
       });
     }
     if (runtime.isEvaluating()) {
@@ -1859,7 +2160,7 @@
     try {
       return WIS.Core.Effects.withState(state, () => {
         const settled=measure("sourceAndSoftcap.power",()=>rateProfile.settledRate());
-        return measure("googol.power",()=>WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state));
+        return measure("googol.power",()=>martialFinalRate(WIS.Core.Penalties.applyGoogolPenalty("power",evaluationPower,settled,state)));
       });
     } finally {
       state.power = previousPower;
@@ -1977,11 +2278,13 @@
 
   function fiveSpiritStoneJSource() {
     const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
+    if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.scale(WIS.Core.AmountFormulas.powerOnePlusMinusOne(WIS.Meta.Treasures.quantity(runtime.getState(),'fiveSpiritStone'),config.joulesExponent),config.joulesBase);
     return mul(config.joulesBase, sub(pow(add(fiveSpiritStoneCount(), ONE), config.joulesExponent), ONE));
   }
 
   function fiveSpiritStonePowerSource() {
     const config = SCALE_TREASURE_CONFIG.fiveSpiritStone;
+    if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.scale(WIS.Core.AmountFormulas.powerOnePlusMinusOne(WIS.Meta.Treasures.quantity(runtime.getState(),'fiveSpiritStone'),config.powerExponent),config.powerBase);
     return mul(config.powerBase, sub(pow(add(fiveSpiritStoneCount(), ONE), config.powerExponent), ONE));
   }
 
@@ -2224,17 +2527,40 @@
   }
 
   function train(manualClick = false) {
-    const gained = conversionGain();
-    if (lt(gained, ONE)) return;
+    if(!WIS.Core.Amount?.enabled())return performTrain(manualClick);
+    runtime.assertMutable();const original=runtime.getState(),draft=WIS.Core.State.createDraft(original);
+    return runtime.atomic(()=>{
+      const result=runtime.withState(draft.state,()=>withScaleState(runtime.state,()=>performTrain(manualClick)));
+      const next=draft.finish();for(const key of ['core','powerSystem','cultivation','meta'])original[key]=next[key];
+      WIS.Core.Effects.invalidate();return result;
+    });
+  }
+  function createTrainingActionWork(original=runtime.getState(),manualClick=false){
+    const S=WIS.Core.State,R=runtime,C=WIS.Core.CertifiedRankMath;
+    if(!WIS.Core.Amount?.enabled())throw Object.assign(Error('完整锻炼模型未启用'),{code:'amount-model-disabled'});
+    const inputKey=owner=>{const copy=S.toSerializable(owner);delete copy.core.runtime.timeLedger;delete copy.core.preferences;return JSON.stringify(copy);},key=inputKey(original),snapshot=S.cloneForSimulation(original),effects=WIS.Core.Effects.createFrozenScope(snapshot);
+    let status='pending',gain=null;
+    const valid=()=>status!=='cancelled'&&R.getState()===original,current=()=>valid()&&inputKey(original)===key;
+    const check=()=>{if(!current())throw Object.assign(Error('锻炼候选输入改变，未提交'),{code:'rank-work-stale'});};
+    const math=C.createWork(()=>R.withState(snapshot,()=>effects.run(conversionGainQuantity)),{isCurrent:valid});
+    return Object.freeze({advance(deadline=Infinity,options={}){if(status!=='pending')return {done:status==='ready'};if(!valid())check();const next=math.advance({deadline,maximumOperations:256,...options});if(next.done){check();gain=math.result();status='ready';effects.cancel();}return next;},
+      commit(){if(status!=='ready')throw Error('锻炼候选尚未完成或已提交/取消');check();const candidate=S.cloneForSimulation(original),power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
+        try{const result=R.atomic(()=>{const value=R.withState(candidate,()=>performTrain(manualClick,gain));R.setState(candidate);return value;});status='committed';math.cancel();return result;}
+        catch(error){R.setState(original);WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();throw error;}
+      },cancel(){if(status==='committed')return;status='cancelled';gain=null;math.cancel();effects.cancel();},valid});
+  }
+  function performTrain(manualClick = false,preparedGain=null) {
+    const whole=WIS.Core.Amount?.enabled(),gained=preparedGain??(whole?conversionGainQuantity():conversionGain());
+    if(whole?WIS.Core.Amount.compare(gained,1)<0:lt(gained,ONE))return;
 
     const previousAchievements = achievementStates();
     if (manualClick) WIS.Meta.Achievements.registerTrainingClick();
     WIS.Core.Resources.set("joules", 0);
-    WIS.Core.Resources.add("power", gained);
-    state.totalPower = add(state.totalPower, gained);
-    state.lifetimeTotalPower = add(state.lifetimeTotalPower, gained);
-    state.currentRebirthTotalPower = add(state.currentRebirthTotalPower, gained);
-    state.maxSinglePowerGain = maxBN(state.maxSinglePowerGain, gained);
+    if(whole)WIS.Core.Resources.creditExact('core.power',gained,state);else WIS.Core.Resources.add('power',gained);
+    WIS.Core.State.addStatistic(state,"totalPower",gained);
+    WIS.Core.State.addStatistic(state,"lifetimeTotalPower",gained);
+    WIS.Core.State.addStatistic(state,"currentRebirthTotalPower",gained);
+    WIS.Core.State.maxStatistic(state,"maxSinglePowerGain",gained);
     updateScaleProgress();
     WIS.Meta.Achievements.recordCurrent();
     saveState();
@@ -2659,11 +2985,16 @@
   function getActionIds() { return Object.keys(actions); }
   function getUpgradeIds() { return Object.keys(upgrades); }
   function evaluateScaleRates(factor=ONE,profiles=null){
+    if(WIS.Core.Amount?.enabled()){
+      const A=WIS.Core.Amount,Q=WIS.Core.Resources,continuation=!profiles?WIS.Core.Effects.continuationMemo?.(state):null;
+      const rate=key=>{const cacheKey='quantity-scale-rate|'+String(factor)+'|'+key;if(continuation?.has(cacheKey))return continuation.get(cacheKey);const amount=Q.readExact('core.'+key,state),value=A.scale(key==='joules'?automaticJSettledQuantityAt(amount,profiles?.joules):automaticPowerSettledQuantityAt(amount,profiles?.power),factor);continuation?.set(cacheKey,value);return value;};
+      return {joules:rate('joules'),power:rate('power')};
+    }
     return {joules:mul(automaticJSettledPerSecondAt(state.joules,profiles?.joules),factor),
       power:mul(automaticPowerSettledPerSecondAt(state.power,profiles?.power),factor)};
   }
-  const api = Object.freeze({
-    upgradePreview, withScaleState, isScaleState: current => state === current, evaluateScaleRates,
+  const api = Object.freeze({ createTrainingActionWork,previewSourceQuantity,fitnessJQuantityBonus,
+    upgradePreview, withScaleState, automaticJRawQuantityAt,automaticJSettledQuantityAt,automaticPowerRawQuantityAt,automaticPowerSettledQuantityAt,isScaleState: current => state === current, evaluateScaleRates,
     brainDomainDevelopmentPotentialExponent, killingIntentWavePotentialExponent,
     resourceSoftcapExponent, resourceSoftcapBaseExponent, specialResourceSoftcapExponent,
     resourceSoftcapStageExponents,

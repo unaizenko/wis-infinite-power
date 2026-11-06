@@ -1,6 +1,9 @@
 (function defineExplorationProgress(WIS) {
   'use strict';
   const B=WIS.Core.BigNum;
+  const amountModel=()=>WIS.Core.Amount?.enabled()===true;
+  const amountInput=value=>Array.isArray(value)?WIS.Core.Amount.fromParts(0,value):WIS.Core.Amount.from(value);
+
   const L=()=>WIS.Meta.TreasureLedger;
   const fail=message=>{throw new Error('探寻进度：'+message+'；本帧未提交，输入与时间保留');};
   // Local fixed-point precision grows with the number of digits in the
@@ -74,7 +77,7 @@
     }
     inputCache.set(key,{words:frozen,chars});inputCacheChars+=chars;return frozen.slice();
   }
-  function input(value){
+  function input(value){if(amountModel())return WIS.Core.Amount.words(amountInput(value));
     if(/^-?\d+(?:\.\d*)?(?:e[+-]?\d+)?$/i.test(String(value)))return normalize([String(value)]);
     const v=B.BN(value);if(!v.isFinite()||v.sign<0)fail('有效探寻量必须有限非负');if(v.eq(0))return [];
     if(v.layer===0)return normalize([String(v)]);
@@ -86,7 +89,7 @@
     else return normalize([String(v)]);
     return rememberInput(key,[fromLog(exponent,ctx)]);
   }
-  const signed=()=>WIS.Core.SignedLedger;
+  const signed=()=>amountModel()?WIS.Core.AmountLedger:WIS.Core.SignedLedger;
   const normalize=values=>signed().normalize(values);
   const add=(a,b)=>signed().add(a,b);
   const minus=(a,b)=>signed().subtract(a,b);
@@ -95,7 +98,7 @@
   const scale=(a,n,d=1n)=>normalize(a.map(word=>{const t=parse(word);if((t.c*n)%d===0n)return pack(t.c*n/d,t.e);
     // Used only with denominator 2 in the cumulative analytic expression.
     if(d===2n)return pack(t.c*n*5n,t.e-1n);fail('非有限十进制缩放');}));
-  function project(words){if(!Array.isArray(words))return B.BN(words);return normalize(words).reduceRight((sum,word)=>{if(!/^-?\d/.test(word))return B.add(sum,signed().project(word));const t=parse(word),digits=abs(t.c).toString();
+  function project(words){if(amountModel())return Array.isArray(words)?WIS.Core.AmountLedger.value(words):WIS.Core.Amount.isAmount(words)?WIS.Core.Amount.project(words):B.BN(words);if(!Array.isArray(words))return B.BN(words);return normalize(words).reduceRight((sum,word)=>{if(!/^-?\d/.test(word))return B.add(sum,signed().project(word));const t=parse(word),digits=abs(t.c).toString();
     // A thousand-digit exponent cannot go through the vendor's Number-first
     // scientific string parser. This is a UI/formula projection only; the
     // exact signed word is retained for all requirement/debit decisions.
@@ -115,7 +118,7 @@
     else result=add(cumulative(10n),minus(scale([fromLog(ctx.BASE+(n-10n)*ctx.HIGH,ctx)],3n,2n),['3000']));
     if(costCache.size>=128)costCache.delete(costCache.keys().next().value);costCache.set(key,result);return result;}
   const F=()=>WIS.Core.FiniteProgress;
-  const fresh=()=>({version:2,natural:F().create(10),seize:"0",levelResidual:[]});
+  const fresh=()=>({version:2,natural:F().create(10),seize:"0",...(amountModel()?{seizeResidual:[]}:{}),levelResidual:[]});
   const levelWords=s=>L().normalize([s.naturalTreasureLevel??0,...(s.explorationRewards?.levelResidual||[])]);
   const capWords=s=>L().add([s.spiritWorldAscensionUnlocked?20:10],L().scale(L().stock(s,'mysticHeavenSacredTree'),2));
   const belowCap=s=>L().compare(levelWords(s),capWords(s))<0;
@@ -132,10 +135,14 @@
     s.explorationRewards=p;return p;
   }
   function representedDemand(level) {
+    if(WIS.Core.Amount?.isAmount(level)){
+      const A=WIS.Core.Amount,n=A.from(level);if(!n.tail.length)return representedDemand(A.project(n));
+      return A.compare(n,10)<0?B.mul(10,WIS.Core.AmountFormulas.powerWithExponent(A.from(B.div(1,.65)),n)):B.mul(2000,WIS.Core.AmountFormulas.powerWithExponent(A.from(B.div(1,.6)),A.subtract(n,10)));
+    }
     const n=B.BN(level);return n.lt(10)?B.mul(10,B.pow(B.div(1,.65),n))
       :B.mul(2000,B.pow(B.div(1,.6),B.sub(n,10)));
   }
-  function demandAt(s) { return representedDemand(signed().value(levelWords(s))); }
+  function demandAt(s) { return representedDemand(amountModel()?WIS.Core.Amount.fromParts(0,levelWords(s)):signed().value(levelWords(s))); }
   function ensure(s) {
     if(s.explorationRewards?.version===2)return s.explorationRewards;
     const p=legacyEnsure(s),natural=project(p.natural),seize=project(p.seize);
@@ -147,9 +154,28 @@
   }
   function validate(s) {
     const p=ensure(s);F().validate(p.natural);
-    if(!B.BN(p.seize).isFinite()||B.lt(p.seize,0))fail('夺基进度无效');
+    if(!B.parseFinite(p.seize)||B.lt(p.seize,0))fail('夺基进度无效');
+    if(amountModel())WIS.Core.Amount.field(p,'seize');
     const words=levelWords(s);if(L().sign(words)<0)fail('等级余额为负');
     for(const w of signed().expand(words))L().integer(String(w).replace(/^-/,'').replace(/\*\d+$/,''));return s;
+  }
+  function naturalQuantityBatch(stock,progress,limit,first,step,estimate){
+    const A=WIS.Core.Amount,Fm=WIS.Core.AmountFormulas,available=A.fromParts(0,progress),cap=A.fromParts(0,limit),one=A.from(1),zero=A.from(0);
+    const cost=m=>{
+      if(A.compare(m,0)===0)return zero;if(A.compare(m,1)===0)return A.from(first);
+      const factor=m.tail.length?A.subtract(A.from(Fm.powerWithExponent(A.from(step.exp()),m)),1):A.from(F().geometric.cumulative(B.ONE,step,A.project(m)));
+      return m.tail.length?A.divide(A.multiply(first,factor),step.exp().sub(1)):A.multiply(first,factor);
+    };
+    let lo=zero,hi=A.add(A.from(estimate),one);if(A.compare(hi,cap)>0)hi=cap;
+    let price=cost(hi),rounds=0;
+    while(A.compare(price,available)<=0&&A.compare(hi,cap)<0){lo=hi;hi=A.scale(hi,2);if(A.compare(hi,cap)>0)hi=cap;price=cost(hi);if(++rounds>64)fail('天材地宝批次未取得有界上界');}
+    if(A.compare(price,available)<=0)return {count:hi,cost:price};
+    for(let i=0;A.compare(A.subtract(hi,lo),one)>0;i++){
+      if(i>=512)fail('天材地宝相邻批次超出认证容量');
+      const mid=WIS.Meta.BigNumbers.rankQuantity(A.floor(A.scale(A.add(lo,hi),.5))),next=cost(mid);
+      if(A.compare(next,available)<=0)lo=mid;else hi=mid;
+    }
+    return {count:lo,cost:cost(lo)};
   }
   function settleNatural(s,amount,frozen,previous) {
     const ceiling=frozen?.cap||capWords(s),original=levelWords(s),G=F().geometric;
@@ -164,13 +190,19 @@
       const regionCap=n.lt(10)&&compare(ceiling,[10])>0?[10]:ceiling;
       const limit=B.max(0,signed().value(minus(regionCap,stock)).floor());
       if(!limit.gt(0))break;
-      const q=n.lt(10)?.65:.6,step=B.div(1,q).ln(),first=representedDemand(n);
-      const estimate=pv.lt(first)?B.ZERO:B.max(1,G.inverse(first.ln(),pv.ln(),step,step.exp().sub(1).ln()));
+      const q=n.lt(10)?.65:.6,step=B.div(1,q).ln(),first=representedDemand(amountModel()?WIS.Core.Amount.fromParts(0,stock):n);
+      const fullProgress=amountModel()?WIS.Core.Amount.fromParts(0,progress):null,below=amountModel()?WIS.Core.Amount.compare(fullProgress,first)<0:pv.lt(first),ratio=amountModel()&&!below?WIS.Core.AmountFormulas.productQuotient([fullProgress],[first]):null;
+      const estimate=below?B.ZERO:B.max(1,G.inverse(amountModel()?B.ZERO:first.ln(),amountModel()?ratio.ln():pv.ln(),step,step.exp().sub(1).ln()));
       if(!estimate.gt(0))break;
       const costAt=m=>G.cumulative(first,step,m);
       let count,approximate=G.unresolvable(estimate);
       if(approximate)count=B.min(estimate,limit);
-      else {
+      else if(amountModel()){
+        const batch=naturalQuantityBatch(stock,progress,minus(regionCap,stock),first,step,estimate),A=WIS.Core.Amount;
+        if(A.compare(batch.count,0)===0)break;
+        progress=minus(progress,A.words(batch.cost));stock=add(stock,A.words(batch.count));
+        if(compare(stock,regionCap)<0)break;continue;
+      }else {
         try {count=B.min(F().batchCount(pv,estimate,costAt),limit);}
         catch(error){if(!['batch-cost','batch-unit'].includes(error.code))throw error;
           // Match treasure tails: keep unconfirmed progress, continue the frame.
@@ -200,25 +232,32 @@
   // Shared represented batch calculations keep all progress in finite v2. The
   // state stays finite v2 throughout; no v2 -> legacy state -> v2 transition.
   function installNatural(s,previous,words,levelResidual=previous.levelResidual,approximation=previous.approximation) {
-    const base={version:2,natural:ensure(s).natural,seize:previous.seize,levelResidual:levelResidual||[],
+    const base={version:2,natural:ensure(s).natural,seize:previous.seize,...(amountModel()?{seizeResidual:[...(previous.seizeResidual||[])]}:{}),levelResidual:levelResidual||[],
       ...(approximation?{approximation:{code:approximation.code,exactRemainder:false}}:{})};
     s.explorationRewards=base;
-    s.explorationRewards={...base,natural:F().create(demandAt(s),project(words))};
+    s.explorationRewards={...base,natural:F().create(demandAt(s),amountModel()?amountInput(words):project(words))};
   }
   function natural(s,amount,frozen) {
+    if(WIS.Meta.ClosedTreasures?.enabled(s))return WIS.Cultivation.ClosedNatural.natural(s,amount,frozen);
     const p=ensure(s),ceiling=frozen?.cap||capWords(s);
     if(!(frozen?.eligible??s.goldenCoreUnlocked))return B.ZERO;
-    const gain=Array.isArray(amount)?project(amount):B.BN(amount);
-    const next=F().bulk(p.natural,gain,{level:signed().value(levelWords(s)),cap:signed().value(ceiling),settle(){
-      const point=p.natural,local={...p,natural:normalize([point.requirement,B.BN(point.remaining).neg(),point.carry])};
-      return {settled:true,gained:settleNatural(s,gain,frozen,local)};
+    const gain=amountModel()?amountInput(amount):Array.isArray(amount)?project(amount):B.BN(amount);
+    const next=F().bulk(p.natural,gain,{level:amountModel()?amountInput(levelWords(s)):signed().value(levelWords(s)),cap:amountModel()?amountInput(ceiling):signed().value(ceiling),settle(){
+      const point=p.natural,local={...p,natural:amountModel()?WIS.Core.Amount.words(F().quantity(point)):normalize([point.requirement,B.BN(point.remaining).neg(),point.carry])};
+      return {settled:true,gained:settleNatural(s,amountModel()?WIS.Core.Amount.words(gain):gain,frozen,local)};
     }});
     if(next.settled)return next.gained;
     s.explorationRewards={...p,natural:next.point};return B.ZERO;
   }
   function seize(s,amount) {
     if(s.unlockedAchievements?.seizeFoundation)return false;
-    const p=ensure(s),gain=Array.isArray(amount)?project(amount):B.BN(amount);
+    const p=ensure(s);
+    if(amountModel()){
+      const A=WIS.Core.Amount,gain=amountInput(amount),progress=A.add(A.field(p,'seize'),gain);
+      if(A.compare(progress,100)<0){s.explorationRewards={...p,...A.fieldParts(progress,'seize')};return false;}
+      WIS.Meta.Achievements.record(s,'seizeFoundation');s.explorationRewards={...p,seize:'0',seizeResidual:[]};return true;
+    }
+    const gain=Array.isArray(amount)?project(amount):B.BN(amount);
     if(!gain.isFinite()||gain.lt(0))fail('夺基输入无效');
     const progress=B.add(p.seize,gain);
     if(progress.lt(100)){s.explorationRewards={...p,seize:String(progress)};return false;}
@@ -228,7 +267,7 @@
     try{if(!atCap){F().validate(p.natural);demand=B.BN(p.natural.requirement);
       if(!demand.isFinite()||!demand.gt(0))throw Error('天材地宝需求无效');}}catch(e){demand=null;reason=e.message;}
     return {level:L().value(levelWords(s)),levelResidual:p.levelResidual,cap:L().value(capWords(s)),atCap,
-      progress:F().value(p.natural),demand,seizeProgress:B.BN(p.seize),reason};}
+      progress:p.naturalBatch?WIS.Cultivation.ClosedNatural.balance(p,s.naturalTreasureLevel):F().value(p.natural),demand,seizeProgress:B.BN(p.seize),reason};}
   function boundaries(s,rate){if(!B.gt(rate,0))return [];const p=ensure(s),rows=[];
     if(s.goldenCoreUnlocked&&belowCap(s)){
       const left=[F().remaining(p.natural)];
@@ -239,8 +278,9 @@
     return rows;
   }
   function settleRetained(s) {
+    if(WIS.Meta.ClosedTreasures?.enabled(s))return atomicNatural(s,B.ZERO);
     const p=ensure(s);
-    if(s.goldenCoreUnlocked&&belowCap(s)&&B.gte(p.natural.carry,p.natural.remaining))return atomicNatural(s,B.ZERO);
+    if(s.goldenCoreUnlocked&&belowCap(s)&&(amountModel()?WIS.Core.Amount.compare(F().quantity(p.natural),p.natural.requirement)>=0:B.gte(p.natural.carry,p.natural.remaining)))return atomicNatural(s,B.ZERO);
     return B.ZERO;
   }
   function atomicNatural(s,amount,frozen){const progress=s.explorationRewards,level=s.naturalTreasureLevel;

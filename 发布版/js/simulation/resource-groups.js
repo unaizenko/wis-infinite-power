@@ -17,19 +17,42 @@
     groups.push(entry);for(const key of entry.keys)owners.set(key,entry);
     resourceKeys=Object.freeze(groups.flatMap(g=>g.keys));return entry;
   }
+  // Simulation keys are explicit owner bindings, never inferred short names.
+  const quantityIds=Object.freeze({joules:'core.joules',power:'core.power',mana:'cultivation.immortal.mana',immortalPower:'cultivation.immortal.immortalPower',xianForce:'cultivation.immortal.xianForce',yuanForce:'cultivation.immortal.yuanForce',nieForce:'cultivation.immortal.nieForce',universeCoefficient:'cultivation.immortal.universeCoefficient',multiverseCoefficient:'cultivation.immortal.multiverseCoefficient',martialQi:'cultivation.martial.qi',martialBody:'cultivation.martial.body',martialHeart:'cultivation.martial.heart',martialSoul:'cultivation.martial.soul',highMultiverseCoefficient:'meta.multiverse.highMultiverseCoefficient',construction:'meta.bigNumbers.construction'});
+  function resourceIdFor(key){const id=quantityIds[key]||owners.get(key)?.resourceIds?.[key];if(!id)throw Object.assign(Error('Simulation currency has no resource ID: '+key),{code:'amount-adapter-required'});return id;}
+  function readExact(state,key){const A=WIS.Core.Amount,id=quantityIds[key]||owners.get(key)?.resourceIds?.[key];if(id)return WIS.Core.Resources.readExact(id,state);const group=owners.get(key);if(typeof group?.readExact==='function')return A.from(group.readExact(state,key));throw Object.assign(Error('Simulation quantity has no owner: '+key),{code:'amount-adapter-required'});}
   function read(state,key) {const group=owners.get(key);if(!group)throw Error('未注册资源 '+key);return B.BN(group.read?group.read(state,key):state[key]??state.core.resources[key]??0);}
   function write(state,key,value) {const group=owners.get(key);if(!group)throw Error('未注册资源 '+key);if(group.write)group.write(state,key,value);else if(group.legacyCommit)state[key]=value;else state.core.resources[key]=value;}
   function evaluate(snapshot,{factor=WIS.Simulation.Compensation.factor(),groupIds=null,fastProfile=null}={},compiledGroups=groups) {
     const cache=E.scopeMemo(snapshot)||B.microStepMemo.create(),memoKey=key=>'group:'+factor+':'+key,context=Object.freeze({factor,fastProfile,memo(key,fn){key=memoKey(key);if(!cache.has(key))cache.set(key,WIS.Simulation.Profiler.measure('commonMemo',fn));else WIS.Simulation.Profiler.record('commonMemoHit');return cache.get(key);}});
-    const rates={};
+    const rates={},quantities=WIS.Core.Amount?.enabled()?{}:null;
     const evaluateRates=()=>{
-      for(const group of compiledGroups){if(groupIds&&!groupIds.includes(group.id))continue;const output=WIS.Simulation.Profiler.measure('group.'+group.id,()=>group.rate(snapshot,context));
-        if(Object.keys(output).some(key=>!group.keys.includes(key)))throw Error('ResourceGroup 越权输出 '+group.id);
-        for(const key of group.keys){const value=output[key];if(value==null||!B.isFiniteBN(value)||B.lt(value,0)){const error=Error('ResourceGroup 非有限产出 '+key);error.code='formula-representation';throw error;}rates[key]=B.BN(value);}
+      const continuation=quantities&&!fastProfile?E.continuationMemo?.(snapshot):null,outputKey='quantity-group-outputs|'+factor;
+      let completed=continuation?.get(outputKey);if(continuation&&!completed){completed=new Map();continuation.set(outputKey,completed);}
+      for(const group of compiledGroups){if(groupIds&&!groupIds.includes(group.id))continue;
+        let prepared=completed?.get(group);
+        if(!prepared){
+          // Retain completed pure fields only inside the frozen source scope.
+          const pendingKey=outputKey+'|pending';let pending=continuation?.get(pendingKey);
+          if(continuation&&!pending){pending=new Map();continuation.set(pendingKey,pending);}
+          let stage=pending?.get(group);
+          if(!stage){const output=WIS.Simulation.Profiler.measure('group.'+group.id,()=>group.rate(snapshot,context));
+            if(Object.keys(output).some(key=>!group.keys.includes(key)))throw Error('ResourceGroup 越权输出 '+group.id);
+            stage={output,entries:[],quantity:null};pending?.set(group,stage);
+          }
+          while(stage.entries.length<group.keys.length){const key=group.keys[stage.entries.length],raw=stage.output[key];
+            if(quantities&&raw==null)throw Object.assign(Error('ResourceGroup 缺失产出 '+key),{code:'formula-representation'});
+            const quantity=quantities?(stage.quantity ||= WIS.Core.Amount.from(raw)):null,value=quantity?WIS.Core.Amount.project(quantity):raw;
+            if(value==null||!B.isFiniteBN(value)||B.lt(value,0))throw Object.assign(Error('ResourceGroup 非有限产出 '+key),{code:'formula-representation'});
+            const n=B.BN(value);stage.entries.push(Object.freeze({key,quantity,sign:n.sign,layer:n.layer,mag:n.mag}));stage.quantity=null;
+          }
+          prepared=Object.freeze(stage.entries);completed?.set(group,prepared);pending?.delete(group);
+        }
+        for(const entry of prepared){rates[entry.key]=B.Decimal.fromComponents_noNormalize(entry.sign,entry.layer,entry.mag);if(quantities)quantities[entry.key]=entry.quantity;}
       }
     };
     B.microStepMemo.run(()=>R.withEvaluationState(snapshot,evaluateRates,{memo:cache,effects:fastProfile?run=>fastProfile.effects.run(run,cache):null}));
-    return {rates,cultivation:cache.get(memoKey('immortal-sources')),groups:groups.map(g=>({id:g.id,keys:g.keys}))};
+    return {rates,...(quantities?{quantities}:{}),cultivation:cache.get(memoKey('immortal-sources')),groups:groups.map(g=>({id:g.id,keys:g.keys}))};
   }
   // Bind group membership once, but never cache state-dependent numeric values.
   function compile() {
@@ -37,8 +60,8 @@
     return Object.freeze({groups:bound,keys,valid:()=>keys===resourceKeys,
       evaluate:(state,options)=>evaluate(state,options,bound)});
   }
-  function commitAdditional(state,gains) {
-    for(const group of groups)if(!group.legacyCommit){if(group.commit)group.commit(state,gains);else for(const key of group.keys)write(state,key,B.add(read(state,key),gains[key]));}
+  function commitAdditional(state,gains,quantities=null) {
+    for(const group of groups)if(!group.legacyCommit){if(group.commit)group.commit(state,gains,quantities);else for(const key of group.keys)write(state,key,B.add(read(state,key),gains[key]));}
   }
   const softcapSignature=(s,keys)=>R.withState(s,()=>keys.map(k=>WIS.Power.ScaleLogic.activeSoftcapStages(s[k])));
   function compileScaleProfile(snapshot,options={}){
@@ -46,7 +69,7 @@
     if(sources.some(s=>s.requiresProviderRefresh||s.dynamicResources?.length&&typeof s.valueAt!=='function'))return null;
     return {joules:WIS.Power.ScaleLogic.createAutomaticJRateProfile({interval:true}),power:WIS.Power.ScaleLogic.createAutomaticPowerRateProfile({interval:true,...options})};
   }
-  register({id:'scale',outputs:['joules','power'],compileFastProfile:compileScaleProfile,dynamicResources:['joules','power','mana','immortalPower','xianForce','yuanForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart'],outputDependencies:{joules:['joules','power','mana','immortalPower','xianForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart'],power:['joules','power','mana','immortalPower','yuanForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart']},mapSignature:s=>[softcapSignature(s,['joules','power']),WIS.Meta.HighMultiverse.get(s).order],legacyCommit:true,rate(s,c){
+  register({id:'scale',outputs:['joules','power'],compileFastProfile:compileScaleProfile,dynamicResources:['joules','power','mana','immortalPower','xianForce','yuanForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart','martialSoul'],outputDependencies:{joules:['joules','power','mana','immortalPower','xianForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart','martialSoul'],power:['joules','power','mana','immortalPower','yuanForce','nieForce','universeCoefficient','highMultiverseCoefficient','martialQi','martialBody','martialHeart','martialSoul']},mapSignature:s=>[softcapSignature(s,['joules','power']),WIS.Meta.HighMultiverse.get(s).order],legacyCommit:true,rate(s,c){
     if(s.powerSystem.active&&s.powerSystem.active!=='scale')throw Error('未支持的战力 ResourceGroup');
     const S=WIS.Power.ScaleLogic,active=s.powerSystem.active==='scale';
     return active?S.evaluateScaleRates(c.factor,c.fastProfile?.groups.scale):{joules:B.ZERO,power:B.ZERO};
@@ -54,11 +77,11 @@
   register({id:'immortal',outputs:['mana','immortalPower'],dynamicResources:['joules','power','mana','immortalPower','yuanForce','multiverseCoefficient'],outputDependencies:{mana:['joules','power','mana','immortalPower','multiverseCoefficient'],immortalPower:['joules','mana','immortalPower','yuanForce','multiverseCoefficient']},mapSignature:s=>softcapSignature(s,['mana','immortalPower']),legacyCommit:true,rate(s,c){
     if(s.cultivation.active&&!['immortal','martial'].includes(s.cultivation.active))throw Error('未支持的修行 ResourceGroup');
     const values=c.memo('immortal-sources',()=>s.cultivation.active==='immortal'?WIS.Cultivation.ImmortalLogic.fixedAutomaticSources(c.factor):{mana:B.ZERO,passiveMana:B.ZERO,explorationMana:B.ZERO,immortalPower:B.ZERO,explorationAmount:B.ZERO,circulation:false});
-    return {mana:values.mana,immortalPower:values.immortalPower};
+    return WIS.Core.Amount?.enabled()?{mana:values.quantities?.mana??WIS.Core.Amount.from(values.mana),immortalPower:values.quantities?.immortalPower??WIS.Core.Amount.from(values.immortalPower)}:{mana:values.mana,immortalPower:values.immortalPower};
   }});
   register({id:'xiuzhen',kernelWritePaths:WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>'cultivation.systems.immortal.xiuzhen.resources.'+k),outputs:WIS.Cultivation.Xiuzhen.resourceKeys,mapSignature:s=>[WIS.Meta.HighMultiverse.get(s).order,WIS.Meta.HighMultiverse.highest(s)],dynamicResources:['immortalPower','xianForce','yuanForce','nieForce','universeCoefficient','multiverseCoefficient','highMultiverseCoefficient'],outputDependencies:{xianForce:['immortalPower','xianForce','yuanForce','multiverseCoefficient'],yuanForce:['xianForce','yuanForce','multiverseCoefficient'],nieForce:['yuanForce','universeCoefficient','multiverseCoefficient','highMultiverseCoefficient'],universeCoefficient:['nieForce','universeCoefficient'],multiverseCoefficient:['universeCoefficient','multiverseCoefficient']},legacyCommit:true,
     read:(s,k)=>WIS.Cultivation.Xiuzhen.amount(s,k),write:(s,k,v)=>{WIS.Cultivation.Xiuzhen.get(s).resources[k].amount=v;},
-    rate(s,c){const v=WIS.Cultivation.Xiuzhen.rates(s);return Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>[k,B.mul(v[k],c.factor)]));}
+    rate(s,c){const v=WIS.Cultivation.Xiuzhen.rates(s);return Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>[k,WIS.Core.Amount?.enabled()?WIS.Core.Amount.scale(v[k],c.factor):B.mul(v[k],c.factor)]));}
   });
   // Stocks participate in dependency analysis; their gains and conversions
   // are committed exactly once by the discrete martial end-unit event.
@@ -73,6 +96,6 @@
   register({id:'highMultiverse',outputs:[H.key],dynamicResources:[...resourceKeys,H.key],
     kernelWritePaths:['meta.highMultiverse'],mapSignature:s=>[s.cultivation.active,H.get(s).order,H.active(s)],
     read:H.amount,write:(s,_key,value)=>{s.meta={...s.meta,highMultiverse:{...H.get(s),amount:B.BN(value)}};},
-    rate:(s,c)=>({[H.key]:B.mul(H.rate(s),c.factor)}),commit:(s,gains)=>H.credit(s,gains[H.key]??B.ZERO)});
-  WIS.Simulation.ResourceGroups=Object.freeze({register,compile,evaluate,read,write,commitAdditional,get groups(){return Object.freeze([...groups]);},get keys(){return resourceKeys;}});
+    rate:(s,c)=>({[H.key]:WIS.Core.Amount?.enabled()?WIS.Core.Amount.scale(H.rate(s),c.factor):B.mul(H.rate(s),c.factor)}),commit:(s,gains,quantities)=>WIS.Core.Amount?.enabled()&&quantities?WIS.Core.Resources.creditExact(quantityIds[H.key],quantities[H.key]||0,s):H.credit(s,gains[H.key]??B.ZERO)});
+  WIS.Simulation.ResourceGroups=Object.freeze({register,compile,evaluate,read,readExact,resourceIdFor,write,commitAdditional,get groups(){return Object.freeze([...groups]);},get keys(){return resourceKeys;}});
 }(window.WIS));

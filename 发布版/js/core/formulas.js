@@ -48,6 +48,7 @@
   }
 
   function smoothPowerSoftcap(value, scale, earlyExponent, lateExponent, sharpness) {
+    if(WIS.Core.Amount?.isAmount(value))return quantitySmoothPowerSoftcap(value,scale,earlyExponent,lateExponent,sharpness);
     const decimalValue = BN(value);
     const decimalScale = BN(scale);
     const numericEarlyExponent = Number(earlyExponent);
@@ -79,6 +80,10 @@
   }
 
   function diminishingMultiplierExponent(multiplier, coefficient) {
+    if(WIS.Core.Amount?.isAmount(multiplier)){
+      const A=WIS.Core.Amount,value=A.from(multiplier);if(A.compare(value,1)<=0||!isFiniteBN(coefficient)||lte(coefficient,0))return ONE;
+      return div(1,sqrt(add(1,mul(coefficient,WIS.Core.AmountFormulas.logOnePlusRatio(value)))));
+    }
     const decimalMultiplier = BN(multiplier);
     const decimalCoefficient = BN(coefficient);
     if (isNaNBN(decimalMultiplier) || lte(decimalMultiplier, ONE)) return ONE;
@@ -87,6 +92,10 @@
   }
 
   function applyDiminishingMultiplier(multiplier, coefficient) {
+    if(WIS.Core.Amount?.isAmount(multiplier)){
+      const A=WIS.Core.Amount,value=A.from(multiplier);if(A.compare(value,1)<=0)return ONE;
+      return add(1,WIS.Core.AmountFormulas.power(A.subtract(value,1),diminishingMultiplierExponent(value,coefficient)));
+    }
     const decimalMultiplier = BN(multiplier);
     if (isNaNBN(decimalMultiplier) || lte(decimalMultiplier, ONE)) return ONE;
     return add(ONE, pow(
@@ -106,7 +115,48 @@
     return applySoftcaps(applyExponent(multiplied, multiply(exponents)), softcaps);
   }
 
-  WIS.Core.Formulas = Object.freeze({
+  function quantityModel(){if(!WIS.Core.Amount?.enabled())throw Object.assign(Error('Exact formula model disabled'),{code:'amount-model-disabled'});return WIS.Core.Amount;}
+  function quantityFactor(raw){const A=quantityModel();if(A.isAmount(raw))return A.from(raw);const value=raw&&typeof raw==='object'&&!isDecimal(raw)?raw.value:raw,n=WIS.Core.BigNum.parseFinite(value);if(!n||n.lt(0))throw Object.assign(Error('Quantity formula factor invalid'),{code:'formula-representation'});return A.from(value);}
+  function quantitySum(values,clampEach){const A=quantityModel(),L=WIS.Core.AmountLedger,words=[];for(const raw of values){if(A.isAmount(raw)){words.push(...A.words(raw));continue;}const n=WIS.Core.BigNum.parseFinite(raw);if(!n)throw Object.assign(Error('Quantity formula addend invalid'),{code:'formula-representation'});if(clampEach&&n.lt(0))continue;L.validate(String(raw));words.push(String(raw));}return L.sign(words)<=0?A.from(0):A.fromParts(0,words);}
+  function* quantityStageSteps(value,{multipliers=[],exponents=[],softcaps=[]}={}){
+    const A=quantityModel(),factors=[];let exponent=ONE;
+    for(const raw of multipliers)factors.push(yield ()=>quantityFactor(raw));
+    for(const raw of exponents){const q=yield ()=>quantityFactor(raw);
+      if(q.tail.length)throw Object.assign(Error('Quantity exponent requires an explicit rational adapter'),{code:'amount-formula-unresolved'});
+      exponent=yield ()=>mul(exponent,A.project(q));
+    }
+    const separated=yield ()=>!exponent.eq(1)&&factors.length&&WIS.Core.AmountProducts.separatedPositiveProduct([value,...factors].map(A.words));
+    if(separated)value=yield ()=>A.from(WIS.Core.AmountFormulas.productPower([value,...factors],exponent));
+    else{
+      for(const factor of factors)value=yield ()=>A.multiply(value,factor);
+      const powered=yield ()=>!exponent.eq(1)&&A.compare(value,0)>0;
+      if(powered)value=yield ()=>A.from(WIS.Core.AmountFormulas.power(value,exponent));
+    }
+    for(const cap of softcaps){
+      if(typeof cap!=='function')throw Object.assign(Error('Quantity softcap must accept the complete value'),{code:'formula-representation'});
+      const capped=yield ()=>cap(value);value=yield ()=>A.from(capped);
+    }
+    return value;
+  }
+  function* sourceQuantitySteps({base=0,additive=0,...stages}={}){
+    const value=yield ()=>quantitySum([base,additive],false);return yield* quantityStageSteps(value,stages);
+  }
+  function* regionQuantitySteps(values,stages={}){
+    const value=yield ()=>quantitySum(values,true);return yield* quantityStageSteps(value,stages);
+  }
+  function drainQuantitySteps(iterator){let next=iterator.next();while(!next.done)next=iterator.next(next.value());return next.value;}
+  function sourceQuantity(options={}){return drainQuantitySteps(sourceQuantitySteps(options));}
+  function regionQuantity(values,stages={}){return drainQuantitySteps(regionQuantitySteps(values,stages));}
+  function quantitySmoothPowerSoftcap(value,scale,early,late,sharpness){const A=quantityModel(),F=WIS.Core.AmountFormulas;value=A.from(value);
+    if(A.words(value).length<=1&&!value.tail.length)return smoothPowerSoftcap(A.project(value),scale,early,late,sharpness);
+    early=Number(early);late=Number(late);sharpness=Number(sharpness);if(!isFiniteBN(scale)||lte(scale,0)||![early,late,sharpness].every(Number.isFinite)||early<0||late<0||sharpness<=0)throw Object.assign(Error('Smooth quantity curve input invalid'),{code:'formula-representation'});
+    if(A.compare(value,0)===0)return ZERO;const difference=early-late,above=A.compare(value,scale)>=0,ratio=above?F.powerRatio(scale,value,sharpness):F.powerRatio(value,scale,sharpness),transition=A.add(1,ratio),p=difference/sharpness;
+    const correction=p>=0?F.powerRatio(1,transition,p):F.power(transition,-p),first=F.power(value,above?late:early);
+    return F.productQuotient(above?[first,pow(scale,difference),correction]:[first,correction]);
+  }
+  function quantityPowerSoftcap(value,threshold,exponent){const A=quantityModel(),t=quantityFactor(threshold);value=A.from(value);if(A.compare(t,0)<=0)throw Object.assign(Error('Quantity softcap threshold invalid'),{code:'formula-representation'});if(A.compare(value,t)<=0)return value;return A.multiply(t,A.from(WIS.Core.AmountFormulas.powerRatio(value,t,exponent)));}
+
+  WIS.Core.Formulas = Object.freeze({ sourceQuantity,regionQuantity,sourceQuantitySteps,regionQuantitySteps,quantityPowerSoftcap,quantitySmoothPowerSoftcap,
     descriptor, operationTypes, effectValue, multiply, applyExponent, applySoftcaps,
     smoothPowerSoftcap, diminishingMultiplierExponent, applyDiminishingMultiplier,
     source, region

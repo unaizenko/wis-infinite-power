@@ -20,18 +20,24 @@
     if (descriptorContextIndependent) descriptorContextIndependentProviders.add(id);
   }
 
-  function sourceValue(source, state, context) {
+  function quantityResult(quantity,initial=null){
+    const B=WIS.Core.BigNum;let parts=initial?Object.freeze({sign:initial.sign,layer:initial.layer,mag:initial.mag}):null;
+    return Object.freeze({quantity,get value(){if(!parts){const value=WIS.Core.Amount.project(quantity);parts=Object.freeze({sign:value.sign,layer:value.layer,mag:value.mag});}return B.Decimal.fromComponents_noNormalize(parts.sign,parts.layer,parts.mag);}});
+  }
+  function sourceResult(source, state, context) {
     statistics.valueEvaluations++;
     const entry = typeof source.valueAt === "function" ? source.valueAt : source.value;
     if (typeof entry === "function" && entry.constructor?.name === "AsyncFunction") throw Error("Source 求值不能跨 await");
     const raw = typeof entry === "function" ? entry(state, context) : entry;
-    const value = parseFinite(raw);
+    const A=WIS.Core.Amount,exact=A?.enabled()===true;
+    // Complete immutable quantities are already validated. Their legacy scalar
+    // shadow is optional until an actual scalar consumer requests that view.
+    if(exact&&A.isAmount(raw))return quantityResult(A.from(raw));
+    const value=parseFinite(raw);
     if (value === null || value.lt(0)) {
-      const error = Error(`Source 非法产出：${source.id}`);
-      error.code = "formula-representation";
-      throw error;
+      const error = Error(`Source 非法产出：${source.id}`);error.code = "formula-representation";throw error;
     }
-    return value;
+    return exact?quantityResult(A.from(value),value):{value,quantity:null};
   }
   function collect(target, state = WIS.Core.Runtime.getState(), context = {}) {
     statistics.collections++;
@@ -55,12 +61,20 @@
           kind: "source", refresh: (current, ctx) => {
             const row = provider(current, ctx)?.find(v => v.id === source.id);
             if (!row) throw Error(`来源已不存在：${source.id}`);
-            return sourceValue(row, current, ctx);
+            const result=sourceResult(row,current,ctx);return result.quantity||result.value;
           }
         });
-        const value = sourceValue(source, state, context), evaluate = descriptor.valueAt;
-        return { ...descriptor, value, valueAt: (current, ctx = {}) => R.withEvaluationState(current,
-          () => sourceValue({ id: source.id, valueAt: evaluate }, current, ctx)) };
+        const continuation=Object.getPrototypeOf(context)===Object.prototype&&Reflect.ownKeys(context).length===0?WIS.Core.Effects.continuationMemo?.(state):null;
+        let completed=continuation?.get('source-completed-values');if(continuation&&!completed){completed=new WeakMap();continuation.set('source-completed-values',completed);}
+        let captured;
+        if(completed?.has(source))captured=completed.get(source);
+        else{captured=sourceResult(source,state,context);completed?.set(source,captured);}
+        const evaluate=descriptor.valueAt;
+        const resolve=(current,ctx)=>sourceResult({id:source.id,valueAt:evaluate},current,ctx);
+        const row={ ...descriptor,
+          ...(captured.quantity?{quantity:captured.quantity,quantityAt:(current,ctx={})=>R.withEvaluationState(current,()=>resolve(current,ctx).quantity)}:{}),
+          valueAt:(current,ctx={})=>R.withEvaluationState(current,()=>resolve(current,ctx).value) };
+        if(captured.quantity)Object.defineProperty(row,'value',{enumerable:true,configurable:true,get:()=>captured.value});else row.value=captured.value;return row;
       });
     }));
   }
@@ -68,6 +82,7 @@
     return collect(target, state, context).map(source => source.value);
   }
 
-  WIS.Core.Sources = Object.freeze({ supportsHighestPowerEvaluation: () => highestPowerIndependentProviders.size === providers.size, register, collect, values, providerIds:()=>Object.freeze([...providers.keys()]),
+  function valuesExact(target,state,context={}){if(!WIS.Core.Amount?.enabled())throw Object.assign(Error("Exact source model disabled"),{code:"amount-model-disabled"});return collect(target,state,context).map(source=>source.quantity);}
+  WIS.Core.Sources = Object.freeze({ valuesExact, supportsHighestPowerEvaluation: () => highestPowerIndependentProviders.size === providers.size, register, collect, values, providerIds:()=>Object.freeze([...providers.keys()]),
     getStatistics:()=>({...statistics}),resetStatistics(){for(const key of Object.keys(statistics))statistics[key]=0;} });
 }(window.WIS));

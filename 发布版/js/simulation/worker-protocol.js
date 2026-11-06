@@ -3,6 +3,7 @@
   // Transfer normalized Decimal components, never its structured-cloned plain
   // object or a rounded display string. Ordinary JSON saves remain compatible.
   function pack(value) {
+    if(value?.kind==='wis-amount')return WIS.Core.Amount.serialize(WIS.Core.Amount.read(value));
     if(WIS.Core.BigNum.isDecimal(value)) {
       if(!value.isFinite()||value.isNan())throw Error('Worker Decimal 非有限');
       return {$wisDecimal:[value.sign,value.layer,value.mag]};
@@ -13,6 +14,7 @@
     return value;
   }
   function unpack(value) {
+    if(value?.kind==='wis-amount')return WIS.Core.Amount.read(value);
     if(Array.isArray(value))return value.map(unpack);
     if(value&&typeof value==='object') {
       if(Object.prototype.hasOwnProperty.call(value,'$wisDecimal')) {

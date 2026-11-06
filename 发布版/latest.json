@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "version": "0.2.0.0",
+  "versionCode": 20004,
+  "minAndroid": "7.0",
+  "apk": {
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.0/wis.apk",
+    "mirror": null,
+    "sha256": "ea87f4bfc69a259eee9b210e42ac5bcfb52aa8202907c9d4d87653107960dd52",
+    "sizeBytes": 6382606
+  },
+  "notes": "真葛立恒奖励仅对大于1的G进度需求取^0.95，小于或等于1保持不变；G/TREE阶位支持科学计数显示；包含秘境流扩展与本地自动备份。",
+  "publishedAt": "2026-11-06T02:58:26.593Z"
+}
