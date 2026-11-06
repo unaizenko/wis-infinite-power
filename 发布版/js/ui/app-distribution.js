@@ -58,13 +58,9 @@
       dialog = doc.createElement('dialog'); dialog.id = 'app-download-dialog'; dialog.className = 'settings-dialog app-download-dialog'; dialog.setAttribute('aria-labelledby','app-download-title');
       // Static markup only. Remote metadata is inserted with textContent below.
       dialog.innerHTML = '<div class="settings-header"><div><p class="section-label">WIS</p><h2 id="app-download-title">下载安卓 App</h2></div><button id="app-download-close" class="icon-button" type="button" aria-label="关闭">×</button></div>' +
-        '<div class="settings-body app-download-body"><p id="app-download-version"></p><p id="app-download-notes"></p><p id="app-download-environment" role="status"></p>' +
-        '<p id="app-download-backup" class="app-download-important"></p><button id="app-download-export" type="button" class="secondary-button">导出存档</button>' +
-        '<section id="app-install-help"><h3>安装步骤</h3><ol class="app-install-steps"><li><span class="app-install-picture" aria-hidden="true">① ↓ APK</span><strong>下载并打开</strong><span>点击下载，完成后打开 wis.apk。</span></li>' +
-        '<li><span class="app-install-picture" aria-hidden="true">② ⚙ 开启</span><strong>允许此来源</strong><span>如系统询问，进入设置，允许当前浏览器“安装未知来源应用”，然后返回。</span></li>' +
-        '<li><span class="app-install-picture" aria-hidden="true">③ ✓ 安装</span><strong>安装后导入</strong><span>安装并打开 App，在设置中导入刚才导出的存档。安装后可关闭未知来源权限。</span></li></ol>' +
-        '<p>国产手机可能提示未经检测，属于正常现象。请核对下载来源和 SHA256 后再决定是否安装。</p></section>' +
-        '<div class="app-download-actions"><a id="app-download-primary" class="primary-button" target="_blank" rel="noopener noreferrer">下载</a><a id="app-download-mirror" class="secondary-button" target="_blank" rel="noopener noreferrer" hidden>镜像下载</a><button id="app-update-later" class="secondary-button" type="button" hidden>稍后</button></div>' +
+        '<div class="settings-body app-download-body"><div class="app-download-actions"><a id="app-download-primary" class="primary-button" target="_blank" rel="noopener noreferrer">下载安卓 APK</a><a id="app-download-mirror" class="secondary-button" target="_blank" rel="noopener noreferrer" hidden>镜像下载</a><button id="app-update-later" class="secondary-button" type="button" hidden>稍后</button></div>' +
+        '<p id="app-download-environment" role="status"></p><p id="app-download-backup" class="app-download-important"></p><button id="app-download-export" type="button" class="secondary-button">导出存档</button>' +
+        '<p id="app-download-version" hidden></p><p id="app-download-notes" hidden></p>' +
         '<div id="app-download-qr" hidden></div><details><summary>SHA256 校验</summary><code id="app-download-sha"></code></details><p id="app-download-status" role="status"></p></div>';
       doc.body.append(dialog);
       node('app-download-close').addEventListener('click',close);
@@ -87,6 +83,7 @@
     function show(latest, isUpdate=false) {
       makeDialog(); current = latest; update = isUpdate;
       node('app-download-title').textContent = isUpdate ? '发现新版本 '+latest.version : '下载安卓 App';
+      node('app-download-version').hidden = !isUpdate; node('app-download-notes').hidden = !isUpdate;
       node('app-download-version').textContent = '版本 '+latest.version+' · '+(latest.apk.sizeBytes/1048576).toFixed(2)+' MB · Android '+latest.minAndroid+' 及以上';
       node('app-download-notes').textContent = latest.notes;
       node('app-download-sha').textContent = latest.apk.sha256;
@@ -97,8 +94,8 @@
       for (const [id,url] of [['app-download-primary',latest.apk.primary],['app-download-mirror',latest.apk.mirror]]) {
         const a=node(id); a.hidden=!canDownload||!url;if(!a.hidden)a.href=url;else a.removeAttribute('href');
       }
-      node('app-download-primary').textContent=isUpdate?'去下载':'下载';
-      node('app-update-later').hidden=!isUpdate; node('app-install-help').hidden=kind==='ios';
+      node('app-download-primary').textContent=isUpdate?'去下载':'下载安卓 APK';
+      node('app-update-later').hidden=!isUpdate;
       const qr=node('app-download-qr'); qr.replaceChildren();qr.hidden=kind!=='desktop';
       if(!qr.hidden)try{const code=global.qrcode(0,'M');code.addData(latest.apk.primary);code.make();qr.innerHTML=code.createSvgTag({cellSize:4,margin:16,scalable:true});qr.querySelector('svg').setAttribute('aria-label','安卓 App 下载二维码');qr.querySelector('svg').setAttribute('role','img');const caption=doc.createElement('p');caption.textContent='用手机浏览器扫描下载';qr.append(caption);}catch(_){qr.hidden=true;}
       W.UI.Dialog.open(dialog);

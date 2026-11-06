@@ -960,23 +960,21 @@ dialog.wis-dialog-fallback[open] { display:block; position:fixed; inset:50% auto
 
 /* App distribution is presentation-only; respects existing light/dark theme. */
 .app-download-dialog { max-width: min(720px, calc(100vw - 24px)); }
-.app-download-body { padding: 24px; display: grid; gap: 18px; }
+.app-download-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px; display: grid; grid-auto-rows: max-content; align-content: start; gap: 18px; }
 .app-download-body p { margin: 0; }
 #app-download-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .app-download-important { padding: 14px; border: 1px solid var(--border); background: var(--accent-soft); border-radius: var(--radius); }
 .app-download-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .app-download-actions a { text-align: center; text-decoration: none; padding: 12px 20px; border-radius: var(--radius); border: 1px solid var(--border); }
-.app-install-steps { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; padding: 0; list-style: none; }
-.app-install-steps li { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); }
-.app-install-picture { display: flex; align-items: center; justify-content: center; min-height: 72px; background: var(--accent-soft); font-size: 22px; border-radius: var(--radius); }
-.app-install-steps li > span:last-child, #app-install-help > p { color: var(--muted); font-size: 14px; line-height: 1.7; }
 #app-download-qr { text-align: center; }
 #app-download-qr svg { display: block; width: 220px; max-width: 100%; margin: 0 auto 8px; background: white; }
 #app-download-sha { display: block; margin-top: 12px; overflow-wrap: anywhere; font-size: 13px; user-select: all; }
-@media (max-width: 540px) { .app-download-body { padding: 16px; } .app-install-steps { grid-template-columns: 1fr; } .app-install-picture { min-height: 48px; } }
+@media (max-width: 540px) { .app-download-body { padding: 16px; } }
 
 /* Keep the download entry beside its version even when the brand wraps. */
 .version-actions { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .app-download-link { padding: 5px 0; border: 0; background: transparent; color: var(--accent); font-size: 11px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .app-download-link:hover { color: var(--text); }
 .app-download-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+#app-download-environment:empty, #app-download-status:empty { display: none; }
