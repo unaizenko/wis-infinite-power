@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "release-0.2.0.0-20261106-g-reward-r1",
+  "buildId": "release-0.2.0.0-20261106-app-download-r2",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -94,6 +94,8 @@
     "js/ui/infinity.js",
     "js/ui/martial.js",
     "js/ui/dialog.js",
+    "js/vendor/qrcode-generator.js",
+    "js/ui/app-distribution.js",
     "js/ui/native-platform.js",
     "js/ui/app.js",
     "game.js"

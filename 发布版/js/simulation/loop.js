@@ -7,7 +7,7 @@
     const isHidden=()=>document.hidden||nativeHidden;
     function setNativeAppActive(active){nativeHidden=!active;handleVisibilityChange();}
     let lastTickAt=Date.now(),started=false,preparingSave=false;
-    let onlineAccumulator=0,stepping=false;
+    let onlineAccumulator=0,stepping=false,firstOnlineSettlementNotified=false;
     let importHold=null,importHoldSequence=0;
     let continuationHandle=null,schedulerGeneration=0;
     let manualQi=null;
@@ -264,6 +264,11 @@
         // prepareSave may record elapsed time, but cannot reenter this step loop.
         const rates={...WIS.tmp.rates};
         try{context.endTransaction?.();}finally{Object.assign(WIS.tmp.rates,rates);stepping=false;}
+      }
+      if(steps>0&&!firstOnlineSettlementNotified){
+        firstOnlineSettlementNotified=true;
+        // Presentation callback only, outside the committed transaction.
+        try{context.onFirstOnlineSettlement?.();}catch(_){}
       }
       // Recovery needs an actual FIFO task. A zero-time notice alone cannot
       // own the pending online clock. Hand off only after the atomic step and

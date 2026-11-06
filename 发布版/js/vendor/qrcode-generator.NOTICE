@@ -1,0 +1,5 @@
+qrcode-generator 1.4.4 — Kazuhiko Arase — MIT
+Source: https://github.com/kazuhikoarase/qrcode-generator
+Package: https://registry.npmjs.org/qrcode-generator/-/qrcode-generator-1.4.4.tgz
+Vendored qrcode.js without modification. Package integrity verified against registry SHA512.
+Used only to generate Android download QR codes locally, without an external QR service.

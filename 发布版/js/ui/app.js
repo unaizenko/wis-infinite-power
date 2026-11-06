@@ -83,6 +83,7 @@
     const { saveState, simulateOfflineProgress, cancelCatchUp, retryCatchUp, acknowledgeCatchUp, getCatchUpStatus, subscribeCatchUpStatus, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost, multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain, formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent, planetSuppressionSoftcapExponent, formatSoftcapExponent: formatSoftcapExponentWith, activeSoftcapStages, removedSoftcapStages, achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked, challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt, beginImportTransaction, commitImportTransaction, rollbackImportTransaction, captureForegroundTime } = context;
   const CONFIG = WIS.Core.Config;
   const BUILD = WIS.Core.Build;
+  let appDistribution = null;
   const formatSmallMultiplier = WIS.UI.Format.smallMultiplier;
   const formatSoftcapExponent = value => formatSoftcapExponentWith(value, formatSmallMultiplier);
   const googolPenaltySuffix = (resource, amount) => {
@@ -3378,11 +3379,11 @@
       if(deferred&&event.target?.closest?.('[data-page], [data-cultivation-page], #reset-game')){
         runtime.call('cancelDeferredAction','navigation');cancelExplorationPreviewWorks();return;
       }
-      if(deferred&&event.target?.closest?.('#open-settings, #close-settings, #close-automation-manager, #export-save, #export-unsaved-progress, #export-protected-save, #retry-failed-save'))return;
+      if(deferred&&event.target?.closest?.('#open-settings, #close-settings, #close-automation-manager, #export-save, #export-unsaved-progress, #export-protected-save, #retry-failed-save, #android-app-open, #app-download-close, #app-update-later, #app-download-export'))return;
       if (!importing && offlineCatchUpStatus.locked !== true && !deferred) return;
       if (!importing && event.target?.closest?.("#offline-progress-dialog")) return;
       if (!importing && offlineCatchUpStatus.phase === "paused" &&
-          event.target?.closest?.("#settings-dialog, #automation-dialog, #catch-up-notice")) return;
+          event.target?.closest?.("#settings-dialog, #automation-dialog, #catch-up-notice, #app-download-dialog")) return;
       if (event.type === "keydown" || event.type === "submit") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -3745,6 +3746,7 @@
       }).catch(error => safeOperationNotice("App 初始化失败：" + error.message));
     }
 
+    appDistribution = WIS.UI.AppDistribution?.mount({exportSave});
     const settingsDialog = byId("settings-dialog");
     const automationDialog = byId("automation-dialog");
     const offlineProgressDialog = byId("offline-progress-dialog");
@@ -3940,6 +3942,7 @@
 
     return Object.freeze({
       requestExplorationPreviewRefresh,
+      onFirstOnlineSettlement: () => appDistribution?.afterOnlineSettlement(),
       render, renderResourceDebugPanel, renderAchievements, renderChallenges, renderCultivationPage,
       ensureAchievementCards, applyTheme, switchPage, switchCultivationPage,
       showNotice, showAchievementNotice, showScaleNotice, bindEvents,
