@@ -1441,6 +1441,10 @@
   // receiver-bound aliases without serializing untouched domains.
   // A branch copies containers only when written. Decimal leaves are immutable.
   // finish() removes every proxy; committed domains and save formats stay plain.
+  // Ownership spans nested drafts. A finished inner draft must not return an
+  // outer draft proxy as an unchanged base/sibling. This registry is private,
+  // weak, and used only to materialize state, never as a numerical result cache.
+  const draftOwners = new WeakMap();
   function createDraft(source, { replayable = false } = {}) {
     const nodes=new WeakMap(),changedNodes=replayable?new Set():null;
     const mutable=v=>v && typeof v==='object' && !WIS.Core.BigNum.isDecimal(v)&&!WIS.Core.FiniteProgress?.isCanonical(v)&&!WIS.Core.Amount?.isCanonicalTail?.(v);
@@ -1449,7 +1453,7 @@
     // retains another old draft and resource reads grow progressively slower.
     function finishAssigned(value, seen = new WeakMap()) {
       if (!mutable(value)) return value;
-      if (nodes.has(value)) return nodes.get(value).finish();
+      if (draftOwners.has(value)) return draftOwners.get(value).finish(seen);
       if (seen.has(value)) return seen.get(value);
       let result = value;
       seen.set(value, value);
@@ -1478,20 +1482,27 @@
         has:(_,k)=>k in current(),ownKeys:()=>Reflect.ownKeys(current()),
         getOwnPropertyDescriptor(_,k){const d=Object.getOwnPropertyDescriptor(current(),k);return d&&{...d,...(k==='length'&&Array.isArray(base)?{writable:true,configurable:false}:{configurable:true})};}
       });
-      // Assigned containers may hold our proxies even in unchanged properties.
-      // Propagate that ownership to read children and also resolve unread ones.
-      const node={base,proxy,finish(){if(!copy)return assigned?finishAssigned(base):base;
-        for(const k of Object.keys(copy)){const child=children.get(k);if(child&&copy[k]===child.base)copy[k]=child.finish();
-          else if(assigned||copy[k]!==base[k])copy[k]=finishAssigned(copy[k]);}
+      // Even unchanged spread-built containers may hold another owner's proxy.
+      // Materialize read and unread branches with one traversal-local memo.
+      const node={base,proxy,finish(seen=new WeakMap()){if(!copy)return finishAssigned(base,seen);
+        for(const k of Object.keys(copy)){const child=children.get(k);if(child&&copy[k]===child.base)copy[k]=child.finish(seen);
+          else copy[k]=finishAssigned(copy[k],seen);}
         return copy;}};
-      nodes.set(proxy,node);return node;
+      draftOwners.set(proxy,node);nodes.set(proxy,node);return node;
     }
     const roots=Object.fromEntries(['core','powerSystem','cultivation','meta'].map(k=>[k,wrap(source[k])]));
     const state=attachLegacyAliases(Object.fromEntries(Object.entries(roots).map(([k,n])=>[k,n.proxy])));
+    // Nested commits install plain roots. Keep subsequent writes inside this
+    // draft: a materialized unchanged root may still share the live source.
+    for(const key of Object.keys(roots)){
+      let value=roots[key].proxy;
+      Object.defineProperty(state,key,{enumerable:true,configurable:true,
+        get:()=>value,set:next=>{value=mutable(next)&&!nodes.has(next)?wrap(next,null,key,true).proxy:next;}});
+    }
     // Replayed attempts discard every private write, including root replacements.
     // Source containers and already materialized results are never modified.
     const reset=replayable?()=>{for(const restore of changedNodes)restore();changedNodes.clear();for(const [key,node]of Object.entries(roots))state[key]=node.proxy;}:undefined;
-    return {state,...(reset?{reset}:{}),finishValue:finishAssigned,finish:()=>attachLegacyAliases(Object.fromEntries(Object.entries(roots).map(([k,n])=>[k,state[k]===n.proxy?n.finish():finishAssigned(state[k])])))};
+    return {state,...(reset?{reset}:{}),finishValue:finishAssigned,finish:()=>{const seen=new WeakMap();return attachLegacyAliases(Object.fromEntries(Object.keys(roots).map(k=>[k,finishAssigned(state[k],seen)])));}};
   }
 
   // A statistic's existing head and this owned tail are one quantity. Neither

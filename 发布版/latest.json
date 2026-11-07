@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.0.0",
-  "versionCode": 20004,
+  "version": "0.2.0.1",
+  "versionCode": 20005,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.0/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.1/wis.apk",
     "mirror": null,
-    "sha256": "ea87f4bfc69a259eee9b210e42ac5bcfb52aa8202907c9d4d87653107960dd52",
-    "sizeBytes": 6382606
+    "sha256": "9ef7f1dfe99c50363f00130cf3f7464e34b81797b519acbd92c7aae354f04328",
+    "sizeBytes": 6407543
   },
-  "notes": "真葛立恒奖励仅对大于1的G进度需求取^0.95，小于或等于1保持不变；G/TREE阶位支持科学计数显示；包含秘境流扩展与本地自动备份。",
-  "publishedAt": "2026-11-06T02:58:26.593Z"
+  "notes": "修复长数值系数与嵌套事务引起的结算阻塞；来源预览改为后台续算，改进积压时的预览调度。保留现有存档格式与数值合同。",
+  "publishedAt": "2026-11-07T01:24:12.563Z"
 }

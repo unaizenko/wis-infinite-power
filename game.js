@@ -1,16 +1,37 @@
 (() => {
   "use strict";
 
+  const BOOT = window.WIS_BOOT || {enter(){},fail(stage,error){console.error(stage,error);},ready(){},diagnostics(){return {failed:false};}};
+  let abortStartup = () => {};
+  function paintOpportunity() {
+    return new Promise(resolve => {
+      let done=false, fallback;
+      const finish=()=>{if(done)return;done=true;window.clearTimeout(fallback);resolve();};
+      fallback=window.setTimeout(finish,document.hidden?0:250);
+      if(!document.hidden && typeof window.requestAnimationFrame==="function")
+        window.requestAnimationFrame(()=>window.requestAnimationFrame(()=>window.setTimeout(finish,0)));
+    });
+  }
+  function assertBootHealthy(){if(BOOT.diagnostics().failed)throw new Error("启动已中止；请先导出原始存档并重新加载");}
+  async function bootstrap() {
+  if(BOOT.diagnostics().failed)return;
+  BOOT.enter("read-save");
+  await paintOpportunity();
+  assertBootHealthy();
+  for(const [name,value] of [["Core.Save",window.WIS?.Core?.Save?.read],["Core.Save.readWork",window.WIS?.Core?.Save?.readWork],["Core.Save.prepareWork",window.WIS?.Core?.Save?.prepareWork],["UI.App",window.WIS?.UI?.App?.create],["Simulation.Loop",window.WIS?.Simulation?.Loop?.create]])
+    if(typeof value!=="function")throw new Error("关键游戏接口缺失："+name);
+  if(typeof window.BigInt!=="function")throw new Error("浏览器缺少精确大整数 BigInt 支持");
   const CONFIG = WIS.Core.Config;
   const BUILD = WIS.Core.Build;
-  const GAME_VERSION = BUILD.mode === "development" ? `${CONFIG.gameVersion}-dev` : CONFIG.gameVersion;
+  const GAME_VERSION = CONFIG.gameVersion;
   const LOGIC_INTERVAL_MS = 100;
   const RENDER_INTERVAL_MS = 250;
-  const SIMULATION_STEP_SECONDS = 0.1;
+  const DISCRETE_CADENCE_SECONDS = CONFIG.fixedSettlement.discreteCadenceSeconds;
+  const SIMULATION_STEP_SECONDS = DISCRETE_CADENCE_SECONDS; // legacy local-rule adapters
   const MAX_ONLINE_STEPS_PER_FRAME = 8;
+  const ONLINE_SLICE_BUDGET_MS = 12;
   const MAX_DISCRETE_EVENTS_PER_STEP = 128;
   const SIMULATION_EPSILON = 1e-10;
-  const OFFLINE_ERROR_TOLERANCE = 1e-4;
   const OFFLINE_BOUNDARY_BISECTIONS = 16;
   const CHALLENGE_DEFINITIONS = CONFIG.challenges;
   const { max: maxBN } = WIS.Core.BigNum;
@@ -19,10 +40,7 @@
   const Immortal = WIS.Cultivation.ImmortalLogic;
   const {
     autoUpgradeEnhancements, fitnessMembershipCardCount, superLollipopCount, skyCrystalCount,
-    cosmicFiberCount, cosmicFiberAvailable, cosmicFiberChance,
-    cosmicWillCount, cosmicWillAvailable, cosmicWillChance,
-    fiveSpiritStoneCount, fitnessMembershipCardChance, superLollipopChance, skyCrystalChance,
-    fiveSpiritStoneChance, fitnessJBonus, rockPowerPerSecond, ultimateIntentPowerSource, train,
+    cosmicFiberCount, cosmicWillCount, fiveSpiritStoneCount, train,
     applyResourceSoftcap, applyResourceSoftcapRate, applyResourceSoftcapEffectiveRate,
     applyResourceSoftcapOverTime, applyResourceSoftcapDynamicRateOverTime,
     applyResourceSoftcapProgressive, resourceSoftcapExponent,
@@ -32,23 +50,31 @@
   const {
     autoBreakthroughImmortalRealms, autoUpgradeImmortalAbilities, breathe, chooseCultivation,
     baLingChiCount, cultivationRealmLevel, explore, grantThreeDeficienciesResetReward,
+    reconcileMahayanaReincarnationEffects,
     minorTribulationPowerExponent, celestialDeclineExponent, tianNiPearlCount, phantomHeavenMirrorCount,
-    mysticHeavenSacredTreeCount, mysticHeavenSpiritSlayingSwordCount,
-    tianNiPearlChance, mysteriousGreenBottleChance, fuBaoChance, naturalTreasureUpgradeChance,
-    naturalTreasureLevelCap, xuTianDingChance, baLingChiChance, wanYaoFanChance,
-    phantomHeavenMirrorChance, mysticHeavenSacredTreeChance, mysticHeavenSpiritSlayingSwordChance,
-    immortalCrystalChance, fiveElementsTreasureChance, immortalTreasureChanceMultiplier,
-    automaticExplorationAmountPerSecond, circulationManaPerSecond, immortalPowerPerSecond
+    mysticHeavenSacredTreeCount, mysticHeavenSpiritSlayingSwordCount
   } = Immortal;
 
-  let state = loadState();
+  let savedOfflineRecovery = null;
+  const loadedState = await loadState();
+  BOOT.enter("initialize");
+  await paintOpportunity();
+  assertBootHealthy();
+  let state = WIS.Core.State.cloneForSimulation(loadedState);
   let initialLoadComplete = false;
+  const canPerformSavedAction = () => initialLoadComplete;
+  const canPersistConfirmedState = () => initialLoadComplete && WIS.Core.Save.sessionPolicy().persistenceAllowed;
   let automationSimulation;
   let stepSimulation;
-  let treasureEventSimulation;
-  let projectionSimulation;
   let offlineSimulation;
   let simulationLoop;
+  abortStartup = () => {
+    const hadConfirmedStartup=initialLoadComplete;
+    initialLoadComplete=false;
+    simulationLoop?.invalidateOnlineScheduler();
+    offlineSimulation?.suspendForAway();
+    if(!hadConfirmedStartup)setStateDirect(loadedState);
+  };
   let renderPending = false;
   let lastRenderAt = 0;
   let lastUpgradeCostSortSignature = "";
@@ -77,17 +103,14 @@
     setState: setStateDirect
   });
   WIS.Core.Resources.bind(() => state);
+  reconcileMahayanaReincarnationEffects();
+  WIS.Meta.TreasureProgress.ensure(state);
 
   const flatStateKeys = Object.keys(WIS.Core.State.toFlat(state));
   const upgradeFlagKeys = flatStateKeys.filter((key) => key.endsWith("Purchased")).sort();
   const cultivationFlagKeys = flatStateKeys
     .filter((key) => key.endsWith("Unlocked") || key.endsWith("Level"))
     .sort();
-  const offlineDiscreteStateKeys = flatStateKeys.filter((key) => {
-    const value = state[key];
-    return key === "currentQiLayer" || typeof value === "boolean" || typeof value === "string" ||
-      /(Purchased|Unlocked|Level|Enabled|Active|Exponent|Multiplier|Cap|Tier)$/.test(key);
-  }).sort();
   const challengeKeys = Object.keys(CHALLENGE_DEFINITIONS);
   const {
     definitions: achievementDefinitions, states: achievementStates, recordCurrent: recordCurrentAchievements,
@@ -100,12 +123,15 @@
     return WIS.Core.State.fresh();
   }
 
-  function loadState() {
+  async function loadState() {
     try {
-      const saved = WIS.Core.Save.read();
-      return saved ? WIS.Core.State.migrate(saved.schemaVersion, saved.data) : freshDefaultState();
+      const work=WIS.Core.Save.readWork();
+      while(!work.advance({maximumOperations:512,deadline:performance.now()+3}).done){await new Promise(resolve=>window.setTimeout(resolve,0));assertBootHealthy();}
+      const saved = work.result();
+      savedOfflineRecovery = saved?.offlineRecovery ?? null;
+      return saved ? saved.state : freshDefaultState();
     } catch (error) {
-      console.error("WIS save migration or state normalization failed; using a fresh state.", error);
+      console.error("WIS save load failed; original storage is protected. Running a temporary in-memory fallback with autosave disabled.", error);
       return freshDefaultState();
     }
   }
@@ -137,7 +163,10 @@
 
   function recordSignature(record, keys) {
     let signature = "";
-    for (const key of keys) signature += `|${Number(record?.[key]) || 0}`;
+    for (const key of keys) {
+      const value = record?.[key];
+      signature += `|${value === null || value === undefined ? 0 : value}`;
+    }
     return signature;
   }
 
@@ -198,23 +227,22 @@
     return true;
   }
 
-  function persistStateNow() {
-    if (recordCurrentAchievements()) markAchievementsDirty();
-    updateLifetimeStatistics();
-    const pendingClockSeconds = offlineSimulation?.getPendingCatchUpClockSeconds?.() || 0;
-    const onlineClockSeconds = simulationLoop?.getSimulationClockAccumulator?.() || 0;
-    state.lastUpdateAt = Math.max(0, Date.now() - (pendingClockSeconds + onlineClockSeconds) * 1000);
-    WIS.Core.Save.write(state);
+  function persistStateNow(options = {}) {
+    if(!canPersistConfirmedState())return false;
+    return WIS.Core.Save.persistLive(state,simulationLoop,offlineSimulation,options);
   }
 
-  function saveState() {
-    if (WIS.Core.Runtime.isProjection()) return;
+  function saveState(options = {}) {
+    if (WIS.Core.Runtime.isProjection() || !canPerformSavedAction()) return false;
+    // Import commit must be synchronous: the transaction cannot release the old
+    // session until the newly installed state and its recovery debt are in storage.
+    if (options.closing === true || options.importCommit === true) return persistStateNow(options);
     if (stepSimulation) stepSimulation.requestSave();
-    else persistStateNow();
+    else return persistStateNow(options);
   }
 
   function multiplyEffects(effects) {
-    return WIS.Core.Formulas.multiply(effects.map(multiplierEffectValue));
+    return WIS.Core.Formulas.multiply(effects);
   }
 
   function multiplierEffectValue(effect) {
@@ -233,74 +261,164 @@
     return WIS.Core.Formulas.region(sourceGains, { multipliers, exponents, softcaps });
   }
 
-  function formatMultiplierGroups(groups) {
-    return Object.entries(groups).map(([groupName, effects]) => `${groupName}：${effects.map((effect, index) => {
-      const effectName = typeof effect === "object" && effect !== null ? effect.name : `乘区${index + 1}`;
-      return `${effectName} ×${format(multiplierEffectValue(effect), 2)}`;
-    }).join("、")}`).join("；");
+  const formatMultiplierGroups = groups => WIS.UI.Format.multiplierGroups(groups, multiplierEffectValue);
+
+  // Explicit load/player-action boundary. Simulation retains its existing
+  // event checks; rendering must never be required to activate rewards.
+  function playerAction(work) {
+    return (...args) => { if(!canPerformSavedAction()||simulationLoop?.isDeferredActionPending?.()||offlineSimulation?.getCatchUpStatus().locked)return false;
+      const result = work(...args); completePlayerAction(); return result; };
+  }
+
+  function completePlayerAction() {
+    recordCurrentAchievements();
+    updateLifetimeStatistics();
+    WIS.Meta.BigNumbers.syncUnlock(state);
   }
 
   function updateLifetimeStatistics() {
-    state.lifetimeHighestJ = maxBN(state.lifetimeHighestJ, state.joules);
-    state.lifetimeHighestPower = maxBN(maxBN(state.lifetimeHighestPower, state.power), state.highestPower);
-    state.lifetimeHighestScaleIndex = Math.max(state.lifetimeHighestScaleIndex, state.highestScaleIndex);
-    state.lifetimeHighestMana = maxBN(state.lifetimeHighestMana, state.mana);
-    state.lifetimeHighestImmortalPower = maxBN(state.lifetimeHighestImmortalPower, state.immortalPower);
-    state.lifetimeHighestCultivationRealmLevel = Math.max(state.lifetimeHighestCultivationRealmLevel, cultivationRealmLevel());
-    state.currentRebirthHighestJ = maxBN(state.currentRebirthHighestJ, state.joules);
-    state.currentRebirthHighestPower = maxBN(state.currentRebirthHighestPower, state.power);
-    state.currentRebirthHighestScaleIndex = Math.max(state.currentRebirthHighestScaleIndex, state.highestScaleIndex);
-    state.currentRebirthHighestMana = maxBN(state.currentRebirthHighestMana, state.mana);
-    state.currentRebirthHighestImmortalPower = maxBN(state.currentRebirthHighestImmortalPower, state.immortalPower);
-    state.currentRebirthHighestCultivationRealmLevel = Math.max(
-      state.currentRebirthHighestCultivationRealmLevel,
-      cultivationRealmLevel()
-    );
+    WIS.Core.State.updateLifetimeStatistics(WIS.Core.Runtime.getState(), cultivationRealmLevel());
   }
 
-  function formatElapsedTime(totalSeconds) {
-    const seconds = Math.max(0, Math.floor(totalSeconds));
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor(seconds % 86400 / 3600);
-    const minutes = Math.floor(seconds % 3600 / 60);
-    const remainingSeconds = seconds % 60;
-    if (days > 0) return `${days}天${hours}小时`;
-    if (hours > 0) return `${hours}小时${minutes}分钟`;
-    if (minutes > 0) return `${minutes}分钟${remainingSeconds}秒`;
-    return `${remainingSeconds}秒`;
-  }
+  const formatElapsedTime = WIS.UI.Format.elapsedTime;
 
-  function formatGameCalendar(totalRealSeconds) {
-    let totalHours = Math.max(0, Math.floor(totalRealSeconds));
-    const hoursPerDay = 24;
-    const hoursPerMonth = hoursPerDay * 30;
-    const hoursPerYear = hoursPerMonth * 12;
-    const years = Math.floor(totalHours / hoursPerYear);
-    totalHours %= hoursPerYear;
-    const months = Math.floor(totalHours / hoursPerMonth);
-    totalHours %= hoursPerMonth;
-    const days = Math.floor(totalHours / hoursPerDay);
-    const hours = totalHours % hoursPerDay;
-    const parts = [];
-    if (years > 0) parts.push(`${format(years, 0)}年`);
-    if (months > 0 || years > 0) parts.push(`${months}月`);
-    if (days > 0 || months > 0 || years > 0) parts.push(`${days}日`);
-    parts.push(`${hours}小时`);
-    return parts.join("");
-  }
+  const formatGameCalendar = WIS.UI.Format.gameCalendar;
 
-  const simulateOfflineProgress = (...args) => offlineSimulation.simulateOfflineProgress(...args);
-  const cancelCatchUp = (...args) => offlineSimulation.cancelCatchUp(...args);
+  const invalidateOnlineScheduler = () => simulationLoop?.invalidateOnlineScheduler?.();
+  const simulateOfflineProgress = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.simulateOfflineProgress(...args); };
+  const cancelCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.cancelCatchUp(...args); };
+  const abandonCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.abandonCatchUp(...args); };
+  function convertOfflineToCompensation() {
+    simulationLoop.prepareSave();
+    invalidateOnlineScheduler();
+    offlineSimulation.sealOnlineTail();
+    return offlineSimulation.convertOfflineToCompensation();
+  }
+  const retryCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.retryCatchUp(...args); };
+  const startCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.startCatchUp(...args); };
+  const pauseCatchUpByPlayer = () => { invalidateOnlineScheduler(); return offlineSimulation.pauseCatchUpByPlayer(); };
+  const acknowledgeCatchUp = (...args) => offlineSimulation.acknowledgeCatchUp(...args);
+  const getCatchUpStatus = (...args) => offlineSimulation.getCatchUpStatus(...args);
+  const subscribeCatchUpStatus = (...args) => offlineSimulation.subscribeCatchUpStatus(...args);
+  const claimPauseNotice = (...args) => offlineSimulation.claimPauseNotice(...args);
+  const queueCatchUpNotice = (...args) => offlineSimulation.queueCatchUpNotice(...args);
   const setLastTickAt = (value) => simulationLoop?.setLastTickAt(value);
+  function restoreOfflineRecovery(snapshot) {
+    invalidateOnlineScheduler();
+    const restored = offlineSimulation.restorePersistenceSnapshot(snapshot, 0, { checkpoint: false });
+    const newlyAway = simulationLoop.restoreClosedTime(snapshot);
+    return restored || newlyAway > 0;
+  }
+  // Import registers the freshly installed save's unsettled time and takes the
+  // foreground gate, but does NOT run the settlement worker. Same enqueue call
+  // and default task options as bootstrap, so the debt, execution mode and clock
+  // ratio are identical. The worker starts only after commit and handoff,
+  // when the running UI has had its first paint.
+  function prepareImportRecovery(snapshot) {
+    const restored = restoreOfflineRecovery(snapshot);
+    // A successful save slice does not imply that all parked blocking time
+    // has been handed off. Capture without settlement, then transfer metadata
+    // under the recovery gate. A failed handoff rolls back the import transaction.
+    offlineSimulation.holdCatchUpUntilUserStart("import");
+    const prepared = simulationLoop.prepareSave({ importCommit: true, captureOnly: true });
+    const handoff = prepared && simulationLoop.handoffImportRecovery();
+    if (!handoff?.complete) throw new Error("导入恢复时间尚未完成交接");
+    const paused = offlineSimulation.isCatchUpPaused();
+    const pending = offlineSimulation.getPendingCatchUpSeconds() > SIMULATION_EPSILON;
+    // Only a blocking recovery waits for committed UI paint. A restored pause
+    // owns its own wait, and a quiet online backlog settles inline as before.
+    const blocking = pending && offlineSimulation.getCatchUpStatus().presentation === "blocking";
+    if (handoff.complete && (paused || !blocking)) offlineSimulation.releaseCatchUpUserStart();
+    return {
+      restored,
+      paused,
+      pending,
+      awaitingStart: offlineSimulation.isCatchUpAwaitingStart()
+    };
+  }
+
+  function captureImportStateSnapshot() {
+    return { state: WIS.Core.State.cloneForSimulation(state),
+      recovery: offlineSimulation.getPersistenceSnapshot(), online: simulationLoop.snapshot(),
+      power: WIS.Power.Scale.snapshotTreasureTransient(), cultivation: WIS.Cultivation.Immortal.snapshotTreasureTransient(),
+      rates: { ...WIS.tmp.rates }, storage: WIS.Core.Save.storageSnapshot({ transaction: true }) };
+  }
+
+  function restoreImportStateSnapshot(snapshot) {
+    cancelCatchUp(); setStateDirect(snapshot.state);
+    offlineSimulation.restorePersistenceSnapshot(snapshot.recovery, 0, { checkpoint: false });
+    simulationLoop.restore(snapshot.online);
+    WIS.Power.Scale.restoreTreasureTransient(snapshot.power);
+    WIS.Cultivation.Immortal.restoreTreasureTransient(snapshot.cultivation);
+    for (const key of Object.keys(WIS.tmp.rates)) delete WIS.tmp.rates[key];
+    Object.assign(WIS.tmp.rates, snapshot.rates);
+    WIS.Core.Save.restoreStorage(snapshot.storage);
+  }
+
+  function infinityRebirth(options) {
+    if(options?.challengeKey&&(simulationLoop.isDeferredActionPending()||offlineSimulation.getCatchUpStatus().locked))throw Error('当前结算尚未完成');
+    let previous;
+    const next=WIS.Meta.Infinity.commitRebirth(options,{
+      getState:()=>state,capture:()=>previous=captureImportStateSnapshot(),
+      cancel:()=>{cancelCatchUp();simulationLoop.resetAccumulators();},
+      install:next=>{setStateDirect(next);simulationLoop.resetAccumulators({preservePending:WIS.Core.Reset.preservesContent("infinity",next)&&!WIS.Meta.Infinity.isInfinityChallenge(next.activeChallenge)});WIS.Power.Scale.resetTransient?.();WIS.Cultivation.Immortal.resetTransient?.();},
+      save:()=>saveState({importCommit:true,storageTransaction:previous.storage}),restore:restoreImportStateSnapshot
+    });
+    WIS.Core.Save.finishStorageTransaction(previous.storage);
+    UI.dismissOfflineSummary();UI.resetCultivationPage();requestRender();return next;
+  }
+
+  function beginImportTransaction() {
+    if (simulationLoop.isImportHoldActive?.()) return null;
+    const now = Date.now();
+    // Register the unsampled prefix before capturing rollback/backup. No settlement.
+    simulationLoop.captureForegroundTime(now);
+    const previous = captureImportStateSnapshot();
+    const hold = simulationLoop.beginImportHold(now);
+    if (!hold) return null;
+    return Object.freeze({ token: hold.token, startedAt: hold.startedAt, previous });
+  }
+
+  function commitImportTransaction(transaction) {
+    if (!transaction?.token) return { released: false, elapsedSeconds: 0 };
+    const result = simulationLoop.finishImportHold(transaction.token, { accountElapsed: false });
+    if (result.released) WIS.Core.Save.finishStorageTransaction(transaction.previous.storage);
+    return result;
+  }
+
+  function rollbackImportTransaction(transaction, reason = "import-cancel") {
+    if (!transaction?.previous || !transaction?.token || !transaction.previous.storage.transaction?.active)
+      return { released: false, elapsedSeconds: 0 };
+    let result;
+    try {
+      restoreImportStateSnapshot(transaction.previous);
+    } finally {
+      // Disk conflicts/quota failures cannot strand the old session in hold.
+      WIS.Core.Save.finishStorageTransaction(transaction.previous.storage);
+      result = simulationLoop.finishImportHold(transaction.token, { accountElapsed: true, reason });
+    }
+    return result;
+  }
 
   const UI = WIS.UI.App.create({
-    saveState, simulateOfflineProgress, cancelCatchUp, achievementStates, recordCurrentAchievements,
-    updateLifetimeStatistics, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost,
+    canPerformSavedAction, canPersistConfirmedState,
+    saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, convertOfflineToCompensation, retryCatchUp, startCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
+    captureImportState: captureImportStateSnapshot,
+    restoreImportState: restoreImportStateSnapshot,
+    beginImportTransaction, commitImportTransaction, rollbackImportTransaction,
+    getCatchUpStatus, subscribeCatchUpStatus, claimPauseNotice, restoreOfflineRecovery, prepareImportRecovery,
+    queueCatchUpNotice, achievementStates, recordCurrentAchievements,
+    completePlayerAction, notifyNewAchievements, freshDefaultState, formatCompact, format, formatCost,
     multiplyEffects, multiplierEffectValue, multiplyEffectGroups, calculateSourceGain, calculateRegionGain,
     formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent,
     planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages,
     achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
-    challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge, exitChallenge, setLastTickAt
+    challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt,
+    onNativeAppState: active => simulationLoop?.setNativeAppActive(active),
+    captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0,
+    requestDeferredAction:job=>simulationLoop?.requestDeferredAction(job),
+    isDeferredActionPending:()=>simulationLoop?.isDeferredActionPending?.()===true,
+    cancelDeferredAction:()=>simulationLoop?.cancelDeferredAction?.()
   });
   ({
     render, renderResourceDebugPanel, ensureAdvancedRealmAbilityGroups, applyTheme, switchPage, showNotice,
@@ -329,79 +447,56 @@
     epsilon: SIMULATION_EPSILON,
     boundaryBisections: OFFLINE_BOUNDARY_BISECTIONS
   });
-  treasureEventSimulation = WIS.Simulation.TreasureEvents.create({
-    getState: () => state,
-    setStateDirect,
-    advanceGameStep: stepSimulation.advanceGameStep,
-    recordSignature,
-    treasuresUnlocked,
-    hasAchievement,
-    fitnessMembershipCardChance,
-    superLollipopChance,
-    skyCrystalChance,
-    fiveSpiritStoneChance,
-    cosmicFiberAvailable,
-    cosmicFiberChance,
-    cosmicWillAvailable,
-    cosmicWillChance,
-    fitnessJBonus,
-    rockPowerPerSecond,
-    ultimateIntentPowerSource,
-    tianNiPearlChance,
-    mysteriousGreenBottleChance,
-    fuBaoChance,
-    naturalTreasureUpgradeChance,
-    naturalTreasureLevelCap,
-    xuTianDingChance,
-    baLingChiChance,
-    wanYaoFanChance,
-    phantomHeavenMirrorChance,
-    mysticHeavenSacredTreeChance,
-    mysticHeavenSpiritSlayingSwordChance,
-    immortalCrystalChance,
-    fiveElementsTreasureChance,
-    immortalTreasureChanceMultiplier,
-    automaticExplorationAmountPerSecond,
-    circulationManaPerSecond,
-    immortalPowerPerSecond,
-    epsilon: SIMULATION_EPSILON,
-    simulationStepSeconds: SIMULATION_STEP_SECONDS,
-    boundaryBisections: OFFLINE_BOUNDARY_BISECTIONS,
-    maxDiscreteEventsPerStep: MAX_DISCRETE_EVENTS_PER_STEP
-  });
-  projectionSimulation = WIS.Simulation.Projection.create({
-    getState: () => state,
-    setStateDirect,
-    advanceGameStep: stepSimulation.advanceGameStep,
-    treasureDriverSignature: treasureEventSimulation.treasureDriverSignature,
-    stateFlagSignature,
-    recordSignature,
-    offlineDiscreteStateKeys,
-    challengeKeys,
-    epsilon: SIMULATION_EPSILON,
-    simulationStepSeconds: SIMULATION_STEP_SECONDS,
-    maxDiscreteEventsPerStep: MAX_DISCRETE_EVENTS_PER_STEP,
-    errorTolerance: OFFLINE_ERROR_TOLERANCE
-  });
   offlineSimulation = WIS.Simulation.Offline.create({
+    useWorker: true,
+    prepareFixedWork: stepSimulation.prepareFixedWork,
+    prepareOnlineWork: stepSimulation.prepareOnlineWork,
+    onlineMetrics: stepSimulation.onlineMetrics,
+    restoreOnlineMetrics: stepSimulation.restoreOnlineMetrics,
     getState: () => state,
     advanceGameStep: stepSimulation.advanceGameStep,
-    nextKnownSimulationBoundarySeconds: stepSimulation.nextKnownSimulationBoundarySeconds,
-    adaptiveOfflineStepSeconds: projectionSimulation.adaptiveOfflineStepSeconds,
-    nextEffectiveTreasureEventSeconds: treasureEventSimulation.nextEffectiveTreasureEventSeconds,
-    createOfflineTaskRandom: treasureEventSimulation.createOfflineTaskRandom,
     beginTransaction: stepSimulation.beginTransaction,
     endTransaction: stepSimulation.endTransaction,
     achievementStates,
     recordCurrentAchievements,
     notifyNewAchievements,
     markAchievementsDirty,
-    showNotice,
+    showNotice: (message, duration) => {
+      if (state.autoCloseOfflineDialogEnabled === false) showNotice(message, duration);
+    },
     requestRender,
     formatElapsedTime,
     format,
     setLastTickAt,
+    checkpoint: persistStateNow,
+    snapshotTransient: () => ({
+      power: WIS.Core.Registries.getActivePower(state)?.snapshotTreasureTransient?.(),
+      cultivation: WIS.Core.Registries.getActiveCultivation(state)?.snapshotTreasureTransient?.()
+    }),
+    restoreTransient: (snapshot) => {
+      WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(snapshot.power);
+      WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivation);
+    },
     resetOnlineAccumulators: () => simulationLoop?.resetAccumulators(),
+    snapshotState: ({ borrow = false } = {}) => {
+      const powerSystem = WIS.Core.Registries.getActivePower(state);
+      const cultivationSystem = WIS.Core.Registries.getActiveCultivation(state);
+      return {
+        domain: borrow ? { core: state.core, powerSystem: state.powerSystem, cultivation: state.cultivation, meta: state.meta } : WIS.Core.State.toSerializable(state),
+        powerTransient: powerSystem?.snapshotTreasureTransient?.(),
+        cultivationTransient: cultivationSystem?.snapshotTreasureTransient?.()
+      };
+    },
+    restoreState: (snapshot) => {
+      setStateDirect(WIS.Core.State.cloneForSimulation(snapshot.domain));
+      WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(snapshot.powerTransient);
+      WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivationTransient);
+    },
+    installWorkerSnapshot: (snapshot) => {
+      setStateDirect(snapshot.domain);
+      WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(snapshot.powerTransient);
+      WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivationTransient);
+    },
     tianNiPearlCount,
     fitnessMembershipCardCount,
     superLollipopCount,
@@ -419,6 +514,12 @@
   simulationLoop = WIS.Simulation.Loop.create({
     getState: () => state,
     advanceGameStep: stepSimulation.advanceGameStep,
+    prepareOnlineWork: stepSimulation.prepareOnlineWork,
+    onlineStateKey: stepSimulation.onlineStateKey,
+    onFirstOnlineSettlement: () => UI.onFirstOnlineSettlement?.(),
+    onOnlineSettlementError: error => WIS.Core.Runtime.call('showNotice','本次结算暂时无法完成，资源和待结算时间已保留。可在设置中导出存档。'),
+    invalidateDeferredQi: stepSimulation.invalidateDeferredQi,
+    hasDeferredQi: stepSimulation.hasDeferredQi,
     beginTransaction: stepSimulation.beginTransaction,
     endTransaction: stepSimulation.endTransaction,
     offline: offlineSimulation,
@@ -429,17 +530,25 @@
     saveState,
     effectiveDevSpeed: () => UI.effectiveDevSpeed(),
     isInitialLoadComplete: () => initialLoadComplete,
+    isStateReady: () => initialLoadComplete,
     epsilon: SIMULATION_EPSILON,
     simulationStepSeconds: SIMULATION_STEP_SECONDS,
     maxOnlineStepsPerFrame: MAX_ONLINE_STEPS_PER_FRAME,
+    onlineSliceBudgetMs: ONLINE_SLICE_BUDGET_MS,
     maxDiscreteEventsPerStep: MAX_DISCRETE_EVENTS_PER_STEP,
     logicIntervalMs: LOGIC_INTERVAL_MS
   });
+  WIS.Core.Save.bindOfflineRecovery((options) => offlineSimulation.getPersistenceSnapshot(options));
 
   WIS.Core.Runtime.bind({
     state: () => state,
     setState: setStateDirect,
     save: saveState,
+    infinityRebirth,
+    requestQiBatch:shouldRender=>simulationLoop.requestQiBatch(shouldRender),
+    requestDeferredAction:job=>simulationLoop.requestDeferredAction(job),
+    isDeferredActionPending:()=>simulationLoop.isDeferredActionPending(),
+    cancelDeferredAction:()=>simulationLoop.cancelDeferredAction(),
     render: requestRender,
     renderImmediately: (pageName) => {
       requestRender(pageName);
@@ -468,6 +577,7 @@
     format,
     freshState: freshDefaultState,
     resetTransientAccumulators: () => {
+      simulationLoop?.invalidateOnlineScheduler();
       WIS.Power.Scale.resetTransient?.();
       WIS.Cultivation.Immortal.resetTransient?.();
     },
@@ -475,76 +585,86 @@
     grantThreeDeficienciesResetReward
   });
 
+  completePlayerAction();
   UI.bindEvents();
-  const initialAchievementStates = achievementStates();
-  const initialOfflineElapsedSeconds = (Date.now() - state.lastUpdateAt) / 1000;
-
   WIS.Game = Object.freeze({
     version: GAME_VERSION,
+    canPerformSavedAction, canPersistConfirmedState,
     getState: () => state,
     getDomainState: () => WIS.Core.State.domainView(state),
     getPowerSystem: () => WIS.Core.Registries.getActivePower(state),
     getCultivationSystem: () => WIS.Core.Registries.getActiveCultivation(state),
     actions: Object.freeze({
-      train,
-      breathe,
-      explore,
-      chooseCultivation,
-      startChallenge,
-      exitChallenge,
+      train: playerAction(train),
+      breathe: playerAction(breathe),
+      explore: playerAction(explore),
+      chooseCultivation: playerAction(chooseCultivation),
+      startChallenge: playerAction(startChallenge),
+      exitChallenge: playerAction(exitChallenge),
       save: saveState
     }),
     simulation: Object.freeze({
       advanceGameStep: stepSimulation.advanceGameStep,
       advanceGame: stepSimulation.advanceGame,
       simulateOfflineProgress,
-      cancelCatchUp
+      cancelCatchUp,
+      abandonCatchUp,
+      convertOfflineToCompensation,
+      retryCatchUp,
+      startCatchUp,
+      acknowledgeCatchUp,
+      getCatchUpStatus
     })
   });
 
   applyTheme();
+  BOOT.enter("first-view");
+  // Stock-only view avoids source/preview evaluation before a paint opportunity.
+  document.getElementById("joules").textContent=format(state.joules);
+  document.getElementById("power").textContent=format(state.power);
+  document.getElementById("joules-rate").textContent="等待恢复";
+  await paintOpportunity(); // first-view
+  assertBootHealthy();
+  BOOT.enter("register-recovery");
+  // No save or action may advance the saved watermark before this succeeds.
+  if(WIS.Core.Save.sessionPolicy().durableRecoveryAllowed)restoreOfflineRecovery(savedOfflineRecovery);
+  else simulationLoop.restoreClosedTime(null);
+  initialLoadComplete=true;
+  if(document.hidden)simulationLoop.prepareSave({closing:true});
   ensureAdvancedRealmAbilityGroups();
   switchPage("actions");
-  lastUpgradeCostSortSignature = upgradeCostSortSignature();
-  lastCultivationCostSortSignature = cultivationCostSortSignature();
-  lastUpgradeUnlockSignature = [state.highestScaleIndex, state.brickUnlocked, state.wallUnlocked,
-    stateFlagSignature(upgradeFlagKeys)].join("|");
-  lastCultivationUnlockSignature = [state.cultivation?.active, state.advancedRealmLevel,
-    stateFlagSignature(cultivationFlagKeys)].join("|");
-  lastTreasureSignature = [state.heavenlyTreasureLevel, state.mysticHeavenlyTreasureLevel,
-    state.fiveElementsTreasureUnlocked, state.fiveSpiritStonePurchased,
-    recordSignature(state.treasureImprints, WIS.Meta.Treasures.keys)].join("|");
-  lastChallengeSignature = `${state.activeChallenge}|${state.threeCorpseChallengesUnlocked}|${recordSignature(state.challengeCompletions, challengeKeys)}`;
+  markCostGroupsDirty();
   requestRender();
-  flushRender(Date.now(), { force: true });
+  flushRender(Date.now(),{force:true});
+  BOOT.ready({mode:WIS.Core.Save.sessionPolicy().mode});
   simulationLoop.start();
 
-  async function finishInitialLoad() {
-    let initialOfflineReport = "";
-    try {
-      initialOfflineReport = await simulateOfflineProgress(initialOfflineElapsedSeconds);
-    } catch (error) {
-      console.error("WIS initial offline settlement failed; continuing online play.", error);
-    }
-    simulationLoop.setLastTickAt(Date.now());
-    initialLoadComplete = true;
-    markCostGroupsDirty();
-    requestRender();
-    flushRender(Date.now(), { force: true });
-    saveState();
-    notifyNewAchievements(initialAchievementStates);
-    if (initialOfflineReport) showNotice(initialOfflineReport, 6000);
-    window.setInterval(() => {
-      if (!document.hidden) saveState();
-    }, 5000);
-    if (BUILD.enableFormulaDetails) {
-      window.setInterval(() => {
-        if (!document.hidden) renderResourceDebugPanel();
-      }, 1000);
-    }
+  // Historical recovery owns its own gate. Base UI readiness never waits for
+  // its potentially long promise, and Worker writes retain their durable ACK.
+  let initialOfflineReport="";
+  try {
+    if(WIS.Core.Save.sessionPolicy().durableRecoveryAllowed)
+      initialOfflineReport=await simulateOfflineProgress(0);
+  } catch(error) {
+    WIS.Core.Save.noteFailure(error);
+    showNotice("离线恢复已暂停，剩余时间仍保留："+(error.message||error),6000);
   }
-
-  const queueInitialOfflineProgress = () => window.setTimeout(() => { void finishInitialLoad(); }, 0);
-  if (document.hidden) queueInitialOfflineProgress();
-  else window.requestAnimationFrame(queueInitialOfflineProgress);
+  if(!initialLoadComplete)return;
+  simulationLoop.setLastTickAt(Date.now());
+  markCostGroupsDirty();
+  requestRender();
+  flushRender(Date.now(),{force:true});
+  try {saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
+  if(!offlineSimulation.isCatchUpPaused()&&!WIS.Core.Save.getLoadError())notifyNewAchievements();
+  if(initialOfflineReport&&state.autoCloseOfflineDialogEnabled===false)showNotice(initialOfflineReport,6000);
+  window.setInterval(()=>{
+    if(!document.hidden)try{persistStateNow({preserveSourceModels:true,captureOnly:true});}catch(_){}
+  },5000);
+  }
+  window.setTimeout(()=>{
+    bootstrap().catch(error=>{
+      try{abortStartup();}catch(cleanupError){console.error("WIS startup cleanup",cleanupError);}
+      BOOT.fail(BOOT.diagnostics().stage||"initialize",error,{canRetry:false});
+    });
+  },0);
 })();

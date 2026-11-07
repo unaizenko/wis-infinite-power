@@ -43,6 +43,9 @@
     return profiles.get(id) || null;
   }
 
+  function preservesContent(id,state) {
+    return false; // Compatibility query: no achievement preserves all gameplay content.
+  }
   function apply(id, currentState, createFreshState, { context = {}, overrides = {} } = {}) {
     const profile = profiles.get(id);
     if (!profile) throw new Error(`未注册重置配置：${id}`);
@@ -50,6 +53,7 @@
     const freshDomain = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(createFreshState()));
     const current = WIS.Core.State.toFlat(currentDomain);
     const fresh = WIS.Core.State.toFlat(freshDomain);
+    const currentTails=clone(currentDomain.meta.statistics.amountTails||{}),freshTails=clone(freshDomain.meta.statistics.amountTails||{});
     const result = profile.base === "current" ? currentDomain : freshDomain;
     const preserve = typeof profile.preserve === "function" ? profile.preserve(current, context) : profile.preserve;
     preserve.forEach((key) => {
@@ -61,14 +65,56 @@
     preservePaths.forEach((path) => setPath(result, path, getPath(currentDomain, path)));
     const clearPaths = typeof profile.clearPaths === "function" ? profile.clearPaths(currentDomain, context) : profile.clearPaths;
     clearPaths.forEach((path) => setPath(result, path, getPath(freshDomain, path)));
+    const A=WIS.Core.Amount,S=WIS.Core.State;
+    if(A?.enabled()){
+      const map={};for(const key of S.statisticKeys){
+        const path=Object.entries(S.fieldGroups).find(([,keys])=>keys.includes(key))[0]+'.'+key;
+        let owner=profile.base==='current'?currentDomain:freshDomain;
+        if(preserve.includes(key))owner=currentDomain;if(clear.includes(key))owner=freshDomain;
+        if(preservePaths.some(p=>path===p||path.startsWith(p+'.')))owner=currentDomain;
+        if(clearPaths.some(p=>path===p||path.startsWith(p+'.')))owner=freshDomain;
+        const tail=(owner===currentDomain?currentTails:freshTails)[key];if(tail?.length)map[key]=clone(tail);
+      }
+      result.meta.statistics.amountTails=map;
+    }
+    const progressKeys = ["treasureBatch", "treasureProgressFinite", "treasureCredits", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureProgressPending", "treasureProgressStatus", "treasureQualifications", "treasureProgressVersion"];
+    if (preserve.includes("treasureImprints")) progressKeys.forEach(key => { result.meta[key] = clone(currentDomain.meta[key]); });
+    if (clear.includes("treasureImprints") || clearPaths.includes("meta.treasures"))
+      progressKeys.forEach(key => { result.meta[key] = clone(freshDomain.meta[key]); });
+    if (profile.rebirthLevel && profile.rebirthLevel <= REBIRTH_LEVEL.INFINITE &&
+        WIS.Meta.Achievements.has(currentDomain,"eternalWitness")) {
+      for (const [key,challenge] of Object.entries(WIS.Core.Config.challenges)) {
+        if (challenge.system) result.challengeCompletions[key] = current.challengeCompletions[key] || 0;
+      }
+      result.bestQiLayer = current.bestQiLayer;
+    }
     if (profile.rebirthLevel) {
-      currentRebirthStatistics.forEach((key) => { result[key] = clone(fresh[key]); });
+      currentRebirthStatistics.forEach((key) => { result[key] = clone(fresh[key]);if(A?.enabled())delete result.meta.statistics.amountTails[key]; });
       result.reincarnationElapsedSeconds = clone(fresh.reincarnationElapsedSeconds);
+    }
+    if(clear.includes("explorationProgress")) {
+      const p=result.explorationRewards;
+      result.explorationRewards={version:1,natural:[],seize:[],levelResidual:clone(p?.levelResidual||[])};
+    }
+    result.core.preferences = clone(currentDomain.core.preferences);
+    result.core.runtime.randomState = currentDomain.core.runtime.randomState;
+    result.core.runtime.timeLedger = clone(currentDomain.core.runtime.timeLedger);
+    result.core.runtime.compensation = clone(currentDomain.core.runtime.compensation);
+    for (const key of ["joules", "power", "mana", "immortalPower"]) {
+      if (clear.includes(key)) {
+        const container = ["joules", "power"].includes(key) ? result.core.resources : result.cultivation.systems.immortal.resources;
+        container[`${key}GainResidualTail`] = [];
+      }
     }
     Object.entries(overrides).forEach(([key, value]) => {
       if (key.includes(".")) setPath(result, key, value);
-      else result[key] = clone(value);
+      else {result[key] = clone(value);if(A?.enabled()&&S.statisticKeys.includes(key))delete result.meta.statistics.amountTails[key];}
     });
+    WIS.Cultivation.Xiuzhen?.reset(result, currentDomain, id, overrides.activeChallenge);
+    if(id!=="scatter")result.meta.highMultiverse=WIS.Meta.HighMultiverse.rebirthState(currentDomain);
+    // Every rebirth rebuilds the four temporary balances and purchased martial
+    // abilities; permanent qualifications remain in the preserved meta branch.
+    if (profile.rebirthLevel) result.cultivation.systems.martial = WIS.Cultivation.Martial.fresh();
     return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(result));
   }
 
@@ -113,7 +159,7 @@
       "superLollipopRollProgress", "fiveSpiritStoneRollProgress", "currentScaleElapsedSeconds",
       "ghostBackActive", "immortalSpiritPowerUnlocked",
       "mana", "manaGainResidual", "immortalPower", "immortalPowerGainResidual",
-      "explorationProgress", "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
+      "explorationProgress", "explorationProgressResidual", "explorationAttemptResidual", "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
       "minorTribulationExplorationLoad",
       ...(nextScatterLevel < 2 ? ["transcendentPurchased", "focusPurchased", "breathingMethodPurchased", "extremeExercisePurchased"] : []),
       ...(nextScatterLevel < 3 ? ["waterPurchased", "ghostBrainPurchased", "naturalStrengthPurchased", "mentalPowerPurchased", "lifePowerPurchased"] : [])
@@ -134,9 +180,9 @@
   register("infinity", {
     rebirthLevel: REBIRTH_LEVEL.INFINITE,
     rebirthType: "infinite",
-    preserve: [...metaAndStatistics],
-    preservePaths: ["meta"]
+    preserve: metaAndStatistics.filter(key => !["treasureImprints", "challengeCompletions", "bestQiLayer"].includes(key)),
+    preservePaths: ["meta.infinity", "meta.martialQualifications", "powerSystem.systems.scale.history", "cultivation.systems.immortal.history"]
   });
 
-  WIS.Core.Reset = Object.freeze({ REBIRTH_LEVEL, register, describe, apply });
+  WIS.Core.Reset = Object.freeze({ REBIRTH_LEVEL, register, describe, apply, preservesContent });
 }(window.WIS));

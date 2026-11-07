@@ -11,7 +11,9 @@
     ? global.WIS_BUILD
     : {};
   WIS.Core.Build = Object.freeze({
+    buildId: typeof rawBuild.id === "string" ? rawBuild.id : "",
     mode: rawBuild.mode === "development" ? "development" : "release",
+    appUpdateManifestUrl: typeof rawBuild.appUpdateManifestUrl === "string" ? rawBuild.appUpdateManifestUrl : "",
     enableSpeedControls: rawBuild.enableSpeedControls === true,
     enableFormulaDetails: rawBuild.enableFormulaDetails === true
   });

@@ -1,5 +1,6 @@
 (function defineConfig(WIS) {
   "use strict";
+  const TREASURE_RULES = WIS.Meta.TreasureRules;
 
   const { BN } = WIS.Core.BigNum;
   const decimalTree = (value, key = "") => {
@@ -104,6 +105,20 @@
   ].map(([name, threshold, strength, growth, removedAtRealm, removedBy]) => Object.freeze({ name, threshold: BN(threshold), strength, growth, removedAtRealm, removedBy })));
 
   const challenges = Object.freeze({
+    martialDragon:Object.freeze({name:'化龙',system:'martial',catalogSystem:'武道',martialPrerequisite:'dragonTransform',unlockAchievementKey:'martialDragon',maxCompletions:1,targetMartialAbility:'dragonTransform',targetMartialAbilityLevel:1,resourceName:'仅秘境流能力生效且可购买；保留基础转换',rewardDescription:'化龙九变倍率提升至1+0.03log10(1+体)次方'}),
+    martialSeverDao:Object.freeze({name:'仙三斩道',system:'martial',catalogSystem:'武道',martialPrerequisite:'immortalPlatform',unlockAchievementKey:'martialImmortalPlatform',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='地表').power,resourceName:'J、战力正向获取速率变为sqrt(1+g)-1',rewardDescription:'登仙台指数系数由0.025提高至0.04'}),
+    martialAutumn: Object.freeze({name:'秋风未动蝉先觉',system:'martial',catalogSystem:'武道',martialPrerequisite:'shenJin',unlockAchievementKey:'martialGodBody',maxCompletions:1,targetMartialBody:20000,targetMartialHeart:2000,targetMartialJ:3.033e16,targetMartialPower:3.033e15,resourceName:'心不再弱化或解除普通J/战力量级软上限；其它心效果保持',rewardDescription:'心获取×50'}),
+    martialStealHeaven: Object.freeze({ name:"盗天机", system:"martial", catalogSystem:"武道", martialPrerequisite:"stealHeaven", maxCompletions:1, targetMartialHeart:30, resourceName:"关闭全部心对普通J/战力软上限的解除与弱化", rewardDescription:"依据当前心指数提升气、体获取，指数渐近上限1.15；解锁自动炼心" }),
+    martialIntentQi: Object.freeze({ name:"意与气合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialQi:100, targetMartialJ:1e9, resourceName:"禁用气的独立J来源", rewardDescription:"气的独立J来源×3；完成成就·内三合的条件之一" }),
+    martialHeartIntent: Object.freeze({ name:"心与意合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialHeart:40, resourceName:"心转换效率×0.5", rewardDescription:"心转换效率×2；完成成就·内三合的条件之一" }),
+    martialQiPower: Object.freeze({ name:"气与力合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialQi:200, targetMartialBody:200, targetMartialJ:4.184e9, targetMartialPower:4.184e8, resourceName:"按J/10与战力的对数差压低领先侧气或体获取，最低×0.1", rewardDescription:"完成成就·内三合的条件之一" }),
+    martialMeridians: Object.freeze({ name:"任督二脉", system:"martial", catalogSystem:"武道", martialPrerequisite:"innate", maxCompletions:1, targetMartialQi:500, targetMartialBody:500, targetMartialHeart:120, resourceName:"内功仅有1槽", rewardDescription:"内功槽位+2；获得成就·先天，气获取×2" }),
+    ...WIS.Meta.InfinityConfig.challenges,
+    mortalTransformation: Object.freeze({ name: "化凡", maxCompletions: 1, targetAdvancedRealmLevel: 2,
+      system: "immortal", catalogSystem: "仙道", unlockAchievementKey: "qiPathComplete" }),
+    yinVoidYangReal: Object.freeze({ name: "阴虚阳实", maxCompletions: 1, targetXiuzhenRealm: 3,
+      system: "immortal", catalogSystem: "仙道" }),
+    heavenlyFiveDeclines: Object.freeze({ name: "天人五衰", maxCompletions: 1, targetYuanForce: BN("1e20"), targetJAndPower: BN("3e68"), softcapPressure: .5, system: "immortal", catalogSystem: "仙道" }),
     innateDeficiency: Object.freeze({ name: "福", maxCompletions: 3, limitExponents: [0.85, 0.7, 0.55], rewardExponents: [1.05, 1.08, 1.15], requiredScaleIndices: [2, 3, 4], resourceName: "J", rewardSourceName: "健身" }),
     powerless: Object.freeze({ name: "禄", maxCompletions: 3, limitExponents: [0.85, 0.72, 0.6], rewardExponents: [1.05, 1.08, 1.12], requiredScaleIndices: [3, 4, 5], resourceName: "战力", rewardSourceName: "锻炼" }),
     longevity: Object.freeze({ name: "寿", maxCompletions: 3, limitExponents: [0.8, 0.75, 0.69], rewardMultipliers: [10, 25, 100], requiredScaleIndices: [4, 5, 6], resourceName: "J与战力", timeToLimitSeconds: 600, unlockAchievementKey: "trueScale4" }),
@@ -158,14 +173,22 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.1.4.6", saveVersion: 47,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.2.0.1", saveVersion: 75,
+    closedBatchVersion: 2,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
     offlineNoticeMinSeconds: 10, offlineMaxSteps: 600,
+    legacySettlementLimits: Object.freeze({
+      hierarchy:Object.freeze({maxDepth:3}),
+      predictor:Object.freeze({observationLimit:12,maxMapSteps:1048576,conditionLimit:1e8,fitTolerance:.025,
+        mapStepTiers:Object.freeze([16,64,256,1024]),consecutiveRejects:2,cooldownSeconds:300,profitWindow:8})
+    }),
+    fixedSettlement: Object.freeze({ version: 3, offlineSeconds: 60, workBudgetMs: 9, discreteCadenceSeconds: 0.1, onlineSeconds: 1, onlineBacklogSeconds: 2, onlineCollectionSeconds: 0.2 }),
     googolPenalty: Object.freeze({
       threshold: BN("1e100"),
       defaultStrength: BN(1),
-      resources: decimalRecord({ joules: 0.90, power: 0.90, mana: 0.95, immortalPower: 0.97 })
+      highScaleBase: BN(1.2),
+      resources: decimalRecord({ joules: 0.90, power: 0.90, mana: 0.95, immortalPower: 0.97, xianForce: 0.85, yuanForce: 0.80 })
     }),
     achievementEffects: Object.freeze({
       timeScaleSeconds: 20 * 60,
@@ -173,7 +196,7 @@
       greatLuoTimeScaleSeconds: 10 * 60,
       stellarChallengePowerMultiplier: 15,
       galaxyChallengeJMultiplier: 75,
-      immortalCrystal: Object.freeze({ baseChance: 0.05, perItemAdditive: 0.001, decayScale: 100, decayExponent: -0.5 }),
+      immortalCrystal: Object.freeze({ baseChance: TREASURE_RULES.immortalCrystal.baseChance, perItemAdditive: 0.001, decayScale: TREASURE_RULES.immortalCrystal.scale, decayExponent: -TREASURE_RULES.immortalCrystal.exponent }),
       goldenNatureExponentPerDoubling: 0.025,
       utmostPuritySoftcapLossCoefficient: 0.08,
       greatLuoManaExponentPerDoubling: 0.035
@@ -263,8 +286,8 @@
         flawlessJadeBodyReduction: 0.5
       }),
       fiveElementsTreasure: Object.freeze({
-        baseChance: 0.02,
-        chanceDecay: 0.99,
+        baseChance: TREASURE_RULES.fiveElementsTreasure.baseChance,
+        chanceDecay: TREASURE_RULES.fiveElementsTreasure.q,
         perItemAdditive: 0.001,
         minimumInternalExponent: 0.75,
         internalExponentRange: 0.25,
@@ -298,10 +321,10 @@
       requirementCurveExponent: 1.05,
       manaLayerCoefficient: 0.000128,
       manaSourceCoefficient: 0.000192,
-      globalSoftcapCurveExponent: 0.8,
-      globalSoftcapResistanceCoefficient: 0.32,
-      manaSoftcapResistanceCoefficient: 1.28,
-      rewardLog10Maximum: 6,
+      globalSoftcapCurveExponent: 0.5,
+      globalSoftcapResistanceCoefficient: 1,
+      manaSoftcapResistanceCoefficient: 3,
+      rewardLog10Maximum: 50,
       rewardCurveExponent: 0.5
     }),
     ghostBrain: Object.freeze({
@@ -327,6 +350,7 @@
     starEnhancements: Object.freeze({
       planetWill: Object.freeze({ joulesScale: BN(1e29), exponent: 0.75, maximumMultiplier: BN(1e8) }),
       starSpirit: Object.freeze({ perChallengeMultiplier: 1.06 }),
+      stellarTreasureSeeking: Object.freeze({ progressMultiplier: 1.5 }),
       starShatter: Object.freeze({ maximumOrders: 5, levelScale: 5000 }),
       spaceQuake: Object.freeze({ remainingPressureMultiplier: 0.97 }),
       selfless: Object.freeze({ ultimateIntentMultiplier: 1e5 }),
@@ -338,14 +362,14 @@
       challengeRewardLossConversion: 0.1
     }),
     scaleTreasures: Object.freeze({
-      superLollipop: Object.freeze({ baseChance: 0.0005, chanceDecay: 0.98, perItemMultiplier: 0.02 }),
-      fiveSpiritStone: Object.freeze({ baseChance: 0.0005, chanceDecay: 0.99, joulesBase: 10, joulesExponent: 1.2, powerBase: 5, powerExponent: 1.25 }),
+      superLollipop: Object.freeze({ baseChance: TREASURE_RULES.superLollipop.baseChance, chanceDecay: TREASURE_RULES.superLollipop.q, perItemMultiplier: 0.02 }),
+      fiveSpiritStone: Object.freeze({ baseChance: TREASURE_RULES.fiveSpiritStone.baseChance, chanceDecay: TREASURE_RULES.fiveSpiritStone.q, joulesBase: 10, joulesExponent: 1.2, powerBase: 5, powerExponent: 1.25 }),
       cosmicFiber: Object.freeze({
-        baseChance: 0.003, chanceDecayScale: 20, chanceDecayExponent: 0.65,
+        baseChance: TREASURE_RULES.cosmicFiber.baseChance, chanceDecayScale: TREASURE_RULES.cosmicFiber.scale, chanceDecayExponent: TREASURE_RULES.cosmicFiber.exponent,
         galaxyBaseExponent: 1.10, galaxyPerItemExponent: 0.005,
         galaxyDecayScale: 20, galaxyDecayExponent: 0.55
       }),
-      cosmicWill: Object.freeze({ baseChance: 0.005, chanceDecayScale: 10, chanceDecayExponent: 0.5 })
+      cosmicWill: Object.freeze({ baseChance: TREASURE_RULES.cosmicWill.baseChance, chanceDecayScale: TREASURE_RULES.cosmicWill.scale, chanceDecayExponent: TREASURE_RULES.cosmicWill.exponent })
     })
   });
 }(window.WIS));

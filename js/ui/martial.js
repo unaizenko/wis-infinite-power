@@ -1,0 +1,272 @@
+(function defineMartialUI(WIS) {
+  "use strict";
+  WIS.UI.Martial = Object.freeze({ create(context) {
+    const M = WIS.Cultivation.Martial, C = WIS.Cultivation.MartialConfig;
+    const R = WIS.Core.Runtime, B = WIS.Core.BigNum;
+    const $ = id => document.getElementById(id);
+    const labels = Object.freeze({ qi: "气", body: "体", heart: "心", soul: "神魂", joules: "J", power: "战力" });
+    const actionNames = Object.freeze({ qi: "凝气", body: "锻体", heart: "炼心", soul: "神魂" });
+    const families = [["golden", "金古黄梁"], ["human", "国术—人仙"], ["devour", "宇宙流"], ["shroud", "秘境流"]];
+    const rows = [], abilities = [], challengeRows = [], summaryValues = [], heartRows = [], tabs = [], panels = [];
+    let mounted = false, pending = false, activeFamily = "golden";
+    const f = value => context.format(value, 3);
+    const active = s => s.cultivation.active === "martial";
+    const locked = () => pending || Boolean(context.getCatchUpStatus?.().locked);
+    function el(tag, text = "", className = "") {
+      const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
+    }
+    function button(text, id, handler) {
+      const node = el("button", text, "primary-button"); node.type = "button"; node.id = id;
+      node.addEventListener("click", handler); return node;
+    }
+    function perform(action, render) {
+      if (locked() || !active(R.getState())) return;
+      pending = true;
+      try { context.performSavedAction(() => action(R.getState()), render); }
+      finally { pending = false; render(); renderSummary(); }
+    }
+    function item(parent, name, description) {
+      const article = el("article", "", "item-row"), content = el("div", "", "item-content"), control = el("div", "", "purchase-control");
+      content.append(el("h2", name), el("p", description)); article.append(content, control); parent.append(article);
+      return { article, content, control };
+    }
+    function group(parent, name, description, open = false) {
+      const details = el("details", "", "upgrade-group"), summary = el("summary"), copy = el("span");
+      copy.append(el("b", name), el("small", description)); summary.append(copy);
+      const list = el("div", "", "item-list"); details.append(summary, list); details.open = open; parent.append(details);
+      return { details, list };
+    }
+    function switchFamily(key, focus = false) {
+      activeFamily = key;
+      for (const tab of tabs) {
+        const selected = tab.dataset.martialPage === key;
+        tab.classList.toggle("active", selected); tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        if (selected && focus) tab.focus();
+      }
+      for (const panel of panels) {
+        const selected = panel.dataset.martialBranch === key;
+        panel.hidden = !selected; panel.classList.toggle("active", selected);
+      }
+    }
+    function mount() {
+      if (mounted) return; mounted = true;
+      const actions = el("div", "", "upgrade-groups martial-section"); actions.id = "martial-actions"; actions.hidden = true;
+      const actionGroup = group(actions, "武道行动", "手动转换消耗全部可用输入；自动化在设置中管理。", true);
+      actionGroup.list.append(el("p", "气、体、心、神魂越高，后续获取逐渐减慢；气、体过度领先心，或心过度领先神魂时进一步减慢。预计收益已包含本次增长产生的减速。", "martial-note"));
+      const descriptions = { qi: "将J凝练为气。", body: "将战力转为体。", heart: "以气、体炼心。", soul: "以气、体、心凝练神魂。" };
+      for (const key of M.resourceKeys) {
+        const row = item(actionGroup.list, actionNames[key], descriptions[key]); row.article.id = "martial-action-" + key;
+        row.control.className = "action-control";
+        const amount = el("span"), costs = el("small"), gain = el("p", "", "martial-action-preview");
+        const convert = button(actionNames[key], "martial-convert-" + key, () => perform(s => M.convert(s, key), renderActions));
+        row.content.append(gain); row.control.append(amount, costs, convert);
+        rows.push({ key, ...row, amount, costs, gain, convert });
+      }
+      $("ordinary-actions-panel").append(actions);
+
+      const cultivation = $("martial-progress");
+      const overview = el("div", "", "martial-overview");
+      overview.append(el("p", "首次解锁消耗神魂，后续升级按卡片所示消耗资源；前置要求本身不额外扣除。已解锁能力直接生效。", "martial-note"));
+      const sources = el("p", "", "martial-note"); sources.id = "martial-sources"; overview.append(sources);
+      const finalSources = el("p", "", "martial-note"); finalSources.id = "martial-final-sources";
+      finalSources.title = "按当前状态分别结算各项武道来源，包含倍率、挑战限制与软上限；各项预览不代表全部来源合并后的总收益。";
+      overview.append(finalSources);
+      const heart = group(overview, "心 · 量级软上限", "阈值前最多弱化60%，越接近阈值弱化越快；达标后完全解除。");
+      heart.list.classList.add("martial-heart-table"); heart.list.id = "martial-heart-table";
+      for (const name of ["爆墙", "爆屋", "爆楼", "爆街", "爆城"]) {
+        const value = el("div"); heart.list.append(value); heartRows.push({ name, value });
+      }
+      cultivation.append(overview);
+      const tablist = el("div", "", "cultivation-tabs"); tablist.setAttribute("role", "tablist"); tablist.setAttribute("aria-label", "武道界面"); cultivation.append(tablist);
+      for (const [key, name] of families) {
+        const tab = button(name, "martial-" + key + "-tab", () => switchFamily(key));
+        tab.className = "cultivation-tab"; tab.dataset.martialPage = key;
+        tab.setAttribute("role", "tab"); tab.setAttribute("aria-controls", "martial-" + key + "-panel");
+        tab.addEventListener("keydown", event => {
+          const index = tabs.indexOf(tab);
+          const next = event.key === "ArrowRight" ? (index + 1) % 4 : event.key === "ArrowLeft" ? (index + 3) % 4 : event.key === "Home" ? 0 : event.key === "End" ? 3 : -1;
+          if (next < 0) return; event.preventDefault(); switchFamily(families[next][0], true);
+        });
+        tabs.push(tab); tablist.append(tab);
+        const panel = el("section", "", "cultivation-subpage"); panel.id = "martial-" + key + "-panel"; panel.dataset.martialBranch = key;
+        panel.setAttribute("role", "tabpanel"); panel.setAttribute("aria-labelledby", tab.id); panels.push(panel); cultivation.append(panel);
+        const groups = el("div", "", "upgrade-groups"); panel.append(groups);
+        if (key === "golden") {
+          const slots = el("p", "", "martial-note"); slots.id = "martial-slots"; panel.prepend(slots);
+        }
+        const categories = key === "golden"
+          ? [["inner", "内功", "首次解锁占用名额，升级不再占用；太玄经不占名额。"], ["moves", "招式", "提升武道来源与转换效率。"], ["jueji", "绝技", "各项能力按自身效果生效。"], ["shengong", "神功", "长生诀、天魔策、慈航剑典、战神图录"], ["special", "特殊能力", "挑战资格与内功名额。"]]
+          : key === "devour" ? [["devour", "宇宙流", "基因与精神修炼，提升武道资源获取。"]]
+          : key === "shroud" ? [["shroud", "秘境流", "根据气、体、心增强已有强化。"]]
+          : [["strength", "劲力", "明劲、暗劲、化劲、罡劲、丹劲"], ["body", "肉身", "易筋、易骨、易髓"], ["boxing", "国术", "拳法与武道修行"], ["special", "特殊能力", "挑战资格与特殊功法"]];
+        const categoryLists = new Map(categories.map(([category, name, description], index) => [category, group(groups, name, description, index === 0).list]));
+        for (const a of C.abilities.filter(a => (a.family || a.group || a.branch) === key)) {
+          const category = key !== "human" ? a.branch : ["mingJin", "anJin", "huaJin", "gangJin", "danJin"].includes(a.key) ? "strength" : ["yiJin", "yiGu", "yiSui"].includes(a.key) ? "body" : ["stealHeaven", "innerHarmony", "reverseArt", "innate"].includes(a.key) ? "special" : "boxing";
+          const row = item(categoryLists.get(category), a.name, a.description);
+          const prerequisites = (a.prerequisites || []).map(key => C.abilities.find(other => other.key === key)?.name || key);
+          if (prerequisites.length) row.content.append(el("p", "能力前置：" + prerequisites.join("、")));
+          row.article.id = "martial-ability-" + a.key;
+          const level = el("span"), requirements = el("small"), price = el("small"), reason = el("small", "", "martial-reason");
+          const buy = button("解锁", "martial-buy-" + a.key, () => perform(s => M.buy(s, a.key), () => { renderCultivation(); renderActions(); }));
+          const effect = el("small", "", "martial-ability-effect"), nextEffect = el("small", "", "martial-ability-next");
+          row.content.append(effect, nextEffect, requirements);
+          row.control.append(level, price, reason, buy);
+          abilities.push({ definition: a, ...row, effect, nextEffect, level, requirements, price, reason, buy });
+        }
+
+      }
+      switchFamily(activeFamily);
+
+      const summary = el("div", "", "martial-summary"); summary.id = "martial-summary"; summary.hidden = true;
+      for (const key of M.resourceKeys) {
+        const row = el("div", "", "resource-row"), wrap = el("div", "", "resource-value"), value = el("strong"); value.id = "martial-summary-" + key;
+        wrap.append(value); row.append(el("span", labels[key]), wrap); summary.append(row); summaryValues.push({ key, value });
+      }
+      $("special-resources").append(summary);
+
+      // Fill the martial group already created by the shared challenge catalog.
+      const challenges = $("challenge-list").querySelector('[data-catalog-system-group="武道"]');
+      challenges.id = "martial-challenges";
+      challenges.querySelector(".catalog-empty")?.remove();
+      const count = el("p", "", "martial-note"); count.id = "martial-challenge-count"; challenges.append(count);
+      const note = el("p", "进入挑战会重置资源与能力；已获得的挑战资格永久保留，可退出后重试。", "martial-note"); challenges.append(note);
+      const list = challenges.querySelector(".item-list") || el("div", "", "item-list"); challenges.append(list);
+      for (const [key, name, description, reward] of [
+        ['martialDragon','化龙','仅秘境流能力生效且可购买；基础资源转换保留。目标：挑战内解锁化龙九变1级。','化龙九变倍率提升至1+0.03log10(1+体)次方。'],
+        ['martialSeverDao','仙三斩道','J、战力正向获取速率削弱为sqrt(1+g)-1。目标：战力达到地表（'+f(WIS.Core.Config.challenges.martialSeverDao.targetMartialPower)+'）。','登仙台指数系数由0.025提高至0.04。'],
+        ['martialAutumn','秋风未动蝉先觉','心不再弱化或解除普通J/战力软上限。目标：体≥20000、心≥2000、J≥3.033e16、战力≥3.033e15。','心获取×50。'],
+        ["martialStealHeaven", "盗天机", "挑战中关闭心对正常量级软上限的解除与弱化。目标：当前心达到30。", "按当前心提升气、体获取指数，解锁自动炼心。"],
+        ["martialIntentQi", "意与气合", "气提供的J来源停用。目标：当前气≥100，且J≥1e9。", "气的J来源×3。三合挑战全部完成后解锁自动神魂。"],
+        ["martialHeartIntent", "心与意合", "炼心效率减半。目标：当前心≥40。", "炼心效率×2。三合挑战全部完成后解锁自动神魂。"],
+        ["martialQiPower", "气与力合", "J与战力失衡时降低领先侧的兑换效率。目标：气、体各≥200，J≥4.184e9，战力≥4.184e8。", "完成三合之一；三合全部完成解锁自动神魂。"],
+        ["martialMeridians", "任督二脉", "占名额内功只允许一项。目标：当前气≥500、体≥500、心≥120。", "内功名额+2，获得先天成就提升气获取。"]
+      ]) {
+        const row = item(list, "挑战·" + name, description); row.article.dataset.challengeKey = key; row.article.dataset.catalogSystem = "武道";
+        row.article.id = "martial-challenge-" + key;
+        const prerequisiteKey = WIS.Core.Config.challenges[key]?.martialPrerequisite;
+        const prerequisite = C.abilities.find(a => a.key === prerequisiteKey);
+        if(key==='martialAutumn')row.content.append(el('p','开启资格：成就·打破虚空，见神不坏；资格获得后永久保留。'));
+        else if (prerequisite) row.content.append(el("p", `开启资格：解锁${prerequisite.name}；资格获得后永久保留。`));
+        const rewardText = el("p", "奖励：" + reward); row.content.append(rewardText);
+        const status = el("span");
+        const start = button("开启挑战", "martial-challenge-button-" + key, () => {
+          if (locked() || !active(R.getState())) return;
+          if (R.getState().activeChallenge === key) context.exitChallenge(); else context.startChallenge(key);
+          context.completePlayerAction(); renderChallenges(); renderSummary();
+        });
+        row.control.append(status, start); challengeRows.push({ key, ...row, status, start, rewardText });
+      }
+    }
+    function renderActions() {
+      mount(); const s = R.getState(), enabled = active(s);
+      $("martial-actions").hidden = !enabled;
+      for (const row of rows) {
+        const p = M.preview(s, row.key);
+        row.amount.textContent = "当前" + labels[row.key] + "：" + f(M.amount(s, row.key));
+        row.costs.textContent = "消耗全部可用：" + Object.entries(p.costs || p.consumed || {}).map(([key, value]) => `${f(value)} ${labels[key] || key}`).join("、");
+        row.gain.textContent = `预计 +${f(p.gain)} ${labels[row.key]}` + (p.reason ? ` · ${p.reason}` : "");
+        const rewards = Object.entries(p.heartRewards || {}).filter(([,value]) => B.gt(value,0));
+        if (rewards.length) row.gain.textContent += "；消耗心额外获得：" + rewards.map(([key,value]) => `+${f(value)} ${labels[key]}`).join("、");
+        row.convert.disabled = locked() || !enabled || !p.allowed || !B.gt(p.gain, B.ZERO);
+      }
+    }
+    // Values come from the same read-only helpers used by production effects.
+    function abilityEffect(s, key, level) {
+      const running = s.meta?.challenges?.activeChallenge ?? s.activeChallenge;
+      const qualification = { stealHeaven: "盗天机挑战", innerHarmony: "三合挑战", innate: "任督二脉挑战" }[key];
+      if (qualification) return `${qualification}资格${level || s.meta?.martialQualifications?.[key] ? "已获得" : "未获得"}`;
+      if (!level) return "未解锁";
+      if(!M.abilityEnabled(s,key))return "化龙挑战期间禁用";
+      if(key==='dragonTransform')return "打岩来源倍率 ×"+f(M.abilityMultiplier(s,key,level));
+      if(key==='immortalPlatform')return "神魂累计转换指数 "+f(M.abilityMultiplier(s,key,level))+"（作用于累计需求与边际成本，保留衰减）";
+      if(key==='warGod')return '四资源绝对/相对衰减幂×0.5（累计成本生效）';
+      if(key==='shenJin')return '体独立战力来源基础增长指数1.50；解锁见神不坏成就';
+      if(key==='mindPlanet')return '每秒气、体各基础投入 '+f(2*level)+'×√(1+心)，经获取倍率、累计需求及衰减';
+      if(key==='innerWorld')return '每秒心/神魂基础投入0.5/0.05×min(气,体)，经获取倍率、累计需求及衰减';
+      if(key==='divineKingdom')return '全局J、战力获取 ^'+f(M.abilityMultiplier(s,key,level));
+      if(key==='fourPoles')return '元素化、极意完整正向来源 ^'+f(M.abilityMultiplier(s,key,level))+'（需解锁原能力）';
+      if(key==='otherShore')return '神速倍率额外 ×'+f(M.abilityMultiplier(s,key,level))+'（需解锁神速）';
+      if(key==='daoPalace')return '杀意实质、能量循环倍率各额外 ×'+f(M.abilityMultiplier(s,key,level))+'（需解锁原能力）';
+      if(key==='lifeCore')return '体独立战力来源 ×'+f(M.abilityMultiplier(s,key,level));
+      if (key === "changSheng") {
+        if (!M.get(s).abilities.changSheng) return "清空所有内功与龙象进度；初始自然气为0，内功价格 ×10";
+        const p = M.captureChangSheng(s);
+        return `内功 ${p.kinds} 种；自然气 +${f(p.rate)}/秒（基础 ${f(p.base)}/秒）；内功价格 ×${10*(M.innerCount(s)+1)}`;
+      }
+      if (["tianMo","ciHang"].includes(key)) return `每消耗1心基础获得10${key === "tianMo" ? "气" : "体"}；实际收益按扣费后的资源计算减速`;
+      if (["kuHai","mingQuan","shenQiao"].includes(key)) return `${{kuHai:"呼吸法",mingQuan:"极限运动",shenQiao:"鬼背战力"}[key]}倍率 ×${f(M.abilityMultiplier(s,key,level))}` + (key === "shenQiao" ? "；取消鬼背J惩罚（激活时生效）" : "（需解锁原强化）");
+      if (key === "reverseArt") return running === "martialMeridians" ? "名额加成暂不生效（挑战限 1 项）" : "内功名额 +1";
+      if (key === "qianKun") return `招式战力来源 +${f(B.mul(M.qiPowerSource(s, level),M.imprintMultiplier(s,'emperorImprint',.4)))}/秒`;
+      if (key === "jiaYi") return "凝气、锻体效率 ×4；气的J来源、体的战力来源 ×0.5";
+      if (["jiuYang", "longXiang"].includes(key) && running === "martialIntentQi") return "气的J来源已被挑战停用";
+      const target = {
+        geneEnergy: "凝气、锻体效率及直接气、体获取", crystalMeditation: "炼心、神魂兑换效率",
+        gangJin: "战力获取", danJin: "凝气、锻体效率与长生诀基础产气",
+        mingJin: "体的战力来源", anJin: "体的战力来源", huaJin: "体的战力来源",
+        yiJin: "锻体效率", yiGu: "锻体效率", yiSui: "锻体效率",
+        ganDong: "炼心效率", duGu: "炼心效率", sanTi: "J获取",
+        taiJi: "J、战力获取", xingYi: "J、战力获取", baGua: "J、战力获取",
+        jiuYang: "气的J来源", longXiang: "气的J来源", jiuYin: "战力获取",
+        beiMing: "凝气效率", taiXuan: "凝气效率", xiangLong: "打岩来源",
+        liuMai: "乾坤、降龙效果", yueNv: "神魂兑换效率", xiaoLi: "集中来源",
+        lingXi: "集中来源", duoMing: "杀气来源", shenDao: "鬼脑来源"
+      }[key];
+      return `${target} ×${f(M.abilityMultiplier(s, key, level))}` + (key === "lingXi" && !s.intuitionPurchased ? "（需拥有直感）" : "");
+    }
+    function renderCultivation() {
+      mount(); const s = R.getState(), enabled = active(s);
+      $("martial-progress").hidden = !enabled;
+      if (!enabled) return;
+      $("martial-slots").textContent = `内功名额：已用 ${M.slotUsed(s)} / ${M.slots(s)}`;
+      const sources = M.sources(s);
+      $("martial-sources").textContent = `武道来源：+${f(sources.joules)} J/秒；体 +${f(sources.power)} 战力/秒；招式 +${f(sources.qiPower)} 战力/秒。`;
+      const finals = WIS.UI.SourcePreview.query(["martialQiJ", "martialBodyPower", "martialQiPower"], s);
+      $("martial-final-sources").textContent = `最终获取：气 +${f(finals[0].final)} J/秒；体 +${f(finals[1].final)} 战力/秒；招式 +${f(finals[2].final)} 战力/秒。`;
+      for (const row of heartRows) {
+        const need = M.heartRequirement(row.name), reached = B.gte(M.amount(s, "heart"), need);
+        const status = ["martialStealHeaven","martialAutumn"].includes(s.activeChallenge) ? "挑战中停用" : reached ? "已解除" : `已弱化 ${f(B.mul(M.heartExponent(s, row.name, 0), 100))}%`;
+        row.value.textContent = `${row.name}：心 ${f(need)} · ${status}`;
+      }
+      for (const row of abilities) {
+        const v = M.abilityView(s, row.definition.key);
+        row.level.textContent = `层级：${v.level}/${v.maxLevel}`;
+        row.level.hidden = row.definition.branch === "shengong";
+        row.effect.textContent = "当前：" + abilityEffect(s, v.key, v.level);
+        row.nextEffect.hidden = row.definition.branch === "shengong" || v.level >= v.maxLevel || Boolean(s.meta?.martialQualifications?.[v.key]);
+        row.nextEffect.textContent = row.nextEffect.hidden ? "" : `${v.level ? v.key === "longXiang" ? "下级修炼效果" : "升级后" : "解锁后"}：${abilityEffect(s, v.key, v.level + 1)}`;
+        row.requirements.textContent = "当前值前置（不扣除）：" + Object.entries(v.requirements || {}).map(([key, value]) => `${labels[key] || key}≥${f(value)}`).join("、");
+        row.price.textContent = `${labels[v.costResource] || "神魂"}价格：${f(v.cost)}`;
+        row.reason.textContent = v.reason || ""; row.buy.textContent = v.level >= v.maxLevel ? "已满级" : v.level ? "升级" : "解锁";
+        row.buy.disabled = locked() || !v.allowed; row.article.classList.toggle("purchased", v.level > 0);
+      }
+    }
+    function renderChallenges() {
+      mount(); const s = R.getState(), enabled = active(s), meta = WIS.Meta.Challenges;
+      $("martial-challenges").hidden = !enabled;
+      let completed = 0;
+      for (const row of challengeRows) {
+        const running = s.activeChallenge === row.key, count = s.challengeCompletions?.[row.key] || 0;
+        const unlocked = meta.challengeUnlocked(row.key); if (count) completed++;
+        row.article.hidden = !running && (!meta.challengeVisible(row.key) || Boolean(count && s.hideCompletedChallenges));
+        const reward = WIS.Core.Config.challenges[row.key]?.rewardDescription;
+        if (reward) row.rewardText.textContent = "奖励：" + reward;
+        row.status.textContent = running ? "挑战进行中" : count ? "已完成 · 奖励永久生效" : unlocked ? "资格已解锁" : "资格未解锁";
+        row.start.textContent = running ? "退出挑战" : count ? "重试（无额外奖励）" : "开启挑战";
+        row.start.disabled = locked() || !enabled || (!running && !meta.challengeStartable(row.key));
+      }
+      $("martial-challenge-count").textContent = `完成 ${completed}/${challengeRows.length}`;
+    }
+    function renderSummary() {
+      mount(); const s = R.getState(), enabled = active(s); $("martial-summary").hidden = !enabled;
+      for (const row of summaryValues) row.value.textContent = f(M.amount(s, row.key));
+      if (enabled) {
+        for (const id of ["mana-resource", "immortal-power-resource", "xianForce-resource", "yuanForce-resource", "nieForce-resource", "universeCoefficient-resource", "multiverseCoefficient-resource"]) if ($(id)) $(id).hidden = true;
+        $("special-resources").hidden = false;
+      }
+     
+    }
+    mount();
+    return Object.freeze({ renderActions, renderCultivation, renderChallenges, renderSummary });
+  } });
+}(window.WIS));

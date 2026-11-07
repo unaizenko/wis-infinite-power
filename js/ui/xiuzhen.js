@@ -1,0 +1,182 @@
+(function defineXiuzhenUI(WIS) {
+  "use strict";
+  WIS.UI.Xiuzhen = Object.freeze({ create(context) {
+    const X = WIS.Cultivation.Xiuzhen, R = WIS.Core.Runtime, B = WIS.Core.BigNum;
+    const $ = id => document.getElementById(id), rows = [], groups = [];
+    let mounted = false, lastRealm = -1;
+    const f = value => context.format(value, 4);
+    const effectLabels = Object.freeze({ body: "J获取", materialSpirit: "仙力获取",
+      crystal: "元力获取", worldAura: "元力获取", rules: "仙灵力、仙力获取", divineArt: "战力获取", innerWorld:"N获取", virtualOrigin:"N获取", spiritualGod:"涅力获取", spokenLaw:"J与战力获取", mergeHeaven:"涅力获取", followLaw:"J与战力获取指数", zunYang:"N获取", originBody:"本源进度", kongNieZhang:"仙道宝物进度", kongLingYuan:"自动探寻量与法力", kongXuanSheng:"每种已解锁仙道宝物", kongJieMie:"仙道宝物进度需求", daoWuYa:"五种仙道资源获取指数", daoYuan:"本源每次自然奖励数量", originMultiverse:"高阶多元获取", eternalMultiverse:"涅力获取", tierNie:"涅力获取", tierTranscendence:"J与战力获取指数" });
+    function el(tag, text, className) {
+      const n = document.createElement(tag); if (text) n.textContent = text; if (className) n.className = className; return n;
+    }
+    function fold(title, id) {
+      const n = el("details", "", "upgrade-group xiuzhen-fold"); n.id = id; n.open = true;
+      const summary = el("summary"), label = el("span"); label.append(el("b", title)); summary.append(label);
+      n.append(summary); return n;
+    }
+    function perform(action) {
+      if (context.getCatchUpStatus().locked) return;
+      context.performSavedAction(() => action(R.getState()), () => {R.call("render");render();},
+        () => WIS.Meta.Challenges.checkActiveChallengeCompletion());
+    }
+    function row(parent, name, description, cost, resource, action, key) {
+      const item = el("article", "", "item-row"), content = el("div", "", "item-content");
+      content.append(el("h2", name), el("p", description));
+      const control = el("div", "", "purchase-control"), price = el("small", `消耗 ${f(cost)} ${X.labels[resource]}`);
+      const button = el("button", "强化", "primary-button"); button.type = "button"; button.id = "xiuzhen-" + key;
+      button.addEventListener("click", () => perform(action)); control.append(price, button); item.append(content, control); parent.append(item);
+      let preview;
+      if (["buy-xianForce", "buy-yuanForce"].includes(key)) {
+        preview = el("span", "", "source-gain-preview"); preview.id = key + "-source-preview";
+        control.prepend(preview);
+      }
+      let effectPreview;
+      if (key.startsWith("buy-") && effectLabels[key.slice(4)]) {
+        effectPreview = el("span", "", "source-gain-preview"); effectPreview.id = key + "-effect-preview";
+        control.prepend(effectPreview);
+      }
+      return { item, price, button, preview, effectPreview };
+    }
+    function bind() {
+      if (mounted) return; mounted = true;
+      const oldRealm = $("realm-card-list").closest("details");
+      oldRealm.querySelector("b").textContent = "仙道·炼气道";
+      const realms = fold("仙道·修真道", "xiuzhen-realms");
+      realms.open = false;
+      $("immortal-realms-panel").append(realms);
+      const note = el("p", "", "big-number-note"); note.id = "xiuzhen-unlock-note"; realms.append(note);
+      X.realms.forEach(r => rows.push({ type: "realm", definition: r, ...row(realms, r.name,
+        r.level < 4 ? r.level === 2 ? "开放仙力。" : r.level === 3 ? "开放元力体系。" : "完成挑战·化凡后解锁；开放意境、元神。"
+          : r.level < 7 ? `取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。` : r.level === 7 ? "完成天人五衰并购买无限强化·体系无限后突破；自动获得能力·涅力，按当前元力生成涅力，不持续扣除元力。" : r.level === 11 ? "需要无限强化·体系多元；突破后自动获得踏天，按当前单体宇宙系数N持续产生多元宇宙系数N²，不消耗N。" : r.level === 12 ? "需要无限强化·体系高阶多元；突破后免费获得高阶多元产出能力，在行动·无限支付无限点数首次进入N³后开始产出。" : "解锁本境界的付费能力。", r.cost, r.resource,
+        state => X.get(state).realm === r.level - 1 && X.breakthrough(state), "realm-" + r.level) }));
+      const abilitiesPanel = $("immortal-abilities-panel"), oldContent = abilitiesPanel.querySelector(".upgrade-groups");
+      const filter = el("button", "隐藏已解锁能力", "secondary-button");
+      filter.id = "toggle-immortal-ability-filter"; filter.type = "button";
+      filter.addEventListener("click", () => {
+        const current = R.getState(); current.hideUnlockedImmortalAbilities = !current.hideUnlockedImmortalAbilities;
+        context.saveState(); R.call("renderImmediately");
+      });
+      abilitiesPanel.prepend(filter);
+      const oldAbilities = fold("仙道·炼气道能力", "qi-path-abilities");
+      abilitiesPanel.insertBefore(oldAbilities, oldContent); oldAbilities.append(oldContent);
+      const newAbilities = fold("仙道·修真道能力", "xiuzhen-abilities"); abilitiesPanel.append(newAbilities);
+      X.realms.forEach(r => {
+        const group = fold(r.name, "xiuzhen-ability-group-" + r.level); groups.push({ group, level: r.level }); newAbilities.append(group);
+        X.abilities.filter(a => a.realm === r.level).forEach(a => rows.push({ type: "ability", definition: a,
+          ...row(group, a.name, a.description, a.cost, a.resource, state => X.buy(state, a.key), "buy-" + a.key) }));
+      });
+      const innate=el("p","能力·涅力：突破空涅自动获得。每秒产出（当前元力 / 1e16）^0.25 涅力；灵神、神融天地进一步提升产出。","big-number-note");
+      innate.id="xiuzhen-innate-nie"; $("xiuzhen-ability-group-7").prepend(innate);
+      for (const [level,key,name,description] of [
+        [11,"taTian","踏天","根据N产出N²。"],
+        [12,"highMultiverse","五","根据涅力获取高阶多元倍数。"]
+      ]) {
+        const group=$("xiuzhen-ability-group-"+level);
+        const card=row(group,name,description,0,"nieForce",()=>false,"innate-status-"+key);
+        card.item.id="xiuzhen-innate-"+key; group.prepend(card.item);
+        rows.push({type:"innate",definition:{realm:level,key},...card});
+      }
+      const origin=el("article","","item-row treasure-card"); origin.id="xiuzhen-origin-treasure";origin.dataset.catalogSystem="仙道";
+      const originContent=el("div","","item-content");
+      const originTitle=el("h2","烙印·本源"),originCount=el("span");originCount.id="xiuzhen-origin-count";
+      originTitle.append(" ",originCount);
+      const originEffect=el("div","","treasure-effect");originEffect.id="xiuzhen-origin-effect";
+      const originStatus=el("div","","treasure-acquisition");originStatus.id="xiuzhen-origin-status";
+      originContent.append(originTitle,originEffect,originStatus);origin.append(originContent);
+      $("treasure-list").querySelector('[data-catalog-system-group="仙道"] > .item-list').append(origin);
+      for (const [key, description, reward] of [
+        ["mortalTransformation", "禁用探寻及已获得的仙道能力、倍率、指数和特殊效果，保留吐纳、其他法力来源及炼气道基础突破，重新抵达炼气道·化神。", "可突破修真道·化神"],
+        ["yinVoidYangReal", "使J、战力获取变为^0.85；同时受到福、禄、寿最高档挑战限制，重新抵达第一步·问鼎。", "可突破第二步·窥涅。"],
+        ["heavenlyFiveDeclines", "当前达到碎涅可开启。J、战力已解除的量级软上限逐段保留50%原始削弱，并可继续被量级软上限弱化效果降低；未解除的部分按原规则生效。通关需同时持有1e20元力、3e68 J、3e68战力。", "解锁第三步·空涅的突破资格。"]
+      ]) {
+        const card = el("article", "", "item-row"); card.id = "xiuzhen-challenge-" + key;
+        card.dataset.challengeKey = key; card.dataset.catalogSystem = "仙道";
+        const content = el("div", "", "item-content"); content.append(el("h2", "挑战·" + WIS.Core.Config.challenges[key].name), el("p", description), el("p", "奖励：" + reward));
+        const control = el("div", "", "purchase-control"), status = el("span"); status.id = "xiuzhen-challenge-status-" + key;
+        const button = el("button", "开启挑战", "primary-button"); button.type = "button"; button.id = "xiuzhen-challenge-button-" + key;
+        button.addEventListener("click", () => { if (context.getCatchUpStatus().locked) return;
+          if (R.state.activeChallenge === key) WIS.Meta.Challenges.exitChallenge(); else WIS.Meta.Challenges.startChallenge(key); context.completePlayerAction(); renderChallenges(); });
+        control.append(status, button); card.append(content, control);
+        $("challenge-list").querySelector('[data-catalog-system-group="仙道"] > .item-list').append(card);
+      }
+      render(); renderChallenges();
+    }
+    function renderChallenges() {
+      if (!mounted) return;
+      const s = R.getState();
+      for (const key of ["mortalTransformation", "yinVoidYangReal", "heavenlyFiveDeclines"]) {
+        const running = s.activeChallenge === key, count = s.challengeCompletions[key] || 0;
+        $("xiuzhen-challenge-" + key).hidden = !WIS.Meta.Challenges.challengeVisible(key);
+        $("xiuzhen-challenge-status-" + key).textContent = running ? "挑战进行中" : `完成：${count}/1`;
+        const button = $("xiuzhen-challenge-button-" + key);
+        button.textContent = running ? "退出挑战" : count ? "重复挑战（无额外奖励）" : "开启挑战";
+        button.disabled = context.getCatchUpStatus().locked || (!!s.activeChallenge && !running);
+      }
+      WIS.UI.Cards.updateCatalogGroupCounts($("challenge-list"), "挑战");
+    }
+    function render({ page = null, writePreview = null } = {}) {
+      if (!mounted) return;
+      const s = R.getState(), n = X.get(s), unlocked = X.unlocked(s), locked = context.getCatchUpStatus().locked;
+      if (page !== "realms") {
+        const hiding = s.hideUnlockedImmortalAbilities;
+        $("immortal-abilities-panel").classList.toggle("hide-unlocked-abilities", hiding);
+        $("toggle-immortal-ability-filter").textContent = hiding ? "显示全部能力" : "隐藏已解锁能力";
+        $("toggle-immortal-ability-filter").setAttribute("aria-pressed", String(hiding));
+      }
+      if (page !== "realms") $("xiuzhen-abilities").hidden = !X.available(s) || n.realm < 1;
+      if (page !== "abilities") {
+      $("xiuzhen-realms").hidden = !X.available(s);
+      $("xiuzhen-unlock-note").hidden = !unlocked;
+      $("xiuzhen-unlock-note").textContent = X.sealed(s)
+        ? (X.qiPathSealed(s) ? "化凡挑战期间仙道能力封印；结束后按当前已获得状态恢复。"
+          : "炼气十万年期间修真道封印，历史境界不解除软上限；无限炼气可继续推进。退出后恢复原有修真道资格。")
+        : `当前：${n.realm ? X.realms[n.realm - 1].name : "等待突破第一步·化神"}。炼气道继续生效。`;
+      }
+      rows.forEach(r => {
+        if (page === "realms" && r.type !== "realm" || page === "abilities" && r.type === "realm") return;
+        const d = r.definition, innate = r.type === "innate", done = r.type === "realm" ? n.realm >= d.level : innate ? n.realm >= d.realm : !!n.abilities[d.key];
+        const available = r.type === "realm" ? n.realm === d.level - 1 && X.canBreakthrough(s) : !innate && X.canBuy(s, d.key);
+        r.item.hidden = r.type === "realm" ? d.level > n.realm + 1 : d.realm > n.realm;
+        r.item.classList.toggle("purchased", done); r.price.hidden = done;
+        r.item.classList.toggle("xiuzhen-locked", !unlocked || (r.type === "ability" && n.realm < d.realm));
+        r.button.textContent = innate ? "自动解锁" : done ? r.type === "ability" ? "已强化" : "已突破"
+          : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : d.level === 7 && !s.challengeCompletions.heavenlyFiveDeclines ? "需要完成天人五衰" : d.level === 7 && !WIS.Meta.Infinity.has(s, "C1") ? "需要体系无限" : d.level === 11 && !WIS.Meta.Infinity.has(s,"C5") ? "需要体系多元" : d.level === 12 && !WIS.Meta.Infinity.has(s,"C6") ? "需要体系高阶多元" : "突破") : "强化";
+        r.button.disabled = innate || locked || done || !available;
+        if (innate) r.price.hidden = true;
+        if (r.effectPreview) {
+          const text = d.key === "kongXuanSheng" ? `当前：每种已解锁的其他仙道宝物 +${f(X.has(s,d.key) ? WIS.Meta.Treasures.count(s,"originImprint") : 0)}／秒`
+            : d.key === "kongJieMie" ? `当前：仙道宝物进度需求 ^${X.has(s,d.key) ? "0.5" : "1"}`
+            : `当前：${effectLabels[d.key]} ${["followLaw","daoWuYa","tierTranscendence"].includes(d.key) ? "^" : "×"}${f(X.abilityMultiplier(s, d.key))}`;
+          if (r.effectPreview.textContent !== text) r.effectPreview.textContent = text;
+        }
+        if (r.preview) {
+          if (writePreview) writePreview(r.preview.id, d.key, !done);
+          else WIS.UI.SourcePreview.write(r.preview, d.key, context.format, s, { assumeUnlocked: !done });
+        }
+      });
+      if (page !== "realms") {
+      if (n.realm !== lastRealm) {
+        groups.forEach(({ group, level }) => { group.open = level === Math.max(1, n.realm); }); lastRealm = n.realm;
+      }
+      groups.forEach(({ group, level }) => {
+        group.hidden = n.realm < level;
+        group.classList.toggle("xiuzhen-locked", !unlocked || n.realm < level);
+      });
+      if (X.qiPathSealed(s)) $("qi-path-abilities").querySelectorAll("button").forEach(b => { b.disabled = true; });
+      }
+    }
+    function renderTreasures() {
+      if (!mounted) return;
+      const s=R.getState(), count=WIS.Meta.Treasures.count(s,"originImprint");
+      $("xiuzhen-origin-treasure").hidden=!X.has(s,"virtualOrigin") && !B.gt(count,0);
+      if (!$("xiuzhen-origin-treasure").hidden) {
+        const info=WIS.Meta.TreasureProgress.view(s,"originImprint");
+        $("xiuzhen-origin-count").textContent=`×${f(count)}`;
+        $("xiuzhen-origin-effect").textContent=`N获取 ×${f(X.abilityMultiplier(s,"virtualOrigin"))}`;
+        $("xiuzhen-origin-status").textContent=WIS.UI.Treasures.acquisition("originImprint",info,context.format);
+      }
+    }
+    return { bind, render, renderChallenges, renderTreasures };
+  } });
+}(window.WIS));

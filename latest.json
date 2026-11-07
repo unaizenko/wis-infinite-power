@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "version": "0.2.0.1",
+  "versionCode": 20005,
+  "minAndroid": "7.0",
+  "apk": {
+    "primary": "https://example.invalid/wis-test.apk",
+    "mirror": null,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sizeBytes": 1048576
+  },
+  "notes": "开发测试清单，下载地址无效；不得复制到正式发布清单。",
+  "publishedAt": "2026-11-06T02:58:26.593Z"
+}

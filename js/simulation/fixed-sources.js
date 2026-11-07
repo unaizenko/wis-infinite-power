@@ -1,0 +1,218 @@
+(function defineFixedSources(WIS) {
+  "use strict";
+  // ACTIVE: query/calculate serve fixed execution. continuousWork is a DIAGNOSTIC reference
+  // used by regression tests, not the production fixed executor.
+  const B = WIS.Core.BigNum, R = WIS.Core.Runtime, E = WIS.Core.Effects;
+  const keys = () => WIS.Simulation.ResourceGroups.keys;
+  let evaluations = 0;
+  // Progress uses cultivation source descriptors, never the final scale rate.
+  const progressDependencies=Object.freeze(["immortal"]);
+  function finite(value, label) {
+    const n = B.BN(value);
+    if (!B.isFiniteBN(value) || !n.isFinite() || n.lt(0)) { const error=Error(`固定来源 ${label} 不是有限非负数；本段未提交`); error.code="formula-representation"; throw error; }
+    return n;
+  }
+  // Shared final X/Y source query: no treasure enumeration, income or clocks.
+  function xiuzhenRates(snapshot, factor = WIS.Simulation.Compensation.factor()) {
+    if (snapshot === R.state) snapshot = R.getState();
+    if (snapshot.cultivation.active !== "immortal" || !snapshot.cultivation.systems.immortal.xiuzhen)
+      return Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>[k,B.ZERO]));
+    return R.withState(snapshot, () => E.withFrozenState(snapshot, () => {
+      const raw = WIS.Cultivation.Xiuzhen.rates(snapshot);
+      return Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(key => [key,finite(B.mul(raw[key],factor),key)]));
+    }));
+  }
+  function previewXiuzhen(snapshot, execution) {
+    if (execution.paused) return { label:"结算暂停", rates:null };
+    // During catch-up, show an estimate from current confirmed assets, not a cached segment rate.
+    if (!["online","offline"].includes(execution.source)) return { label:"当前产出暂不展示", rates:null };
+    const compensated = execution.source === "online" && execution.compensationEligible === true &&
+      execution.clockRatio > 0 && snapshot.core.runtime.compensation.balance > 0;
+    return { compensated, rates:xiuzhenRates(snapshot,compensated?2:1),
+      label:execution.recovering ? "当前状态预计产出／秒" : execution.source === "offline" ? "本段产出／秒" : "最终有效产出／秒" };
+  }
+  // The supplied domain is a single start snapshot. This entry never advances
+  // clocks, buys anything, reads tmp.rates, or integrates through new balances.
+  let quantityProfileTaskId=0n;
+  function query(snapshot, {resourcesOnly=false,resourceProfile=null}={}) {
+    evaluations++;
+    return R.withState(snapshot, () => E.withFrozenState(snapshot, () => {
+      const S = WIS.Power.ScaleLogic, I = WIS.Cultivation.ImmortalLogic;
+      const X = WIS.Cultivation.Xiuzhen, T = WIS.Meta.Treasures, P = WIS.Meta.TreasureProgress;
+      const factor = WIS.Simulation.Compensation.factor();
+      const continuation=WIS.Core.Amount?.enabled()?E.continuationMemo?.(snapshot):null,cacheKey='fixed-source-query|'+factor+'|'+resourcesOnly;
+      let entry=continuation?.get(cacheKey);if(continuation&&(!entry||entry.resourceProfile!==resourceProfile)){entry={resourceProfile,values:new Map(),taskKey:"quantity-source-profile|"+(++quantityProfileTaskId)};continuation.set(cacheKey,entry);}
+      const once=(key,compute)=>{if(!entry)return compute();if(entry.values.has(key))return entry.values.get(key);const value=compute();entry.values.set(key,value);return value;};
+      const steps=function*(){
+      const scale = snapshot.powerSystem.active === "scale", immortal = snapshot.cultivation.active === "immortal";
+      if (snapshot.powerSystem.active && !scale || snapshot.cultivation.active && !immortal && snapshot.cultivation.active !== "martial")
+        throw Error("当前体系尚无固定来源适配；资产和剩余时间保留");
+      // Resource-only offline evolution already validated these rates at this
+      // exact snapshot. Reuse that profile while sampling progress sources.
+      const evaluated=yield ()=>once('resources',()=>resourceProfile||WIS.Simulation.ResourceGroups.evaluate(snapshot,{factor}));
+      const {rates,cultivation}=evaluated;
+      const profile={kind:"ContinuousRateProfile",...(WIS.Core.Amount?.enabled()?{numericModelVersion:1}:{}),rates,...(evaluated.quantities?{quantities:evaluated.quantities}:{}),cultivation,groups:evaluated.groups.map(g=>g.keys)};
+      if(resourcesOnly)return profile;
+      const drivers = yield ()=>once('drivers',()=>({
+        fitness: scale && B.gt(S.fitnessJBonus(), 0), rock: scale && B.gt(S.rockPowerPerSecond(), 0),
+        intent: scale && B.gt(S.ultimateIntentPowerSource(), 0), circulation: cultivation.circulation,
+        xianForce:B.gt(rates.xianForce,0), immortalPower: B.gt(cultivation.immortalPower, 0)
+      }));
+      const A=WIS.Core.Amount,whole=A?.enabled(),addUnit=(units,value)=>whole?A.add(units,value):B.add(units,value);
+      const rewards=[];for(const key of T.keys)rewards.push(yield ()=>once('reward|'+key,()=>{
+        const eligible = P.qualification(snapshot, key) === null;
+        if (!eligible) return {key, eligible:false};
+        let units = P.explorationKeys.includes(key) ? cultivation.explorationAmount : B.ZERO;
+        if(whole)units=A.from(cultivation.quantities?.explorationAmount??units);
+        if (["tianNiPearl", "baLingChi"].includes(key) && drivers.circulation) units = addUnit(units,1);
+        if (["fitnessMembershipCard", "superLollipop"].includes(key) && drivers.fitness) units = addUnit(units,1);
+        if (key === "skyCrystal" && drivers.rock || key === "fiveSpiritStone" && drivers.intent ||
+            ["immortalCrystal", "fiveElementsTreasure"].includes(key) && drivers.immortalPower ||
+            key === "yuanCrystal" && drivers.xianForce || ["cosmicFiber", "cosmicWill"].includes(key)) units = addUnit(units,1);
+        if (key === "originImprint") units = whole?evaluated.quantities.nieForce:rates.nieForce;
+        return { key, eligible, units: finite(whole?A.project(units):units,key),...(whole?{quantityUnits:units}:{}),
+          // A capped source is fixed at the START demand; later stock still
+          // pays its escalating cumulative demand through TreasureProgress.
+          gain: finite(B.min(P.unitGain(snapshot,key),P.requirement(key,whole?T.quantity(snapshot,key):T.count(snapshot,key),snapshot)),key),
+          award: finite(T.getTreasureAwardMultiplier(snapshot,key),key) };
+      }));
+      const XP=WIS.Cultivation.ExplorationProgress, cap=yield ()=>once('natural-cap',()=>XP.capWords(snapshot));
+      const silverSeaQuantityRate=whole?yield ()=>once('silver-sea-quantity',()=>WIS.Meta.Infinity.silverSeaQuantityRate(snapshot)):null;
+      const silverSeaRate=yield ()=>once('silver-sea-rate',()=>whole?A.project(silverSeaQuantityRate):WIS.Meta.Infinity.silverSeaRate(snapshot));
+      const sheng=yield ()=>once('sheng',()=>X.captureSheng(snapshot)),changSheng=yield ()=>once('chang-sheng',()=>WIS.Cultivation.Martial.captureChangSheng(snapshot));
+      const martialPassive=yield ()=>once('martial-passive',()=>WIS.Cultivation.Martial.capturePassive(snapshot));
+      return { ...profile, martialPassive, rewards, silverSeaRate,...(whole?{silverSeaQuantityRate}:{}), sheng,changSheng,
+        natural: { eligible: immortal && snapshot.goldenCoreUnlocked, cap },
+        seizeEligible: immortal && !snapshot.unlockedAchievements?.seizeFoundation,
+        // Current six automatic sources have no continuous asset debit.
+        // Breathing, training and manual exploration are actions/conversions,
+        // deliberately excluded from time sources and compensation.
+        processes: [], caps: {} };
+      };
+      // Only the retained immutable source scope owns a resumable profile.
+      // Every completed phase and reward row stays in this private iterator.
+      if(entry)return WIS.Core.CertifiedRankMath.task(entry.taskKey,steps);
+      const iterator=steps();let next=iterator.next();while(!next.done){const value=typeof next.value==='function'?next.value():undefined;next=iterator.next(value);}return next.value;
+    }));
+  }
+  // General fixed-process contract: a resource-limited process cannot run on
+  // missing input, even if its nominal output is positive. Duration remains a
+  // Decimal until consumption is computed; no positive-underflow -> full-span.
+  function calculateExact(balances,rates,seconds,processes,caps,rateQuantities){
+    const A=WIS.Core.Amount;finite(seconds,'seconds');const duration=A.from(seconds),quantities={},debitQuantities={},activeQuantities=[];
+    const read=k=>balances.core&&balances.cultivation?WIS.Simulation.ResourceGroups.readExact(balances,k):A.from(balances[k]||0);
+    const minimum=(a,b)=>A.compare(a,b)<=0?a:b,available=(a,b)=>A.compare(a,b)<=0?A.from(0):A.subtract(a,b);
+    for(const key of keys()){
+      const rate=A.from(rateQuantities?.[key]??finite(rates[key]||0,key));
+      if(rateQuantities?.[key]!==undefined&&!B.eq(A.project(rate),finite(rates[key]||0,key)))throw Object.assign(Error('Full and projected source rate disagree: '+key),{code:'formula-representation'});
+      quantities[key]=A.multiply(rate,duration);debitQuantities[key]=A.from(0);
+    }
+    for(const process of processes){let active=duration;
+      for(const [key,rate] of Object.entries(process.consume||{})){finite(rate,key);if(B.gt(rate,0))active=minimum(active,A.divide(available(read(key),debitQuantities[key]||0),rate));}
+      activeQuantities.push(active);
+      for(const [key,rate] of Object.entries(process.consume||{}))debitQuantities[key]=A.add(debitQuantities[key]||0,A.multiply(active,finite(rate,key)));
+      for(const [key,rate] of Object.entries(process.produce||{}))quantities[key]=A.add(quantities[key]||0,A.multiply(active,finite(rate,key)));
+    }
+    for(const [key,cap] of Object.entries(caps))quantities[key]=minimum(quantities[key]||A.from(0),available(A.from(finite(cap,key)),available(read(key),debitQuantities[key]||0)));
+    const projected=map=>Object.fromEntries(Object.entries(map).map(([key,value])=>[key,A.project(value)]));
+    return {gains:projected(quantities),debits:projected(debitQuantities),active:activeQuantities.map(A.project),quantities,debitQuantities,activeQuantities};
+  }
+  function calculate(balances, rates, seconds, processes = [], caps = {}, rateQuantities=null) {
+    if(WIS.Core.Amount?.enabled())return calculateExact(balances,rates,seconds,processes,caps,rateQuantities);
+    finite(seconds,"seconds");
+    const gains = Object.fromEntries(keys().map(k => [k, finite(B.mul(rates[k] || 0,seconds),k)]));
+    const debits = Object.fromEntries(keys().map(k => [k,B.ZERO]));
+    const active = [];
+    for (const process of processes) {
+      let duration = B.BN(seconds);
+      for (const [key, rate] of Object.entries(process.consume || {})) {
+        finite(rate,key);
+        if (B.gt(rate,0)) duration = B.min(duration,B.div(B.max(0,B.sub(balances[key] || 0,debits[key])),rate));
+      }
+      active.push(duration);
+      for (const [key,rate] of Object.entries(process.consume || {})) debits[key]=B.add(debits[key],B.mul(rate,duration));
+      for (const [key,rate] of Object.entries(process.produce || {})) gains[key]=finite(B.add(gains[key],B.mul(finite(rate,key),duration)),key);
+    }
+    for (const [key,cap] of Object.entries(caps)) gains[key]=B.min(gains[key],B.max(0,B.sub(finite(cap,key),B.sub(balances[key] || 0,debits[key]))));
+    return {gains,debits,active};
+  }
+  function continuousWork(state, seconds, options={}) {
+    // Dormant martial stocks have no continuous derivative. Keep the original
+    // integration dimensions; active martial conversions require its own path.
+    const integrationKeys = ["joules","power","mana","immortalPower",...WIS.Cultivation.Xiuzhen.resourceKeys];
+    const dormantMartial = ["martialQi","martialBody","martialHeart","martialSoul"];
+    if(state.cultivation.active === "martial" || keys().some(k=>!integrationKeys.includes(k)&&!dormantMartial.includes(k)))throw Error("ODE 诊断不支持外部 ResourceGroup");
+    const base=options.foregroundSource?options.foregroundSource():state;
+    const evaluation=WIS.Core.State.shallowBranch(base);
+    evaluation.core={...base.core,resources:{...base.core.resources}};
+    evaluation.powerSystem={...base.powerSystem,systems:{...base.powerSystem.systems,
+      scale:{...base.powerSystem.systems.scale,progress:{...base.powerSystem.systems.scale.progress}}}};
+    evaluation.meta={...base.meta,statistics:{...base.meta.statistics}};
+    const immortal=base.cultivation.systems.immortal;
+    evaluation.cultivation={...base.cultivation,systems:{...base.cultivation.systems,
+      immortal:{...immortal,resources:{...immortal.resources},xiuzhen:{...immortal.xiuzhen,
+        resources:Object.fromEntries(Object.entries(immortal.xiuzhen.resources).map(([k,v])=>[k,{...v}]))}}}};
+    const initial=Object.fromEntries(integrationKeys.map(k=>[k,WIS.Cultivation.Xiuzhen.resourceKeys.includes(k)?WIS.Cultivation.Xiuzhen.amount(state,k):state[k]]));
+    const factor=WIS.Simulation.Compensation.factor();
+    const rateAt=values=>{
+      for(const k of ['joules','power','mana','immortalPower'])evaluation[k]=values[k];
+      for(const k of WIS.Cultivation.Xiuzhen.resourceKeys)evaluation.cultivation.systems.immortal.xiuzhen.resources[k].amount=values[k];
+      evaluation.highestPower=B.max(base.highestPower,values.power);
+      return R.withState(evaluation,()=>E.withIsolatedState(evaluation,()=>{
+        const P=WIS.Power.ScaleLogic,I=WIS.Cultivation.ImmortalLogic,X=WIS.Cultivation.Xiuzhen;
+        const scale=evaluation.powerSystem.active==='scale',imm=evaluation.cultivation.active==='immortal';
+        const cultivation=imm?I.fixedAutomaticSources(factor):{},xiuzhen=imm?X.rates(evaluation):{};
+        return {
+          joules:scale?B.mul(P.automaticJSettledPerSecondAt(values.joules),factor):B.ZERO,
+          power:scale?B.mul(P.automaticPowerSettledPerSecondAt(values.power),factor):B.ZERO,
+          mana:cultivation.mana||B.ZERO,immortalPower:cultivation.immortalPower||B.ZERO,
+          ...Object.fromEntries(X.resourceKeys.map(k=>[k,B.mul(xiuzhen[k]||0,factor)]))
+        };
+      }));
+    };
+    // Y samples power once per game second. Locate only those sample times;
+    // numerical subdivisions never create new samples or discrete opportunities.
+    const boundaries=[];
+    const numbers=base.meta.bigNumbers;
+    const requirement=WIS.Meta.BigNumbers.requirements(base);
+    if(numbers?.unlocked||(requirement.cosmic&&requirement.achievement)){
+      let boundary=numbers.ySample?.remaining;
+      if(!(boundary>1e-10)){
+        const fraction=numbers.ySample?0:numbers.elapsedSeconds-Math.floor(numbers.elapsedSeconds);
+        boundary=fraction>1e-10?1-fraction:1;
+      }
+      for(;boundary<seconds-1e-10;boundary+=1)boundaries.push(boundary);
+    }
+    boundaries.push(seconds);
+    const samples=[{time:0,power:initial.power}];
+    const gains=Object.fromEntries(keys().map(k=>[k,B.ZERO]));
+    let index=0,elapsed=0,values=initial,work=null,result=null,evaluations=0;
+    function powerAt(offset){
+      const point=samples.find(p=>Math.abs(p.time-offset)<1e-8);
+      if(!point)throw Error('Y 秒采样时间缺少连续积分检查点');
+      return point.power;
+    }
+    function snapshot(){
+      return result&&{...result,done:index===boundaries.length,
+        status:index===boundaries.length?'completed':result.done?'pending':result.status,
+        remainingSeconds:String(result.done?seconds-elapsed:B.add(result.remainingSeconds,seconds-boundaries[index])),
+        gains:{...gains},
+        diagnostics:{...result.diagnostics,evaluations},powerAt};
+    }
+    return {advance({maximumEvaluations=48,deadline=Infinity}={}){
+      const begin=evaluations;
+      while(index<boundaries.length&&evaluations-begin<maximumEvaluations&&performance.now()<deadline){
+        work ||= WIS.Core.Integration.createAdaptiveWork(values,boundaries[index]-elapsed,rateAt,options);
+        const previous=work.snapshot().diagnostics.evaluations;
+        result=work.advance({maximumEvaluations:maximumEvaluations-(evaluations-begin),deadline});
+        evaluations+=result.diagnostics.evaluations-previous;
+        if(!result.done)break;
+        for(const k of integrationKeys)gains[k]=B.add(gains[k],result.gains[k]);
+        values=result.final;elapsed=boundaries[index++];samples.push({time:elapsed,power:values.power});work=null;
+      }
+      return snapshot()||{done:false,diagnostics:{evaluations:0}};
+    },snapshot,sampleRates:current=>({...Object.fromEntries(dormantMartial.map(k=>[k,B.ZERO])),...rateAt({...initial,...current})})};
+  }
+  WIS.Simulation.FixedSources = Object.freeze({progressDependencies, get keys(){return keys();}, query, calculate, continuousWork, xiuzhenRates, previewXiuzhen,
+    evaluations: () => evaluations, resetMetrics: () => {evaluations=0;} });
+}(window.WIS));

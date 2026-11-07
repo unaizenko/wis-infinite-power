@@ -5,20 +5,169 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="WIS-无限战力系统网页试玩版" />
     <title>WIS-无限战力系统</title>
-    <link rel="stylesheet" href="styles.css?v=0.1.4.6-dev" />
+    <script id="wis-startup-guard">
+(function (w, d) {
+  "use strict";
+  var stage = "scripts", mode = "loading", complete = false, firstError = null, events = [], foreground = 0, last = Date.now();
+  var key = "wis-infinite-power-save-v2";
+  var nativeHost = w.Capacitor && typeof w.Capacitor.isNativePlatform === "function" && w.Capacitor.isNativePlatform() === true;
+  if (nativeHost) {
+    try { new Function("class C { #x; static has(o) { return #x in o; } }; return C.has(new C());")(); }
+    catch (_) { firstError = { stage: "capabilities", message: "系统 WebView 版本过低，请更新 Android System WebView" }; }
+  }
+  function bounded(value) { return String(value == null ? "" : value).slice(0, 500); }
+  function record(type, message) {
+    events.push({ at: Date.now(), stage: stage, type: type, message: bounded(message) });
+    if (events.length > 40) events.shift();
+  }
+  function node(id) { return d.getElementById(id); }
+  function show(message) {
+    var panel = node("boot-status-panel");
+    if (!panel) return;
+    panel.hidden = false;
+    node("boot-status-message").textContent = message;
+    panel.setAttribute("data-mode", mode);
+  }
+  function closeDialogs() {
+    var dialogs = d.querySelectorAll("dialog[open]"), i;
+    for (i = 0; i < dialogs.length; i++) {
+      try { if (typeof dialogs[i].close === "function") dialogs[i].close(); } catch (_) {}
+      dialogs[i].removeAttribute("open");
+    }
+  }
+  function fail(where, error) {
+    stage = where || stage;
+    var message = bounded(error && error.message || error);
+    if (!firstError) firstError = { stage: stage, message: message };
+    complete = false; mode = "failed"; record("error", message);
+    closeDialogs();
+    show("启动失败（" + firstError.stage + "）：" + firstError.message + "。原存档不会被此恢复面板改写，可先导出备份或复制诊断。");
+  }
+  function diagnostics() {
+    return { stage: stage, mode: mode, ready: complete, failed: !!firstError, firstError: firstError,
+      build: w.WIS_BUILD && w.WIS_BUILD.id || "", userAgent: bounded(w.navigator.userAgent), events: events.slice() };
+  }
+  function copyText(text, message) {
+    var box = node("boot-copy-text");
+    box.hidden = false; box.value = text; box.focus(); box.select();
+    node("boot-action-message").textContent = message;
+  }
+  function exportRaw() {
+    var text;
+    try { text = w.localStorage.getItem(key); }
+    catch (error) { node("boot-action-message").textContent = "无法读取浏览器存储：" + bounded(error.message); return; }
+    if (text === null) { node("boot-action-message").textContent = "当前网址没有可读取的原始存档。"; return; }
+    if (nativeHost) {
+      try {
+        var p = w.Capacitor.Plugins;
+        p.Filesystem.writeFile({path:"WIS-original-save-" + Date.now() + ".json",data:text,directory:"CACHE",encoding:"utf8"})
+          .then(function (file) { return p.Share.share({files:[file.uri],title:"WIS 原始存档"}); })
+          .then(function () { node("boot-action-message").textContent = "已打开存档分享，请确认已保存备份。"; })
+          .catch(function (error) { copyText(text, "分享失败：" + bounded(error.message) + "。请复制完整原文备份。"); });
+      } catch (error) { copyText(text, "分享不可用，请复制完整原文备份。" ); }
+      return;
+    }
+    if (w.Blob && w.URL && typeof w.URL.createObjectURL === "function") {
+      try {
+        var url = w.URL.createObjectURL(new w.Blob([text], {type:"application/json"})), link = d.createElement("a");
+        link.href = url; link.download = "WIS-original-save-" + Date.now() + ".json"; node("boot-status-panel").appendChild(link); link.click();
+        link.parentNode.removeChild(link); w.setTimeout(function () { w.URL.revokeObjectURL(url); }, 1000);
+        node("boot-action-message").textContent = "已导出原始存档；未经过解析或迁移。"; return;
+      } catch (_) {}
+    }
+    copyText(text, "下载不可用，请复制下方完整原文并保存。");
+  }
+  w.WIS_BOOT = {
+    enter: function (where) { stage = where; record("stage", where); if (!firstError) show("正在启动（" + where + "），尚未开始结算。"); },
+    fail: fail,
+    ready: function (options) {
+      if (firstError) return;
+      complete = true; mode = options && options.mode || "normal"; stage = "ready"; record("ready", mode);
+      if (mode === "temporary") show("原存档读取失败，正在临时运行；自动保存与后台收益已停用。原存档仍保留，可先导出原文，再通过设置导入有效备份。");
+      else if (node("boot-status-panel")) node("boot-status-panel").hidden = true;
+    },
+    diagnostics: diagnostics
+  };
+  w.addEventListener("error", function (event) {
+    var target = event.target;
+    if (target && target.tagName === "SCRIPT") fail("scripts", new Error("脚本加载失败：" + target.getAttribute("src")));
+    else if (!complete) fail(stage, event.error || event.message || "脚本执行失败");
+  }, true);
+  w.addEventListener("unhandledrejection", function (event) { if (!complete) fail(stage, event.reason || "异步启动失败"); });
+  d.addEventListener("load", function (event) {
+    var target = event.target, src = target && target.tagName === "SCRIPT" && target.getAttribute("src");
+    if (src && w.WIS_BUILD && src.indexOf("?v=") >= 0 && src.split("?v=")[1] !== w.WIS_BUILD.id)
+      fail("scripts", new Error("脚本构建标识不一致：" + src));
+  }, true);
+  function guardInteraction(event) {
+    var target = event.target;
+    while (target && target !== d) {
+      if (target.id === "boot-status-panel") return;
+      if (target.id === "open-settings" && (!complete || firstError)) {
+        if (event.type === "click") { closeDialogs(); show(firstError ? "启动失败（" + firstError.stage + "）：" + firstError.message : "正在启动，可导出原始存档或复制诊断。"); }
+        event.preventDefault(); event.stopImmediatePropagation(); return;
+      }
+      target = target.parentNode;
+    }
+    if (!complete || firstError) {
+      if (event.type === "click" || event.type === "submit" || event.type === "change" || event.type === "input" || event.type === "pointerdown") {
+        event.preventDefault(); event.stopImmediatePropagation();
+      }
+    }
+  }
+  ["click", "pointerdown", "submit", "change", "input"].forEach(function (type) { w.addEventListener(type, guardInteraction, true); });
+  d.addEventListener("DOMContentLoaded", function () {
+    if (firstError) fail(firstError.stage, firstError.message);
+    else show("正在启动（" + stage + "），尚未开始结算。");
+    node("boot-reload").onclick = function () { w.location.reload(); };
+    node("boot-export").onclick = exportRaw;
+    node("boot-diagnostics").onclick = function () { copyText(JSON.stringify(diagnostics(), null, 2), "请复制下方诊断信息。"); };
+    if (typeof w.BigInt !== "function") fail("capabilities", new Error("浏览器缺少精确大整数 BigInt 支持，请升级浏览器；可先导出原始存档。"));
+  });
+  w.setInterval(function () {
+    var now = Date.now(), elapsed = Math.max(0, now - last); last = now;
+    if (!d.hidden && !complete && !firstError) {
+      foreground += Math.min(elapsed, 1000);
+      if (foreground >= 10000) show("启动耗时较长（" + stage + "），可先导出原始存档或复制诊断；不会自动重置。");
+    }
+  }, 500);
+}(window, document));
+    </script>
+    <link rel="stylesheet" href="styles.css?v=dev-0.2.0.1-20261107-release-r1" />
   </head>
   <body>
+    <aside id="boot-status-panel" class="boot-status-panel" role="status" aria-live="polite">
+      <strong>WIS 启动与恢复</strong>
+      <p id="boot-status-message">正在加载游戏，尚未开始结算。</p>
+      <div class="boot-status-actions">
+        <button id="boot-reload" type="button">重新加载</button>
+        <button id="boot-export" type="button">导出原始存档</button>
+        <button id="boot-diagnostics" type="button">复制诊断</button>
+      </div>
+      <p id="boot-action-message"></p>
+      <textarea id="boot-copy-text" rows="6" aria-label="备份或诊断原文" readonly hidden></textarea>
+    </aside>
+    <noscript>游戏需要启用 JavaScript。请启用后重新加载；当前尚未开始运行。</noscript>
+    <aside id="save-failure-panel" class="save-failure-panel" role="status" hidden>
+      <span id="save-failure-message"></span>
+      <button id="retry-failed-save" type="button">重试保存</button>
+      <button id="export-unsaved-progress" type="button">导出当前进度</button>
+    </aside>
     <div class="app">
       <header class="app-header">
         <div class="brand-title">
           <strong>WIS</strong>
           <span>无限战力系统</span>
-          <small id="game-version" class="game-version">v0.1.4.6</small>
+          <span class="version-actions">
+            <small id="game-version" class="game-version">v0.2.0.1</small>
+            <button id="android-app-open" class="app-download-link" type="button" aria-haspopup="dialog" hidden>下载安卓 App</button>
+          </span>
         </div>
         <div class="header-actions">
+          <small id="online-compensation-balance" hidden></small>
           <div class="scale-progress">
-            <p>量级论 · 当前量级：<b id="current-scale">普通人</b></p>
-            <small id="next-scale-progress">下一量级：爆砖（需要 200 战力）</small>
+            <p>量级论 · 当前量级：<b id="current-scale">加载中</b></p>
+            <small id="next-scale-progress">等待存档初始化</small>
           </div>
           <!-- DEBUG SPEED CONTROL: START（删除本区块即可安全停用调速） -->
           <button id="debug-speed-button" class="debug-speed-button" type="button" data-multiplier="1" aria-label="调整调试速度" title="调试速度，仅本次打开页面有效（Alt+S）" hidden>速度 ×1</button>
@@ -27,14 +176,17 @@
         </div>
       </header>
 
-      <section class="resource-panel" aria-label="基础数据">
-        <p class="section-label">基础数据</p>
-        <div class="resource-items">
+      <div class="app-body">
+      <section class="resource-panel" aria-label="资源概览">
+        <button id="toggle-resource-panel" class="resource-panel-toggle" type="button" aria-expanded="true" aria-controls="primary-resources special-resources">
+          <span>资源</span><span id="resource-panel-toggle-label">收起 ▴</span>
+        </button>
+        <div id="primary-resources" class="resource-items resource-base" aria-label="基础资源">
           <div class="resource-row">
             <span>J</span>
             <div class="resource-value">
               <strong id="joules">0</strong>
-              <small id="joules-rate">（+1/秒）</small>
+              <small id="joules-rate">等待启动</small>
             </div>
           </div>
           <div class="resource-row">
@@ -44,6 +196,15 @@
               <small id="power-rate" hidden>（+0/秒）</small>
             </div>
           </div>
+          <div class="resource-row" id="big-number-resource" hidden>
+            <span>大数</span>
+            <div class="resource-value"><strong id="big-number-dominant">0 Y</strong><small id="big-number-rate"></small></div>
+          </div>
+          <div class="resource-row" id="universeCoefficient-resource" hidden><span>单体宇宙（N）</span><div class="resource-value"><strong id="universeCoefficient">0</strong><small id="universeCoefficient-rate"></small></div></div>
+          <div class="resource-row" id="highMultiverseCoefficient-resource" hidden><span id="highMultiverseCoefficient-label">高阶多元（N³）</span><div class="resource-value"><strong id="highMultiverseCoefficient">0</strong><small id="highMultiverseCoefficient-rate"></small></div></div>
+          <div class="resource-row" id="multiverseCoefficient-resource" hidden><span>多元宇宙（N²）</span><div class="resource-value"><strong id="multiverseCoefficient">0</strong><small id="multiverseCoefficient-rate"></small></div></div>
+        </div>
+        <div class="resource-items resource-special" id="special-resources" aria-label="特殊资源" hidden>
           <div class="resource-row" id="mana-resource" hidden>
             <span>法力</span>
             <div class="resource-value">
@@ -56,22 +217,34 @@
             <div class="resource-value">
               <strong id="immortal-power">0</strong>
               <small id="immortal-power-rate" hidden>（+0/秒）</small>
-              <small id="immortal-power-source-note">根据当前法力自动获得，不消耗法力</small>
             </div>
           </div>
+          <div class="resource-row" id="xianForce-resource" hidden>
+            <span>仙力</span>
+            <div class="resource-value"><strong id="xianForce">0</strong><small id="xianForce-rate"></small></div>
+          </div>
+          <div class="resource-row" id="yuanForce-resource" hidden>
+            <span>元力</span>
+            <div class="resource-value"><strong id="yuanForce">0</strong><small id="yuanForce-rate"></small></div>
+          </div>
+          <div class="resource-row" id="nieForce-resource" hidden><span>涅力</span><div class="resource-value"><strong id="nieForce">0</strong><small id="nieForce-rate"></small></div></div>
         </div>
-        <!-- DEBUG RESOURCE BREAKDOWN: START（删除本区块即可安全停用资源来源显示） -->
+      </section>
+
+      <!-- DEBUG RESOURCE BREAKDOWN: START（删除本区块即可安全停用资源来源显示） -->
+      <section class="resource-debug-tools" aria-label="资源获取来源调试信息" hidden>
         <button id="formula-details-toggle" class="formula-details-toggle" type="button" aria-expanded="false" hidden>来源公式详情</button>
+        <button id="formula-details-refresh" type="button" hidden>刷新公式详情</button>
         <div class="resource-debug-breakdown" aria-label="资源获取来源调试信息" hidden>
+          <p>原始获取已包含来源层效果；乘区按箭头顺序计算，x 表示上一步结果。</p>
           <p><b>J来源</b><span id="debug-j-sources">正在计算……</span></p>
           <p><b>战力来源</b><span id="debug-power-sources">正在计算……</span></p>
           <p id="debug-mana-source-row" hidden><b>法力来源</b><span id="debug-mana-sources">正在计算……</span></p>
           <p id="debug-immortal-power-source-row" hidden><b>仙灵力来源</b><span id="debug-immortal-power-sources">正在计算……</span></p>
         </div>
-        <!-- DEBUG RESOURCE BREAKDOWN: END -->
       </section>
+      <!-- DEBUG RESOURCE BREAKDOWN: END -->
 
-      <div class="app-body">
         <aside class="sidebar">
           <nav class="navigation" aria-label="功能界面">
             <button class="nav-item active" data-page="actions" type="button">
@@ -102,17 +275,20 @@
           <section class="page active" id="actions-page">
             <div class="page-header">
               <div>
-                <p class="section-label">量级论</p>
                 <h1>行动</h1>
               </div>
-              <p>J 会自动增长；锻炼会消耗全部 J，并将其转化为战力。</p>
             </div>
 
-            <div class="item-list">
+            <div id="big-number-tabs" class="big-number-tabs" role="tablist" aria-label="行动子界面" hidden>
+              <button id="ordinary-actions-tab" type="button" role="tab" aria-controls="ordinary-actions-panel" aria-selected="true">行动</button>
+              <button id="big-number-tab" type="button" role="tab" aria-controls="big-number-panel" aria-selected="false" disabled hidden>大数</button>
+              <button id="tree-tab" type="button" role="tab" aria-controls="tree-panel" aria-selected="false" hidden>大数·树</button>
+            </div>
+            <div class="item-list" id="ordinary-actions-panel" role="tabpanel" aria-labelledby="ordinary-actions-tab">
               <article class="item-row">
                 <div class="item-content">
                   <h2>锻炼</h2>
-                  <p>消耗全部 J 获得战力。</p>
+                  <p>消耗全部 J 获得战力。<br>战力的上限在哪里呢？</p>
                 </div>
                 <div class="action-control">
                   <span id="conversion-preview">至少需要 10 J</span>
@@ -124,7 +300,7 @@
               <article class="item-row" id="running-action" hidden>
                 <div class="item-content">
                   <h2>健身</h2>
-                  <p>每级提供 +2 J/秒的健身基础来源。</p>
+                  <p>每级提供 +2 J/秒。<br>健身可能变强，但健身变强不太可能。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="running-level">当前：0级</span>
@@ -150,11 +326,11 @@
               <article class="item-row" id="ghost-back-action" hidden>
                 <div class="item-content">
                   <h2>鬼背</h2>
-                  <p>激活时降低 J 获取，提升战力获取倍率。</p>
+                  <p id="ghost-back-description">激活时降低J获取，提升战力获取。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="ghost-back-state">当前未激活</span>
-                  <small>J ×0.75；战力 ×1.75</small>
+                  <small id="ghost-back-effect">J ×0.75；战力 ×1.75</small>
                   <button id="toggle-ghost-back" class="primary-button" type="button">激活</button>
                 </div>
               </article>
@@ -174,14 +350,78 @@
               <article class="item-row" id="exploration-action" hidden>
                 <div class="item-content">
                   <h2>探寻</h2>
-                  <p>消耗当前 10% 战力获得一定探寻量、探寻量提供法力与宝物判定。</p>
+                  <p>消耗当前 10% 战力获得一定探寻量、探寻量提供法力与宝物判定。<br>天材地宝有德者居之。</p>
                 </div>
                 <div class="action-control">
-                  <span id="exploration-preview">单次探寻至少消耗 1M 战力</span>
                   <small id="exploration-cost">消耗当前 10% 战力，至少消耗 1M</small>
                   <button id="exploration-button" class="primary-button" type="button" disabled>探寻</button>
                 </div>
               </article>
+            </div>
+            <div id="big-number-panel" class="big-number-panel" role="tabpanel" aria-labelledby="big-number-tab" hidden>
+              <section class="big-number-current">
+                <p class="section-label">当前大数</p>
+                <h2 id="big-number-page-dominant"></h2>
+                <p id="big-number-secondary"></p>
+              </section>
+              <details id="fractal-panel" open>
+                <summary id="fractal-summary">分形：已完成 0/5</summary>
+                <div id="fractal-list"></div>
+              </details>
+              <section id="super-fractal-panel" hidden>
+                <h2>超分形</h2><p id="super-fractal-next"></p>
+                <strong id="super-fractal-progress"></strong>
+                <progress id="super-fractal-bar" max="100" value="0" aria-label="超分形进度"></progress>
+                <p id="super-fractal-sources"></p>
+                <div id="graham-milestones" class="graham-milestones" aria-label="Graham里程碑"></div>
+                <small>G1 = 3↑↑↑↑3；G(n+1) = 3↑^(Gn)3。仅记录阶位，不展开真实数值。</small>
+              </section>
+            </div>
+            <div id="tree-panel" class="big-number-panel tree-panel" role="tabpanel" aria-labelledby="tree-tab" hidden>
+              <p id="tree-target" class="tree-target"></p>
+              <div id="tree-explicit" class="tree-stack">
+                <section class="tree-current">
+                  <h2 id="tree-sequence-title">三标签坏序列</h2>
+                  <p id="tree-sequence"></p>
+                  <p id="tree-construction-threshold"></p>
+                  <p id="tree-decay-threshold"></p>
+                  <div id="tree-unlock">
+                    <p id="tree-unlock-target"></p>
+                    <progress id="tree-unlock-bar" max="1" value="0" aria-label="超构造解锁进度"></progress>
+                    <p id="tree-unlock-progress"></p>
+                  </div>
+                  <div id="tree-entry" class="tree-entry">
+                    <p id="tree-entry-base"></p>
+                    <small id="tree-entry-note">继续构造可提高超构造基础。</small>
+                    <button id="tree-enter" class="primary-button" type="button" disabled>进入超构造</button>
+                  </div>
+                </section>
+              </div>
+              <section id="tree-super" hidden>
+                <h2>TREE超构造</h2>
+                <progress id="tree-super-bar" max="1" value="0" aria-label="TREE超构造进度"></progress>
+                <strong id="tree-super-progress"></strong>
+                <p id="tree-super-base"></p>
+                <p id="tree-super-sources"></p>
+                <p id="tree-super-time" hidden></p>
+                <p id="tree-super-eta"></p>
+              </section>
+              <div id="tree-construction-panel" class="tree-stack">
+                <section class="tree-current">
+                  <p class="section-label">树构造点</p>
+                  <strong id="tree-construction" class="tree-amount"></strong>
+                  <p id="tree-rate"></p>
+                  <p id="tree-construction-source" class="big-number-note">来源：根据G阶位获得树构造点</p>
+                  <details class="tree-help"><summary>构造说明</summary><p>第 i 棵树最多拥有 i 个节点，且任何更早的树不得嵌入后续树。</p></details>
+                </section>
+                <div id="tree-upgrades" class="tree-upgrades"></div>
+              </div>
+              <section id="tree-complete" hidden>
+                <h2 id="tree-complete-rank"></h2>
+                <p>当前 TREE 层级已完成</p>
+                <p id="tree-next-note">后续 TREE 阶位暂未开放</p>
+                <button id="tree-next" class="primary-button" type="button" hidden>开始下一阶</button>
+              </section>
             </div>
           </section>
 
@@ -232,7 +472,7 @@
 
               <details class="upgrade-group" id="street-upgrades" hidden>
                 <summary>
-                  <span><b>量级 · 爆街</b><small>超感知、金刚不坏、再生、异能、超速思维、崩山</small></span>
+                  <span><b>量级 · 爆街</b><small>超直感、金刚不坏、再生、异能、超速思维、崩山</small></span>
                 </summary>
 <div class="item-list" id="street-upgrade-list" data-sort-by-cost></div>
               </details>
@@ -313,13 +553,14 @@
                 <p>当前可选择的体系。</p>
                 <button class="primary-button" type="button" data-cultivation="仙道">选择仙道</button>
               </article>
-              <article class="cultivation-card unavailable"><h2>武道</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
+              <article class="cultivation-card" data-cultivation-card="武道"><h2>武道</h2><p>气、体、心、神魂四线发展。通过不同武道路线的能力提升实力。</p><button class="primary-button" type="button" data-cultivation="武道">选择武道</button></article>
               <article class="cultivation-card unavailable"><h2>科技</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
               <article class="cultivation-card unavailable"><h2>异能</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
               <article class="cultivation-card unavailable"><h2>职业者</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
               <article class="cultivation-card unavailable"><h2>神秘学</h2><p>暂未制作</p><button class="secondary-button" type="button" disabled>暂未制作</button></article>
             </div>
 
+            <div id="martial-progress" hidden></div>
             <div id="immortal-progress" hidden>
               <div class="cultivation-tabs" role="tablist" aria-label="仙道界面">
                 <button class="cultivation-tab active" data-cultivation-page="realms" type="button" role="tab" aria-selected="true">境界</button>
@@ -380,10 +621,10 @@
                     <summary><span><b>道祖</b><small>时间法则、大道归一、道祖威能、天道同化、界域</small></span></summary>
                     <div class="item-list">
                       <article class="item-row" id="dao-law-unity-ability"><div class="item-content"><h2>大道归一</h2><p>使法则及法则本源结算后的最终法则倍率 ^1.60，不修改法则内部指数。</p></div><div class="purchase-control"><span id="dao-law-unity-preview">解锁后：最终法则倍率 ^1.60</span><small>消耗 1e24 仙灵力</small><button id="unlock-dao-law-unity" class="primary-button" type="button">解锁</button></div></article>
-                      <article class="item-row" id="dao-domain-ability"><div class="item-content"><h2>界域</h2><p>令 L=log10(1+I/R)，以 E=1.35+0.20×log10(1+L) 无上限指数提升灵域J来源本身，再进入J区域及量级软上限。</p></div><div class="purchase-control"><span id="dao-domain-preview">解锁后：灵域来源获得无上限指数</span><small>消耗 3e24 仙灵力</small><button id="unlock-dao-domain" class="primary-button" type="button">解锁</button></div></article>
-                      <article class="item-row" id="dao-power-ability"><div class="item-content"><h2>道祖威能</h2><p>根据当前仙灵力生成独立战力来源，之后正常进入公共战力乘区、战力区域及量级软上限。</p></div><div class="purchase-control"><span id="dao-power-preview">解锁后：生成独立战力来源</span><small>消耗 1e25 仙灵力</small><button id="unlock-dao-power" class="primary-button" type="button">解锁</button></div></article>
+                      <article class="item-row" id="dao-domain-ability"><div class="item-content"><h2>界域</h2><p>根据当前仙灵力提升灵域效果。</p></div><div class="purchase-control"><span id="dao-domain-preview">解锁后：灵域来源获得无上限指数</span><small>消耗 3e24 仙灵力</small><button id="unlock-dao-domain" class="primary-button" type="button">解锁</button></div></article>
+                      <article class="item-row" id="dao-power-ability"><div class="item-content"><h2>道祖威能</h2><p>根据当前仙灵力获取战力。</p></div><div class="purchase-control"><span id="dao-power-preview">解锁后：生成独立战力来源</span><small>消耗 1e25 仙灵力</small><button id="unlock-dao-power" class="primary-button" type="button">解锁</button></div></article>
                       <article class="item-row" id="dao-time-law-ability"><div class="item-content"><h2>时间法则</h2><p>按本次转生实际经过时间，无上限指数提升J、战力、法力与仙灵力获取，并在量级软上限前结算。</p></div><div class="purchase-control"><span id="dao-time-law-preview">解锁后：按本次转生时间提升四类资源</span><small>消耗 3e25 仙灵力</small><button id="unlock-dao-time-law" class="primary-button" type="button">解锁</button></div></article>
-                      <article class="item-row" id="dao-assimilation-ability"><div class="item-content"><h2>天道同化</h2><p>令 L=log10(1+I/R)、Q=1/[1+0.40×log10(1+L)]，逐层弱化所有仍生效的正常量级软上限；不影响挑战及其他特殊软上限。</p></div><div class="purchase-control"><span id="dao-assimilation-preview">解锁后：逐层弱化正常量级软上限</span><small>消耗 1e26 仙灵力</small><button id="unlock-dao-assimilation" class="primary-button" type="button">解锁</button></div></article>
+                      <article class="item-row" id="dao-assimilation-ability"><div class="item-content"><h2>天道同化</h2><p>根据仙灵力逐层弱化所有仍生效的正常量级软上限；不影响挑战及其他特殊软上限。</p></div><div class="purchase-control"><span id="dao-assimilation-preview">解锁后：逐层弱化正常量级软上限</span><small>消耗 1e26 仙灵力</small><button id="unlock-dao-assimilation" class="primary-button" type="button">解锁</button></div></article>
                     </div>
                   </details>
 
@@ -406,35 +647,35 @@
               <article class="item-row" id="tian-ni-pearl-treasure" data-catalog-system="仙道">
                 <div class="item-content">
                   <h2>仙道·天逆珠</h2>
-                  <p>主动吐纳成功时判定一次；周天实际获取法力时每秒判定一次；探寻每累计 1 有效探寻量判定一次。每枚提升法力获取倍率。</p>
+                  <p>成功吐纳、周天有效时间和新增有效探寻量汇入同一进度；达到当前库存需求后获得奖励。每枚提升法力获取。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="tian-ni-pearl-count">数量：0</span>
-                  <small id="tian-ni-pearl-chance">单次判定概率 1.00%</small>
-                  <small id="tian-ni-pearl-effect">法力获取倍率 ×1.00</small>
+                  <small id="tian-ni-pearl-chance">等待计算进度</small>
+                  <small id="tian-ni-pearl-effect">法力获取 ×1.00</small>
                 </div>
               </article>
 
               <article class="item-row" id="mysterious-green-bottle-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content">
                   <h2>仙道·神秘绿瓶</h2>
-                  <p>每累计 1 有效探寻量可能获得，提升普通探寻法力。</p>
+                  <p>按新增有效探寻量积累进度获得，提升普通探寻法力。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="mysterious-green-bottle-count">数量：0</span>
-                  <small id="mysterious-green-bottle-chance">每 1 有效探寻量概率 2.00%</small>
-                  <small id="mysterious-green-bottle-effect">探寻法力获取倍率 ×1.00</small>
+                  <small id="mysterious-green-bottle-chance">等待计算进度</small>
+                  <small id="mysterious-green-bottle-effect">探寻法力获取 ×1.00</small>
                 </div>
               </article>
 
               <article class="item-row" id="fu-bao-treasure" data-catalog-system="仙道" hidden>
                 <div class="item-content">
                   <h2>仙道·符宝</h2>
-                  <p>每累计 1 有效探寻量可能获得；每枚额外提供探寻基础法力的0.2%。</p>
+                  <p>按新增有效探寻量积累进度获得；每枚额外提供探寻基础法力的0.2%。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="fu-bao-count">数量：0</span>
-                  <small id="fu-bao-chance">每 1 有效探寻量概率 2.00%</small>
+                  <small id="fu-bao-chance">等待计算进度</small>
                   <small id="fu-bao-effect">额外法力为探寻基础法力的 0.00%</small>
                 </div>
               </article>
@@ -442,11 +683,11 @@
               <article class="item-row" id="fitness-membership-card-treasure" hidden>
                 <div class="item-content">
                   <h2>健身房会员卡</h2>
-                  <p>每秒通过健身获得 J时可能获得；每枚使健身倍率加法+0.002。</p>
+                  <p>健身实际产生 J 时按有效时间积累进度获得；每枚使健身倍率加法+0.002。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="fitness-membership-card-count">数量：0</span>
-                  <small id="fitness-membership-card-chance">当前每秒概率 0.50%</small>
+                  <small id="fitness-membership-card-chance">等待计算进度</small>
                   <small id="fitness-membership-card-effect">健身倍率加法 +0.000</small>
                 </div>
               </article>
@@ -454,11 +695,11 @@
               <article class="item-row" id="super-lollipop-treasure" hidden>
                 <div class="item-content">
                   <h2>超级棒棒糖</h2>
-                  <p>健身试剂产生J时概率获得，每个使锻炼来源倍率提高2%。</p>
+                  <p>健身实际产生J时积累进度获得，每个使锻炼来源倍率提高2%。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="super-lollipop-count">数量：0</span>
-                  <small id="super-lollipop-chance">每有效秒概率 0.05%</small>
+                  <small id="super-lollipop-chance">等待计算进度</small>
                   <small id="super-lollipop-effect">锻炼来源倍率 ×1.00</small>
                 </div>
               </article>
@@ -466,11 +707,11 @@
               <article class="item-row" id="sky-crystal-treasure" hidden>
                 <div class="item-content">
                   <h2>天晶</h2>
-                  <p>解锁地表成就且打岩正在产生战力时每秒判定；每枚使打岩来源倍率提高5%。</p>
+                  <p>解锁地表成就且打岩实际产生战力时积累进度，打岩生效等级提高进度速率；每枚使打岩来源倍率提高5%。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="sky-crystal-count">数量：0</span>
-                  <small id="sky-crystal-chance">当前每秒概率 0.50%</small>
+                  <small id="sky-crystal-chance">等待计算进度</small>
                   <small id="sky-crystal-effect">打岩来源倍率 ×1.00</small>
                 </div>
               </article>
@@ -478,13 +719,13 @@
               <article class="item-row" id="cosmic-fiber-treasure" hidden>
                 <div class="item-content">
                   <h2>宇宙纤维</h2>
-                  <p>达到超星系团后每秒概率获得，数量越多获取概率越低。每个宇宙纤维强化「银河」挑战奖励。</p>
+                  <p>达到超星系团后按有效秒积累进度，数量越多，下次需求越高。每个宇宙纤维强化「银河」挑战奖励。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="cosmic-fiber-count">数量：0</span>
-                  <small id="cosmic-fiber-base-chance">基础概率 0.30%/秒</small>
-                  <small id="cosmic-fiber-decayed-chance">数量衰减后 0.30%/秒</small>
-                  <small id="cosmic-fiber-final-chance">最终宝物概率 0.30%/秒</small>
+                  <small id="cosmic-fiber-base-chance">等待计算进度</small>
+                  <small id="cosmic-fiber-decayed-chance">等待计算进度</small>
+                  <small id="cosmic-fiber-final-chance">等待计算进度</small>
                   <small id="cosmic-fiber-effect">当前银河视为指数 ^1.100000</small>
                 </div>
               </article>
@@ -492,59 +733,71 @@
               <article class="item-row" id="cosmic-will-treasure" hidden>
                 <div class="item-content">
                   <h2>宇宙意志</h2>
-                  <p>达到宇宙结构后每秒概率获得，持有数量越多，获取概率越低。当前暂无效果。</p>
+                  <p>达到宇宙结构后按有效秒积累进度，持有数量越多，下次需求越高。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="cosmic-will-count">数量：0</span>
-                  <small id="cosmic-will-decayed-chance">数量衰减后 0.50%/秒</small>
-                  <small id="cosmic-will-final-chance">最终宝物概率 0.50%/秒</small>
-                  <small id="cosmic-will-effect">当前暂无效果</small>
+                  <small id="cosmic-will-decayed-chance">等待计算进度</small>
+                  <small id="cosmic-will-final-chance">等待计算进度</small>
                 </div>
               </article>
 
               <article class="item-row" id="xu-tian-ding-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·虚天鼎</h2><p>每累计 1 有效探寻量可能获得；每枚使天材地宝倍率提高0.5%。</p></div>
-                <div class="purchase-control"><span id="xu-tian-ding-count">数量：0</span><small id="xu-tian-ding-chance">每 1 有效探寻量概率 0.02%</small><small id="xu-tian-ding-effect">天材地宝倍率 ×1.000</small></div>
+                <div class="item-content"><h2>仙道·虚天鼎</h2><p>按新增有效探寻量积累进度获得；每枚使天材地宝倍率提高0.5%。</p></div>
+                <div class="purchase-control"><span id="xu-tian-ding-count">数量：0</span><small id="xu-tian-ding-chance">等待计算进度</small><small id="xu-tian-ding-effect">天材地宝倍率 ×1.000</small></div>
               </article>
 
               <article class="item-row" id="ba-ling-chi-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·八灵尺</h2><p>主动吐纳成功时判定一次；周天实际获取法力时每累计1秒判定一次。每枚使健身倍率提高0.2%。</p></div>
-                <div class="purchase-control"><span id="ba-ling-chi-count">数量：0</span><small id="ba-ling-chi-chance">主动吐纳成功时/周天每秒判定概率 0.20%</small><small id="ba-ling-chi-effect">健身倍率 ×1.000</small></div>
+                <div class="item-content"><h2>仙道·八灵尺</h2><p>成功吐纳和周天有效时间汇入同一进度，达到需求获得奖励。每枚使健身倍率提高0.2%。</p></div>
+                <div class="purchase-control"><span id="ba-ling-chi-count">数量：0</span><small id="ba-ling-chi-chance">等待计算进度</small><small id="ba-ling-chi-effect">健身倍率 ×1.000</small></div>
               </article>
 
               <article class="item-row" id="wan-yao-fan-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·万妖幡</h2><p>每累计 1 有效探寻量可能获得；每枚使法宝独立来源倍率提高0.3%。</p></div>
-                <div class="purchase-control"><span id="wan-yao-fan-count">数量：0</span><small id="wan-yao-fan-chance">每 1 有效探寻量概率 0.01%</small><small id="wan-yao-fan-effect">法宝来源倍率 ×1.000</small></div>
+                <div class="item-content"><h2>仙道·万妖幡</h2><p>按新增有效探寻量积累进度获得；每枚使法宝独立来源倍率提高0.3%。</p></div>
+                <div class="purchase-control"><span id="wan-yao-fan-count">数量：0</span><small id="wan-yao-fan-chance">等待计算进度</small><small id="wan-yao-fan-effect">法宝来源倍率 ×1.000</small></div>
               </article>
 
               <article class="item-row" id="phantom-heaven-mirror-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·幻天镜</h2><p>每累计 1 有效探寻量可能获得；每枚使强化小天劫负荷门槛翻倍。</p></div>
-                <div class="purchase-control"><span id="phantom-heaven-mirror-count">数量：0</span><small id="phantom-heaven-mirror-chance">每 1 有效探寻量概率 5e-10%</small><small id="phantom-heaven-mirror-effect">天劫负荷门槛 ×1</small></div>
+                <div class="item-content"><h2>仙道·幻天镜</h2><p>按新增有效探寻量积累进度获得；每枚使强化小天劫负荷门槛翻倍。</p></div>
+                <div class="purchase-control"><span id="phantom-heaven-mirror-count">数量：0</span><small id="phantom-heaven-mirror-chance">等待计算进度</small><small id="phantom-heaven-mirror-effect">天劫负荷门槛 ×1</small></div>
               </article>
 
               <article class="item-row" id="mystic-heaven-sacred-tree-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·玄天圣树</h2><p>每累计 1 有效探寻量可能获得；每枚使天材地宝等级上限 +2。</p></div>
-                <div class="purchase-control"><span id="mystic-heaven-sacred-tree-count">数量：0</span><small id="mystic-heaven-sacred-tree-chance">每 1 有效探寻量概率 5e-12%</small><small id="mystic-heaven-sacred-tree-effect">天材地宝上限 +0</small></div>
+                <div class="item-content"><h2>仙道·玄天圣树</h2><p>按新增有效探寻量积累进度获得；每枚使天材地宝等级上限 +2。</p></div>
+                <div class="purchase-control"><span id="mystic-heaven-sacred-tree-count">数量：0</span><small id="mystic-heaven-sacred-tree-chance">等待计算进度</small><small id="mystic-heaven-sacred-tree-effect">天材地宝上限 +0</small></div>
               </article>
 
               <article class="item-row" id="mystic-heaven-spirit-slaying-sword-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·玄天斩灵剑</h2><p>每累计 1 有效探寻量可能获得；法宝来源指数 = 1 + 0.23 × log10(1 + 数量/20)。</p></div>
-                <div class="purchase-control"><span id="mystic-heaven-spirit-slaying-sword-count">数量：0</span><small id="mystic-heaven-spirit-slaying-sword-chance">每 1 有效探寻量概率 1e-10%</small><small id="mystic-heaven-spirit-slaying-sword-effect">法宝来源 ^1.000</small></div>
+                <div class="item-content"><h2>仙道·玄天斩灵剑</h2><p>按新增有效探寻量积累进度获得；法宝来源指数 = 1 + 0.23 × log10(1 + 数量/20)。</p></div>
+                <div class="purchase-control"><span id="mystic-heaven-spirit-slaying-sword-count">数量：0</span><small id="mystic-heaven-spirit-slaying-sword-chance">等待计算进度</small><small id="mystic-heaven-spirit-slaying-sword-effect">法宝来源 ^1.000</small></div>
               </article>
 
               <article class="item-row" id="five-elements-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·五行至宝</h2><p>解锁对应能力后，每累计1秒实际获取仙灵力的时间判定一次。</p></div>
-                <div class="purchase-control"><span id="five-elements-treasure-count">数量：0</span><small id="five-elements-treasure-chance">每有效秒概率 2.00%</small><small id="five-elements-treasure-effect">实际仙灵力倍率 ×1.000</small></div>
+                <div class="item-content"><h2>仙道·五行至宝</h2><p>解锁对应能力后，实际获取仙灵力时持续积累进度，达到需求获得奖励。</p></div>
+                <div class="purchase-control"><span id="five-elements-treasure-count">数量：0</span><small id="five-elements-treasure-chance">等待计算进度</small><small id="five-elements-treasure-effect">实际仙灵力倍率 ×1.000</small></div>
               </article>
 
               <article class="item-row" id="immortal-crystal-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙晶</h2><p>达成仙道成就“登仙”后，每累计1秒实际获取仙灵力的时间判定一次。</p></div>
-                <div class="purchase-control"><span id="immortal-crystal-count">数量：0</span><small id="immortal-crystal-chance">每有效秒概率 5.00%</small><small id="immortal-crystal-effect">仙灵力倍率 ×1.000；下一枚 +0.001000</small></div>
+                <div class="item-content"><h2>仙晶</h2><p>达成仙道成就“登仙”后，实际获取仙灵力时持续积累进度，达到需求获得奖励。</p></div>
+                <div class="purchase-control"><span id="immortal-crystal-count">数量：0</span><small id="immortal-crystal-chance">等待计算进度</small><small id="immortal-crystal-effect">仙灵力倍率 ×1.000；下一枚 +0.001000</small></div>
               </article>
 
+              <article class="item-row" id="yuan-crystal-treasure" data-catalog-system="仙道" hidden>
+                <div class="item-content"><h2>烙印·元晶</h2><p>达成仙道成就“元”后，实际获取仙力时持续积累进度，达到需求获得奖励。</p></div>
+                <div class="purchase-control"><span id="yuan-crystal-count">数量：0</span><small id="yuan-crystal-chance">等待计算进度</small><small id="yuan-crystal-effect">元力倍率 ×1.000</small></div>
+              </article>
+
+              <article class="item-row" id="emperor-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·帝经</h2><p>四极成就解锁；按实际获得战力独立累计进度，需求1e18×1000^n；武道战力独立来源×(1+n)^0.4。</p></div><div class="purchase-control"><span id="emperor-imprint-count">数量：0</span><small id="emperor-imprint-chance">等待计算进度</small><small id="emperor-imprint-effect"></small></div></article>
+              <article class="item-row" id="sacred-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·圣体</h2><p>四极成就解锁；按实际获得体独立累计进度，需求1e6×10^n；体获取×(1+n)^0.25。</p></div><div class="purchase-control"><span id="sacred-body-imprint-count">数量：0</span><small id="sacred-body-imprint-chance">等待计算进度</small><small id="sacred-body-imprint-effect"></small></div></article>
+              <article class="item-row" id="god-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·神王体</h2><p>四极成就解锁；按实际获得体独立累计进度，需求1e6×10^n；气获取×(1+n)^0.25。</p></div><div class="purchase-control"><span id="god-body-imprint-count">数量：0</span><small id="god-body-imprint-chance">等待计算进度</small><small id="god-body-imprint-effect"></small></div></article>
+              <article class="item-row" id="source-stone-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·源石</h2><p>四极成就解锁；按实际获得J独立累计进度，需求1e19×1000^n；武道J独立来源×(1+n)^0.4。</p></div><div class="purchase-control"><span id="source-stone-imprint-count">数量：0</span><small id="source-stone-imprint-chance">等待计算进度</small><small id="source-stone-imprint-effect"></small></div></article>
+              <article class="item-row" id="law-imprint-treasure" data-catalog-system="武道" hidden>
+                <div class="item-content"><h2>烙印·法则</h2><p>源能法则成就解锁；实际获得气、体合计积累进度，第n枚需求为100000×2^n，增强基因源能倍率。</p></div>
+                <div class="purchase-control"><span id="law-imprint-count">数量：0</span><small id="law-imprint-chance">等待计算进度</small><small id="law-imprint-effect">基因源能倍率额外 ×1</small></div>
+              </article>
               <article class="item-row" id="five-spirit-stone-treasure" hidden>
-                <div class="item-content"><h2>五灵石</h2><p>极意实际产生战力时，每累计1秒有效时间判定一次；数量永久保留，并提供独立 J 与战力来源。</p></div>
-                <div class="purchase-control"><span id="five-spirit-stone-count">数量：0</span><small id="five-spirit-stone-chance">每有效秒概率 0.05%</small><small id="five-spirit-stone-effect">独立 J +0/秒；独立战力 +0/秒</small></div>
+                <div class="item-content"><h2>五灵石</h2><p>极意实际产生战力时，按有效时间持续积累进度，达到需求获得奖励；数量永久保留，并提供独立 J 与战力来源。</p></div>
+                <div class="purchase-control"><span id="five-spirit-stone-count">数量：0</span><small id="five-spirit-stone-chance">等待计算进度</small><small id="five-spirit-stone-effect">独立 J +0/秒；独立战力 +0/秒</small></div>
               </article>
             </div>
           </section>
@@ -558,7 +811,9 @@
               <p>开启挑战视为一次新转生：重置行动、强化、体系进度及本轮计时；成功或退出只解除限制，不会再次重置。已全部完成的挑战可重复游玩，但不再获得完成奖励。</p>
             </div>
 
+            <button id="toggle-challenge-filter" class="secondary-button" type="button" aria-pressed="false">隐藏已完成挑战</button>
             <p class="challenge-active-state" id="challenge-active-state">当前未进行挑战</p>
+            <button id="exit-hidden-challenge" class="secondary-button" type="button" hidden>退出当前挑战</button>
             <div id="challenge-list">
               <article class="item-row" id="innate-deficiency-challenge" data-challenge-key="innateDeficiency">
                 <div class="item-content">
@@ -668,12 +923,12 @@
               </article>
 
               <article class="item-row" id="sever-self-corpse-challenge" data-challenge-key="severSelfCorpse" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效，仙灵力受到 E=1/[1+0.12×log10(1+I/1e16)] 的额外动态指数；完成斩善尸后开放。</p></div>
+                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效，仙灵力受到自身相关的指数削弱。</p></div>
                 <div class="purchase-control"><span id="sever-self-corpse-progress">完成：0/1次</span><small id="sever-self-corpse-limit">限制：法则与法则本源失效；仙灵力额外动态压制</small><small id="sever-self-corpse-target">目标：重新达到大罗</small><small id="sever-self-corpse-reward">奖励：永久取得突破道祖资格</small><button id="toggle-sever-self-corpse" class="primary-button" type="button">开启挑战</button></div>
               </article>
 
               <article class="item-row" id="qi-refining-hundred-thousand-years-challenge" data-challenge-key="qiRefiningHundredThousandYears" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>炼气十万年</h2><p>放弃筑基及以上境界，只依靠无限炼气层数强化法力、法力J、法力战力并逐层弱化正常量级软上限。</p></div>
+                <div class="item-content"><h2>炼气十万年</h2><p>放弃筑基及以上境界；法力达到层数要求即可突破，不消耗法力。炼气层数强化法力、法力J、法力战力并逐层弱化正常量级软上限。退出时记录历史最高层并提升永久吐纳法力；10万层只记录挑战完成。</p></div>
                 <div class="purchase-control">
                   <span id="qi-refining-hundred-thousand-years-progress">最高：炼气1层</span>
                   <small id="qi-refining-hundred-thousand-years-limit">本轮：炼气1层</small>
@@ -684,13 +939,13 @@
               <article class="item-row" id="solar-power-challenge" data-challenge-key="solarPower" hidden>
                 <div class="item-content">
                   <h2>太阳之力</h2>
-                  <p>真恒星后解锁。J与战力根据对方在爆星至恒星之间的进度，相互压制最终获取指数。同时受到福、禄、寿初级挑战限制。</p>
+                  <p>真恒星后解锁。对方资源越高，自身最终获取指数越低；该限制全局生效，并在对方达到恒星时降至 ^0.72。同时受到福、禄、寿初级挑战限制。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="solar-power-progress">完成：0/1次</span>
-                  <small id="solar-power-limit">限制：双方最终获取指数最低 ^0.72</small>
+                  <small id="solar-power-limit">限制：全局生效，对方达到恒星时自身指数降至 ^0.72</small>
                   <small id="solar-power-target">目标：J与战力均达到恒星</small>
-                  <small id="solar-power-reward">奖励·阴阳相生：根据对方资源永久提高获取指数</small>
+                  <small id="solar-power-reward">奖励·阴阳相生：根据对方当前资源永久提高获取指数，从 ^1.04 起步，对方达到恒星时为 ^1.12，之后缓慢趋近 ^1.20</small>
                   <button id="toggle-solar-power" class="primary-button" type="button">开启挑战</button>
                 </div>
               </article>
@@ -785,8 +1040,8 @@
               </article>
               <article class="statistics-card statistics-time-card">
                 <span>游戏时间</span>
-                <strong id="statistics-game-time">0小时</strong>
-                <small>现实累计 <b id="statistics-real-time">0秒</b>；现实1秒等于游戏内1小时，按30日/月、12月/年换算。</small>
+                <strong id="statistics-game-time">0分钟</strong>
+                <small>现实累计 <b id="statistics-real-time">0秒</b>；现实1秒等于游戏内1分钟，按30日/月、12月/年换算。</small>
               </article>
             </div>
             </div>
@@ -867,10 +1122,14 @@
         </section>
 
         <section class="settings-row">
-          <div><h3>存档</h3><p>立即保存当前进度和页面风格。</p></div>
-          <button id="save-game" class="secondary-button" type="button">保存</button>
+          <div><h3>自动化管理</h3><p>离线资源与宝物进度按离开时的速率结算，宝物正常获取，新增宝物的效果在返回后生效。离线不执行自动购买、升级、行动及突破。</p></div>
+          <button id="open-automation-manager" class="secondary-button" type="button">打开</button>
         </section>
 
+        <section class="settings-row">
+          <div><h3>自动关闭离线弹窗</h3><p>开启后，结算完成直接返回游戏，不显示收益汇总小窗；关闭后保留汇总，等待确认。暂停或异常时仍显示窗口。</p></div>
+          <button id="auto-close-offline-toggle" class="secondary-button settings-toggle" type="button" role="switch" aria-label="自动关闭离线弹窗" aria-checked="true">已开启</button>
+        </section>
         <section class="settings-row">
           <div><h3>导出</h3><p>将当前存档导出为文件。</p></div>
           <button id="export-save" class="secondary-button" type="button">导出</button>
@@ -882,9 +1141,106 @@
           <input id="import-file" type="file" accept="application/json,.json" hidden />
         </section>
 
+        <section id="native-backup-settings" class="settings-recovery native-backup-settings" hidden>
+          <h3>本地自动备份</h3>
+          <p>选择手机中的文件夹保存独立备份。应用启动或回到前台时，到期会补一份；不会在关闭期间后台运行。</p>
+          <p id="backup-directory-label">尚未选择目录</p>
+          <div class="backup-controls">
+            <button id="backup-directory" class="secondary-button" type="button">选择备份目录</button>
+            <button id="backup-toggle" class="secondary-button settings-toggle" type="button" role="switch" aria-checked="false" disabled>已关闭</button>
+            <label>备份间隔 <select id="backup-interval" aria-label="备份间隔"><option value="6">6小时</option><option value="12">12小时</option><option value="24">24小时</option></select></label>
+            <button id="backup-now" class="secondary-button" type="button" disabled>立即备份</button>
+          </div>
+          <p id="backup-last">尚无成功备份</p><p id="backup-status" role="status" aria-live="polite"></p>
+        </section>
+
+        <details id="save-recovery-tools" class="settings-recovery">
+          <summary>存档恢复与故障处理</summary>
+          <section class="settings-row">
+            <div><h3>恢复导入前进度</h3><p>恢复最近一次导入前保留的进度。</p></div>
+            <button id="restore-save-backup" class="secondary-button" type="button">恢复进度</button>
+          </section>
+          <section class="settings-row">
+            <div><h3>导出原始存档（排查故障）</h3><p>原样导出浏览器保存的数据；读档失败时可用于备份与排查。</p></div>
+            <button id="export-protected-save" class="secondary-button" type="button">导出原始存档</button>
+          </section>
+        </details>
         <section class="settings-row danger-row">
           <div><h3>重置</h3><p>清空全部游戏进度和个性化设置。</p></div>
           <button id="reset-game" class="danger-button" type="button">重置</button>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="automation-dialog" class="settings-dialog automation-dialog" aria-labelledby="automation-dialog-title">
+      <div class="settings-header">
+        <div>
+          <p class="section-label">设置</p>
+          <h2 id="automation-dialog-title">自动化管理</h2>
+        </div>
+        <button id="close-automation-manager" type="button" aria-label="关闭自动化管理">×</button>
+      </div>
+
+      <div class="automation-content">
+        <p class="offline-progress-detail">离线资源与宝物进度按离开时的速率结算，宝物正常获取，新增宝物的效果在返回后生效。离线不执行自动购买、升级、行动及突破。</p>
+        <div id="automation-groups" class="automation-groups"></div>
+        <p id="automation-empty" class="automation-empty" hidden>尚未解锁自动化功能。</p>
+      </div>
+    </dialog>
+
+    <aside id="catch-up-notice" role="status" hidden>
+      <span id="catch-up-notice-text"></span>
+      <button id="show-paused-catch-up" type="button" hidden>查看暂停／重试追赶</button>
+      <button id="convert-quiet-catch-up" type="button">放弃剩余结算，转为 2 倍在线收益</button>
+    </aside>
+    <dialog id="offline-progress-dialog" class="settings-dialog offline-progress-dialog" aria-labelledby="offline-progress-title">
+      <div class="settings-header">
+        <div>
+          <p class="section-label">进度恢复</p>
+          <h2 id="offline-progress-title">正在恢复游戏进度</h2>
+        </div>
+      </div>
+
+      <div class="offline-progress-content">
+        <p id="offline-progress-intro" class="offline-progress-detail">正在恢复游戏进度。</p>
+        <div class="offline-progress-copy">
+          <strong id="offline-progress-percent">0%</strong>
+          <span id="offline-progress-remaining">剩余 0秒</span>
+        </div>
+        <progress id="offline-progress-bar" max="1" value="0" aria-label="本次进度恢复"></progress>
+        <p class="offline-progress-times">
+          <span id="offline-progress-total-label">本次恢复时间</span> <span id="offline-progress-original-total">0秒</span>
+          <span aria-hidden="true">·</span>
+          已处理 <span id="offline-progress-original-processed">0秒</span>
+          <span aria-hidden="true">·</span>
+          <span id="offline-progress-pending-label">待恢复</span> <span id="offline-progress-original-pending">0秒</span>
+        </p>
+        <p id="offline-progress-wall-time" class="offline-progress-detail"></p>
+        <p id="offline-progress-detail" class="offline-progress-detail" role="status" aria-live="polite">正在恢复游戏进度，请稍候。</p>
+
+        <section id="offline-pause-panel" class="offline-result-panel offline-pause-panel" hidden>
+          <h3 id="offline-pause-title">游戏进度恢复已暂停</h3>
+          <p id="offline-pause-reason"></p>
+          <div class="offline-progress-actions">
+            <button id="retry-offline-progress" class="secondary-button" type="button">重试结算</button>
+            <button id="offline-open-settings" class="secondary-button" type="button">存档与设置</button>
+            <button id="dismiss-paused-catch-up" class="secondary-button" type="button">关闭提示，保持暂停</button>
+          </div>
+        </section>
+
+        <div id="offline-abandon-actions" class="offline-progress-actions" hidden>
+          <button id="convert-offline-progress" type="button">放弃剩余结算，转为 2 倍在线收益</button>
+          <p id="offline-conversion-help">仅将未处理的离线时间转为在线补偿额度，已结算收益保留。六类自动资源收益两倍，游戏时钟、自动操作频率和宝物进度正常。15小时额度需在线推进15小时，收益按回归后的状态计算。</p>
+          <button id="pause-offline-progress" class="secondary-button" type="button">暂停并保存</button>
+          <button id="abandon-offline-progress" class="danger-button" type="button">放弃剩余结算</button>
+        </div>
+
+        <section id="offline-complete-panel" class="offline-result-panel offline-complete-panel" hidden>
+          <h3 id="offline-complete-title">游戏进度恢复结果</h3>
+          <p id="offline-progress-summary"></p>
+          <div class="offline-progress-actions">
+            <button id="continue-after-offline" class="secondary-button" type="button">继续游戏</button>
+          </div>
         </section>
       </div>
     </dialog>
@@ -897,38 +1253,99 @@
       <span>量级突破</span>
       <strong id="scale-notice-name"></strong>
     </div>
-    <div id="notice" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=0.1.4.6-dev"></script>
-    <script src="js/vendor/break_eternity.min.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/namespace.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/bignum.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/config.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/registry.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/formulas.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/penalties.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/integration.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/runtime.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/state.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/save.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/resources.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/effects.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/sources.js?v=0.1.4.6-dev"></script>
-    <script src="js/core/reset.js?v=0.1.4.6-dev"></script>
-    <script src="js/power/scale-logic.js?v=0.1.4.6-dev"></script>
-    <script src="js/power/scale.js?v=0.1.4.6-dev"></script>
-    <script src="js/cultivation/immortal-logic.js?v=0.1.4.6-dev"></script>
-    <script src="js/cultivation/immortal.js?v=0.1.4.6-dev"></script>
-    <script src="js/meta/achievements.js?v=0.1.4.6-dev"></script>
-    <script src="js/meta/treasures.js?v=0.1.4.6-dev"></script>
-    <script src="js/meta/challenges.js?v=0.1.4.6-dev"></script>
-    <script src="js/simulation/automation.js?v=0.1.4.6-dev"></script>
-    <script src="js/simulation/step.js?v=0.1.4.6-dev"></script>
-    <script src="js/simulation/treasure-events.js?v=0.1.4.6-dev"></script>
-    <script src="js/simulation/projection.js?v=0.1.4.6-dev"></script>
-    <script src="js/simulation/offline.js?v=0.1.4.6-dev"></script>
-    <script src="js/simulation/loop.js?v=0.1.4.6-dev"></script>
-    <script src="js/ui/cards.js?v=0.1.4.6-dev"></script>
-    <script src="js/ui/app.js?v=0.1.4.6-dev"></script>
-    <script src="game.js?v=0.1.4.6-dev"></script>
+    <div id="notice" popover="manual" role="status" aria-live="polite"></div>
+    <script src="js/core/build-config.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/vendor/break_eternity.min.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/namespace.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/bignum.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/closed-form-batch.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/stable-product-quotient.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/finite-progress.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/signed-ledger.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/rank.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/rank-math.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/rank-certified-math.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/rank-projection.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/rank-exact.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/rank-g-cost.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/rank-budget.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/rank-basis.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/rank-settlement.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/amount-products.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/amount-ledger.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/amount.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/amount-formulas.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/treasure-rules.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/infinity-config.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/infinity.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/martial-config.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/config.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/big-numbers.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/closed-rank-cost.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/closed-rank-settlement.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/registry.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/formulas.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/penalties.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/integration.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/runtime.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/xiuzhen.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/probability.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/compensation.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/martial-amount.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/martial.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/high-multiverse.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/amount-migration.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+  <script src="js/core/state.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/save.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/resources.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/resources.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/big-number-resources.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/effects.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/sources.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/reset.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/power/scale-logic.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/power/scale.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/immortal-logic.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/immortal.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/martial-system.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/achievements.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/fast-forward.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/treasure-ledger.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/treasures.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/closed-treasures.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/exploration-progress.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/cultivation/closed-natural.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/core/closed-batch-migration.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/meta/challenges.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/automation.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/profiler.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/resource-groups.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/fixed-sources.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/predictor-groups.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/strong-feedback-checkpoint.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/legacy-settlement-checkpoints.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/checkpoint-strategy.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/fixed-segment.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/step.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/offline.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/worker-protocol.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/worker-client.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/offline-worker-bundle.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/offline-worker.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/simulation/loop.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/source-preview.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/format.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/cards.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/big-numbers.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/xiuzhen.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/treasures.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/infinity.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/martial.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/dialog.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/vendor/qrcode-generator.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/app-distribution.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/native-platform.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="js/ui/app.js?v=dev-0.2.0.1-20261107-release-r1"></script>
+    <script src="game.js?v=dev-0.2.0.1-20261107-release-r1"></script>
   </body>
 </html>

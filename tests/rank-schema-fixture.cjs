@@ -1,0 +1,12 @@
+"use strict";
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),root=path.resolve(__dirname,'..');
+const extras=['rank','rank-math','rank-certified-math','rank-projection','rank-exact','rank-g-cost','rank-budget','rank-basis'].map(n=>'js/core/'+n+'.js').concat('js/meta/rank-settlement.js');
+function bundle(){const meta={window:{WIS:{Simulation:{}}}};vm.runInNewContext(fs.readFileSync(path.join(root,'js/simulation/offline-worker-bundle.js'),'utf8'),meta);return meta.window.WIS.Simulation.OfflineWorkerBundle;}
+function setupFuture({transformSource=(file,source)=>source,scripts,targetSchema=74}={}){
+ const baseFiles=scripts||bundle().scripts,files=targetSchema===73?baseFiles.filter(f=>!extras.includes(f)&&! /\/(?:amount(?:-[a-z]+)?|martial-amount)\.js$/.test(f)):baseFiles,assembled=files.includes(extras[0]),storage=new Map(),c={console,performance,setTimeout,clearTimeout,setInterval:(...a)=>setInterval(...a).unref(),clearInterval,postMessage(){},localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)}};c.self=c;vm.createContext(c);vm.runInContext('self.window=self;self.document={hidden:false}',c);
+ const run=file=>{let source=fs.readFileSync(path.join(root,file),'utf8');if(file==='js/core/config.js'){if(!/saveVersion: (73|74|75)/.test(source))throw Error('Fixture expected schema73,74 or75');source=source.replace(/saveVersion: (73|74|75)/,'saveVersion: '+targetSchema);}vm.runInContext(transformSource(file,source),c,{filename:file});};
+ for(const file of files){run(file);if(file==='js/core/signed-ledger.js'&&!assembled&&targetSchema===74)for(const extra of extras)run(extra);}
+ return {W:c.WIS,context:c,storage};
+}
+function workerSource(targetSchema=74){const base=bundle();let source=base.source.slice(0,base.source.lastIndexOf('\n// js/simulation/offline-worker-entry.js')).replace(/saveVersion: (73|74|75)/,'saveVersion: '+targetSchema);if(!/saveVersion: (73|74|75)/.test(source))throw Error('Unexpected assembly');if(base.scripts.includes(extras[0]))return source;const marker='\n// js/meta/treasure-rules.js';if(!source.includes(marker))throw Error('Expected marker');return source.replace('saveVersion: 73','saveVersion: 74').replace(marker,'\n'+extras.map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n')+marker);}
+module.exports={setupFuture,setupGuarded73:()=>setupFuture({targetSchema:73}).W,workerSource,root,extras};

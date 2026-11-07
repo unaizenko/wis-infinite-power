@@ -220,8 +220,9 @@
             if(onlineWork&&(onlineWork.part!==part||onlineWork.generation!==schedulerGeneration||!onlineWork.job.checksInputOnAdvance&&onlineWork.job.valid?.()===false)){cancelOnlineWork();break;}
             try {
               if(!onlineWork){onlineWork={part,generation:schedulerGeneration,seconds,job:context.prepareOnlineWork(seconds,{source:'online',compensationEligible:part.compensationEligible,clockRatio:1/part.speed,logicalTickRemaining:cadence,atomicCadence:true})};break;}
-              const owner=onlineWork,next=owner.job.advance(Math.min(sliceStartedAt+onlineSliceBudgetMs,monotonicNow()+3));
-              if(!next.done){if(monotonicNow()-sliceStartedAt<onlineSliceBudgetMs)continue;break;}
+              // One resume per candidate and host task; give the browser a turn before retrying.
+              const owner=onlineWork,next=owner.job.advance(sliceStartedAt+onlineSliceBudgetMs);
+              if(!next.done)break;
               result=context.advanceGameStep(owner.seconds,true,{foreground:true,preparedOnlineSegment:next.token});onlineWork=null;
             } catch(error){
               cancelOnlineWork();

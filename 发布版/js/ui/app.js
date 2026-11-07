@@ -1948,13 +1948,14 @@
     if (previewBacklogSeen && !active) {
       // Retain displayed values, but request one final fresh snapshot as soon
       // as online debt leaves the throttled range (also covers an empty queue).
-      markExplorationPreviewDirty();
+      markExplorationPreviewDirty(true,false);
       const training = heavyPreviewCache.get(rawById('conversion-preview'));
       if (training) training.at = -Infinity;
       dirtyPages.add(activePage);
     }
     previewBacklogSeen = active;
   }
+  const explicitPreviewRequests = new Set();
   const explorationPreviews = new Map();
   const explorationPreviewWorks = new Map();
   const explorationPreviewAttempts = new Map();
@@ -1992,8 +1993,9 @@
     "daoAssimilationUnlocked", "daoDomainUnlocked", "immortalApertureLevel", "lawUnlocked"
   ];
   let explorationStructureState = null, explorationStructureKey = null;
-  function markExplorationPreviewDirty(resetRetry = true) {
+  function markExplorationPreviewDirty(resetRetry = true, explicit = resetRetry) {
     cancelExplorationPreviewWorks(resetRetry);
+    if(explicit)for(const key of ['breathing','tribulation','action','training'])explicitPreviewRequests.add(key);
     for (const snapshot of explorationPreviews.values()) snapshot.dirty = true;
   }
   function cancelExplorationPreviewWorks(resetRetry = true) {
@@ -2009,11 +2011,14 @@
     runtime.call(!urgent && previewBacklogActive() ? 'render' : 'renderImmediately',WIS.Core.Amount?.enabled()?undefined:activePage);
   }
   function startExplorationPreviewWork(key,element) {
+    const first=!explorationPreviews.has(key),explicit=explicitPreviewRequests.has(key);
+    if(first&&!explicit&&previewBacklogActive())return;
+    explicitPreviewRequests.delete(key);
     const last=explorationPreviewAttempts.get(key);
     const urgent=!explorationPreviews.has(key)||!last||last.urgent===true;
     if(WIS.Core.Amount?.enabled())explorationPreviewAttempts.set(key,{at:performance.now(),urgent});
     const original=runtime.getState(),snapshot=WIS.Core.State.cloneForSimulation(original);
-    const entry={original,snapshot,urgent,retry:explorationPreviewAttempts.get(key),generation:explorationPreviewGeneration,scope:WIS.Power.ScaleLogic.createDeferredDynamicRateScope(),startedAt:Date.now()};
+    const entry={original,snapshot,urgent,first,explicit,retry:explorationPreviewAttempts.get(key),generation:explorationPreviewGeneration,scope:WIS.Power.ScaleLogic.createDeferredDynamicRateScope(),startedAt:Date.now()};
     explorationPreviewWorks.set(key,entry);
     if(key==='breathing'&&WIS.Core.Amount?.enabled()){entry.detailEffects=WIS.Core.Effects.createFrozenScope(snapshot);entry.detailWork=WIS.Core.CertifiedRankMath.createWork(()=>runtime.withState(snapshot,()=>entry.detailEffects.run(()=>joulesForNextBaseMana())));}
     const cancel=()=>{entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
@@ -2034,6 +2039,8 @@
     }
     const run=()=>{
       if(!current()){cancel();if(WIS.Core.Amount?.enabled())window.setTimeout(()=>{if(explorationPreviewAttempts.get(key)===entry.retry&&!document.hidden&&previewVisible(element))publishPreview({urgent:entry.urgent});},previewRefreshDelay(entry.urgent));return;}
+      // Backlog can start after the first-paint callback was queued.
+      if(entry.first&&!entry.explicit&&previewBacklogActive()){cancel();return;}
       try {
         if(entry.detailWork){const detail=entry.detailWork.advance({deadline:performance.now()+3,maximumOperations:256});if(!detail.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}}
         if(entry.previewWork){
@@ -2066,7 +2073,7 @@
       explorationStructureState = current; explorationStructureKey = key;
       // Every new root still retires old work. Only explicit/discrete changes
       // reset the retry interval; ordinary commits must not restart it per frame.
-      markExplorationPreviewDirty(resetRetry);
+      markExplorationPreviewDirty(resetRetry,false);
     }
   }
   function explorationPreviewSnapshot(key, element) {
@@ -2078,6 +2085,7 @@
     if(key==="breathing"&&snapshot&&Date.now()-snapshot.calculatedAt>=(snapshot.error?5000:previewRefreshDelay()))snapshot.dirty=true;
     if(explorationPreviewWorks.has(key))return snapshot||null;
     if (explorationPreviewRefreshPending) return snapshot || null;
+    if(!snapshot&&!explicitPreviewRequests.has(key)&&previewBacklogActive())return null;
     if (!snapshot && firstExplorationPreviewReady !== key) {
       requestFirstExplorationPreview(key, element);
       return null;
@@ -2154,42 +2162,107 @@
     if(resetRetry)sourcePreviewAttempts=new WeakMap();
     for(const entry of sourcePreviewWorks.values()){entry.work?.cancel();entry.effects?.cancel();}sourcePreviewWorks.clear();
   }
-  function scheduleTrainingPreview(element,sourceIds,options) {
-    if(sourcePreviewWorks.has(element))return;
-    const last=sourcePreviewAttempts.get(element),elapsed=performance.now()-last?.at;
-    if(last!==undefined&&elapsed>=0&&elapsed<previewRefreshDelay(last.urgent))return;
-    const urgent=!heavyPreviewCache.has(element)||!last||last.urgent===true;
-    const retry={at:performance.now(),urgent};sourcePreviewAttempts.set(element,retry);
-    const original=runtime.getState(),revision=structureRevision,entry={original,revision,urgent,work:null,effects:null};sourcePreviewWorks.set(element,entry);
-    if(!heavyPreviewCache.has(element))setTextIfChanged(element,'正在计算收益…');
-    const current=()=>sourcePreviewWorks.get(element)===entry&&runtime.getState()===original&&structureRevision===revision&&!document.hidden&&!importTransaction&&previewVisible(element);
-    const cancel=()=>{entry.work?.cancel();entry.effects?.cancel();if(sourcePreviewWorks.get(element)===entry)sourcePreviewWorks.delete(element);};
-    const run=()=>{
-      if(!current()){cancel();window.setTimeout(()=>{if(sourcePreviewAttempts.get(element)===retry&&!document.hidden&&!importTransaction&&previewVisible(element))publishPreview({urgent:entry.urgent});},previewRefreshDelay(entry.urgent));return;}
-      try{
-        if(!entry.work){const snapshot=WIS.Core.State.cloneForSimulation(original);entry.effects=WIS.Core.Effects.createFrozenScope(snapshot);entry.work=WIS.Core.CertifiedRankMath.createWork(()=>runtime.withState(snapshot,()=>entry.effects.run(()=>{const C=WIS.Core.CertifiedRankMath,records=C.task('training-source-records',function*(){return yield ()=>WIS.UI.SourcePreview.query(Array.isArray(sourceIds)?sourceIds:[sourceIds],snapshot,options);}),nextPowerJ=C.task('training-next-power-cost',function*(){return yield ()=>joulesForNextBasePower();});return {records,nextPowerJ};})),{isCurrent:current});}
-        const next=entry.work.advance({deadline:performance.now()+3,maximumOperations:256});
-        if(!next.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}
-        const {records,nextPowerJ}=entry.work.result();if(!current()){cancel();return;}
-        setTextIfChanged(element,WIS.UI.SourcePreview.text(records,format));rememberPreview(element,records);heavyPreviewCache.get(element).nextPowerJ=nextPowerJ;retry.urgent=false;cancel();publishPreview({urgent:entry.urgent});
-      }catch(error){if(current()){setTextIfChanged(element,'收益预览暂不可用：'+error.message);rememberPreview(element,[{final:ZERO}]);retry.urgent=false;}cancel();}
+  let trainingBaseAffordable = null;
+  function syncTrainingPreviewBoundary(element) {
+    // Read the complete balance, never the rounded display. Crossing the fixed
+    // base threshold is an action-availability event, not an automatic refresh.
+    const affordable = WIS.Core.Resources.canAfford('core.joules', 10, runtime.getState());
+    if (trainingBaseAffordable !== null && affordable !== trainingBaseAffordable) {
+      const entry = sourcePreviewWorks.get(element);
+      entry?.work?.cancel(); entry?.effects?.cancel();
+      sourcePreviewWorks.delete(element);
+      sourcePreviewAttempts.delete(element);
+      // A completed preview crossing the action threshold is not a first automatic preview.
+      if (heavyPreviewCache.has(element)) explicitPreviewRequests.add('training');
+      heavyPreviewCache.delete(element);
+    }
+    trainingBaseAffordable = affordable;
+    return affordable;
+  }
+  function sameSourcePreviewRequest(a, b) {
+    return !!a && a.ids.length === b.ids.length && a.ids.every((id, i) => id === b.ids[i]) &&
+      a.options.assumeUnlocked === b.options.assumeUnlocked &&
+      Object.keys(a.options.actionFinals || {}).length === Object.keys(b.options.actionFinals || {}).length &&
+      Object.entries(a.options.actionFinals || {}).every(([key, value]) => value === b.options.actionFinals?.[key]);
+  }
+  function scheduleSourcePreview(element, sourceIds, options = {}) {
+    const request = { ids: Array.isArray(sourceIds) ? [...sourceIds] : [sourceIds],
+      options: { ...options, actionFinals: options.actionFinals ? { ...options.actionFinals } : null } };
+    const existing = sourcePreviewWorks.get(element);
+    if (existing) {
+      if (existing.current() && sameSourcePreviewRequest(existing.request, request)) return;
+      existing.cancel();
+      if (!sameSourcePreviewRequest(existing.request, request)) sourcePreviewAttempts.delete(element);
+    }
+    const first = !heavyPreviewCache.has(element), explicit = request.ids.some(id => explicitPreviewRequests.has(id));
+    if (first) setTextIfChanged(element, '正在计算收益…');
+    if (document.hidden || importTransaction || !previewVisible(element) || explorationHoldActive || context.isDeferredActionPending?.()) return;
+    if (first && !explicit && previewBacklogActive()) return;
+    const last = sourcePreviewAttempts.get(element), elapsed = performance.now() - last?.at;
+    if (last !== undefined && sameSourcePreviewRequest(last.request, request) && elapsed >= 0 && elapsed < previewRefreshDelay(last.urgent)) return;
+    const urgent = first || !last || last.urgent === true;
+    for (const id of request.ids) explicitPreviewRequests.delete(id);
+    const retry = { at: performance.now(), urgent, request }; sourcePreviewAttempts.set(element, retry);
+    const original = runtime.getState(), revision = structureRevision, generation = explorationPreviewGeneration;
+    const entry = { original, revision, urgent, first, explicit, request, work: null, effects: null };
+    sourcePreviewWorks.set(element, entry);
+    const current = () => sourcePreviewWorks.get(element) === entry && runtime.getState() === original &&
+      structureRevision === revision && !document.hidden && !importTransaction && previewVisible(element) &&
+      !explorationHoldActive && !context.isDeferredActionPending?.();
+    const cancel = () => { entry.work?.cancel(); entry.effects?.cancel(); if (sourcePreviewWorks.get(element) === entry) sourcePreviewWorks.delete(element); };
+    entry.current = current; entry.cancel = cancel;
+    const run = () => {
+      if (!current()) {
+        cancel();
+        window.setTimeout(() => {
+          if (sourcePreviewAttempts.get(element) === retry && !document.hidden && !importTransaction && previewVisible(element) && !explorationHoldActive && !context.isDeferredActionPending?.()) publishPreview({ urgent: entry.urgent });
+        }, previewRefreshDelay(entry.urgent));
+        return;
+      }
+      if (entry.first && !entry.explicit && previewBacklogActive()) { cancel(); return; }
+      try {
+        if (!entry.work) {
+          const snapshot = WIS.Core.State.cloneForSimulation(original);
+          entry.effects = WIS.Core.Effects.createFrozenScope(snapshot);
+          entry.work = WIS.Core.CertifiedRankMath.createWork(() => runtime.withState(snapshot, () => entry.effects.run(() => {
+            const C = WIS.Core.CertifiedRankMath;
+            const records = C.task('source-preview-records', function* () { return yield () => WIS.UI.SourcePreview.query(request.ids, snapshot, request.options); });
+            // Only the training button needs the additional exact marginal cost.
+            const nextPowerJ = request.ids.includes('training') ? C.task('training-next-power-cost', function* () { return yield () => joulesForNextBasePower(); }) : undefined;
+            return { records, nextPowerJ };
+          })), { isCurrent: current });
+        }
+        const next = entry.work.advance({ deadline: performance.now() + 3, maximumOperations: 256 });
+        if (!next.done) { window.setTimeout(run, previewContinuationDelay(entry.urgent)); return; }
+        const { records, nextPowerJ } = entry.work.result();
+        if (!current()) { cancel(); return; }
+        WIS.UI.SourcePreview.writeRecords(element, records, format, request.options);
+        rememberPreview(element, records);
+        Object.assign(heavyPreviewCache.get(element), { nextPowerJ, request, generation });
+        retry.urgent = false; cancel(); publishPreview({ urgent: entry.urgent });
+      } catch (error) {
+        if (current()) {
+          setTextIfChanged(element, '收益预览暂不可用：' + error.message);
+          rememberPreview(element, [{ final: ZERO }]);
+          Object.assign(heavyPreviewCache.get(element), { request, generation });
+          retry.urgent = false;
+        }
+        cancel();
+      }
     };
     afterExplorationPreviewPaint(run);
   }
   function writeSourcePreview(elementId, sourceIds, assumeUnlocked = false, actionFinals = null) {
     const element = byId(elementId);
     if (!previewVisible(element)) return [];
-    // Presentation only: never feeds settlement or candidate evaluation.
-    // Actions independently recompute their exact result when invoked.
-    if (!heavyPreviewDue(element)) return heavyPreviewCache.get(element).records;
-    if(WIS.Core.Amount?.enabled()&&sourceIds==='training'){
-      scheduleTrainingPreview(element,sourceIds,{assumeUnlocked,actionFinals});
-      return heavyPreviewCache.get(element)?.records||[{final:ZERO}];
+    // Rendering only reads published presentation results. Formal actions still
+    // compute their own synchronous Preview; this cache never feeds settlement.
+    const cached = heavyPreviewCache.get(element);
+    const request = { ids: Array.isArray(sourceIds) ? sourceIds : [sourceIds], options: { assumeUnlocked, actionFinals } };
+    if (heavyPreviewDue(element) || cached?.generation !== explorationPreviewGeneration || !sameSourcePreviewRequest(cached?.request, request)) {
+      scheduleSourcePreview(element, sourceIds, request.options);
     }
-    const records = WIS.UI.SourcePreview.write(element, sourceIds, format,
-      runtime.getState(), { assumeUnlocked, actionFinals });
-    rememberPreview(element, records);
-    return records;
+    return heavyPreviewCache.get(element)?.records || [{ final: ZERO }];
   }
 
   function renderPageContent(pageName) {
@@ -2214,12 +2287,13 @@
     let immortalSelected;
 
     if (renderActions) {
-      // The latest hypothetical action preview drives its display eligibility.
-      // Purchases/actions force a refresh; settlement never reads this cache.
+      // Eligibility still uses the exact final preview. A base-threshold
+      // crossing bypasses only the presentation cooldown, not its proof.
+      const trainingBaseReady = syncTrainingPreviewBoundary(byId("conversion-preview"));
       const conversion = writeSourcePreview("conversion-preview", "training", false)[0].final;
       const nextPowerJ = WIS.Core.Amount?.enabled()?heavyPreviewCache.get(byId("conversion-preview"))?.nextPowerJ:joulesForNextBasePower();
     setTextIfChanged(byId("next-power-j"),nextPowerJ===undefined?"下一战力所需：计算中…":`下一战力所需：${format(nextPowerJ, 0)} J`);
-    setDisabledIfChanged(byId("train-button"), ltBN(conversion, ONE));
+    setDisabledIfChanged(byId("train-button"), !trainingBaseReady || ltBN(conversion, ONE));
     }
     if (renderUpgrades) {
       const gym = gymMultiplier();

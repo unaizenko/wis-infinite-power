@@ -83,10 +83,25 @@
   const characters=text.length+result.reduce((n,row)=>n+String(row.n).length+String(row.d).length+String(row.e).length+[...row.f].reduce((s,[key,count])=>s+key.length+String(count).length,0),0);
   if(W.Core.Amount?.enabled()&&characters<=65536){while(ratioRowCache.size>=4096||ratioRowCharacters+characters>2097152){const key=ratioRowCache.keys().next().value;ratioRowCharacters-=ratioRowCache.get(key).characters;ratioRowCache.delete(key);}ratioRowCache.set(text,{rows:result,characters});ratioRowCharacters+=characters;}return result;
  }
+ // SignedLedger may legally merge ordinary decimal coefficients up to 8192
+ // digits. Keep the product row's 2048-digit bound by decomposing the exact
+ // integer coefficient in base 10^2048; this introduces no rounding or tail loss.
+ function splitDecimalRows(text,count){
+  if(text.length<=2048)return null;
+  const m=/^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(text);
+  if(!m||m[2].length+(m[3]?.length||0)<=2048)return null;
+  if(m[2].length+(m[3]?.length||0)>8192||String(m[4]||0).length>4097)fail('Quantity decimal product capacity','amount-unresolved');
+  const coefficient=BigInt(m[2]+(m[3]||''))*count,digits=String(coefficient),exponent=BigInt(m[4]||0)-BigInt((m[3]||'').length),out=[];
+  for(let end=digits.length;end>0;end-=2048){
+   const chunk=BigInt(digits.slice(Math.max(0,end-2048),end));
+   if(chunk)out.push(canonical({n:m[1]?-chunk:chunk,d:1n,e:exponent+BigInt(digits.length-end),f:emptyFactors}));
+  }
+  return out;
+ }
  function rows(values){const result=[];for(const raw of L.expand(values)){const text=String(raw),m=/^(.*?)(?:\*([1-9]\d*))?$/.exec(text);if(m[2]?.length>2048)fail('Quantity product repetition capacity','amount-unresolved');const count=BigInt(m[2]||1);let parsed;
    if(isProduct(text))parsed=[token(text)];
    else if(/^-?@ratio:/.test(text))parsed=ratioRows(text);
-   else {const value=atom(m[1]);parsed=[count===1n?value:canonical({...value,n:value.n*count})];}
+   else {parsed=splitDecimalRows(m[1],count);if(!parsed){const value=atom(m[1]);parsed=[count===1n?value:canonical({...value,n:value.n*count})];}}
    result.push(...parsed);if(result.length>4096)fail('Quantity product term capacity','amount-unresolved');
   }return result;
  }

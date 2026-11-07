@@ -234,15 +234,18 @@
       (r.extraProcess?.length ? `；${processText(r.extraProcess, format)}` : "")).join("；")}` : "";
     return `原始获取：${line("raw")}${process}\n最终获取：${line("final")}`;
   }
-  function write(element, ids, format, state, options) {
+  function writeRecords(element, records, format, options) {
     if (!element) return;
     if (!element.classList.contains("source-gain-preview")) element.classList.add("source-gain-preview");
-    const records = query(Array.isArray(ids) ? ids : [ids], state, options);
     const value = text(records, format);
     if (element.textContent !== value) element.textContent = value;
     const title = options?.assumeUnlocked ? "未解锁的来源按解锁后预览；最终获取按该来源单独结算。" : "按当前状态单独结算该来源。";
     if (element.title !== title) element.title = title;
     return records;
   }
-  WIS.UI.SourcePreview = Object.freeze({ query, text, write, names });
+  function write(element, ids, format, state, options) {
+    if (!element) return;
+    return writeRecords(element, query(Array.isArray(ids) ? ids : [ids], state, options), format, options);
+  }
+  WIS.UI.SourcePreview = Object.freeze({ query, text, write, writeRecords, names });
 }(window.WIS));
