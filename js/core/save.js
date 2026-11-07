@@ -352,6 +352,9 @@
     function prune(value,defaults,key='') {
       // Required numerical context must not be reconstructed from fresh defaults.
       if(key==='rankBasis'&&WIS.Core.Config.saveVersion>=74)return value;
+      // This version discriminates legacy ledger arrays from finite records.
+      // Keep the union intact: shape validation runs before sparse expansion.
+      if(key==='explorationRewards')return value;
       if(['lastUpdateAt','randomState','joules','power'].includes(key))return value;
       if(value&&typeof value==='object'&&!Array.isArray(value)&&!WIS.Core.BigNum.isDecimal(value)) {
         const out={};for(const k of Object.keys(value).sort()){const v=value[k],next=prune(v,defaults?.[k],k);if(next!==undefined)out[k]=next;}

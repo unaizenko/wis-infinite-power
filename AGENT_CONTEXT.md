@@ -1,3 +1,37 @@
+## 2026-11-07 发布同步：0.2.0.3
+
+用户授权同步开发、网页发布版和APK并上传Git。开发build dev-0.2.0.3-20261107-release-r1；网页release-0.2.0.3-20261107；APK release-0.2.0.3-apk-20261107，versionName0.2.0.3/versionCode20007，沿用旧证书且Android/WebView/游戏调试关闭。Schema75/model2/rule3不变。
+
+同步此前闭式G极小视图加载、新建状态规范化、探索进度联合类型稀疏保存修复；未另改数值、RNG、clock/debt或旧档弃债规则。必要回归85项83通过/0失败/2缺失原件skip，包含新旧记录矩阵、真实7档与3组Worker、真实浏览器保存导航读回；网页四尺寸/严格往返/file启动通过。未做全量、性能、APK真机覆盖安装；历史未验证项不计通过。完整产物、SHA、Git与在线核验结果见WIS-项目资源/release-0203-20261107/REPORT.md。
+
+以下为历史记录。
+
+## 2026-11-07 当前开发基线：存档表示与真实恢复提交闭环
+
+开发build dev-0.2.0.2-20261107-save-compat-r1；可见0.2.0.2，Save75/model2/rule3不变，主93/Worker78。发布版/APK未同步，未commit/push。保留上一轮闭式G极小视图修复。
+
+State.fresh在当前Amount模型作用域完成正式领域默认/宝物/探寻规范化，避免新游戏首次存读才改变表示；旧schema作用域保持原规则。Save稀疏化保留explorationRewards完整联合类型，避免删掉version后把v2 natural对象误判为旧数组。未改公式、RNG或债务规则。
+
+本轮限定存档专项，最终去重187项183通过/0失败/4缺件跳过；38项新旧记录组合和边界、7份真实存档操作链、3组原生Worker通过。最新档原34.068秒与上一档8.331秒实际恢复，成功Save.write后全字段重读；其余旧档按已授权政策弃债，不计作恢复。只有martial70满足真实购买资格。真实浏览器原生localStorage恢复最新档、导航刷新后字节及全状态一致。
+
+恢复验证必须同时证明实际elapsed与FixedSegment.confirmed增长、pending清空、实际Save.write及读取保存字节全字段一致；禁止仅凭回调次数或retry返回判成功。已实际执行禁用安装与禁用Save.write的反向控制。Worker内存适配器测试不冒充磁盘测试；浏览器导航读回不声称验证断电。
+
+缺件3个外部原件造成4项skip，显式记录；归档72单独命名，不替代原件。历史85项失败未整体清零，旧amount-native-worker P精确断言、缺失原件的amount-recovery-native及未选中内核用例未在本轮改判。未做性能、全量、APK或真机测试。发布版105文件及7份来源SHA不变。详细测试/原断言与新断言/恢复量见WIS-项目资源/save-compatibility-20261107/REPORT.md、FAILURE-LEDGER.md、RESULTS.json。
+
+以下为历史记录。
+
+## 2026-11-07 当前开发基线：闭式G极小进度加载修复
+
+开发build为dev-0.2.0.2-20261107-closed-g-load-fix-r1，可见版本0.2.0.2，Save75/model2/rule3不变，主93/Worker78。发布版/APK仍是此前0.2.0.2，未同步本修复，未commit/push。
+
+BigNumbers.normalize对已读取的gBatch保留序列化superProgress及原有superResidual，沿用gBudget的严格视图校验方式；不再经旧writeGProgress重投影而制造尾项。真正混入尾项、负视图仍拒绝；没有gBatch/gBudget的旧路径仍保留精确尾项。不改结算公式、RNG、时间或存档格式。
+
+新问题档WIS-original-save-1794046107463.json（SHA2767ab96…）原34.068秒债务完整恢复，再在线100步，保存重读及重置后全字段一致。新定向4/4、真实存档操作链7/7、真实Edge Worker3/3、正式App异步导入通过。相关旧测试57项50通过/7失败；修复前源码同样7项失败，未放宽断言，不能算整体全绿。真实档已加入stability-corpus.json；Worker夹具用正式simulateOfflineProgress启动idle待结算队列，不能把retryCatchUp返回当作完成。
+
+证据及限制：WIS-项目资源/save-invalid-20261107/REPORT.md。发布版105个文件和原存档指纹不变；发布版只读复现同一错误。未测真机、APK、全量回归或性能。
+
+以下为历史记录。
+
 ## 2026-11-07 发布同步：0.2.0.2
 
 用户授权同步开发、网页发布版与APK并上传Git。开发build dev-0.2.0.2-20261107-release-r1；网页release-0.2.0.2-20261107；APK release-0.2.0.2-apk-20261107，versionCode20006，沿用旧签名，release关闭Android/WebView与游戏调试。Schema75/model2/rule3不变。

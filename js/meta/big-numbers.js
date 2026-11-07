@@ -177,9 +177,9 @@
         peak: nonnegative(e.peak) };
     });
     nonnegative(raw.superProgress);
-    // An exact budget owns this view. Preserve its serialized input for strict
-    // validation; legacy ledger reprojection can round tiny values a second time.
-    if(rankSchema()&&Object.prototype.hasOwnProperty.call(raw,'gBudget')){n.superProgress=raw.superProgress??0;n.superResidual=tails(raw.superResidual);}
+    // An exact budget or closed batch owns this view. Preserve its serialized
+    // input for strict validation; legacy reprojection can invent rounding tails.
+    if(rankSchema()&&(n.gBatch||Object.prototype.hasOwnProperty.call(raw,'gBudget'))){n.superProgress=raw.superProgress??0;n.superResidual=tails(raw.superResidual);}
     else writeGProgress(n,[raw.superProgress??0,...tails(raw.superResidual)]);
     n.gCapacityModel=raw.gCapacityModel===1?1:0;
     if(rankSchema()){

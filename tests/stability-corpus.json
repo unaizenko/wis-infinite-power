@@ -1,6 +1,12 @@
 {
   "rows": [
     {
+      "id": "closed-g-tiny-view",
+      "path": "E:/download/WIS-original-save-1794046107463.json",
+      "kind": "original",
+      "sha256": "2767ab962458c6945aeedcfc3cf22bf7c84d32e1d3d6c6ae4b26bbf207390cf4"
+    },
+    {
       "id": "latest-midpoint",
       "path": "E:/download/WIS-original-save-1794026411791.json",
       "kind": "original",

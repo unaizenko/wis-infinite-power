@@ -1147,7 +1147,12 @@
     return toFlat(attachLegacyAliases(clone(domain)));
   }
 
-  function fresh() {return normalizationTask('fresh',[],function*(){const flat=yield ()=>freshFlat();const result=yield ()=>fromFlat(flat);if(WIS.Core.Config.saveVersion>=75&&WIS.Core.Config.closedBatchVersion===2)result.meta.closedBatchModel=2;return result;});}
+  function fresh() {return normalizationTask('fresh',[],function*(){const flat=yield ()=>freshFlat();let result=yield ()=>fromFlat(flat);if(WIS.Core.Config.saveVersion>=75&&WIS.Core.Config.closedBatchVersion===2){result.meta.closedBatchModel=2;if(WIS.Core.Amount?.enabled()){
+      // New worlds must already have the same representation as a loaded world.
+      // Legacy readers keep their source-schema defaults during migration.
+      result=yield ()=>normalizeDomain(result);
+      yield ()=>WIS.Core.Runtime.withState(result,()=>WIS.Core.Effects.withIsolatedState(result,()=>{WIS.Meta.TreasureProgress.ensure(result);WIS.Cultivation.ExplorationProgress.validate(result);}));
+    }}return result;});}
 
   function preserveResourceWords(raw,container,keys){return normalizationTask('resource-words:'+keys.join(','),[raw,container],()=>preserveResourceWordsSteps(raw,container,keys));}
   function* preserveResourceWordsSteps(raw, container, keys) {
