@@ -1,0 +1,4 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),{setup75}=require('./amount-fixture.cjs');
+test('power one projects the complete quantity at a binary midpoint without a transcendental proof',()=>{const {W}=setup75(),A=W.Core.Amount,F=W.Core.AmountFormulas;for(const tail of ['0','1e-100','-1e-100']){const v=(tail[0]==='-'?A.subtract(A.from('2294898760382616.25'),tail.slice(1)):A.add(A.from('2294898760382616.25'),tail)),before=JSON.stringify(A.serialize(v));assert.equal(String(F.power(v,1)),String(A.project(v)));assert.equal(JSON.stringify(A.serialize(v)),before);}});
+test('power one retains full tails and the existing domain rules',()=>{const {W}=setup75(),A=W.Core.Amount,F=W.Core.AmountFormulas;for(const v of [A.fromParts('1e30',[37]),A.fromParts('ee30',[37]),A.from(0),A.from(1)])assert.equal(String(F.power(v,1)),String(A.project(v)));assert.throws(()=>F.powerRatio(1,0,1));});

@@ -2287,13 +2287,16 @@
     let immortalSelected;
 
     if (renderActions) {
-      // Eligibility still uses the exact final preview. A base-threshold
-      // crossing bypasses only the presentation cooldown, not its proof.
+      // A missing presentation result must not lock out explicit training.
+      // The action's cooperative work proves final gain before spending;
+      // automatic first previews continue to yield to online debt.
       const trainingBaseReady = syncTrainingPreviewBoundary(byId("conversion-preview"));
       const conversion = writeSourcePreview("conversion-preview", "training", false)[0].final;
       const nextPowerJ = WIS.Core.Amount?.enabled()?heavyPreviewCache.get(byId("conversion-preview"))?.nextPowerJ:joulesForNextBasePower();
     setTextIfChanged(byId("next-power-j"),nextPowerJ===undefined?"下一战力所需：计算中…":`下一战力所需：${format(nextPowerJ, 0)} J`);
-    setDisabledIfChanged(byId("train-button"), !trainingBaseReady || ltBN(conversion, ONE));
+    const awaitingTrainingPreview = WIS.Core.Amount?.enabled() && !heavyPreviewCache.get(byId("conversion-preview"))?.records;
+    setTextIfChanged(byId("train-button"), awaitingTrainingPreview && trainingBaseReady ? "计算并锻炼" : "锻炼");
+    setDisabledIfChanged(byId("train-button"), !trainingBaseReady || (!awaitingTrainingPreview && ltBN(conversion, ONE)));
     }
     if (renderUpgrades) {
       const gym = gymMultiplier();

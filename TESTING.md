@@ -1,3 +1,81 @@
+## 2026-11-07 发布同步：0.2.0.2
+
+用户授权同步开发、网页发布版与APK并上传Git。开发build dev-0.2.0.2-20261107-release-r1；网页release-0.2.0.2-20261107；APK release-0.2.0.2-apk-20261107，versionCode20006，沿用旧签名，release关闭Android/WebView与游戏调试。Schema75/model2/rule3不变。
+
+同步当前全部正式修复：D12超超分形、圆环累计游玩时间、锻炼首次预览可操作性、一次方中点、统计/重置/候选保存一致性、旧格式加载弃债、超容量公式Decimal处理。详细合同见下节。性能仍待实际设备验证；本轮只做发版必要检查，不宣称全量回归或历史85项失败已解决。验证与产物见WIS-项目资源/release-0202-20261107/REPORT.md。
+
+以下为历史记录。
+
+## 2026-11-07 旧档弃债与超容量公式精度规则（用户授权）
+
+当前开发 build：dev-0.2.0.1-20261107-legacy-capacity-r1；可见版本0.2.0.1，Schema75/model2/rule3，主93/Worker78。发布版/APK未同步，未commit/push。保留此前未提交修复。
+
+旧档定义为schema<75或numericModelVersion=1。完整Save.prepare/prepareWork成功迁移、校验后，丢弃旧offlineRecovery、pendingContinuousTime和onlineCadenceRemaining，清除awaySince，将lastUpdateAt/boundaryAt/registeredUntil设为一次固定的加载时刻；旧债务及导出至加载期间的离线收益不再补算。已结算资源、累计游玩时间、RNG、补偿余额不因弃债而扣减。当前model2/rule3档仍保留并恢复债务；未知模型仍拒绝。低层migrateRecovery继续保护旧规则任务；调用方必须使用prepared.offlineRecovery，不能用原文件队列回填null。
+
+AmountFormulas仅在明确标记的tower logarithm认证坐标容量拒绝时，采用投影后的Decimal精度计算非线性结果，保留原量级，不把ee26022缩为ee2048，不截断持久余额。差分用稳定log1p/expm1；极小输入采用一阶可表示分支，巨大幂增量在log域组合，避免假相消。capacityDiagnostics仅计数，不入档。普通认证未决、除零、非法值仍报错；此分支不再承诺完整尾项认证精度。
+
+库存和付款比较仍走完整账本。AmountProducts增加超大因子的一侧整数界：能够证明与小门槛分离时直接判序；相反无界因子/近边界无法证明时继续拒绝，不投影比较、不扩大2048/8192容量。
+
+必要回归157/157（含真实Edge Worker的最新档恢复、schema61推进），真实档操作链6/6：加载、当前档原债务恢复或旧档弃债、在线100步、具备条件的武道购买、重置、严格全字段保存重读。只有martial70具备该轮购买资格；其他购买阶段N/A。此前三份失败在本轮口径下均通过，但两份旧规则恢复是被授权放弃，并非旧规则求解器已能恢复。
+
+两条“超容量公式必须抛错”的旧断言按本次授权修改，底层证明容量拒绝断言保留。历史宽扫描剩余85项失败未在本轮重跑/闭环，不以本轮定向通过替代。未做页面性能、真机、APK或全量测试；四个历史原件仍缺失。证据：WIS-项目资源/legacy-capacity-policy-20261107/REPORT.md。
+
+以下为历史记录。
+
+## 稳定性回归执行要求（长期）
+
+- 性能仍使用用户最新实际档；schema72仅作为数值回归。真实问题档逐份在tests/stability-corpus.json标注来源、SHA和派生选择字段。不存在的原档明确报缺失，不自动替换。
+- node --test tests/stability-real-save.test.cjs：全部字段比较，不忽略尾项、统计或history。当前model2/rule3档先恢复prepared.offlineRecovery，再通过正式Loop.handoffImportRecovery移交timeLedger.pendingContinuousTime；固定Date.now为原水位，不加入导出至今时间。当前规则债务必须处理，不能仅以idle/无异常当作清空。旧schema/model1档按本页最新授权在完整加载边界弃债，单独记录弃债，禁止把原文件队列回填到prepared.offlineRecovery。每份在线100步，不满足购买条件记N/A。
+- node --test tests/stability-boundaries.test.cjs tests/statistics-reload-invariant.test.cjs：容量2048/2049/2320/4096/8192及拒绝边界、中点两侧、嵌套代理/回滚、积压预览、压缩统计及晚期失败候选隔离。
+- node tests/stability-action-chain-browser.test.cjs：真实DOM按钮；读取点击真实storage文本，不用新建envelope替代保存路径；只按persistLive合同预期lastUpdateAt=保存时刻，所有字段逐个比较；内部Save.diagnose、pageerror必须为空，hook以主动诊断正对照验证。
+- node --test tests/stability-native-worker.test.cjs：使用已生成bundle在真实Edge Worker执行最新档原队列和100步，以及超容量schema61旧档加载和100步，严格全字段往返。仅Node headless通过不能宣称Worker通过。
+- WIS_PLAYWRIGHT指向E盘既有Playwright；WIS_STABILITY_RESULTS/TEMP/TMP设E盘证据目录。所有新夹具和输出只放E盘。
+- 历史失败必须给出原断言、实际影响、分类、处理及重跑结果；测试装配缺模块、缺输入、旧合同和真实故障分别列出，未完成者保持失败。当前数值阈值及精确内核断言不得以更新测试为名放宽。
+
+## 2026-11-07 稳定性回归与跨模块一致性修复
+
+当前开发 build 为 dev-0.2.0.1-20261107-stability-r1，93主脚本/78 Worker；可见版本0.2.0.1，Save75/model2/rule3不变。保留此前D12、圆环计时、首次锻炼及一次方中点修复；发布版/APK未同步，未commit/push。
+
+本轮修复三项：State运行时累计统计采用与加载相同的lifetime/currentRebirth总量≥峰值规则，空统计尾项删除键；Reset提交前执行现有ExplorationProgress.validate，避免重置后存档重读才升级旧结构；ClosedTreasures.publish复制可变Decimal，避免准备缓存向两个状态发布同一对象。统计修复不把totalPower抬到highestPower，不修改资源余额或RNG；它让统计在运行时就符合原有加载下限，并非补发资源。
+
+定向57/57（含生成Worker真实执行）和迁移专项11/11通过。战神图录/神国的合成真实DOM购买→后处理→实际保存字节→渲染→下一步→重读均通过，内部诊断hook有正对照。它不能替代尚未取得的武道报错原档。
+
+回归集6份：最新实际档恢复原8.331秒+在线100步+严格往返/重置通过；历史Worker派生档通过；仓库schema72玩家夹具恢复原0.105秒后同链通过。旧schema64/70带旧规则pending被CLOSED_RECOVERY_PROTECTED保护；schema61原0.033秒恢复被ee26022输入超出认证坐标2048阻塞，仍未修复。四个历史原件路径缺失，未静默替换。
+
+117文件宽扫描816项725通过/91失败，随后迁移断言专项修复其中6项；余85项尚未闭环。详见stability-regression-20261107/FAILURE-LEDGER.md，不能称整体回归通过，不能把旧失败自动豁免。本轮未做页面性能、真机或全量所有文件测试。
+
+以下为历史记录。
+
+## 2026-11-07 实际存档一次方认证中点修复
+
+开发build dev-0.2.0.1-20261107-power-identity-fix-r1，保留圆环/预览修复和D12。AmountFormulas的power/powerRatio在指数精确为1、除数精确为1时直接投影完整Amount（仍包含尾项），避免恒等运算经ln/exp形成永远跨越浮点中点的区间。除零先检查；其它幂认证不变，无精度门槛放宽。
+
+实际存档WIS-original-save-1794026411791.json（SHA e766f37c…）能加载，但万妖幡倍率1+0.003n=2294898760382616.25的一次方报amount-formula-unresolved。新增中点及两侧定向测试RED→GREEN，公式与修真回归55/55。内存副本正式恢复8.331秒队列清空，随后100个在线逻辑步均处理0.1秒，无新错误。原档SHA不变。该存档为修仙体系，不能据此认定武道战神图录/神国的未复现报错已修复。
+
+Save75/model2/rule3、RNG/clock/debt合同不变，不清空债务、不改原档、不同步发布版/APK、不commit/push。未做页面/真机/性能准入或全量回归。证据：../WIS-项目资源/save-formula-blocker-20261107/REPORT.md。
+
+以下为历史记录。
+## 2026-11-07 开发版修复：圆环累计时间与锻炼首次预览
+
+开发 build `dev-0.2.0.1-20261107-ring-preview-fix-r1`，可见版本仍为 0.2.0.1；保留上一轮 D12。圆环之理专用 fresh 分支现在显式保留 totalElapsedSeconds；当前转生计时及其它重置范围保持原规则。已被旧版本清除的时间不能从当前存档推算恢复。
+
+自动首次来源预览仍在积压时避让；锻炼无缓存时，完整 J 达到原 10J 门槛即可点击“计算并锻炼”，走已有可续算正式动作，在证明最终收益后才扣款。已知不足1的预览仍禁用；未完成预览不再成为显式动作的死锁条件。正式收益不使用展示缓存。
+
+测试：新增累计时间3项通过（已见RED）；真实浏览器无首预览+0.2秒积压可锻炼，挑战最终收益不足1时完整状态不变（已见RED）。既有10J完整尾项/积压边界浏览器通过。10文件定向回归79项76通过、3项旧圆环rank-basis-invalid失败，移除本次时间修复后同样复现，未改断言。manifest93/Worker78检查通过。数值、RNG、clock/debt、Save75/2/3不变。
+
+武道战神图录/神国的玩家“更新失败”仍需精确错误或报错存档定位；合成夹具成功不等于排除玩家错误。证据与范围见 `../WIS-项目资源/ring-martial-bugs-20261107/REPORT.md`。本轮不修改发布版/APK，不commit/push；未做全量、真机或性能准入。
+
+以下为历史记录。
+## 2026-11-07 开发版D12：超超分形已接入
+
+可见版本0.2.0.1；开发build dev-0.2.0.1-20261107-infinity-d12-r1。D12费用500无限点，前置D11-1/2/3；G额外速度倍率为1+Σc_i·log10(1+x_i)，x_i=Y、Y↑Y、Y↑↑Y、Y↑↑↑Y，c=[0.0001,0.001,0.01,0.1]。四箭头原加成/时间积分不变。通过Infinity.gSpeedMultiplier同源接入正式在线、冻结离线与UI；完整Amount读取用稳定公式，未持有时直接返回1。在线取每步起点库存；离线整个来源锁定起点。费用、里程碑和G/TREE上限、RNG、0.1秒、clock/debt及Save75/2/3不变，无新存档字段。
+
+历史“D12未实施/待比例”记录已被本节取代。节点与付款走现有purchaseLedger/重置退款。两份成熟存档倍率约1.736和1.838；最新G=0存档不提前开G。必要验证64/64，DOM320/390/1280通过；三档未持有D12时前后各10个大数域步骤完整状态SHA一致（非全engine性能门禁）。测试：tests/infinity-d12.test.cjs、tests/infinity-d12-browser.test.cjs。报告 ../WIS-项目资源/infinity-d12-20261107/REPORT.md。
+
+本轮仅开发版已实施，发布版/APK尚未同步，未commit/push。发布同步请求被自动审批拒绝，需用户明确确认发布范围后再执行。未进行真机、全量或性能准入。
+
+以下为历史记录。
+
 ## 2026-11-07 发布同步：0.2.0.1
 
 用户授权开发版、网页发布版与 APK 同步并上传 Git。开发 build dev-0.2.0.1-20261107-release-r1；网页 release-0.2.0.1-20261107；APK release-0.2.0.1-apk-20261107，versionCode 20005（高于已发布 20004），沿用旧测试签名，release 构建关闭 Android/WebView 与游戏调试。

@@ -1508,13 +1508,13 @@
   // A statistic's existing head and this owned tail are one quantity. Neither
   // imports nor evaluation scopes may mutate the map through these helpers.
   function readStatistic(state,key){const A=WIS.Core.Amount;if(!A)throw Error('Exact statistic module unavailable');if(!statisticKeySet.has(key)||!WIS.Core.BigNum.parseFinite(state[key]))throw Error('Unknown numeric statistic: '+key);return A.enabled()?A.fromParts(state[key],state.meta.statistics.amountTails?.[key]||[]):A.from(state[key]);}
-  function setStatistic(state,key,value){WIS.Core.Runtime.assertMutable();const A=WIS.Core.Amount;if(!A?.enabled()){state[key]=BN(value);return state[key];}readStatistic(state,key);const parts=A.boundedFieldParts(value,key);state[key]=parts[key];const statistics=state.meta.statistics;statistics.amountTails||={};statistics.amountTails[key]=parts[key+'Residual'];return state[key];}
+  function setStatistic(state,key,value){WIS.Core.Runtime.assertMutable();const A=WIS.Core.Amount;if(!A?.enabled()){state[key]=BN(value);return state[key];}readStatistic(state,key);const parts=A.boundedFieldParts(value,key);state[key]=parts[key];const statistics=state.meta.statistics;statistics.amountTails||={};if(parts[key+'Residual'].length)statistics.amountTails[key]=parts[key+'Residual'];else delete statistics.amountTails[key];return state[key];}
   function addStatistic(state,key,value){if(!WIS.Core.Amount?.enabled()){state[key]=add(state[key],value);return state[key];}return setStatistic(state,key,WIS.Core.Amount.add(readStatistic(state,key),value));}
   function addStatisticOperation(state,key,value){
     const A=WIS.Core.Amount,perform=()=>addStatistic(state,key,value);if(!A?.enabled())return perform;
     const Q=WIS.Core.Resources,statistics=state.meta.statistics,current=Q.numericInputCurrent(state,[key]),tailOwner=statistics.amountTails,tailCurrent=tailOwner?Q.numericInputCurrent(tailOwner,[key]):()=>!statistics.amountTails,valueCurrent=Q.quantityInputCurrent(value);
     return Q.privateOperation(state,perform,()=>A.boundedFieldParts(A.add(readStatistic(state,key),value),key),parts=>{
-      WIS.Core.Runtime.assertMutable();state[key]=parts[key];statistics.amountTails||={};statistics.amountTails[key]=parts[key+'Residual'];return state[key];
+      WIS.Core.Runtime.assertMutable();state[key]=parts[key];statistics.amountTails||={};if(parts[key+'Residual'].length)statistics.amountTails[key]=parts[key+'Residual'];else delete statistics.amountTails[key];return state[key];
     },()=>state.meta.statistics===statistics&&statistics.amountTails===tailOwner&&current()&&tailCurrent()&&valueCurrent());
   }
   function maxStatistic(state,key,value){if(!WIS.Core.Amount?.enabled()){state[key]=maxBN(state[key],value);return state[key];}const A=WIS.Core.Amount,v=A.from(value);return A.compare(v,readStatistic(state,key))>0?setStatistic(state,key,v):state[key];}
@@ -1535,6 +1535,15 @@
     state.currentRebirthHighestScaleIndex = Math.max(state.currentRebirthHighestScaleIndex, state.highestScaleIndex);
     maxStatistic(state,'currentRebirthHighestMana',statisticResource(state,'mana'));
     maxStatistic(state,'currentRebirthHighestImmortalPower',statisticResource(state,'immortalPower'));
+    // Loading enforces total >= peak. Directed tail compaction can otherwise
+    // leave the independently accumulated total just below the stock peak.
+    // Reconcile at the authoritative update boundary, not during rendering.
+    if (WIS.Core.Amount?.enabled()) {
+      for (const prefix of ['lifetime','currentRebirth']) for (const suffix of ['J','Power','Mana','ImmortalPower']) {
+        maxStatistic(state,prefix+'Total'+suffix,readStatistic(state,prefix+'Highest'+suffix));
+        if (suffix==='Power') maxStatistic(state,prefix+'Total'+suffix,readStatistic(state,'totalPower'));
+      }
+    }
     state.currentRebirthHighestCultivationRealmLevel = Math.max(
       state.currentRebirthHighestCultivationRealmLevel,
       realmLevel

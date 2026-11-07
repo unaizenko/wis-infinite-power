@@ -118,7 +118,11 @@
     if (!isRecord(parsed) || (parsed.game !== undefined && parsed.game !== "WIS-无限战力系统"))
       throw Error("不是WIS存档");
     const schemaVersion = Number(parsed.schemaVersion ?? parsed.version ?? 36);
-    if(WIS.Core.Config.saveVersion>=75&&WIS.Core.ClosedBatchMigration)WIS.Core.ClosedBatchMigration.recovery(parsed.offlineRecovery);
+    // User-authorized legacy load policy: abandon old unprocessed time only
+    // at a complete, private load boundary; native model2/rule3 debt is retained.
+    const discardLegacyBacklog=WIS.Core.Config.saveVersion>=75&&(schemaVersion<75||parsed.numericModelVersion===1);
+    const loadedAt=preparation?.loadedAt??Date.now();
+    if(!discardLegacyBacklog&&WIS.Core.Config.saveVersion>=75&&WIS.Core.ClosedBatchMigration)WIS.Core.ClosedBatchMigration.recovery(parsed.offlineRecovery);
     if(parsed.numericModelVersion===2&&parsed.settlementRule!==3)throw Error('数值模型2缺少结算规则3');
     if(WIS.Core.Amount?.enabled())WIS.Core.AmountMigration.assertEnvelope(parsed,schemaVersion);
     // Explicit imports from the known martial lab are compatible. Never read
@@ -148,7 +152,7 @@
     if(preparation){data=preparation.scope?.seal(data)??data;preparation.data=data;}
     }
     const candidate = yield ()=>WIS.Core.State.migrate(schemaVersion, data,preparation?.migrationContext);
-    const offlineRecovery = yield ()=>migrateRecovery(parsed.offlineRecovery, schemaVersion);
+    const offlineRecovery = yield ()=>migrateRecovery(discardLegacyBacklog?null:parsed.offlineRecovery, schemaVersion);
     if(WIS.Core.Config.saveVersion>=75&&WIS.Core.ClosedBatchMigration){if(parsed.numericModelVersion===2&&candidate.meta.closedBatchModel!==2)throw Error('数值模型2状态标识不匹配');if(parsed.numericModelVersion!==2)candidate.meta.closedBatchModel=1;yield ()=>WIS.Core.ClosedBatchMigration.upgrade(candidate);}
     yield ()=>WIS.Core.Runtime.withState(candidate, () => WIS.Core.Effects.withIsolatedState(candidate, () => {
       WIS.Meta.TreasureProgress.ensure(candidate);
@@ -159,7 +163,15 @@
           throw Error("宝物库存账本无效");
       }
     }));
-    return { schemaVersion, state: candidate, data, offlineRecovery };
+    let legacyBacklogDiscarded=null;
+    if(discardLegacyBacklog){
+      const rt=candidate.core.runtime,ledger=rt.timeLedger;
+      legacyBacklogDiscarded={schemaVersion,numericModelVersion:parsed.numericModelVersion??null,rule:parsed.offlineRecovery?.settlementRule??null,policy:'discard-on-legacy-load',loadedAt};
+      rt.timeLedger={...ledger,pendingContinuousTime:[],awaySince:null,boundaryAt:loadedAt,registeredUntil:loadedAt};
+      rt.lastUpdateAt=loadedAt;
+      delete rt.onlineCadenceRemaining;
+    }
+    return { schemaVersion, state: candidate, data, offlineRecovery, ...(legacyBacklogDiscarded?{legacyBacklogDiscarded}:{}) };
   }
   // Candidate migration may restart its pure outer preparation after an inner
   // proof suspends. Completed arithmetic tasks remain private to this work.
@@ -168,7 +180,7 @@
     // One private immutable-input preparation per work. Mathematical retries
     // retain the expanded prefix; they never rebuild defaults or parse JSON.
     // Nothing is published before migration and all post-checks complete.
-    const Exact=WIS.Core.RankExact,scope=Exact&&WIS.Core.Amount?.enabled()?WIS.Core.State.createLoadNormalizationScope():null,input=scope?scope.seal(JSON.parse(text)):JSON.parse(text),preparation={data:null,scope,migrationContext:Exact?WIS.Core.State.createMigrationContext():null},evaluate=()=>scope?scope.run(()=>prepareInput(input,preparation)):prepareInput(input,preparation);
+    const Exact=WIS.Core.RankExact,scope=Exact&&WIS.Core.Amount?.enabled()?WIS.Core.State.createLoadNormalizationScope():null,input=scope?scope.seal(JSON.parse(text)):JSON.parse(text),preparation={data:null,scope,loadedAt:Date.now(),migrationContext:Exact?WIS.Core.State.createMigrationContext():null},evaluate=()=>scope?scope.run(()=>prepareInput(input,preparation)):prepareInput(input,preparation);
     if(Exact){const inner=Exact.createWork(evaluate,{isCurrent}),release=()=>{scope?.close();preparation.data=null;preparation.migrationContext?.close();preparation.migrationContext=null;};return Object.freeze({...inner,
       advance(options){try{const next=inner.advance(options);if(next.done)release();return next;}catch(error){release();throw error;}},
       runSync(){try{return inner.runSync();}finally{release();}},cancel(){release();inner.cancel();}});}

@@ -35,6 +35,7 @@
     ['D11-1','numbers','超构造推进-1',49,['D10'],null,null,'superTimeBoost',10,0,'根据本次超构造时间提升超构造倍率，退出超构造重置。'],
     ['D11-2','numbers','超构造推进-2',49,['D10'],null,null,'superUpgradeBoost',10,1,'解锁树构造强化4·超构造增幅：每级超构造倍率×1.2。'],
     ['D11-3','numbers','超构造推进-3',49,['D10'],null,null,'superRankBoost',10,2,'超构造倍率 ×1.2^当前已完成TREE阶位。'],
+    ['D12','numbers','超超分形',500,['D11-1','D11-2','D11-3'],null,null,'superFractalAll',11,0,'G进度速度额外乘以 1 + 0.0001×log10(1+Y) + 0.001×log10(1+Y↑Y) + 0.01×log10(1+Y↑↑Y) + 0.1×log10(1+Y↑↑↑Y)。保留Y↑↑↑↑Y原有加成；在线按每步起点库存计算，离线锁定起点倍率。'],
     ['E1','tempo','快速',3,[],null,null,'quick',0,0,'J与战力获取 ×100。'],
     ['E2-1','tempo','在线-1',5,['E1'],'tempo','online','tempoGain',1,0,'J、战力倍率从10000衰减至50，约92分钟衰减至最低。'],
     ['E2-2','tempo','常规-1',5,['E1'],'tempo','steady','tempoGain',1,1,'J与战力固定 ×2000。'],
@@ -55,6 +56,7 @@
       'B5-2':Object.freeze(['solarPower','galaxy','blackHole'])
     }),
     gRankMinimum:42,
+    superFractalWeights:Object.freeze([0.0001,0.001,0.01,0.1]),
     fractalLogOffset:1,fractalPower:.5,fractalReward:10,gTreeDivisor:8,gTreePower:2,
     gRequirement:100,gChallengeCoefficient:.01,gRewardExponent:.95,treeChallengeExponent:1.10,treeReward:3,
     gCapacityStart:64,gCapacityDivisor:8,gCapacityPower:2,
@@ -69,7 +71,7 @@
       trueG1:Object.freeze({name:'真G1',maxCompletions:1,infinityUpgrade:'D3',targetG:1,resetBigNumbers:true,catalogSystem:'大数',description:'各低层分形累计削弱高层获取。',achievementKey:'trueG1',rewardDescription:'解锁成就·真 G1'}),
       trueGraham:Object.freeze({name:'真葛立恒',maxCompletions:1,infinityUpgrade:'D3',targetG:64,resetBigNumbers:true,catalogSystem:'大数',description:'根据G阶位，增加提升G阶位需求。',achievementKey:'trueGraham',rewardDescription:'解锁成就·真葛立恒'}),
       trueTree3:Object.freeze({name:'真TREE3',maxCompletions:1,infinityUpgrade:'D3',targetTree:3,resetBigNumbers:true,catalogSystem:'大数',description:'超构造阈值提高至原阈值^1.10。',achievementKey:'trueTree3',rewardDescription:'解锁成就·真 TREE3'}),
-      infinityRing:Object.freeze({name:'圆环之理',maxCompletions:1,infinityUpgrade:'C4',targetXiuzhenRealm:7,catalogSystem:'无限',resetLevel:'infinity',achievementKey:'eternalWitness',description:'重置无限、成就以外游戏进度，重新抵达单体宇宙。期间可进行普通、体系挑战及转生。',rewardDescription:'获得普通成就·一证永证：无限转生及以下等级转生不再重置体系挑战'}),
+      infinityRing:Object.freeze({name:'圆环之理',maxCompletions:1,infinityUpgrade:'C4',targetXiuzhenRealm:7,catalogSystem:'无限',resetLevel:'infinity',achievementKey:'eternalWitness',description:'保留累计游玩时间，重置无限、成就以外游戏进度，重新抵达单体宇宙。期间可进行普通、体系挑战及转生。',rewardDescription:'获得普通成就·一证永证：无限转生及以下等级转生不再重置体系挑战'}),
       infinityFast:Object.freeze({name:'快速',maxCompletions:1,infinityUpgrade:'E4',deadlineSeconds:5,requiredScaleIndex:14,catalogSystem:'无限',resetLevel:'infinity',rewardKey:'infinityFast',description:'开启时进行一次无限转生；5秒内抵达宇宙结构，超时失败。',rewardDescription:'宇宙意志的双对数永久提升无限点数获取'})
     })});
 }(window.WIS));

@@ -1,0 +1,47 @@
+{
+  "rows": [
+    {
+      "id": "latest-midpoint",
+      "path": "E:/download/WIS-original-save-1794026411791.json",
+      "kind": "original",
+      "sha256": "e766f37c28d8a9a77d4cb44993f22b0e165ef93e5955cf91fa801a370b865fea"
+    },
+    {
+      "id": "legacy64",
+      "path": "E:\\一叶书\\游戏开发\\放置 层级树\\WIS-项目资源\\玩家存档\\player-save-25867869.json",
+      "kind": "original",
+      "sha256": "2586786930ea0cab423935405651bf9e4ed0447edaef2dd54b3f21137fe103c9"
+    },
+    {
+      "id": "legacy61",
+      "path": "E:\\一叶书\\游戏开发\\放置 层级树\\WIS-项目资源\\玩家存档\\real-save-2-20260916T104006-6279137e.json",
+      "kind": "original",
+      "sha256": "6279137edda7860a74b2f646a76a6da54fffc237759f618448c2d34e4db673f5"
+    },
+    {
+      "id": "worker-statistics",
+      "path": "E:\\一叶书\\游戏开发\\放置 层级树\\WIS-项目资源\\backlog-blockers-fix-20261107\\WORKER-RECOVERY-DIAG.json",
+      "kind": "derived",
+      "sha256": "8ca9c998d657d0e7e7c3162c287a0a5e05f83b2c16862bd263f19430cebbb701",
+      "select": "saved"
+    },
+    {
+      "id": "archived72",
+      "path": "E:\\一叶书\\游戏开发\\放置 层级树\\WIS-无限战力系统\\tests\\fixtures\\breathing-stall-player.json",
+      "kind": "repository-player-fixture",
+      "sha256": "0c8443d1b144b464913455fb04d9103449e5e25079fdfc4d58341900dc558a87"
+    },
+    {
+      "id": "martial70",
+      "path": "E:\\一叶书\\游戏开发\\放置 层级树\\WIS-无限战力系统\\tests\\fixtures\\martial-player-20261003.json",
+      "kind": "repository-player-fixture",
+      "sha256": "f2986145711aee572e324f950df763ba0bb01ec037e5e449e05181539fdb2b50"
+    }
+  ],
+  "missing": [
+    "E:/download/WIS-original-save-1793284232246.json",
+    "E:/download/WIS-存档-2026-11-06T04-46-11-356Z.json",
+    "E:/download/WIS-存档-2026-11-06T15-47-49-426Z.json",
+    "E:/download/WIS-存档-2026-09-21T11-52-23-283Z.json"
+  ]
+}

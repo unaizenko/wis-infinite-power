@@ -17,7 +17,7 @@
  function wordLog(raw,c){return W.Core.AmountProducts.numericLog(c,'word|'+raw,()=>wordLogSteps(raw,c));}
  function* wordLogSteps(raw,c){const m=/^(.*?)(?:\*([1-9]\d*))?$/.exec(raw),d=decimal(m[1]),count=BigInt(m[2]||1);let log,negative;
   if(d){if(!d.n)return null;negative=d.n<0n;const coefficient=String(abs(d.n)*count);if(/^10*$/.test(coefficient))return {log:c.fraction(d.e+BigInt(coefficient.length-1)),negative};const ln=yield ()=>c.logFraction(abs(d.n)*count,1n),ln10=yield ()=>c.logFraction(10n,1n);log=c.add(c.fraction(d.e),c.div(ln,ln10));}
-  else {const value=B.BN(m[1]);if(value.layer!==2||Math.abs(value.mag)>2048)fail('tower logarithm outside certified coordinate capacity');const coordinate=rational(Math.abs(value.mag));log=yield ()=>W.Core.AmountProducts.coordinatePower10(c,c.fraction(coordinate.n,coordinate.d));if(value.mag<0)log=neg(log);negative=value.sign<0;
+  else {const value=B.BN(m[1]);if(value.layer!==2||Math.abs(value.mag)>2048)throw Object.assign(Error('tower logarithm outside certified coordinate capacity'),{code:'amount-formula-unresolved',capacity:true});const coordinate=rational(Math.abs(value.mag));log=yield ()=>W.Core.AmountProducts.coordinatePower10(c,c.fraction(coordinate.n,coordinate.d));if(value.mag<0)log=neg(log);negative=value.sign<0;
    if(count!==1n){const ln=yield ()=>c.logFraction(count,1n),ln10=yield ()=>c.logFraction(10n,1n);log=c.add(log,c.div(ln,ln10));}}
   return {log,negative};
  }
@@ -100,7 +100,7 @@
   }
   else if(input.operation==='powerWithExponent'){if(A.compare(input.exponentValue,0)===0||A.compare(input.value,1)===0)return {done:true,value:B.ONE};if(A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.exponentValue))return {done:true,value:B.pow(A.project(input.value),A.project(input.exponentValue))};}
   else if(input.operation==='powerOnePlusMinusOne'){if(input.q.n===0n||A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(input.q.n===input.q.d)return {done:true,value:A.project(input.value)};}
-  else if(input.operation==='power'||input.operation==='powerRatio'){if(A.compare(input.divisor,0)===0)fail('division by zero','amount-formula-domain');if(input.q.n===0n)return {done:true,value:B.ONE};if(A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.divisor))return {done:true,value:B.pow(B.div(A.project(input.value),A.project(input.divisor)),input.exponent)};}
+  else if(input.operation==='power'||input.operation==='powerRatio'){if(A.compare(input.divisor,0)===0)fail('division by zero','amount-formula-domain');if(input.q.n===input.q.d&&A.compare(input.divisor,1)===0)return {done:true,value:A.project(input.value)};if(input.q.n===0n)return {done:true,value:B.ONE};if(A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.divisor))return {done:true,value:B.pow(B.div(A.project(input.value),A.project(input.divisor)),input.exponent)};}
   else if(input.operation==='logRatio'){if(A.compare(input.value,0)===0||A.compare(input.divisor,0)===0)fail('log ratio requires positive operands','amount-formula-domain');if(A.compare(input.value,input.divisor)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.divisor))return {done:true,value:B.log10(B.div(A.project(input.value),A.project(input.divisor)))};}
   else if(input.operation==='logOnePlusRatio'){if(A.compare(input.divisor,0)===0)fail('division by zero','amount-formula-domain');if(A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.divisor)&&!B.add(1,B.div(A.project(input.value),A.project(input.divisor))).eq(1))return {done:true,value:B.log10(B.add(1,B.div(A.project(input.value),A.project(input.divisor))))};}
   else if(input.operation==='log10'){if(A.compare(input.value,0)===0)fail('logarithm of zero','amount-formula-domain');if(!hasTail(input.value))return {done:true,value:B.log10(A.project(input.value))};}
@@ -119,6 +119,41 @@
  // Enclose that correction at the existing precision, without expanding x/d
  // or x+d. If a boundary remains unresolved, the caller uses the exact sum.
  function* largeOnePlusLog(input,c){const base=yield ()=>logarithm(input.value,c),divisor=yield ()=>A.compare(input.divisor,1)===0?c.fraction(0n):logarithm(input.divisor,c),ratio=subtractLog(base,divisor,c);if(ratio.lo<=17n*c.scale)return null;const upper=ratio.lo>BigInt(c.places+2)*c.scale?1n:(yield ()=>c.pow10(neg(ratio))).hi;return {lo:ratio.lo,hi:ratio.hi+upper,openLo:true,openHi:true};}
+ // Explicit high-coordinate precision policy (2026-11-07). Only a tagged
+ // capacity refusal reaches here; ordinary uncertified boundaries still fail.
+ const capacityCounts={calls:0,operations:{}};
+ function capacityFormula(input){
+  const read=v=>{const n=A.isAmount(v)?A.project(v):B.parseFinite(v);if(!n||!n.isFinite())fail('nonfinite capacity input','amount-formula-domain');return n;};
+  const nonnegative=v=>{const n=read(v);if(n.lt(0))fail('negative capacity input','amount-formula-domain');return n;};
+  const divide=(v,d)=>{v=nonnegative(v);d=nonnegative(d);if(d.eq(0))fail('division by zero','amount-formula-domain');return v.div(d);};
+  const log1p=x=>{if(x.lte(-1))fail('log1p domain','amount-formula-domain');if(x.abs().lt('1e-20'))return x;if(x.abs().gte('1e-5'))return x.add(1).ln();let term=x,sum=x;for(let k=2;k<=12;k++){term=term.mul(x);sum=k%2?sum.add(term.div(k)):sum.sub(term.div(k));}return sum;};
+  const expm1=x=>{if(x.abs().lt('1e-20'))return x;if(x.abs().gte('1e-5'))return x.exp().sub(1);let term=x,sum=x;for(let k=2;k<=12;k++){term=term.mul(x).div(k);sum=sum.add(term);}return sum;};
+  const product=xs=>xs.reduce((v,x)=>v.mul(nonnegative(x)),B.ONE);
+  const v=input.value==null?null:nonnegative(input.value),p=input.exponent==null?null:read(input.exponent);let result;
+  switch(input.operation){
+   case 'power':case 'powerRatio':result=divide(v,input.divisor).pow(p);break;
+   case 'powerOnePlusRatio':result=log1p(divide(v,input.divisor)).mul(p).exp();break;
+   case 'powerOnePlusMinusOne':result=expm1(log1p(v).mul(p));break;
+   case 'powerIncrement':{const d=nonnegative(input.delta);
+    if(p.eq(0)||d.eq(0))result=B.ZERO;else if(v.eq(0))result=d.pow(p);else{
+     const ratio=d.div(v);
+     // Combine the first-order increment in log space: enormous x^p and
+     // tiny d/x can otherwise cancel to zero in layered Decimal arithmetic.
+     if(ratio.mul(p.abs().add(1)).lt('1e-20'))result=B.pow10(v.log10().mul(p.sub(1)).add(d.log10()).add(p.abs().log10())).mul(p.sign);
+     else result=v.pow(p).mul(expm1(log1p(ratio).mul(p)));
+    }break;}
+   case 'powerWithExponent':result=v.pow(nonnegative(input.exponentValue));break;
+   case 'log10':if(v.eq(0))fail('logarithm of zero','amount-formula-domain');result=v.log10();break;
+   case 'logRatio':{const x=divide(v,input.divisor);if(x.eq(0))fail('logarithm of zero','amount-formula-domain');result=x.log10();break;}
+   case 'logOnePlusRatio':result=log1p(divide(v,input.divisor)).div(Math.LN10);break;
+   case 'productPower':result=product(input.numerators).pow(p);break;
+   case 'productQuotient':result=divide(product(input.numerators),product(input.denominators));break;
+   default:fail('unsupported capacity formula','amount-formula-domain');
+  }
+  if(!result.isFinite()||result.isNan())fail('nonfinite capacity result','amount-formula-domain');
+  capacityCounts.calls++;capacityCounts.operations[input.operation]=(capacityCounts.operations[input.operation]||0)+1;
+  return B.Decimal.fromComponents_noNormalize(result.sign,result.layer,result.mag);
+ }
  function* steps(input){
   // Projection and comparison can themselves suspend. Keep them in an ordinary
   // thunk so a child proof never throws through (and closes) this iterator.
@@ -163,7 +198,7 @@
     if(input.operation==='logOnePlusRatio'||input.operation==='powerOnePlusRatio'){try{const candidate=yield* largeOnePlusLog(input,c);if(candidate)return input.operation==='powerOnePlusRatio'?yield* fromLog(scaleLog(candidate,input.q.n,input.q.d,c),c):yield* fromInterval(candidate,c);}catch(error){if(!['rank-cost-unresolved','amount-formula-unresolved','amount-unresolved'].includes(error.code))throw error;}log=yield ()=>logarithm(sum||A.add(input.value,input.divisor),c);const d=yield ()=>logarithm(input.divisor,c),result=subtractLog(log,d,c);return input.operation==='powerOnePlusRatio'?yield* fromLog(scaleLog(result,input.q.n,input.q.d,c),c):yield* fromInterval(result,c);}
     if(input.operation==='log10'){log=yield ()=>logarithm(input.value,c);return yield* fromInterval(log,c);}
     log=c.fraction(0n);for(const v of numerators){const part=yield ()=>logarithm(v,c);log=input.operation==='productPower'?addLog(log,part,c):c.add(log,part);}for(const v of denominators){const part=yield ()=>logarithm(v,c);log=c.sub(log,part);}if(input.operation==='productPower')log=scaleLog(log,input.q.n,input.q.d,c);return yield* fromLog(log,c);
-   }catch(e){if(e.code!=='rank-cost-unresolved'&&e.code!=='amount-formula-unresolved')throw e;lastFailure={code:e.code,message:e.message,places,interval:e.interval,rounded:e.rounded};}}
+   }catch(e){if(e.capacity===true)return yield ()=>capacityFormula(input);if(e.code!=='rank-cost-unresolved'&&e.code!=='amount-formula-unresolved')throw e;lastFailure={code:e.code,message:e.message,places,interval:e.interval,rounded:e.rounded};}}
   const words=value=>value===undefined?undefined:A.words(value);
   throw Object.assign(Error('complete-input formula could not be certified'),{code:'amount-formula-unresolved',operation:input.operation,lastFailure,formulaInput:{operation:input.operation,numerators:input.numerators?.map(A.words),denominators:input.denominators?.map(A.words),value:words(input.value),divisor:words(input.divisor),delta:words(input.delta),exponent:typeof input.exponent==='number'||typeof input.exponent==='string'?input.exponent:input.exponent===undefined?undefined:String(input.exponent),exponentValue:words(input.exponentValue),q:input.q?{n:String(input.q.n),d:String(input.q.d)}:undefined,lastFailure}});
 
@@ -200,5 +235,5 @@
   while(compare(n+1n)>=0){if(++steps>4)fail('integer estimate outside proof neighborhood');n++;}
   return B.BN(String(n));
  });}
- W.Core.AmountFormulas=Object.freeze({powerOnePlusRatio:(v,d,e)=>evaluate(capture('powerOnePlusRatio',[v,e,d])),productPower:(factors,e)=>evaluate(capture('productPower',[factors,e])),logarithmBucket,powerWithExponent:(v,e)=>evaluate(capture('powerWithExponent',[v,e])),powerIncrement:(s,d,p)=>evaluate(capture('powerIncrement',[s,d,p])),floorPowerRatio,logRatio:(v,d=1)=>evaluate(capture("logRatio",[v,d])),powerOnePlusMinusOne:(v,e)=>evaluate(capture("powerOnePlusMinusOne",[v,e])),logOnePlusRatio:(v,d=1)=>evaluate(capture("logOnePlusRatio",[v,d])),powerRatio:(v,d,e)=>evaluate(capture('powerRatio',[v,e,d])),power:(v,e)=>evaluate(capture('power',[v,e])),log10:v=>evaluate(capture('log10',[v])),productQuotient:(n,d=[])=>evaluate(capture('productQuotient',[n,d])),prepareWork:(operation,args,options)=>{const input=capture(operation,args);return C.createWork(()=>evaluate(input),options);}});
+ W.Core.AmountFormulas=Object.freeze({capacityDiagnostics:()=>({calls:capacityCounts.calls,operations:{...capacityCounts.operations}}),powerOnePlusRatio:(v,d,e)=>evaluate(capture('powerOnePlusRatio',[v,e,d])),productPower:(factors,e)=>evaluate(capture('productPower',[factors,e])),logarithmBucket,powerWithExponent:(v,e)=>evaluate(capture('powerWithExponent',[v,e])),powerIncrement:(s,d,p)=>evaluate(capture('powerIncrement',[s,d,p])),floorPowerRatio,logRatio:(v,d=1)=>evaluate(capture("logRatio",[v,d])),powerOnePlusMinusOne:(v,e)=>evaluate(capture("powerOnePlusMinusOne",[v,e])),logOnePlusRatio:(v,d=1)=>evaluate(capture("logOnePlusRatio",[v,d])),powerRatio:(v,d,e)=>evaluate(capture('powerRatio',[v,e,d])),power:(v,e)=>evaluate(capture('power',[v,e])),log10:v=>evaluate(capture('log10',[v])),productQuotient:(n,d=[])=>evaluate(capture('productQuotient',[n,d])),prepareWork:(operation,args,options)=>{const input=capture(operation,args);return C.createWork(()=>evaluate(input),options);}});
 }(window.WIS));

@@ -115,7 +115,10 @@
     // Every rebirth rebuilds the four temporary balances and purchased martial
     // abilities; permanent qualifications remain in the preserved meta branch.
     if (profile.rebirthLevel) result.cultivation.systems.martial = WIS.Cultivation.Martial.fresh();
-    return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(result));
+    const normalized = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(result));
+    // Match Save.finishMigration at this committed reset boundary.
+    WIS.Cultivation.ExplorationProgress?.validate(normalized);
+    return normalized;
   }
 
   const metaAndStatistics = Object.freeze([

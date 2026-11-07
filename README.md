@@ -25,9 +25,9 @@
 
 游戏仍在持续开发中，目前主要完成了前期量级、强化、成就、仙道境界、部分仙道能力与宝物烙印内容，其他修行体系和后期WIS体系将在后续版本中继续加入。
 
-当前开发版与网页发布版为 `0.2.0.1`，Android versionCode 为 20005；存档 Schema 75 / numericModel 2 / settlementRule 3。本次包含在线积压阻塞修复、预览后台续算及现有完整游戏内容。网页与 APK 发布版关闭调试功能。
+当前开发版与网页发布版为 `0.2.0.2`，Android versionCode 为 20006；存档 Schema 75 / numericModel 2 / settlementRule 3。本次包含D12超超分形、圆环累计时间和锻炼首次预览修复、统计/保存往返一致性修复，以及用户授权的旧格式存档弃债与超容量公式精度处理。网页与 APK 发布版关闭调试功能。
 
-[下载 Android App](https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.1/wis.apk)。App 与网页版存档不互通，可通过导出、导入迁移。
+[下载 Android App](https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.2/wis.apk)。App 与网页版存档不互通，可通过导出、导入迁移。
 
 ## 开发版：离线快进（试用）
 

@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.0.1",
-  "versionCode": 20005,
+  "version": "0.2.0.2",
+  "versionCode": 20006,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.1/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.2/wis.apk",
     "mirror": null,
-    "sha256": "9ef7f1dfe99c50363f00130cf3f7464e34b81797b519acbd92c7aae354f04328",
-    "sizeBytes": 6407543
+    "sha256": "1adaf154c14b06d8ad48002c57631ae0600cd980e6b890276919ba12569db85e",
+    "sizeBytes": 6370864
   },
-  "notes": "修复长数值系数与嵌套事务引起的结算阻塞；来源预览改为后台续算，改进积压时的预览调度。保留现有存档格式与数值合同。",
-  "publishedAt": "2026-11-07T01:27:30Z"
+  "notes": "新增D12超超分形；修复圆环累计时间、锻炼首次预览、统计及存档往返问题。旧格式存档读取时清空历史待结算时间；极高量级公式采用当前可表示精度，保留已有资源。",
+  "publishedAt": "2026-11-07T08:16:34.150Z"
 }

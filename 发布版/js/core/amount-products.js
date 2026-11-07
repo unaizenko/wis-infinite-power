@@ -234,7 +234,7 @@
  function* atomLogSteps(text,c){
   const v=B.BN(text),literal=/^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.test(text);
   if(literal||v.layer===0){const row=atom(literal?text:String(v.mag));if(row.f.size)fail('Product scalar logarithm unresolved','amount-unresolved');const log=yield ()=>c.logFraction(row.n,row.d),ln10=yield ()=>c.logFraction(10n,1n);return c.add(c.fraction(row.e),c.div(log,ln10));}
-  if(v.layer!==1&&(v.layer!==2||Math.abs(v.mag)>2048))throw Object.assign(Error('Product logarithm outside certified coordinate capacity'),{code:'amount-unresolved',factor:text,layer:v.layer,magnitude:v.mag});
+  if(v.layer!==1&&(v.layer!==2||Math.abs(v.mag)>2048))throw Object.assign(Error('Product logarithm outside certified coordinate capacity'),{code:'amount-unresolved',capacity:true,factor:text,layer:v.layer,magnitude:v.mag});
   const coordinate=atom(String(Math.abs(v.mag)));if(coordinate.f.size)fail('Product coordinate unresolved','amount-unresolved');
   const q=coordinate.e<0n?{n:coordinate.n,d:coordinate.d*10n**(-coordinate.e)}:{n:coordinate.n*10n**coordinate.e,d:coordinate.d};
   let log=v.layer===1?c.fraction(q.n,q.d):yield ()=>coordinatePower10(c,c.fraction(q.n,q.d));if(v.mag<0)log={lo:-log.hi,hi:-log.lo};return log;
@@ -322,12 +322,38 @@
   for(const row of entries){const delta=c.sub(row.log,origin),part=row===anchorValue?c.fraction(1n):delta.hi<cutoff?{lo:0n,hi:1n}:yield ()=>c.pow10(delta);sum=row.negative?c.sub(sum,part):c.add(sum,part);}
   const sign=sum.lo>0n?1:sum.hi<0n?-1:0;if(!sign)fail('Product comparison needs further refinement','rank-cost-unresolved');if(!withLog)return {sign};if(sign<0)sum={lo:-sum.hi,hi:-sum.lo};const log=yield ()=>c.log10(sum);return {sign,log:c.add(origin,log)};
  });}
+ // An out-of-capacity tower can still be ordered against a small threshold
+ // without evaluating its logarithm. These are one-sided INTEGER enclosures,
+ // not projected comparisons; null means an unbounded endpoint. Opposing
+ // unbounded factors deliberately remain unresolved.
+ const remoteLogFloor=10n**4096n;
+ function remoteRowBounds(row){
+  const digits=String(abs(row.n)).length-String(row.d).length;let lo=row.e+BigInt(digits-1),hi=row.e+BigInt(digits+1),remote=false;
+  for(const [text,count]of row.f){
+   let b=roughAtomLog(text);
+   if(!b){const v=B.BN(text);if(v.sign<=0||v.layer<2)return null;
+    if(v.layer===2&&Math.abs(v.mag)<=4096)return null;
+    b=v.mag>0?{lo:remoteLogFloor,hi:null}:{lo:null,hi:-remoteLogFloor};remote=true;
+   }
+   const low=count>=0n?b.lo:b.hi,high=count>=0n?b.hi:b.lo;
+   lo=lo===null||low===null?null:lo+count*low;hi=hi===null||high===null?null:hi+count*high;
+  }return {lo,hi,remote};
+ }
+ function remoteSeparatedSign(rows){
+  const bounds=rows.map(remoteRowBounds);if(bounds.some(x=>!x)||!bounds.some(x=>x.remote))return null;
+  for(const sign of [1,-1]){let lower=null,upper=null,count=0,unbounded=false;
+   for(let i=0;i<rows.length;i++){const b=bounds[i];if((rows[i].n>0n?1:-1)===sign){if(b.lo!==null&&(lower===null||b.lo>lower))lower=b.lo;}
+    else {count++;if(b.hi===null)unbounded=true;else if(upper===null||b.hi>upper)upper=b.hi;}}
+   if(!unbounded&&lower!==null&&upper!==null&&lower>upper+BigInt(String(count).length))return sign;
+  }return null;
+ }
  function sign(values){const r=prepare(values);if(!r.length)return 0;const signs=rowSigns.get(r);if(signs===1)return 1;if(signs===2)return -1;
   const bounds=r.map(roughRowLog);if(bounds.every(Boolean)){
    const positive=bounds.filter((_,i)=>r[i].n>0n),negative=bounds.filter((_,i)=>r[i].n<0n),maximum=(values,key)=>values.reduce((v,b)=>v===null||b[key]>v?b[key]:v,null);
    if(maximum(positive,'lo')>maximum(negative,'hi')+BigInt(String(negative.length).length))return 1;
    if(maximum(negative,'lo')>maximum(positive,'hi')+BigInt(String(positive.length).length))return -1;
   }
+  if(bounds.some(b=>!b)){const remote=remoteSeparatedSign(r);if(remote!==null)return remote;}
   if(r.every(t=>!t.f.size)){let denominator=1n;for(const row of r){denominator=denominator/gcd(denominator,row.d)*row.d;digits(denominator);}return L.strict.sign(r.map(row=>String(row.n*(denominator/row.d))+'e'+String(row.e)));}for(const p of (W.Core.Amount?.enabled()?[32,80,160,320,512]:[80,160,320,512]))try{return proof(r,C.context(p),false).sign;}catch(e){if(e.code!=='rank-cost-unresolved')throw e;}fail('Product comparison unresolved','amount-unresolved');
  }
  const logarithm=(values,c)=>{const result=proof(prepare(values),c,true);if(result.sign!==1)fail('Product logarithm requires a positive quantity','amount-formula-domain');return result.log;};

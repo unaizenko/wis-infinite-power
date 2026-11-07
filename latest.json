@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "version": "0.2.0.1",
-  "versionCode": 20005,
+  "version": "0.2.0.2",
+  "versionCode": 20006,
   "minAndroid": "7.0",
   "apk": {
     "primary": "https://example.invalid/wis-test.apk",

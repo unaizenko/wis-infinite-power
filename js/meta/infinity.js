@@ -171,7 +171,17 @@
     const afterRank=has(s,'D6')?B.max(C.gRankMinimum,B.sub(raw,exact()?projected(g):g)):raw;
     return gRequirementAfterRank(s,afterRank);
   }
-  const gSpeedMultiplier=_s=>B.ONE;
+  function gSpeedMultiplier(s){
+    if(!has(s,'D12'))return B.ONE;
+    const N=WIS.Meta.BigNumbers,A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,whole=A?.enabled();
+    // The four lower stocks are sampled at the online step's start. Offline
+    // captures this factor in the existing frozen G income, exactly once.
+    // The fourth-arrow exposure integral stays in BigNumbers unchanged.
+    return C.superFractalWeights.reduce((total,weight,order)=>{
+      const log=whole?F.logOnePlusRatio(N.quantity(s,order)):B.log10(B.add(1,N.amount(s,order)));
+      return B.add(total,B.mul(weight,log));
+    },B.ONE);
+  }
   const treeGainMultiplier=s=>B.mul(has(s,'D2-2')?WIS.Core.Amount?.enabled()?WIS.Core.AmountFormulas.power(WIS.Core.Amount.add(1,WIS.Core.Amount.divide(ranks().rankQuantity(ranks().get(s).gIndex),C.gTreeDivisor)),C.gTreePower):B.pow(B.add(1,B.div(exact()?projected(ranks().get(s).gIndex):ranks().get(s).gIndex,C.gTreeDivisor)),C.gTreePower):1,rewardUnlocked(s,'trueTree3')?C.treeReward:1);
   function effects(s){return [
     {id:'infinityJ',name:'无限节奏',group:'无限',target:'joules',layer:'regionMultiplier',value:tempoMultiplier(s)},
@@ -260,6 +270,7 @@
       // An outer challenge must allow the inner system challenges needed for realm 7.
       const next=WIS.Core.State.fresh();
       next.unlockedAchievements={...s.unlockedAchievements};
+      next.totalElapsedSeconds=s.totalElapsedSeconds;
       next.meta.highMultiverse=WIS.Meta.HighMultiverse.rebirthState(s);
       next.core.preferences={...s.core.preferences};
       next.core.runtime.randomState=s.core.runtime.randomState;
