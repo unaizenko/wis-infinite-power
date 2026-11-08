@@ -67,6 +67,7 @@
           try{const token=receiver.accept(packet);job.payload=null;job.status='consumed';retire();delivered=job;return {done:true,token};}
           catch(error){job.failure=error;job.status='failed';throw error;}
         },
+        abort(){api.close();stopWorker();},
         close(){if(job.status==='closed')return;const handedOff=job.status==='consumed',wasWaiting=job.status==='waiting';job.status='closed';job.payload=null;retire();receiver.close();local?.close?.();if(!handedOff)counts.cancelled++;
           if(wasWaiting)try{worker?.postMessage({type:'cancel',protocol:1,build,requestId:job.id});}catch{stopWorker();disabled=true;}
         }});

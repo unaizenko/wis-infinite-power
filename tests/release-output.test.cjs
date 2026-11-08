@@ -17,7 +17,7 @@ test('external output equals default release transform in isolated fixture; dry-
  const relative=fs.readdirSync(out,{recursive:true}).filter(p=>fs.statSync(path.join(out,p)).isFile());
  for(const p of relative)assert(fs.readFileSync(path.join(out,p)).equals(fs.readFileSync(path.join(fixture,'发布版',p))),p);
  const empty=path.join(temp,'without-manifest');run(['--out',empty,'--build','release-test-0200']);assert(!fs.existsSync(path.join(empty,'latest.json')),'sync must not generate latest.json');
- assert.match(fs.readFileSync(path.join(out,'README.md'),'utf8'),/Schema：75；结算规则版本：3/);
+ assert.match(fs.readFileSync(path.join(out,'README.md'),'utf8'),/Schema：76；结算规则版本：4/);
  console.log('Compared '+relative.length+' files; real 发布版 untouched. Fixture: '+temp);
 });
 

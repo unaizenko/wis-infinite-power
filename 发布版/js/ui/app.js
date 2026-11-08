@@ -938,7 +938,22 @@
     try { showNotice(message,6000); } catch(error) { WIS.Core.Save.diagnose("notice",error); }
   }
 
+  function beforePlayerAction() {
+    return (WIS.Game?.beforePlayerAction ? WIS.Game.beforePlayerAction() : runtime.call("beforePlayerAction")) !== false;
+  }
+  function renderSettlementStatus() {
+    const node = rawById("settlement-limit-status");
+    if (!node) return;
+    const status = WIS.Game?.getSettlementStatus?.();
+    const ledger = state.core?.runtime?.timeLedger || {};
+    const seconds = value => Number.isFinite(value) ? Math.max(0, value).toFixed(2) : "0.00";
+    node.textContent = (status?.stopped ? "自动结算已停止，可调整玩法后重试；可导出存档。 " : "") +
+      (status?.pendingDiscard || ledger.pendingDiscard ? "正在确认时间舍弃记录。 " : "") +
+      `累计舍弃现实时间 ${seconds(ledger.discardedClock)} 秒；游戏时间 ${seconds(ledger.discardedGame)} 秒。` +
+      (ledger.lastDiscard ? ` 最近一次舍弃现实时间 ${seconds(ledger.lastDiscard.clock)} 秒、游戏时间 ${seconds(ledger.lastDiscard.game)} 秒。` : "");
+  }
   function performSavedAction(action, update, afterCommit) {
+    if (!beforePlayerAction()) return false;
     if(context.canPerformSavedAction?.()===false)return false;
     const storage=WIS.Core.Save;
     let before=null;
@@ -982,24 +997,45 @@
     return JSON.stringify(payload, null, 2);
   }
 
+  let exportSnapshot = null;
+  let exportOperationBusy = false;
+  function openSaveExport(text, filename) {
+    if (exportOperationBusy) { WIS.UI.Dialog.open(byId("save-export-dialog")); return; }
+    exportSnapshot = {text, filename};
+    byId("save-export-text").value = text;
+    byId("save-export-text-panel").hidden = true;
+    byId("save-export-status").textContent = "已固定当前备份内容。请选择保存、分享或查看完整文本。";
+    byId("save-export-share").hidden = !WIS.UI.NativePlatform?.isNative();
+    byId("save-export-generic").hidden = !WIS.UI.NativePlatform?.isNative();
+    WIS.UI.Dialog.open(byId("save-export-dialog"));
+  }
   function exportSave() {
-    const text = captureExportText();
-    if (WIS.UI.NativePlatform?.isNative()) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      void WIS.UI.NativePlatform.exportText(text, `WIS-存档-${timestamp}.json`)
-        .then(() => safeOperationNotice("已打开存档分享，请确认已保存备份。"))
-        .catch(error => { WIS.Core.Save.diagnose("export", error); safeOperationNotice("存档分享失败：" + error.message + "。请保留页面并重试。"); });
-      return;
-    }
-    const blob = new Blob([text], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    anchor.href = url;
-    anchor.download = `WIS-存档-${timestamp}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    safeOperationNotice("已生成当前进度备份并请求下载，请确认浏览器下载结果；这不会恢复浏览器自动保存。");
+    if (exportOperationBusy) { WIS.UI.Dialog.open(byId("save-export-dialog")); return; }
+    openSaveExport(captureExportText(), `WIS-存档-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+  }
+  async function performSaveExport(kind) {
+    if (!exportSnapshot || exportOperationBusy) return;
+    const {text, filename} = exportSnapshot;
+    const status = byId("save-export-status");
+    exportOperationBusy = true;
+    try {
+      status.textContent = kind === "share" ? "正在打开分享…" : "请选择文件保存位置…";
+      if (kind === "share") {
+        await WIS.UI.NativePlatform.exportText(text, filename);
+        status.textContent = "已打开分享，请自行确认接收结果；这不表示文件已保存。";
+      } else if (WIS.UI.NativePlatform?.isNative()) {
+        const result = await WIS.UI.NativePlatform.saveText(text, filename, kind === "generic");
+        status.textContent = result.status === "cancelled" ? "已取消保存，仍可重试或复制文本。" : "文件已保存并读回校验通过。";
+      } else {
+        const url = URL.createObjectURL(new Blob([text], {type:"application/json"}));
+        const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        status.textContent = "已请求浏览器下载，请确认下载结果。";
+      }
+    } catch (error) {
+      status.textContent = "导出未完成：" + error.message + "。可重试通用文件类型、分享，或复制下方完整文本。";
+      byId("save-export-text-panel").hidden = false;
+    } finally { exportOperationBusy = false; }
   }
 
   // Mobile engines are inconsistent here: some lack Blob.prototype.text, some
@@ -1727,7 +1763,7 @@
       byId(`${idPrefix}-limit`).textContent = completedDisplay
         ? "全部挑战已完成"
         : active
-          ? `当前限制：${challenge.resourceName}获取 ^${currentExponent.toFixed(3)}（${formatElapsedTime(state.activeChallengeElapsedSeconds)} / ${formatElapsedTime(challenge.timeToLimitSeconds)}）`
+          ? `当前限制：${challenge.resourceName}获取 ^${currentExponent.toFixed(3)}（${formatElapsedTime(Math.min(challenge.timeToLimitSeconds, state.activeChallengeElapsedSeconds + (state.meta.challenges.discardedElapsedSeconds || 0)))} / ${formatElapsedTime(challenge.timeToLimitSeconds)}）`
           : `下次限制：${challenge.resourceName}获取指数在${formatElapsedTime(challenge.timeToLimitSeconds)}内降至 ^${nextLimit.toFixed(2)}`;
     } else if (challenge.sourceExponents) {
       byId(`${idPrefix}-limit`).textContent = completedDisplay
@@ -3199,6 +3235,7 @@
   }
 
   function render(options) {
+    renderSettlementStatus();
     const diag=WIS.Simulation?.FixedSegment?.diagnostics;
     const draw=()=>renderNow(options),run=()=>WIS.Core.Amount?.enabled()?WIS.Core.CertifiedRankMath.withWork(()=>WIS.Core.Effects.withFrozenState(runtime.getState(),draw)):draw();
     return diag ? diag.measure("render",run) : run();
@@ -3246,7 +3283,9 @@
   }
 
   function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true, cooperative = false, managedCommit = false } = {}) {
-    const commit = work => managedCommit ? work : () => {
+    const commit = work => () => {
+      if (!beforePlayerAction()) return false;
+      if (managedCommit) return work();
       const result = work();
       const completed=value=>{
         if(value!==false)context.completePlayerAction();
@@ -3443,7 +3482,11 @@
     bigNumberPage.bind();
     xiuzhenPage.bind();
     const blockInteractionDuringCatchUp = (event) => {
-      if(event.target?.closest?.("#boot-status-panel"))return;
+      const readOnlyControl = event.target?.closest?.("#boot-status-panel, #save-export-dialog, #settings-dialog, #app-download-dialog, #catch-up-notice, #offline-progress-dialog, #export-save, #export-unsaved-progress, #export-protected-save, #app-download-export, #open-settings, #close-settings, #offline-open-settings");
+      if (readOnlyControl) return;
+      if (!event.target?.closest?.("[data-page], [data-cultivation-page], summary") && ["pointerdown", "click", "keydown"].includes(event.type) && event.target?.closest?.("button, input, select, [role='button']") && !beforePlayerAction()) {
+        event.preventDefault(); event.stopImmediatePropagation(); return;
+      }
       if(context.canPerformSavedAction?.()===false){
         event.preventDefault();event.stopImmediatePropagation();return;
       }
@@ -3451,6 +3494,7 @@
       // Import is an escape hatch from a long recovery. Its launcher and file
       // events must reach the real handlers even while settlement owns the UI.
       if (importControl) return;
+      if (event.target?.closest?.("#save-export-dialog, #export-save, #export-unsaved-progress, #export-protected-save, #app-download-export, #open-settings, #close-settings")) return;
       const importing = importTransaction !== null;
       const deferred=context.isDeferredActionPending?context.isDeferredActionPending():runtime.call('isDeferredActionPending')===true;
       if(deferred&&event.target?.closest?.('[data-page], [data-cultivation-page], #reset-game')){
@@ -3815,7 +3859,7 @@
         onAppState: active => { if (!active) { cancelExplorationHold(); cancelExplorationPreviewWorks(); } context.onNativeAppState?.(active); nativeActive = active; if (active) void nativeBackup?.check(); },
         closeSurface: () => {
           const dialogs = Array.from(document.querySelectorAll("dialog[open]"));
-          const dialog = dialogs[dialogs.length - 1];
+          const dialog = document.activeElement?.closest?.("dialog[open]") || dialogs[dialogs.length - 1];
           if (dialog) { if (dialog.dispatchEvent(new Event("cancel", {cancelable:true}))) WIS.UI.Dialog.close(dialog); return true; }
           // Status toasts (including the exit hint) are not dismissible panels.
           return false;
@@ -3835,6 +3879,7 @@
       button.textContent=enabled?"已开启":"已关闭";
     };
     const openSettings = () => {
+      renderSettlementStatus();
       renderAutoCloseSetting();
       WIS.UI.Dialog.open(settingsDialog);
     };
@@ -3922,6 +3967,19 @@
       });
     });
     byId("export-save").addEventListener("click", exportSave);
+    byId("save-export-close").addEventListener("click", () => WIS.UI.Dialog.close(byId("save-export-dialog")));
+    byId("save-export-file").addEventListener("click", () => void performSaveExport("file"));
+    byId("save-export-generic").addEventListener("click", () => void performSaveExport("generic"));
+    byId("save-export-share").addEventListener("click", () => void performSaveExport("share"));
+    byId("save-export-view").addEventListener("click", () => { byId("save-export-text-panel").hidden = false; });
+    byId("save-export-copy").addEventListener("click", async () => {
+      const area = byId("save-export-text"); area.focus(); area.select();
+      try {
+        if (!navigator.clipboard?.writeText) throw Error("clipboard unavailable");
+        await navigator.clipboard.writeText(exportSnapshot.text);
+        byId("save-export-status").textContent = "完整存档文本已复制。请粘贴并保存为 JSON 文件。";
+      } catch (_) { byId("save-export-status").textContent = "自动复制不可用，已选中完整文本，请使用系统复制菜单。"; }
+    });
     WIS.Core.Save.subscribeStatus(renderSaveStatus);
     renderSaveStatus();
     byId("retry-failed-save").addEventListener("click", () => {
@@ -3938,14 +3996,7 @@
     byId("export-protected-save").addEventListener("click", () => {
       const text=WIS.Core.Save.storageSnapshot().text;
       if (!text) { showNotice("没有本地存档文件。"); return; }
-      if (WIS.UI.NativePlatform?.isNative()) {
-        void WIS.UI.NativePlatform.exportText(text, "WIS-本地原始存档.json")
-          .then(() => safeOperationNotice("已打开原始存档分享，请确认已保存备份。"))
-          .catch(error => safeOperationNotice("原始存档分享失败：" + error.message));
-        return;
-      }
-      const url=URL.createObjectURL(new Blob([text],{type:"application/json"}));
-      const anchor=document.createElement("a");anchor.href=url;anchor.download="WIS-本地原始存档.json";anchor.click();URL.revokeObjectURL(url);
+      openSaveExport(text, "WIS-本地原始存档.json");
     });
     const beginImportSelection = () => {
       if (importSave.pending || importTransaction) {

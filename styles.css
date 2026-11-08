@@ -1030,3 +1030,8 @@ dialog.wis-dialog-fallback[open] { display:block; position:fixed; inset:50% auto
 .app-download-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 
 #app-download-environment:empty, #app-download-status:empty { display: none; }
+
+.save-export-dialog { width: min(640px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }
+.save-export-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+#save-export-text { display: block; box-sizing: border-box; width: 100%; height: 32vh; min-height: 140px; margin: 8px 0; font: 12px monospace; resize: vertical; }
+#save-export-close { margin-top: 12px; }

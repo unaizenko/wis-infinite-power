@@ -171,7 +171,7 @@
   register("reincarnation", {
     rebirthLevel: REBIRTH_LEVEL.SYSTEM,
     rebirthType: "reincarnation",
-    preserve: [...metaAndStatistics, "activeChallenge", "activeChallengeElapsedSeconds", "reincarnationManaJRewardLevel"],
+    preserve: [...metaAndStatistics, "activeChallenge", "activeChallengeElapsedSeconds", "discardedElapsedSeconds", "reincarnationManaJRewardLevel"],
     preservePaths: ["meta", "powerSystem.systems.scale.history", "cultivation.systems.immortal.history"]
   });
   register("challenge", {

@@ -420,36 +420,44 @@
         publishCatchUpStatus();
       }
 
-      function abandonCatchUp() {
-        // Only an explicit player action may discard debt. Do not use this as
-        // a timeout/error fallback. Host events run between atomic commits, so
-        // everything already earned remains in the live resource/save state.
-        const discardedGameSeconds = pendingCatchUpSeconds;
-        const discardedClockSeconds = pendingCatchUpClockSeconds;
-        if (!(discardedGameSeconds > epsilon)) return { abandoned: false };
-        const previousUpdateAt = getState().lastUpdateAt;
-        const previousLedger = getState().core.runtime.timeLedger;
-        pendingCatchUpSeconds = 0;
-        pendingCatchUpClockSeconds = 0;
-        resetOnlineAccumulators();
-        getState().lastUpdateAt = Date.now();
+      function abandonCatchUp() { return discardCatchUp('player-abandoned'); }
+
+      function discardCatchUp(reason = 'recovery-budget') {
+        const discardedGameSeconds=pendingCatchUpSeconds, discardedClockSeconds=pendingCatchUpClockSeconds;
+        if(!(discardedGameSeconds>epsilon))return {abandoned:false};
+        const world=snapshotState(), tasks=[...catchUpTasks], onlineBoundary=context.snapshotOnlineBoundary?.();
+        // Retire every unconfirmed token even when the durable write fails.
+        ++catchUpGeneration;invalidateSourceModels();
+        const resolver=catchUpResolver;
+        catchUpResolver=null;catchUpPromise=null;catchUpInProgress=false;
+        const previousInternal=internalWork;internalWork=true;
         try {
-          // Persist resources and zero remaining debt in the SAME save. A
-          // refresh must not resurrect the time the player chose to abandon.
-          context.setLastTickAt?.(getState().lastUpdateAt);
-          context.checkpoint?.();
-        } catch (error) {
-          pendingCatchUpSeconds = discardedGameSeconds;
-          pendingCatchUpClockSeconds = discardedClockSeconds;
-          getState().lastUpdateAt = previousUpdateAt;
-          getState().core.runtime.timeLedger = previousLedger;
-          pauseCatchUp(catchUpDiagnostic("abandon-checkpoint-failed", catchUpTasks[0], 0, null, error));
-          return { abandoned: false, error: String(error?.message || error) };
-        }
-        cancelCatchUp();
-        context.setLastTickAt?.(Date.now());
-        requestRender();
-        return { abandoned: true, discardedGameSeconds, discardedClockSeconds };
+          const draft={...world,domain:WIS.Core.State.cloneForSimulation(world.domain)};
+          const ledger=draft.domain.core.runtime.timeLedger;
+          const segments=tasks.map(task=>({source:task.source,clock:task.remainingClockSeconds,speed:task.speed,compensationEligible:task.compensationEligible}));
+          segments.push(...(ledger.pendingContinuousTime||[]));
+          const pending=ledger.pendingDiscard;
+          if(pending?.clock>0)segments.push({source:'online',clock:pending.clock,speed:pending.game/pending.clock,compensationEligible:false});
+          WIS.Simulation.DiscardEffects.apply(draft.domain,segments,reason);
+          ledger.pendingContinuousTime=[];ledger.pendingDiscard=null;draft.domain.core.runtime.onlineCadenceRemaining=0;
+          restoreState(draft);
+          pendingCatchUpSeconds=0;pendingCatchUpClockSeconds=0;catchUpTasks.length=0;
+          const now=Date.now();getState().lastUpdateAt=now;
+          context.setLastTickAt?.(now);
+          if(typeof context.checkpoint!=='function')throw Error('缺少持久保存接口，剩余时间保留');
+          if(context.checkpoint()===false)throw Error('保存未被接受，剩余时间保留');
+          resetOnlineAccumulators();
+          catchUpPaused=false;catchUpPauseReason=null;catchUpAwaitingStart=false;awaySuspended=false;
+          catchUpCompleted=true;catchUpCompletedReport='恢复已结束；未完成时间的收益已舍弃';
+          presentation='notice';
+          resolver?.('');publishCatchUpStatus();requestRender();
+          return {abandoned:true,discardedGameSeconds,discardedClockSeconds};
+        } catch(error) {
+          restoreState(world);if(onlineBoundary)context.restoreOnlineBoundary?.(onlineBoundary);catchUpTasks.splice(0,catchUpTasks.length,...tasks);
+          pendingCatchUpSeconds=discardedGameSeconds;pendingCatchUpClockSeconds=discardedClockSeconds;
+          pauseCatchUp(catchUpDiagnostic('discard-checkpoint-failed',tasks[0],0,null,error));
+          resolver?.('');return {abandoned:false,error:String(error?.message||error)};
+        } finally {internalWork=previousInternal;}
       }
 
       function convertOfflineToCompensation() {
@@ -1133,9 +1141,14 @@
         if (catchUpAwaitingStart) { publishCatchUpStatus(); return catchUpPromise || Promise.resolve(""); }
         if (catchUpPaused||awaySuspended) return Promise.resolve("");
         if (catchUpPromise) return catchUpPromise;
+        if(getState().core.runtime.timeLedger.pendingDiscard){discardCatchUp('recovery-handoff');return Promise.resolve('');}
         // Ordinary sub-frame time is real debt, but has no runnable frame yet.
         // Do not create a worker, save or notification for every 16ms tail.
         if (!prepareQueueHead()) return Promise.resolve("");
+        const recoveryStarted=catchUpClockNow();
+        const bounded=true;
+        const budgetMs=context.recoveryBudgetMs??100, candidateMs=context.candidateTimeoutMs??2000;
+        let candidateStarted=null;
         const generation = ++catchUpGeneration;
         ensureCatchUpSession();
         catchUpOriginalClockLocked = true;
@@ -1151,6 +1164,8 @@
               firstStatus.originalClockSeconds >= CONFIG.offlineNoticeMinSeconds) await yieldForFirstPaint(true);
           while (generation === catchUpGeneration && !catchUpPaused && !awaySuspended) {
             if (catchUpTasks.length === 0||!prepareQueueHead()) break;
+            if(bounded && candidateStarted===null && catchUpClockNow()-recoveryStarted>=budgetMs){discardCatchUp('recovery-budget');return;}
+            if(bounded && candidateStarted!==null && catchUpClockNow()-candidateStarted>=candidateMs){discardCatchUp('candidate-timeout');return;}
             // Historical treasure work never runs inside the simulation's
             // 0.1-second domain transaction. No clock or RNG advances here.
             const recovery=WIS.Meta.TreasureProgress.Recovery;
@@ -1163,6 +1178,7 @@
               try{
                 await paint();
                 while(generation===catchUpGeneration&&!catchUpPaused&&!awaySuspended){
+                  if(bounded&&catchUpClockNow()-recoveryStarted>=candidateMs){discardCatchUp('candidate-timeout');return;}
                   const result=treasureRecoveryJob.advance(performance.now()+6);
                   publishCatchUpStatus();
                   if(result.done){treasureRecoveryResult={...result.stats,stocks:undefined};break;}
@@ -1184,6 +1200,10 @@
             try {do {
               const task = catchUpTasks[0];
               if (!task||!prepareQueueHead()) break;
+              if(bounded && candidateStarted===null){
+                if(catchUpClockNow()-recoveryStarted>=budgetMs){discardCatchUp('recovery-budget');return;}
+                candidateStarted=catchUpClockNow();
+              }
               // Rule 2 uses one immutable start profile for each offline task.
               // Existing online debt retains its exact runner and FIFO barrier.
               // Frozen work must never fall back to cadence replay.
@@ -1367,7 +1387,7 @@
                 pauseCatchUp(catchUpDiagnostic("exception", task, requestedSeconds, result, stepError));
                 break;
               }
-              if (acceptedSeconds > 0) pauseNotices.reset();
+              if (acceptedSeconds > 0) {pauseNotices.reset();candidateStarted=null;}
               if (result?.eventCommitted) {
                 task.currentStepDiscreteEvents += 1;
                 madeProgress = true;
@@ -1395,7 +1415,7 @@
             }
             publishCatchUpStatus();
             checkpointCatchUp(catchUpPaused);
-            if (catchUpPaused) break;
+            if (catchUpPaused) {if(bounded&&!['player-paused','checkpoint-failed'].includes(catchUpPauseReason?.reason))discardCatchUp('numeric-error');break;}
             if (planningYieldRequested || catchUpTasks.length > 0 || !madeProgress) await yieldForFirstPaint();
           }
           if (generation !== catchUpGeneration) return;
@@ -1435,6 +1455,7 @@
         })().catch((error) => {
           if (generation !== catchUpGeneration) return;
           if (catchUpTasks.length > 0 || pendingCatchUpSeconds > epsilon) {
+            if(bounded){discardCatchUp('numeric-error');return;}
             pauseCatchUp(catchUpDiagnostic(
               "worker-exception",
               catchUpTasks[0] || null,
@@ -1486,7 +1507,7 @@
         simulateOfflineProgress,
         queueCatchUpNotice,
         cancelCatchUp,
-        abandonCatchUp,
+        abandonCatchUp, discardCatchUp,
         convertOfflineToCompensation,
         retryCatchUp,
         holdCatchUpUntilUserStart, releaseCatchUpUserStart, startCatchUp,

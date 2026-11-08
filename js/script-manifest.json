@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "dev-0.2.0.4-20261108-release-r1",
+  "buildId": "dev-0.2.1.0-20261108-release-r1",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -78,6 +78,8 @@
     "js/simulation/legacy-settlement-checkpoints.js",
     "js/simulation/checkpoint-strategy.js",
     "js/simulation/fixed-segment.js",
+    "js/simulation/settlement-limit.js",
+    "js/simulation/discard-effects.js",
     "js/simulation/step.js",
     "js/simulation/offline.js",
     "js/simulation/worker-protocol.js",

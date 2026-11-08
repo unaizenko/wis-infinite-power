@@ -1,0 +1,42 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.resolve(__dirname,'..');process.env.AUDIT_GAME_ROOT=root;
+const {W,context}=require('./helpers/production-numeric-runtime.cjs').loadProductionNumericRuntime();
+for(const f of ['worker-protocol.js','worker-client.js','offline-headless.js','offline-worker.js'])if(fs.existsSync(path.join(root,'js/simulation',f)))vm.runInContext(fs.readFileSync(path.join(root,'js/simulation',f),'utf8'),context);
+assert.ok(W.Simulation.OfflineWorker,'Browser controller must isolate offline computation');
+let captured;const original=W.Simulation.Offline;
+W.Simulation.Offline={...original,create(context){captured=context;return original.create(context);}};
+const state=W.Core.State.fresh();const host=W.Simulation.OfflineHeadless.create({domain:W.Core.State.toSerializable(state)},{checkpoint(){},yield:()=>Promise.resolve()});
+W.Simulation.Offline=original;
+let saved=null,fault=false;context.localStorage={getItem:()=>saved,setItem(k,v){if(fault)throw Error('quota');saved=v;}};
+const workers=[];function factory(){const w={sent:[],postMessage(m){this.sent.push(m);},terminate(){this.terminated=true;},emit(m){this.onmessage({data:m});}};workers.push(w);return w;}
+const controller=W.Simulation.OfflineWorker.create({...captured,workerFactory:factory,workerSchedule:false,checkpoint(){W.Core.Save.write(host.getState(),{offlineRecoveryOverride:controller.getPersistenceSnapshot()});},installWorkerSnapshot:captured.restoreState});
+W.Core.Save.bindOfflineRecovery(()=>controller.getPersistenceSnapshot());
+controller.appendCatchUpTask(10,10,{source:'offline',randomMode:'state'});
+const promise=controller.simulateOfflineProgress(0,0),worker=workers[0],start=worker.sent[0];
+assert.equal(controller.getCatchUpStatus().locked,true);assert.equal(controller.getCatchUpStatus().worker.running,true);
+const initial=W.Simulation.WorkerProtocol.decode(start.payload);
+const next={...initial,snapshot:{...initial.snapshot,domain:W.Core.State.toSerializable(host.getState())},recovery:{...initial.recovery,tasks:initial.recovery.tasks.map(t=>({...t,gameSeconds:9,clockSeconds:9,clockCursor:1}))},status:{...initial.status,pendingGameSeconds:9,pendingClockSeconds:9,phase:'running'}};
+next.snapshot.domain.core.resources.joules=W.Core.BigNum.BN(123);
+next.recovery.workerRecovery={version:1,retries:1,sequence:1};
+next.saveText=JSON.stringify(W.Core.Save.envelope(W.Core.State.cloneForSimulation(next.snapshot.domain),false,{offlineRecoveryOverride:next.recovery}));
+worker.emit({type:'checkpoint',jobId:start.jobId,generation:start.generation,sequence:1,baseStateVersion:0,payload:W.Simulation.WorkerProtocol.encode(next)});
+assert.equal(String(host.getState().joules),'123');assert.equal(controller.getPendingCatchUpSeconds(),9);
+assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.tasks[0].gameSeconds,9);
+controller.pauseCatchUpByPlayer();assert.equal(worker.terminated,true);assert.equal(controller.isCatchUpPaused(),true);assert.equal(controller.getPendingCatchUpSeconds(),9);
+assert.equal(controller.getPersistenceSnapshot().workerRecovery?.retries,1,'pause/reload must preserve the same-checkpoint restart allowance');
+worker.emit({type:'checkpoint',jobId:start.jobId,generation:start.generation,sequence:2,baseStateVersion:1,payload:W.Simulation.WorkerProtocol.encode(initial)});
+assert.equal(String(host.getState().joules),'123');assert.equal(controller.getPendingCatchUpSeconds(),9);
+// Storage failure must reject the whole new candidate, while preserving the
+// previous committed assets + debt pair (including after explicit retry).
+controller.retryCatchUp();const retry=workers.at(-1),retryStart=retry.sent[0];
+const invalid=W.Simulation.WorkerProtocol.decode(retryStart.payload);
+invalid.snapshot.domain.core.resources.joules=W.Core.BigNum.BN(999);
+invalid.recovery.tasks[0].gameSeconds=8;invalid.recovery.tasks[0].clockSeconds=8;
+invalid.status={...invalid.status,pendingGameSeconds:8,pendingClockSeconds:8};
+invalid.saveText=JSON.stringify(W.Core.Save.envelope(W.Core.State.cloneForSimulation(invalid.snapshot.domain),false,{offlineRecoveryOverride:invalid.recovery}));
+fault=true;retry.emit({type:'checkpoint',jobId:retryStart.jobId,generation:retryStart.generation,sequence:1,baseStateVersion:0,payload:W.Simulation.WorkerProtocol.encode(invalid)});
+assert.equal(controller.isCatchUpPaused(),true);assert.equal(String(host.getState().joules),'123');assert.equal(controller.getPendingCatchUpSeconds(),9);
+assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.tasks[0].gameSeconds,9);
+assert.ok(!retry.sent.some(m=>m.type==='ack'));fault=false;
+controller.cancelCatchUp();promise.then(()=>console.log('PASS Worker owner lock, durable checkpoint, immediate pause, debt preserved and stale result ignored'));

@@ -7,6 +7,6 @@
   state.meta.closedBatchMigration={version:1,fromNumericModel:1,fromSettlementRule:2,accInitializedToZero:true};validate(state);target.meta=state.meta;target.naturalTreasureLevel=state.naturalTreasureLevel;target.explorationRewards=state.explorationRewards;return target;
  }
  function validate(state){if(state.meta.closedBatchModel!==2)return state;W.Meta.ClosedTreasures.validate(state);W.Meta.ClosedRankSettlement.validate(state.meta.bigNumbers);const p=state.explorationRewards;if(p?.naturalBatch){C.read(p.naturalBatch);if(p.levelResidual?.length)throw Error('Closed natural reward still has tails');}return state;}
- function recovery(recovery){if(recovery?.tasks?.length&&(recovery.numericModelVersion!==2||recovery.settlementRule!==3))throw Object.assign(Error('旧结算任务尚未到可转换提交边界；原存档与剩余时间保留，请先用旧开发构建完成或暂停导入'),{code:'CLOSED_RECOVERY_PROTECTED'});}
+ function recovery(recovery){if(recovery?.tasks?.length&&(recovery.numericModelVersion!==2||![3,4].includes(recovery.settlementRule)))throw Object.assign(Error('旧结算任务尚未到可转换提交边界；原存档与剩余时间保留，请先用旧开发构建完成或暂停导入'),{code:'CLOSED_RECOVERY_PROTECTED'});}
  W.Core.ClosedBatchMigration=Object.freeze({version:2,upgrade,validate,recovery});
 }(window.WIS));

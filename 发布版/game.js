@@ -267,6 +267,7 @@
   // event checks; rendering must never be required to activate rewards.
   function playerAction(work) {
     return (...args) => { if(!canPerformSavedAction()||simulationLoop?.isDeferredActionPending?.()||offlineSimulation?.getCatchUpStatus().locked)return false;
+      if(simulationLoop?.beforePlayerAction?.()===false)return false;
       const result = work(...args); completePlayerAction(); return result; };
   }
 
@@ -469,6 +470,8 @@
     format,
     setLastTickAt,
     checkpoint: persistStateNow,
+    snapshotOnlineBoundary:()=>simulationLoop?.snapshot(),
+    restoreOnlineBoundary:snapshot=>{if(snapshot)simulationLoop?.restore(snapshot);},
     snapshotTransient: () => ({
       power: WIS.Core.Registries.getActivePower(state)?.snapshotTreasureTransient?.(),
       cultivation: WIS.Core.Registries.getActiveCultivation(state)?.snapshotTreasureTransient?.()
@@ -517,8 +520,17 @@
     advanceGameStep: stepSimulation.advanceGameStep,
     prepareOnlineWork: onlineCandidateExecutor?.prepareOnlineWork || stepSimulation.prepareOnlineWork,
     onlineStateKey: stepSimulation.onlineStateKey,
+    onlineFailureKey: value => JSON.stringify({core:value.core,powerSystem:value.powerSystem,cultivation:value.cultivation,meta:value.meta},(key,v)=>['timeLedger','lastUpdateAt','discardedElapsedSeconds','discardedRunElapsed','theme','hideUnlockedAchievements','hideCompletedChallenges','hideUnlockedUpgrades','hideUnlockedInfinityUpgrades','hideUnlockedImmortalAbilities','autoCloseOfflineDialogEnabled'].includes(key)?undefined:v),
+    commitDiscard: (parts,reason) => {
+      const candidate=WIS.Core.State.cloneForSimulation(state);
+      const result=WIS.Simulation.DiscardEffects.apply(candidate,parts,reason);
+      candidate.core.runtime.timeLedger.pendingDiscard=null;
+      setStateDirect(candidate);
+      if(result.events.length)try{showNotice('挑战期限已到，本次挑战结束。');}catch(_){}
+      return true;
+    },
     onFirstOnlineSettlement: () => UI.onFirstOnlineSettlement?.(),
-    onOnlineSettlementError: error => WIS.Core.Runtime.call('showNotice','本次结算暂时无法完成，资源和待结算时间已保留。可在设置中导出存档。'),
+    onOnlineSettlementError: error => WIS.Core.Runtime.call('showNotice','自动结算已停止：'+(error?.message||'计算未能完成')+'。已完成收益保留，可调整玩法后重试或在设置中导出存档。'),
     invalidateDeferredQi: stepSimulation.invalidateDeferredQi,
     hasDeferredQi: stepSimulation.hasDeferredQi,
     beginTransaction: stepSimulation.beginTransaction,
@@ -550,6 +562,7 @@
     requestDeferredAction:job=>simulationLoop.requestDeferredAction(job),
     isDeferredActionPending:()=>simulationLoop.isDeferredActionPending(),
     cancelDeferredAction:()=>simulationLoop.cancelDeferredAction(),
+    beforePlayerAction:()=>simulationLoop.beforePlayerAction(),
     render: requestRender,
     renderImmediately: (pageName) => {
       requestRender(pageName);
@@ -590,6 +603,8 @@
   UI.bindEvents();
   WIS.Game = Object.freeze({
     version: GAME_VERSION,
+    beforePlayerAction:()=>simulationLoop.beforePlayerAction(),
+    getSettlementStatus:()=>simulationLoop.settlementStatus(),
     canPerformSavedAction, canPersistConfirmedState,
     getState: () => state,
     getDomainState: () => WIS.Core.State.domainView(state),

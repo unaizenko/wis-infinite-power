@@ -48,7 +48,7 @@
     const limit = challenge.limitExponents?.[difficultyIndex] ?? 1;
     if (preview || inheritedDifficulty !== null) return limit;
     if (!challenge.timeToLimitSeconds) return limit;
-    const progress = Math.max(0, Math.min(1, state.meta.challenges.activeChallengeElapsedSeconds / challenge.timeToLimitSeconds));
+    const progress = Math.max(0, Math.min(1, (state.meta.challenges.activeChallengeElapsedSeconds+(state.meta.challenges.discardedElapsedSeconds||0)) / challenge.timeToLimitSeconds));
     return 1 - (1 - limit) * progress;
   }
   const evilCorpseResourceScales = Object.freeze({
@@ -249,6 +249,7 @@
     const nextState = WIS.Core.Reset.apply("challenge", state, freshDefaultState, { overrides: {
       activeChallenge: challengeKey,
       activeChallengeElapsedSeconds: 0,
+      discardedElapsedSeconds: 0,
       reincarnationElapsedSeconds: 0,
       currentScaleElapsedSeconds: 0,
       lastUpdateAt: Date.now()
@@ -334,7 +335,7 @@
       }
     }
     state.activeChallenge = null;
-    state.activeChallengeElapsedSeconds = 0;
+    state.activeChallengeElapsedSeconds = 0;state.meta.challenges.discardedElapsedSeconds=0;
     WIS.Core.Effects.invalidate();
     saveState();
     render();
@@ -369,7 +370,7 @@
         : challenge.resetLevel==='infinity'
         ? gte(state.power,scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power)
         : state.highestScaleIndex >= challengeRequiredScaleIndex(challengeKey);
-    let observedElapsed=state.activeChallengeElapsedSeconds;
+    let observedElapsed=state.activeChallengeElapsedSeconds+(state.meta.challenges.discardedElapsedSeconds||0);
     if(offlineIncome && challenge.deadlineSeconds) {
       // Frozen income continues for the whole absence, but a deadline only
       // observes resources earned before its cutoff. Never reprice income
@@ -377,15 +378,15 @@
       const start=offlineIncome.frozenStart;
       if(start.activeChallenge!==challengeKey || challengeKey!=="infinityFast")
         throw Error("离线限时挑战尚未定义固定收益判定；进度保留");
-      const remaining=Math.max(0,challenge.deadlineSeconds-start.activeChallengeElapsedSeconds);
+      const remaining=Math.max(0,challenge.deadlineSeconds-start.activeChallengeElapsedSeconds-(start.discardedElapsedSeconds||0));
       const elapsed=Math.min(offlineIncome.seconds,remaining);
-      observedElapsed=start.activeChallengeElapsedSeconds+elapsed;
+      observedElapsed=start.activeChallengeElapsedSeconds+(start.discardedElapsedSeconds||0)+elapsed;
       const deadlinePower=add(start.power,mul(offlineIncome.sources.rates.power,elapsed));
       targetReached=gte(deadlinePower,scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power);
     }
     if (challenge.deadlineSeconds && (observedElapsed > challenge.deadlineSeconds + 1e-9 ||
         (!targetReached && observedElapsed >= challenge.deadlineSeconds - 1e-9))) {
-      state.activeChallenge=null;state.activeChallengeElapsedSeconds=0;WIS.Core.Effects.invalidate();saveState();showNotice(`挑战失败：${challenge.name}（超时）`);return true;
+      state.activeChallenge=null;state.activeChallengeElapsedSeconds=0;state.meta.challenges.discardedElapsedSeconds=0;WIS.Core.Effects.invalidate();saveState();showNotice(`挑战失败：${challenge.name}（超时）`);return true;
     }
     if (!targetReached) return ringCompleted;
     const previousCompletions = challengeCompletionCount(challengeKey);
@@ -394,7 +395,7 @@
     if (challenge.achievementKey) WIS.Meta.Achievements.record(state, challenge.achievementKey);
     if (challenge.rewardKey) WIS.Meta.Infinity.recordChallengeReward(state,challengeKey);
     state.activeChallenge = null;
-    state.activeChallengeElapsedSeconds = 0;
+    state.activeChallengeElapsedSeconds = 0;state.meta.challenges.discardedElapsedSeconds=0;
     WIS.Core.Effects.invalidate();
     saveState();
     showNotice(previousCompletions >= challenge.maxCompletions || achievementAlreadyEarned

@@ -5,6 +5,22 @@
     if (!isNative()) throw Error('当前不是原生 App');
     return global.Capacitor.Plugins;
   }
+  let saving = false;
+  function canSaveText() { return isNative() && typeof global.Capacitor?.Plugins?.WisSaveExport?.saveText === 'function'; }
+  async function saveText(text, filename, generic = false) {
+    if (!canSaveText()) throw Error('文件保存组件不可用，请升级 APK，或使用分享/存档文本');
+    if (saving) throw Error('文件保存正在进行，请完成或取消当前选择');
+    saving = true;
+    try {
+      const result = await plugins().WisSaveExport.saveText({text, filename, generic});
+      if (result?.status === 'cancelled') return result;
+      if (result?.status !== 'saved' || !Number.isSafeInteger(result.bytes) || result.bytes < 0 || typeof result.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(result.sha256)) throw Error('未确认文件已完整保存，请保留存档文本并重试');
+      return result;
+    } catch (error) {
+      if (error?.code === 'UNIMPLEMENTED' || /not implemented/i.test(error?.message || '')) throw Error('文件保存组件不可用，请升级 APK，或使用分享/存档文本');
+      throw error;
+    } finally { saving = false; }
+  }
   async function exportText(text, filename) {
     const p = plugins();
     if (!p?.Filesystem?.writeFile || !p?.Share?.share) throw Error('存档分享组件不可用');
@@ -87,5 +103,5 @@
       try { global.localStorage.setItem(key, '1'); } catch (_) {}
     }
   }
-  global.WIS.UI.NativePlatform = Object.freeze({isNative, exportText, install, createBackupController});
+  global.WIS.UI.NativePlatform = Object.freeze({isNative, canSaveText, saveText, exportText, install, createBackupController});
 }(window));

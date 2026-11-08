@@ -99,7 +99,7 @@
       for(const el of $('infinity-tree').children)attribute(el,'aria-pressed',String(el.dataset.node===nodeId));
     }
     function renderChallenges(){for(const [id,def] of Object.entries(C.challenges)){const card=$(`infinity-challenge-${id}`);card.hidden=!WIS.Meta.Challenges.challengeVisible(id);if(card.hidden)continue;
-      card.querySelector('.infinity-challenge-status').textContent=`${(def.achievementKey||def.rewardKey)?'本轮完成':'完成'}：${s.challengeCompletions[id]||0}/${def.maxCompletions}${I.isChallengeActive(s,id)?id==='infinityRing'?'　进行中':`　当前 ${context.format(s.activeChallengeElapsedSeconds,2)}秒`:''}`;
+      card.querySelector('.infinity-challenge-status').textContent=`${(def.achievementKey||def.rewardKey)?'本轮完成':'完成'}：${s.challengeCompletions[id]||0}/${def.maxCompletions}${I.isChallengeActive(s,id)?id==='infinityRing'?'　进行中':`　当前 ${context.format(s.activeChallengeElapsedSeconds + (def.deadlineSeconds ? s.meta.challenges.discardedElapsedSeconds || 0 : 0),2)}秒`:''}`;
       const earned=def.rewardKey?I.rewardUnlocked(s,id):def.achievementKey&&WIS.Meta.Achievements.has(s,def.achievementKey);
       card.querySelector('.infinity-challenge-reward').textContent=def.rewardKey
         ? `${earned?'永久奖励已获得':'首次完成奖励'}：${def.rewardDescription}；当前 ×${context.format(I.rapidPointMultiplier(s),4)}`

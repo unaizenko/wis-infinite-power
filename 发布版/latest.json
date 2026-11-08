@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.0.4",
-  "versionCode": 20008,
+  "version": "0.2.1.0",
+  "versionCode": 20100,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.4/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.0/wis.apk",
     "mirror": null,
-    "sha256": "b7b452302d0fa272c3340c02ec519bfec32b258b1f9ab2b26e5e6e92d38ec7a8",
-    "sizeBytes": 6436528
+    "sha256": "8a4caf1aa0a84735ceb3172ebd0c0d35a80645b12db176f6ba3cfe0e74898468",
+    "sizeBytes": 6449001
   },
-  "notes": "优化吐纳和探寻的重复计算；在线结算接入独立线程，改善操作响应并保留未结算时间。数值和存档规则不变，手机持续性能仍待验证。",
-  "publishedAt": "2026-11-08T03:54:41Z"
+  "notes": "加入有限结算：超预算时保留已完成收益，舍弃剩余时间，避免持续积压；修复挑战计时及Android存档导出，提供系统文件保存、分享和完整文本。旧档可升级，新档请勿降级。",
+  "publishedAt": "2026-11-08T09:24:56.112006Z"
 }

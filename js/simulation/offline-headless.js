@@ -2,7 +2,7 @@
   'use strict';
   // Host adapter only: all math, events and queue accounting stay in the same
   // production Step/Offline modules used by game.js and deterministic references.
-  function create(initial,host) {
+  function create(initial,host={}) {
     const S=WIS.Core.State,R=WIS.Core.Runtime,I=WIS.Cultivation.ImmortalLogic,A=WIS.Meta.Achievements,Scale=WIS.Power.ScaleLogic;
     let state=S.cloneForSimulation(initial.domain),offline;
     const noop=()=>{},setState=next=>{state=next;WIS.Core.Effects.invalidate();};
@@ -37,6 +37,7 @@
       checkActiveChallengeCompletion:WIS.Meta.Challenges.checkActiveChallengeCompletion,autoBreakthroughImmortalRealms:I.autoBreakthroughImmortalRealms,
       runAchievementAutomations:automation.runAchievementAutomations,showScaleNotice:noop,scaleRequirement:Scale.scaleRequirement});
     offline=WIS.Simulation.Offline.create({...common,...step,useWorker:false,
+      recoveryBudgetMs:host.recoveryBudgetMs,candidateTimeoutMs:host.candidateTimeoutMs,
       achievementStates:A.states,recordCurrentAchievements:A.recordCurrent,
       notifyNewAchievements:noop,markAchievementsDirty:noop,showNotice:noop,requestRender:noop,
       formatElapsedTime:WIS.UI.Format.elapsedTime,format:WIS.UI.Format.number,resetOnlineAccumulators:noop,

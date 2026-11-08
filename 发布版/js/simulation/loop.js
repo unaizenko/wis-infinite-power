@@ -13,6 +13,9 @@
     let manualQi=null;
     let deferredAction=null;
     let onlineWork=null,onlineFailure=null,publishedSinceRender=false;
+    let discardFailure=null;
+    const limit=WIS.Simulation.SettlementLimit;
+    const bounded=!!limit&&WIS.Core.Config?.saveVersion>=76&&typeof context.commitDiscard==='function';
     const onlineIntervals=(getState().core.runtime.timeLedger.pendingContinuousTime||[]).map(p=>({...p}));
     onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);
     const stepSeconds=context.simulationStepSeconds||0.1;
@@ -56,7 +59,7 @@
       // apparent failure before its confirmed time is debited below.
       try{unsubscribe?.();}catch(_){}
     }
-    function cancelOnlineWork(){const owner=onlineWork;onlineWork=null;detachOnlineReady(owner);owner?.job.close?.();}
+    function cancelOnlineWork(abort=false){const owner=onlineWork;onlineWork=null;detachOnlineReady(owner);if(abort&&owner?.job.abort)owner.job.abort();else owner?.job.close?.();}
     function watchOnlineReady(owner){
       if(typeof owner.job.onReady!=='function')return;
       const unsubscribe=owner.job.onReady(()=>{
@@ -67,16 +70,57 @@
       });
       if(typeof unsubscribe==='function')owner.unsubscribe=unsubscribe;
     }
-    function onlineInputKey(){return context.onlineStateKey?.(getState());}
+    function onlineInputKey(){return (context.onlineFailureKey||context.onlineStateKey)?.(getState());}
     function failureStillCurrent(){if(!onlineFailure)return false;if(onlineFailure.key!==onlineInputKey()){onlineFailure=null;return false;}return true;}
-    function invalidateOnlineScheduler(){cancelOnlineWork();onlineFailure=null;schedulerGeneration++;cancelOnlineContinuation();cancelQiWork();cancelDeferredAction('scheduler-invalidated');}
+    function accumulateDiscard(clock,game,reason='online-overload'){
+      if(!(clock>0))return;
+      const old=ledger().pendingDiscard;
+      const pending={clock:(old?.clock||0)+clock,game:(old?.game||0)+game,reason:old?.reason||reason};
+      if(!Number.isFinite(pending.clock)||!Number.isFinite(pending.game))throw Error('舍弃时间累计溢出');
+      writeLedger({pendingDiscard:pending});
+    }
+    function limitOnlineQueue(waiting=limit?.waitingClock||0.1,reason='online-overload'){
+      if(!bounded||onlineIntervals.some(p=>p.source==='offline'))return;
+      const plan=limit.planDiscard(onlineIntervals,{reservedClock:onlineWork?onlineWork.seconds/onlineWork.part.speed:0,maxWaitingClock:waiting});
+      if(!(plan.discardedClock>epsilon))return;
+      // Preserve the identity reserved by the in-flight candidate.
+      for(let i=0;i<plan.keep.length;i++)onlineIntervals[i].clock=plan.keep[i].clock;
+      onlineIntervals.length=plan.keep.length;
+      onlineAccumulator=plan.keep.reduce((sum,p)=>sum+p.clock,0);
+      accumulateDiscard(plan.discardedClock,plan.discardedGame,reason);syncPendingLedger();
+    }
+    function flushDiscardEffects(){
+      if(!bounded||onlineWork||onlineIntervals.length||discardFailure)return !discardFailure;
+      const pending=ledger().pendingDiscard;if(!pending)return true;
+      try{
+        if(context.commitDiscard([{source:'online',clock:pending.clock,speed:pending.game/pending.clock,compensationEligible:false}],pending.reason)===false)throw Error('舍弃时间未提交');
+        writeLedger({pendingDiscard:null});publishedSinceRender=true;return true;
+      }catch(error){discardFailure=error;context.onOnlineSettlementError?.(error);return false;}
+    }
+    function stopFailedWork(error){
+      cancelOnlineWork(true);
+      if(bounded){limitOnlineQueue(0,error?.code||'online-settlement-failed');flushDiscardEffects();}
+      onlineFailure={key:onlineInputKey(),code:error?.code||'online-settlement-failed'};
+      context.onOnlineSettlementError?.(error);
+    }
+    function inspectOnlineTimeout(){
+      if(bounded&&onlineWork&&monotonicNow()-onlineWork.startedAt>=limit.candidateTimeoutMs)
+        stopFailedWork(Object.assign(Error('结算超时，已停止本次计算'),{code:'online-candidate-timeout'}));
+    }
+    function beforePlayerAction(){
+      if(!bounded||!ledger().pendingDiscard)return !discardFailure;
+      if(onlineBlocked())return false;
+      cancelOnlineWork(true);limitOnlineQueue(0,'action-boundary');return flushDiscardEffects();
+    }
+    function invalidateOnlineScheduler(){cancelOnlineWork();if(!bounded)onlineFailure=null;schedulerGeneration++;cancelOnlineContinuation();cancelQiWork();cancelDeferredAction('scheduler-invalidated');}
     function deferredActionBlocked(status=offline.getCatchUpStatus()){
       return onlineBlocked(status)||importHold||isHidden()||!ready()||ledger().awaySince!==null||
         status.awaitingStart===true&&status.presentation==='blocking';
     }
     function requestDeferredAction(factory){
       if(deferredAction||manualQi||context.hasDeferredQi?.()||deferredActionBlocked())return Promise.resolve(false);
-      cancelOnlineWork();onlineFailure=null;
+      if(!beforePlayerAction())return Promise.resolve(false);
+      cancelOnlineWork();
       const original=getState(),generation=schedulerGeneration;
       let job;
       try{job=typeof factory==='function'?factory(original):factory;
@@ -114,7 +158,7 @@
       if(deferredAction||manualQi||context.hasDeferredQi?.()||importHold||isHidden()||!isInitialLoadComplete()||onlineBlocked())return 0;
       const job={original:getState(),generation:schedulerGeneration,
         key:WIS.Cultivation.ImmortalLogic.qiBatchStateKey(getState()),shouldRender,value:0};
-      cancelOnlineWork();onlineFailure=null;manualQi=job;processOnline();return job.value;
+      cancelOnlineWork();manualQi=job;processOnline();return job.value;
     }
     function setLastTickAt(value){
       lastTickAt=Number.isFinite(Number(value))?Math.max(0,Number(value)):Date.now();
@@ -124,7 +168,7 @@
       if(ledger().awaySince===null)writeLedger({boundaryAt:Math.max(ledger().boundaryAt||0,lastTickAt)});
     }
     function resetAccumulators({preservePending=false}={}){
-      invalidateOnlineScheduler();
+      invalidateOnlineScheduler();discardFailure=null;
       const pending=preservePending ? (ledger().pendingContinuousTime||[]).map(p=>({...p})) : [];
       lastTickAt=Date.now();onlineIntervals.splice(0,onlineIntervals.length,...pending);
       onlineAccumulator=onlineIntervals.reduce((n,p)=>n+(p.source==='offline'?0:p.clock),0);tickRemaining=0;
@@ -139,6 +183,9 @@
       const seconds=Math.max(0,now-previous)/1000;
       if(!(seconds>0))return 0;
       const speed=effectiveDevSpeed();
+      if(bounded&&ledger().pendingDiscard&&!onlineIntervals.some(p=>p.source==='offline')){
+        accumulateDiscard(seconds,seconds*speed);writeLedger({boundaryAt:now});return seconds;
+      }
       // Runtime intervals retain speed and original compensation qualification.
       // They are never recovery tasks or prepared work, and do not lock the UI.
       const reserved=onlineIntervals.reduce((sum,part)=>sum+(part.compensationEligible?part.clock:0),0);
@@ -151,7 +198,7 @@
         else onlineIntervals.push({source:'online',clock,speed,compensationEligible});
         onlineAccumulator+=clock;
       }
-      writeLedger({boundaryAt:now});return seconds;
+      writeLedger({boundaryAt:now});limitOnlineQueue(failureStillCurrent()?0:limit?.waitingClock);return seconds;
     }
     function captureForegroundTime(now=Date.now(),options={}){
       if(importHold)return 0;
@@ -178,7 +225,7 @@
       if(onlineBlocked())return false;
       if(deferredAction)return true;
       if(manualQi)return true;
-      if(failureStillCurrent())return false;
+      if(discardFailure||failureStillCurrent())return false;
       if(onlineWork)return onlineWork.job.waiting?.()!==true;
       dropEmptyOnlineHeads();
       if(!onlineIntervals.length)return false;
@@ -188,9 +235,10 @@
       const availableGame=prefix.reduce((sum,part)=>sum+part.clock*part.speed,0);
       if(availableGame+epsilon>=currentCadence())return true;
       if(offlineIndex>=0&&availableGame>epsilon)return true;
-      return flush&&availableGame>epsilon;
+      return (flush||(bounded&&ledger().pendingDiscard))&&availableGame>epsilon;
     }
     function drainOnlineSlice(flush=false){
+      limitOnlineQueue(failureStillCurrent()?0:limit?.waitingClock);inspectOnlineTimeout();flushDiscardEffects();
       const status=offline.getCatchUpStatus();
       if(deferredAction&&deferredActionBlocked(status))cancelDeferredAction('action-blocked');
       if(onlineBlocked(status)){cancelOnlineWork();cancelDeferredAction('online-blocked');return {progressed:false,blocked:true,needsContinuation:false,hitOfflineBarrier:false,steps:0};}
@@ -203,7 +251,7 @@
         // separate host tasks, even when this candidate finished very quickly.
         return {progressed,blocked:false,needsContinuation:hasRunnableOnlineWork(flush),hitOfflineBarrier:false,steps:0};
       }
-      if(failureStillCurrent()&&!manualQi)return {progressed:false,blocked:true,needsContinuation:false,steps:0};
+      if((discardFailure||failureStillCurrent())&&!manualQi)return {progressed:false,blocked:true,needsContinuation:false,steps:0};
       const sliceStartedAt=monotonicNow();
       let progressed=false,hitOfflineBarrier=false,blocked=false,treasureRecoveryRequired=false,steps=0;
       stepping=true;context.beginTransaction?.();
@@ -229,7 +277,7 @@
           const prefix=offlineIndex<0?onlineIntervals:onlineIntervals.slice(0,offlineIndex);
           const availableGame=prefix.reduce((sum,part)=>sum+part.clock*part.speed,0);
           const cadence=currentCadence();
-          if(availableGame+epsilon<cadence&&!flush&&offlineIndex<0)break;
+          if(availableGame+epsilon<cadence&&!flush&&offlineIndex<0&&!(bounded&&ledger().pendingDiscard))break;
           const part=onlineIntervals[0],seconds=Math.min(cadence,part.clock*part.speed);
           let result;
           if(typeof context.prepareOnlineWork==='function'){
@@ -240,7 +288,7 @@
             if(onlineWork?.job.waiting?.()===true)break;
             if(onlineWork&&!onlineWork.job.checksInputOnAdvance&&onlineWork.job.valid?.()===false){cancelOnlineWork();break;}
             try {
-              if(!onlineWork){onlineWork={part,generation:schedulerGeneration,seconds,job:context.prepareOnlineWork(seconds,{source:'online',compensationEligible:part.compensationEligible,clockRatio:1/part.speed,logicalTickRemaining:cadence,atomicCadence:true})};watchOnlineReady(onlineWork);break;}
+              if(!onlineWork){onlineWork={part,generation:schedulerGeneration,seconds,startedAt:monotonicNow(),job:context.prepareOnlineWork(seconds,{source:'online',compensationEligible:part.compensationEligible,clockRatio:1/part.speed,logicalTickRemaining:cadence,atomicCadence:true})};watchOnlineReady(onlineWork);break;}
               // One resume per candidate and host task; give the browser a turn before retrying.
               const owner=onlineWork,next=owner.job.advance(sliceStartedAt+onlineSliceBudgetMs);
               if(!next.done)break;
@@ -248,8 +296,7 @@
             } catch(error){
               cancelOnlineWork();
               if(error?.code==='rank-work-stale')break;
-              onlineFailure={key:onlineInputKey(),code:error?.code||'online-settlement-failed'};
-              context.onOnlineSettlementError?.(error);blocked=true;break;
+              stopFailedWork(error);blocked=true;break;
             }
           }else {
           result=context.advanceGameStep(seconds,true,{
@@ -261,6 +308,7 @@
           const processed=Math.max(0,Math.min(seconds,Number(result?.processedSeconds)||0));
           if(!(processed>0)){
             treasureRecoveryRequired=result?.treasureRecoveryRequired===true;
+            if(bounded&&!treasureRecoveryRequired)stopFailedWork(Object.assign(Error('结算未产生完整进展'),{code:'online-no-progress'}));
             blocked=true;break;
           }
           progressed=true;steps++;publishedSinceRender=true;
@@ -271,6 +319,8 @@
           tickRemaining=result?.clockCommitted===true?Math.max(0,Number(result.logicalTickRemaining)||0):Math.max(0,cadence-processed);
           getState().core.runtime.onlineCadenceRemaining=tickRemaining||stepSeconds;
           if(result?.clockCommitted!==true)getState().totalElapsedSeconds+=clock;
+          syncPendingLedger();
+          if(!onlineIntervals.length)flushDiscardEffects();
           // Match the old end-unit play-time achievement check.
           const rates={...WIS.tmp.rates};
           if(!getState().unlockedAchievements?.trainingUp&&getState().totalElapsedSeconds>=600)
@@ -299,6 +349,7 @@
         handoffPendingRecovery();
         offline.queueCatchUpNotice(0,0);
       }
+      flushDiscardEffects();
       const needsContinuation=!hitOfflineBarrier&&!blocked&&hasRunnableOnlineWork(flush);
       return {progressed,blocked,needsContinuation,hitOfflineBarrier,steps};
     }
@@ -404,6 +455,7 @@
       if(!isInitialLoadComplete()){lastTickAt=now;return;}
       if(importHold){lastTickAt=now;return;}
       if(isHidden())return;
+      inspectOnlineTimeout();
       if(deferredAction&&deferredActionBlocked())cancelDeferredAction('action-blocked');
       if(onlineBlocked()&&(manualQi||context.hasDeferredQi?.()))invalidateOnlineScheduler();
       // Recovery publishes its own small progress view. Re-rendering every
@@ -414,7 +466,7 @@
       // through the SAME watermark, without inferring offline from duration.
       if(ledger().awaySince!==null)registerReturn(now);
       else {
-        enqueueForegroundAt(now);
+        enqueueForegroundAt(now);flushDiscardEffects();
         if(offline.getPendingCatchUpSeconds()>epsilon){
           // A freshly imported blocking debt waits for the player. The live
           // loop must not be the entry point that starts it instead.
@@ -494,7 +546,8 @@
     }
     return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,setNativeAppActive,
       prepareSave,restoreClosedTime,handoffImportRecovery,enqueueForegroundAt,captureForegroundTime,beginImportHold,finishImportHold,
-      invalidateOnlineScheduler,requestQiBatch,requestDeferredAction,cancelDeferredAction,
+      invalidateOnlineScheduler,requestQiBatch,requestDeferredAction,cancelDeferredAction,beforePlayerAction,flushDiscardEffects,
+      settlementStatus:()=>({bounded,stopped:!!onlineFailure||!!discardFailure,reason:discardFailure?.message||onlineFailure?.code||null,pendingDiscard:ledger().pendingDiscard||null}),
       isDeferredActionPending:()=>!!deferredAction,
       isImportHoldActive:()=>!!importHold,
       snapshot:()=>({lastTickAt,onlineAccumulator,tickRemaining,onlineIntervals:onlineIntervals.map(part=>({...part}))}),

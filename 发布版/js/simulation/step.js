@@ -108,7 +108,7 @@
           const timeLimit = CHALLENGE_DEFINITIONS[projection.activeChallenge]?.timeToLimitSeconds;
           const nextElapsed = projection.activeChallengeElapsedSeconds + elapsedSeconds;
           projection.activeChallengeElapsedSeconds = timeLimit
-            ? Math.min(timeLimit, nextElapsed)
+            ? Math.min(Math.max(0,timeLimit-(projection.meta.challenges.discardedElapsedSeconds||0)), nextElapsed)
             : nextElapsed;
         }
       }
@@ -330,7 +330,7 @@
       function nextChallengeTimeBoundarySeconds(maxSeconds, state = getState()) {
         const challenge = state.activeChallenge ? CHALLENGE_DEFINITIONS[state.activeChallenge] : null;
         const limit = Number(challenge?.deadlineSeconds || challenge?.timeToLimitSeconds) || 0;
-        const current = Math.max(0, Number(state.activeChallengeElapsedSeconds) || 0);
+        const current = Math.max(0, Number(state.activeChallengeElapsedSeconds+(state.meta.challenges.discardedElapsedSeconds||0)) || 0);
         if (!(limit > current) || current + maxSeconds <= limit) return maxSeconds;
         return limit - current;
       }
@@ -512,7 +512,7 @@
         if(options.source==='online') {
           const challengeSeconds=nextChallengeTimeBoundarySeconds(seconds,state);
           if(challengeSeconds<seconds){seconds=challengeSeconds;reason='challenge';}
-        } else if(limit>state.activeChallengeElapsedSeconds&&limit-state.activeChallengeElapsedSeconds<seconds){seconds=limit-state.activeChallengeElapsedSeconds;reason='challenge';}
+        } else {const ruleElapsed=state.activeChallengeElapsedSeconds+(state.meta.challenges.discardedElapsedSeconds||0);if(limit>ruleElapsed&&limit-ruleElapsed<seconds){seconds=limit-ruleElapsed;reason='challenge';}}
         const clockRatio=options.clockRatio||0;
         if(options.source!=="offline"&&continuous&&!state.unlockedAchievements.trainingUp&&clockRatio>0&&state.totalElapsedSeconds<600&&
           (600-state.totalElapsedSeconds)/clockRatio<seconds){seconds=(600-state.totalElapsedSeconds)/clockRatio;reason='achievement';}

@@ -60,7 +60,7 @@
     if(WIS.Core.Amount?.enabled())WIS.Core.AmountMigration.assertEnvelope(recovery,75);
     const rule = WIS.Core.Config.fixedSettlement;
     if (recovery.settlementRule != null &&
-        (![1, rule.version].includes(recovery.settlementRule) || recovery.offlineSegmentSeconds !== rule.offlineSeconds))
+        (![1, 3, rule.version].includes(recovery.settlementRule) || recovery.offlineSegmentSeconds !== rule.offlineSeconds))
       throw Error("不支持的固定分段规则");
     WIS.Simulation.Offline.validateConfirmedSources(recovery.confirmedSources);
     WIS.Simulation.FixedSegment.validateBudget(recovery.segmentBudget);
@@ -120,10 +120,13 @@
     const schemaVersion = Number(parsed.schemaVersion ?? parsed.version ?? 36);
     // User-authorized legacy load policy: abandon old unprocessed time only
     // at a complete, private load boundary; native model2/rule3 debt is retained.
-    const discardLegacyBacklog=WIS.Core.Config.saveVersion>=75&&(schemaVersion<75||parsed.numericModelVersion===1);
+    if (!Number.isInteger(schemaVersion) || schemaVersion < 36 || schemaVersion > WIS.Core.Config.saveVersion)throw Error('不支持的存档版本');
+    if(schemaVersion>=76&&parsed.numericModelVersion!==2)throw Object.assign(Error('不支持的数值模型版本；原存档保持不变'),{code:'amount-model-version'});
+    if(schemaVersion>=76&&parsed.settlementRule!==4)throw Error('当前存档必须使用结算规则4；原存档保持不变');
+    const discardLegacyBacklog=WIS.Core.Config.saveVersion>=75&&(schemaVersion<75||schemaVersion===75&&parsed.numericModelVersion===1);
     const loadedAt=preparation?.loadedAt??Date.now();
     if(!discardLegacyBacklog&&WIS.Core.Config.saveVersion>=75&&WIS.Core.ClosedBatchMigration)WIS.Core.ClosedBatchMigration.recovery(parsed.offlineRecovery);
-    if(parsed.numericModelVersion===2&&parsed.settlementRule!==3)throw Error('数值模型2缺少结算规则3');
+    if(parsed.numericModelVersion===2&&parsed.settlementRule!==(schemaVersion>=76?4:3))throw Error('数值模型2结算规则与存档版本不匹配');
     if(WIS.Core.Amount?.enabled())WIS.Core.AmountMigration.assertEnvelope(parsed,schemaVersion);
     // Explicit imports from the known martial lab are compatible. Never read
     // its localStorage key or accept unknown test formats as official saves.
@@ -381,7 +384,7 @@
       encoding: "sparse-v1",
       schemaVersion: WIS.Core.Config.saveVersion,
       version: WIS.Core.Config.saveVersion,
-      ...(WIS.Core.Amount?.enabled()?{numericModelVersion:state.meta.closedBatchModel===2?2:1,numericTailPolicyVersion:1,...(state.meta.closedBatchModel===2?{settlementRule:3}:{})}:{}),
+      ...(WIS.Core.Amount?.enabled()?{numericModelVersion:state.meta.closedBatchModel===2?2:1,numericTailPolicyVersion:1,...(state.meta.closedBatchModel===2?{settlementRule:WIS.Core.Config.fixedSettlement.version}:{})}:{}),
       ...(includeExportMetadata ? { exportedAt: new Date().toISOString() } : {}),
       ...(offlineRecovery ? { offlineRecovery } : {}),
       data: sparseData(state)

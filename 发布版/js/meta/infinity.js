@@ -13,7 +13,7 @@
     if(raw?.version===2){if(Object.keys(raw).some(k=>!['version','amount','residual'].includes(k))||!Object.prototype.hasOwnProperty.call(raw,'amount')||!Array.isArray(raw.residual))throw Error('银海小数进度无效');const value=A.field(raw);if(A.compare(value,1)>=0)throw Error('银海小数进度越界');return value;}
     const p=normalizeSilverSeaProgressLegacy(raw);return A.fromParts(0,[1,B.BN(p.remaining).neg(),p.carry]);
   }
-  const fresh=()=>({version:1,points:B.BN(0),totalPointsEarned:B.BN(0),rebirthCount:0,unlocked:false,upgradesUnlocked:false,upgrades:{},purchaseLedger:[],runElapsed:0,challengeRewards:{},ringChallengeActive:false,silverSeaProgress:amountModel()?{version:2,amount:"0",residual:[]}:{version:1,requirement:"1",remaining:"1",carry:"0"}});
+  const fresh=()=>({version:1,points:B.BN(0),totalPointsEarned:B.BN(0),rebirthCount:0,unlocked:false,upgradesUnlocked:false,upgrades:{},purchaseLedger:[],runElapsed:0,discardedRunElapsed:0,challengeRewards:{},ringChallengeActive:false,silverSeaProgress:amountModel()?{version:2,amount:"0",residual:[]}:{version:1,requirement:"1",remaining:"1",carry:"0"}});
   function money(v) {const x=B.parseFinite(v??0);if(!x||x.lt(0)||!x.eq(x.floor()))throw Error('无限点数/支付记录必须为非负整数');return x;}
   function normalizeSilverSeaProgress(raw){return amountModel()?fractionRecord(fractionValue(raw)):normalizeSilverSeaProgressLegacy(raw);}
   function normalizeSilverSeaProgressLegacy(raw) {
@@ -38,6 +38,8 @@
       if(!Number.isSafeInteger(raw.rebirthCount)||raw.rebirthCount<0)throw Error('无限转生次数无效');
       if(!Number.isFinite(raw.runElapsed)||raw.runElapsed<0)throw Error('无限周目时间无效');
       n.rebirthCount=raw.rebirthCount;n.runElapsed=raw.runElapsed;
+      if(raw.discardedRunElapsed!=null&&(!Number.isFinite(raw.discardedRunElapsed)||raw.discardedRunElapsed<0))throw Error("无限舍弃时间无效");
+      n.discardedRunElapsed=raw.discardedRunElapsed??0;
       if(raw.challengeRewards!=null&&(typeof raw.challengeRewards!=='object'||Array.isArray(raw.challengeRewards)))throw Error('无限挑战奖励记录无效');
       for(const [id,value] of Object.entries(raw.challengeRewards||{})){
         if(C.challenges[id]?.resetLevel!=='infinity'||value!==true)throw Error('未知无限挑战奖励');n.challengeRewards[id]=true;
@@ -115,7 +117,7 @@
   const completed=(s,id)=>(s.challengeCompletions?.[id]||0)>0;
   const rewardUnlocked=(s,id)=>C.challenges[id]?.rewardKey?get(s).challengeRewards?.[C.challenges[id].rewardKey]===true:WIS.Meta.Achievements.has(s,C.challenges[id]?.achievementKey);
   function tempoValue(s,table,prefix){const t=get(s)?.runElapsed||0;
-    if(has(s,prefix+'1'))return table.online.floor+table.online.amplitude*Math.pow(2,-t/table.online.halfLife);
+    if(has(s,prefix+'1'))return table.online.floor+table.online.amplitude*Math.pow(2,-(t+(get(s)?.discardedRunElapsed||0))/table.online.halfLife);
     if(has(s,prefix+'2'))return table.steady;
     if(has(s,prefix+'3'))return table.offline.floor+table.offline.amplitude*(-Math.expm1(-Math.LN2*t/table.offline.halfLife));
     return prefix==='E2-'?1:0;}
@@ -196,7 +198,7 @@
     if(rewardUnlocked(s,id))return false;const n=get(s);s.meta.infinity={...n,challengeRewards:{...n.challengeRewards,[id]:true}};WIS.Core.Effects.invalidate();return true;
   }
   function rapidChallengeStepSeconds(s,seconds) {
-    const remaining=C.fastSeconds-s.activeChallengeElapsedSeconds,cadence=WIS.Core.Config.fixedSettlement.discreteCadenceSeconds;
+    const remaining=C.fastSeconds-(s.activeChallengeElapsedSeconds+(s.meta.challenges.discardedElapsedSeconds||0)),cadence=WIS.Core.Config.fixedSettlement.discreteCadenceSeconds;
     return Math.min(seconds,cadence,remaining>1e-9?remaining:cadence);
   }
   function rapidPointMultiplier(s) {
@@ -290,13 +292,13 @@
     if(has(s,'B1-2'))for(const key of C.retainedChallenges)next.challengeCompletions[key]=s.challengeCompletions[key]||0;
     for(const [id,keys] of Object.entries(C.retainedChallengeGroups))if(has(s,id))
       for(const key of keys)next.challengeCompletions[key]=s.challengeCompletions[key]||0;
-    next.meta.infinity={...old,...(amountModel()?{...amount().fieldParts(amount().add(amount().field(old,'points'),v.quantities.points),'points'),...amount().fieldParts(amount().add(amount().field(old,'totalPointsEarned'),v.quantities.points),'totalPointsEarned')}:{points:B.add(old.points,v.points),totalPointsEarned:B.add(old.totalPointsEarned,v.points)}),rebirthCount:old.rebirthCount+1,unlocked:true,upgradesUnlocked:true,runElapsed:retained?old.runElapsed:0};
-    if(challengeEntry){next.activeChallenge=options.challengeKey;next.activeChallengeElapsedSeconds=0;}
+    next.meta.infinity={...old,...(amountModel()?{...amount().fieldParts(amount().add(amount().field(old,'points'),v.quantities.points),'points'),...amount().fieldParts(amount().add(amount().field(old,'totalPointsEarned'),v.quantities.points),'totalPointsEarned')}:{points:B.add(old.points,v.points),totalPointsEarned:B.add(old.totalPointsEarned,v.points)}),rebirthCount:old.rebirthCount+1,unlocked:true,upgradesUnlocked:true,runElapsed:retained?old.runElapsed:0,discardedRunElapsed:retained?old.discardedRunElapsed:0};
+    if(challengeEntry){next.activeChallenge=options.challengeKey;next.activeChallengeElapsedSeconds=0;next.meta.challenges.discardedElapsedSeconds=0;}
     if(options.respec){if(amountModel())Object.assign(next.meta.infinity,amount().fieldParts(amount().add(amount().field(next.meta.infinity,'points'),v.quantities.refund),'points'));else next.meta.infinity.points=B.add(next.meta.infinity.points,v.refund);next.meta.infinity.upgrades={};next.meta.infinity.purchaseLedger=[];}
     if(has(next,'C2') && next.cultivationAutomationTarget)
       WIS.Cultivation.ImmortalLogic.applyCultivationSelection(next,next.cultivationAutomationTarget==='immortal'?'仙道':'武道');
     // Old time and pending work belong to the old run. Runtime cancels their generations on install.
-    if(!retained)next.core.runtime.timeLedger=WIS.Core.State.fresh().core.runtime.timeLedger;
+    if(!retained){const ledger=s.core.runtime.timeLedger;next.core.runtime.timeLedger={...WIS.Core.State.fresh().core.runtime.timeLedger,discardedClock:ledger.discardedClock,discardedGame:ledger.discardedGame,lastDiscard:ledger.lastDiscard};}
     if(!retained)next.core.runtime.compensation=WIS.Core.State.fresh().core.runtime.compensation;
     return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(next));
   }

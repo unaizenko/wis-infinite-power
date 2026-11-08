@@ -46,10 +46,12 @@
     function failed(error) {
       retire({pause:{reason:'offline-worker-failed',error:{name:error.name||'Error',code:error.code||null,message:String(error.message||error)},
         pendingGameSeconds:latest?.status.pendingGameSeconds||0}});
-      try{persist();}catch(saveError){WIS.Core.Save.noteFailure(saveError);}
+      const result=local.discardCatchUp(error.code==='candidate-timeout'?'candidate-timeout':'numeric-error');
+      if(!result.abandoned)try{persist();}catch(saveError){WIS.Core.Save.noteFailure(saveError);}
     }
     function start() {
       if(WIS.Core.Save.sessionPolicy?.().durableRecoveryAllowed === false)return Promise.resolve("");
+      const recoveryStartedAt=Date.now();
       const view=local.getCatchUpStatus();
       if(active)return activePromise;
       if(view.awaitingStart||view.phase==='paused'||view.awaySuspended||!(view.pendingGameSeconds>0))return Promise.resolve('');
@@ -62,7 +64,7 @@
         confirmed:WIS.Simulation.FixedSegment.confirmed(),onlineConfirmed:context.onlineMetrics?.(),tick:WIS.tmp.tick};
       local.suspendForAway();active=true;baseRoots=roots();
       activePromise=new Promise(resolve=>{resolveActive=resolve;});const result=activePromise;
-      client=WIS.Simulation.WorkerClient.create({factory:context.workerFactory||browserWorker,schedule:context.workerSchedule,
+      client=WIS.Simulation.WorkerClient.create({factory:context.workerFactory||browserWorker,schedule:context.workerSchedule,maxRetries:0,candidateTimeoutMs:2000,
         commit(payload,stamp) {
           if(baseRoots.some((root,i)=>root!==roots()[i]))throw Error('离线计算起点已改变；候选未安装');
           const next=P.decode(payload);
@@ -94,7 +96,7 @@
           retire();context.setLastTickAt?.(Date.now());
           if(completed&&report)context.showNotice?.(report,6000);
         }});
-      try{persist();client.start({build:WIS.Core.Build.buildId,retries:recovery.workerRecovery?.retries||0,payload:P.encode(latest)});}
+      try{persist();client.start({build:WIS.Core.Build.buildId,retries:recovery.workerRecovery?.retries||0,payload:P.encode(latest),recoveryStartedAt});}
       catch(error){failed(error);}
       publish();return result;
     }
@@ -104,6 +106,7 @@
       simulateOfflineProgress(seconds,clock=seconds){if(seconds>0)delegate('appendCatchUpTask',seconds,clock);return start();},
       queueCatchUpNotice(seconds,clock=seconds){void controller.simulateOfflineProgress(seconds,clock);},
       appendCatchUpTask:(...args)=>delegate('appendCatchUpTask',...args),
+      discardCatchUp:(...args)=>delegate('discardCatchUp',...args),
       cancelCatchUp:(...args)=>delegate('cancelCatchUp',...args),abandonCatchUp:(...args)=>delegate('abandonCatchUp',...args),
       convertOfflineToCompensation:(...args)=>delegate('convertOfflineToCompensation',...args),
       retryCatchUp(){

@@ -98,7 +98,7 @@
     const sourceMs=clock()-started;statistics.sourceMs+=sourceMs;recordCost("sourcePreparation",sourceMs);
     return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, changShengGain, martialPassiveGains, options, started,
       frozenStart:options.frozenOffline ? {activeChallenge:snapshot.activeChallenge,
-        activeChallengeElapsedSeconds:snapshot.activeChallengeElapsedSeconds,power:B.BN(snapshot.power)} : null };
+        activeChallengeElapsedSeconds:snapshot.activeChallengeElapsedSeconds,discardedElapsedSeconds:snapshot.meta.challenges.discardedElapsedSeconds||0,power:B.BN(snapshot.power)} : null };
     };
     if(scopes||options.deferRankMath===true)return {finish,createMathWork};
     const bigNumbers=yield ()=>options.frozenOffline?WIS.Meta.BigNumbers.prepareFrozen(snapshot,seconds,WIS.Meta.BigNumbers.captureFrozen(snapshot)):bigNumbersUnlocked?R.withState(bigNumbersState,()=>E.withFrozenState(bigNumbersState,()=>WIS.Meta.BigNumbers.prepare(bigNumbersState,seconds,bigOptions))):null;

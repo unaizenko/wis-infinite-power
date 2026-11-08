@@ -85,7 +85,7 @@
   }
 
   function normalizeTimeLedger(raw) {
-    if(raw==null)return {version:1,nextId:1,boundaryAt:0,awaySince:null,registeredUntil:0,pendingContinuousTime:[]};
+    if(raw==null)return {version:1,nextId:1,boundaryAt:0,awaySince:null,registeredUntil:0,pendingContinuousTime:[],discardedClock:0,discardedGame:0,lastDiscard:null,pendingDiscard:null};
     if(!isRecord(raw)||raw.version!==1)throw Error("时间账本版本无效");
     const stamp=(value,nullable=false)=>{if(nullable&&value==null)return null;
       if(!Number.isFinite(value)||value<0)throw Error("时间账本水位无效");return value;};
@@ -95,11 +95,12 @@
       if(!part || !['online','offline'].includes(part.source||'online') || !Number.isFinite(part.clock)||part.clock<0 || !Number.isFinite(part.speed)||part.speed<=0)throw Error("未结算连续时间无效");
       return {source:part.source||'online',clock:part.clock,speed:part.speed,compensationEligible:part.source!=='offline'&&part.compensationEligible===true};
     });
-    return {version:1,nextId:raw.nextId,boundaryAt:stamp(raw.boundaryAt),awaySince:stamp(raw.awaySince,true),registeredUntil:stamp(raw.registeredUntil),pendingContinuousTime};
+    const discard=value=>{if(value==null)return null;if(!isRecord(value)||Object.keys(value).some(k=>!['clock','game','reason'].includes(k))||typeof value.reason!=='string'||!value.reason.length||value.reason.length>120)throw Error('舍弃记录无效');return {clock:stamp(value.clock),game:stamp(value.game),reason:value.reason};};
+    return {discardedClock:stamp(raw.discardedClock??0),discardedGame:stamp(raw.discardedGame??0),lastDiscard:discard(raw.lastDiscard),pendingDiscard:discard(raw.pendingDiscard),version:1,nextId:raw.nextId,boundaryAt:stamp(raw.boundaryAt),awaySince:stamp(raw.awaySince,true),registeredUntil:stamp(raw.registeredUntil),pendingContinuousTime};
   }
   const defaults = Object.freeze({
     compensation: WIS.Simulation.Compensation.fresh(),
-    timeLedger: {version:1,nextId:1,boundaryAt:0,awaySince:null,registeredUntil:0,pendingContinuousTime:[]},
+    timeLedger: {version:1,nextId:1,boundaryAt:0,awaySince:null,registeredUntil:0,pendingContinuousTime:[],discardedClock:0,discardedGame:0,lastDiscard:null,pendingDiscard:null},
     joules: ZERO, joulesGainResidual: ZERO, joulesGainResidualTail: [], power: ZERO, powerGainResidual: ZERO, powerGainResidualTail: [],
     highestPower: ZERO, lifetimeHighestJ: ZERO, lifetimeHighestPower: ZERO,
     lifetimeHighestScaleIndex: 0, lifetimeTotalJ: ZERO, lifetimeTotalPower: ZERO,
@@ -185,7 +186,7 @@
     daoLawUnityUnlocked: false, daoDomainUnlocked: false, daoPowerUnlocked: false,
     daoTimeLawUnlocked: false, daoAssimilationUnlocked: false,
     fiveElementsTreasureRollProgress: 0, immortalCrystalRollProgress: 0, minorTribulationExplorationLoad: ZERO,
-    activeChallenge: null, activeChallengeElapsedSeconds: 0, threeCorpseChallengesUnlocked: false,
+    activeChallenge: null, activeChallengeElapsedSeconds: 0, discardedElapsedSeconds: 0, threeCorpseChallengesUnlocked: false,
     currentQiLayer: 1, bestQiLayer: 0,
     hideUnlockedAchievements: false, hideCompletedChallenges: false, hideUnlockedUpgrades: false, hideUnlockedInfinityUpgrades: false, hideUnlockedImmortalAbilities: false, offlineFastForwardEnabled: true, autoCloseOfflineDialogEnabled: true,
     immortalAbilityAutomationEnabled: true, immortalRealmAutomationEnabled: true,
@@ -682,6 +683,7 @@
         infiniteBox: source.symbolicPowerMilestones?.infiniteBox === true
       },
       activeChallenge,
+      discardedElapsedSeconds: (()=>{const n=source.discardedElapsedSeconds??0;if(!Number.isFinite(n)||n<0)throw Error("挑战舍弃时间无效");return activeChallenge?n:0;})(),
       activeChallengeElapsedSeconds: activeChallenge
         ? Math.max(0, activeChallenge === "longevity"
           ? Math.min(config.challenges.longevity.timeToLimitSeconds, Number(source.activeChallengeElapsedSeconds) || 0)
@@ -818,7 +820,7 @@
       "currentRebirthTotalMana", "currentRebirthHighestImmortalPower",
       "currentRebirthTotalImmortalPower", "currentRebirthHighestCultivationRealmLevel"
     ],
-    "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "challengeCompletions", "threeCorpseChallengesUnlocked", "bestQiLayer"],
+    "meta.challenges": ["activeChallenge", "activeChallengeElapsedSeconds", "discardedElapsedSeconds", "challengeCompletions", "threeCorpseChallengesUnlocked", "bestQiLayer"],
     "meta": ["closedBatchModel", "treasureBatch", "closedBatchMigration", "unlockedAchievements", "treasureImprints", "symbolicPowerMilestones", "treasureProgress", "treasureProgressResidual", "treasureStockResidual", "treasureProgressResidualTail", "treasureCredits", "treasureProgressFinite", "treasureProgressPending", "treasureProgressStatus", "treasureDiagnostics", "treasureQualifications", "treasureProgressVersion"]
   });
 
