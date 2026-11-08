@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.0.3",
-  "versionCode": 20007,
+  "version": "0.2.0.4",
+  "versionCode": 20008,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.3/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.0.4/wis.apk",
     "mirror": null,
-    "sha256": "495919bd22035bc53f5d15edf242705aeaa8fd6ec7d66a1640ec695c3c41d04b",
-    "sizeBytes": 6419831
+    "sha256": "b7b452302d0fa272c3340c02ec519bfec32b258b1f9ab2b26e5e6e92d38ec7a8",
+    "sizeBytes": 6436528
   },
-  "notes": "修复极小G进度存档无法导入、新建状态保存重读不一致及探寻进度版本标记遗漏；完善真实存档恢复与保存验证。",
-  "publishedAt": "2026-11-07T11:54:11Z"
+  "notes": "优化吐纳和探寻的重复计算；在线结算接入独立线程，改善操作响应并保留未结算时间。数值和存档规则不变，手机持续性能仍待验证。",
+  "publishedAt": "2026-11-08T03:52:00.647Z"
 }

@@ -5,7 +5,7 @@ const root=path.resolve(__dirname,'..'),release=process.env.WIS_RELEASE_ROOT||pa
 const configText=fs.readFileSync(path.join(root,'js/core/config.js'),'utf8');
 const version=configText.match(/gameVersion:\s*"([^"]+)"/)[1],schemaVersion=Number(configText.match(/saveVersion:\s*(\d+)/)[1]);
 const devManifest=JSON.parse(fs.readFileSync(path.join(root,'js/script-manifest.json'))),releaseManifest=JSON.parse(fs.readFileSync(path.join(release,'js/script-manifest.json')));
-assert.deepEqual(releaseManifest.scripts,devManifest.scripts);const differences=new Set(['js/core/build-config.js','js/ui/app.js','js/simulation/offline-worker-bundle.js']);
+assert.deepEqual(releaseManifest.scripts,devManifest.scripts);const differences=new Set(['js/core/build-config.js','js/ui/app.js','js/simulation/offline-worker-bundle.js','js/simulation/online-candidate-worker-bundle.js']);
 for(const file of releaseManifest.scripts){const body=fs.readFileSync(path.join(release,file));new vm.Script(String(body),{filename:file});if(!differences.has(file))assert(body.equals(fs.readFileSync(path.join(root,file))),file+' gameplay mismatch');}
 for(const file of ['index.html','styles.css','js/ui/app.js'])assert(!/debug-speed-button|resource-debug|formula-details|window\.renderResourceDebug|__test\s*:/.test(fs.readFileSync(path.join(release,file),'utf8')),file+' debug content');
 const unexpected=fs.readdirSync(release).filter(n=>!['js','index.html','styles.css','game.js','README.md','数值公式.md','latest.json'].includes(n));assert.deepEqual(unexpected,[]);

@@ -550,6 +550,109 @@
           }return true;
         };
       }
+      function transferError(message){return Object.assign(Error(message),{code:'online-candidate-invalid'});}
+      function transferInput(domain,seconds,timeSegment,tick,rates,transient){
+        return {snapshot:{domain,powerTransient:transient[0],cultivationTransient:transient[1]},tick,rates,seconds,timeSegment};
+      }
+      function transferTree(value,active=new WeakSet()){
+        const B=WIS.Core.BigNum,A=WIS.Core.Amount;
+        if(value===null||typeof value==='string'||typeof value==='boolean')return;
+        if(typeof value==='number'){if(!Number.isFinite(value))throw transferError('nonfinite candidate number');return;}
+        if(B.isDecimal(value)){if(!value.isFinite()||value.isNan()||![-1,0,1].includes(value.sign)||!Number.isSafeInteger(value.layer)||value.layer<0)throw transferError('invalid candidate Decimal');return;}
+        if(A?.isAmount(value)){A.serialize(value);return;}
+        if(!value||typeof value!=='object'||active.has(value))throw transferError('non-data candidate value');
+        const proto=Object.getPrototypeOf(value);if(!Array.isArray(value)&&proto!==Object.prototype&&proto!==null)throw transferError('candidate prototype');
+        active.add(value);for(const key of Reflect.ownKeys(value)){
+          if(typeof key!=='string')throw transferError('candidate symbol');
+          const d=Object.getOwnPropertyDescriptor(value,key);if(!d||!('value' in d))throw transferError('candidate accessor');
+          transferTree(d.value,active);
+        }active.delete(value);
+      }
+      function validateCandidatePacket(packet,seconds,ownDecimals=false){
+        const S=WIS.Core.State,B=WIS.Core.BigNum;
+        const keys=['kind','input','seconds','candidate','result','rates','candidateTick','transient','workMs'];
+        if(!packet||typeof packet!=='object'||Array.isArray(packet)||Object.keys(packet).sort().join('|')!==keys.sort().join('|'))throw transferError('candidate packet fields');
+        transferTree(packet);
+        if(packet.kind!=='online-candidate-v1'||packet.seconds!==seconds||typeof packet.input!=='string'||!Number.isFinite(packet.workMs)||packet.workMs<0||!Number.isSafeInteger(packet.candidateTick)||packet.candidateTick<0)throw transferError('candidate packet identity');
+        if(!packet.candidate||Object.keys(packet.candidate).sort().join('|')!=='core|cultivation|meta|powerSystem')throw transferError('candidate domain roots');
+        S.validateContainerShapes(packet.candidate);S.validateRankSchema(packet.candidate,WIS.Core.Config.saveVersion,true);
+        const candidate=S.cloneForSimulation(packet.candidate);
+        if(ownDecimals){
+          // Simulation clones normally share Decimal values. A transfer receiver
+          // must also own their mutable components before retaining the token.
+          const visited=new WeakSet();
+          const detach=value=>{
+            if(!value||typeof value!=='object'||visited.has(value)||WIS.Core.FiniteProgress?.isCanonical(value)||WIS.Core.Amount?.isCanonicalTail?.(value))return;
+            visited.add(value);
+            for(const key of Object.keys(value)){
+              const child=value[key];
+              if(B.isDecimal(child))value[key]=B.Decimal.fromComponents_noNormalize(child.sign,child.layer,child.mag);
+              else detach(child);
+            }
+          };detach(candidate);
+        }
+        for(const [key,base] of Object.entries(S.defaults)){
+          const value=candidate[key];if(value===undefined)throw transferError('missing candidate state field: '+key);
+          if(typeof base==='boolean'&&typeof value!=='boolean'||(typeof base==='number'||B.isDecimal(base))&&!B.parseFinite(value))throw transferError('invalid candidate state field: '+key);
+        }
+        for(const key of ['totalElapsedSeconds','reincarnationElapsedSeconds','currentScaleElapsedSeconds','lastUpdateAt'])if(typeof candidate[key]!=='number'||!Number.isFinite(candidate[key])||candidate[key]<0)throw transferError('candidate clock field: '+key);
+        const random=candidate.core.runtime.randomState;if(!Number.isInteger(random)||random<0||random>4294967295)throw transferError('candidate RNG');
+        const r=packet.result;
+        if(!r||typeof r!=='object'||!Number.isFinite(r.processedSeconds)||r.processedSeconds<=0||r.processedSeconds>seconds+epsilon||!Number.isFinite(r.remainingSeconds)||r.remainingSeconds<0||Math.abs(r.remainingSeconds-Math.max(0,seconds-r.processedSeconds))>epsilon||r.clockCommitted!==true||!Number.isSafeInteger(r.operations)||r.operations<0||!Number.isSafeInteger(r.compatibilitySubsteps)||r.compatibilitySubsteps<0||!Number.isFinite(r.logicalTickRemaining)||r.logicalTickRemaining<0||r.logicalTickRemaining>simulationStepSeconds+epsilon)throw transferError('candidate processed range');
+        if(r.continuousSegments!==undefined&&(!Number.isSafeInteger(r.continuousSegments)||r.continuousSegments<0)||r.queueRemainingClockSeconds!==undefined&&(!Number.isFinite(r.queueRemainingClockSeconds)||r.queueRemainingClockSeconds<0))throw transferError('candidate result counters');
+        if(!B.parseFinite(r.gainedPearls)||B.lt(r.gainedPearls,0)||!r.resourceGains||fixedKeys().some(key=>!Object.prototype.hasOwnProperty.call(r.resourceGains,key)||!B.parseFinite(r.resourceGains[key])))throw transferError('candidate gains');
+        if(!packet.rates||typeof packet.rates!=='object'||Array.isArray(packet.rates)||!Array.isArray(packet.transient)||packet.transient.length!==2)throw transferError('candidate presentation');
+        for(const value of Object.values(packet.rates))if(!B.parseFinite(value))throw transferError('candidate rate');
+        const expectedTransient=[WIS.Core.Registries.getActivePower(candidate)?.snapshotTreasureTransient?.(),WIS.Core.Registries.getActiveCultivation(candidate)?.snapshotTreasureTransient?.()];
+        for(let i=0;i<2;i++){
+          const row=packet.transient[i],expected=expectedTransient[i];
+          if(expected==null){if(row!==null)throw transferError('unexpected candidate transient');continue;}
+          if(!row||typeof row!=='object'||Array.isArray(row)||Object.keys(row).sort().join('|')!==Object.keys(expected).sort().join('|')||Object.values(row).some(value=>typeof value!=='number'||!Number.isFinite(value)||value<0))throw transferError('candidate transient');
+        }
+        return candidate;
+      }
+      function createOnlineCandidateReceiver(seconds,timeSegment={}){
+        const S=WIS.Core.State,P=WIS.Simulation.WorkerProtocol;
+        if(!Number.isFinite(seconds)||seconds<=0||timeSegment.source!=='online'||timeSegment.atomicCadence!==true||timeSegment.martialIntervals||timeSegment.martialCheckpoint)throw transferError('online candidate request');
+        const original=getState(),roots=['core','powerSystem','cultivation','meta'].map(k=>original[k]);
+        const inputCurrent=WIS.Core.Amount?.enabled()?quantityInputCheck(original):(()=>{const key=onlineStateKey(original);return ()=>onlineStateKey(original)===key;})();
+        const current=()=>getState()===original&&inputCurrent()&&roots.every((root,i)=>root===[original.core,original.powerSystem,original.cultivation,original.meta][i]);
+        const transient=[WIS.Core.Registries.getActivePower(original)?.snapshotTreasureTransient?.(),WIS.Core.Registries.getActiveCultivation(original)?.snapshotTreasureTransient?.()];
+        const input=P.encode(transferInput(S.cloneForSimulation(original),seconds,timeSegment,WIS.tmp.tick,{...WIS.tmp.rates},transient));
+        let request;
+        const queueSpeed=timeSegment.queueClockSeconds>0&&timeSegment.queueSpeed>0?timeSegment.queueSpeed:0;
+        const clockRatio=queueSpeed?1/queueSpeed:(timeSegment.clockRatio||0);
+        if(!Number.isFinite(clockRatio)||clockRatio<0)throw transferError('candidate clock ratio');
+        const startedAt=original.totalElapsedSeconds;
+        let closed=false,accepted=false,token=null;
+        return Object.freeze({encodedRequest:input,get request(){return request||(request=P.decode(input));},valid:()=>!closed&&!accepted&&current(),close(){closed=true;if(token)onlinePrepared.delete(token);},accept(packet){
+          if(closed||accepted)throw transferError('candidate receiver consumed');
+          if(!current()){closed=true;throw Object.assign(Error('online candidate input changed'),{code:'rank-work-stale'});}
+          // The private Worker channel authenticates the request/build. These are
+          // framing/type/range checks, not a second proof of the Worker's math.
+          if(packet?.input!==input)throw transferError('candidate input mismatch');
+          // Validation clones the candidate once. Copy only the small mutable metadata;
+          // encoding/decoding the entire returned domain again blocks the UI.
+          const candidate=validateCandidatePacket(packet,seconds,true);
+          const copy=P.decode(P.encode({result:packet.result,rates:packet.rates,transient:packet.transient}));
+          const r=copy.result,expectedElapsed=startedAt+r.processedSeconds*clockRatio;
+          // This bridge admits exactly one formal atomic unit. Never let packet
+          // counters enlarge the clock tolerance; local multi-unit work is unchanged.
+          if(r.compatibilitySubsteps+(r.continuousSegments||0)!==1)throw transferError('candidate atomic unit count');
+          const clockTolerance=epsilon+Number.EPSILON*Math.max(1,Math.abs(startedAt),Math.abs(expectedElapsed))*3;
+          if(Math.abs(candidate.totalElapsedSeconds-expectedElapsed)>clockTolerance||candidate.core.runtime.onlineCadenceRemaining!==(r.logicalTickRemaining||simulationStepSeconds))throw transferError('candidate clock mismatch');
+          if(!current()){closed=true;throw Object.assign(Error('online candidate input changed'),{code:'rank-work-stale'});}
+          accepted=true;token=Object.freeze({kind:'online-segment-v1',seconds});
+          onlinePrepared.set(token,{candidate,roots,result:copy.result,rates:copy.rates,candidateTick:packet.candidateTick,transient:copy.transient,workMs:packet.workMs,offlineSource:false,current:()=>!closed&&current()});return token;
+        }});
+      }
+      function exportOnlineCandidate(token){
+        const value=onlinePrepared.get(token),P=WIS.Simulation.WorkerProtocol;
+        if(!value||value.offlineSource||!value.transferInput||!value.current())throw transferError('candidate token cannot export');
+        const payload={kind:'online-candidate-v1',input:P.encode(value.transferInput()),seconds:token.seconds,candidate:value.candidate,result:value.result,rates:value.rates,candidateTick:value.candidateTick,transient:value.transient,workMs:value.workMs};
+        const packet=P.decode(P.encode(payload));validateCandidatePacket(packet,token.seconds);onlinePrepared.delete(token);return packet;
+      }
+
       function createOnlineWork(seconds, timeSegment={}) {
         const R=WIS.Core.Runtime,S=WIS.Core.State,E=WIS.Core.Effects,F=WIS.Simulation.FixedSegment,C=WIS.Simulation.Compensation;
         // The five-second infinite challenge shares discrete ordering across sources;
@@ -576,6 +679,8 @@
         let rates={...WIS.tmp.rates},candidateTick=WIS.tmp.tick;
         const transients=()=>[WIS.Core.Registries.getActivePower(candidate)?.snapshotTreasureTransient?.(),WIS.Core.Registries.getActiveCultivation(candidate)?.snapshotTreasureTransient?.()];
         let transient=transients(),sliceDeadline=Infinity,activePreparation=null,activeCommit=null;
+        const inputTick=candidateTick,inputRates={...rates},inputTransient=transient,inputSegment={...timeSegment};
+        const exportInput=()=>transferInput(original,seconds,inputSegment,inputTick,inputRates,inputTransient);
         function restoreTransient(values){WIS.Core.Registries.getActivePower(candidate)?.restoreTreasureTransient?.(values[0]);WIS.Core.Registries.getActiveCultivation(candidate)?.restoreTreasureTransient?.(values[1]);}
 
 
@@ -670,7 +775,7 @@
             }catch(error){closeWork();throw error;}finally{restoreTransient(liveTransient);R.setState(before);WIS.tmp.tick=tick;E.invalidate();Object.assign(WIS.tmp.rates,liveRates);}
             const cost=monotonicNow()-began;workMs+=cost;onlineMetrics.workMs+=cost;onlineMetrics.maxWorkMs=Math.max(onlineMetrics.maxWorkMs,cost);
             if(next.done){closed=true;budgetSession?.close();const token=Object.freeze({kind:'online-segment-v1',seconds});
-              onlinePrepared.set(token,{candidate,roots,result,rates,candidateTick,transient,workMs,offlineSource,current});return {done:true,token};}
+              onlinePrepared.set(token,{candidate,roots,result,rates,candidateTick,transient,workMs,offlineSource,current,transferInput:exportInput});return {done:true,token};}
           }while(monotonicNow()<deadline);
           return {done:false};
         },valid:()=>!closed&&current(),close:closeWork};
@@ -893,7 +998,7 @@
 
       return Object.freeze({
         invalidateDeferredQi, hasDeferredQi:()=>false,
-        prepareOnlineWork:createOnlineWork, onlineStateKey, findNextSimulationBoundary, onlineMetrics:()=>({...onlineMetrics}),
+        prepareOnlineWork:createOnlineWork, createOnlineCandidateReceiver, exportOnlineCandidate, onlineStateKey, findNextSimulationBoundary, onlineMetrics:()=>({...onlineMetrics}),
         restoreOnlineMetrics(point){if(point)for(const k of ['segments','gameSeconds','compatibilitySubsteps','continuousSegments'])onlineMetrics[k]=point[k];},
         planOfflineMacro(){return WIS.Simulation.LegacySettlementCheckpoints.retired();},
         prepareFixedWork(seconds, options={}) {

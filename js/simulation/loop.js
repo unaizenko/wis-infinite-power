@@ -50,7 +50,23 @@
       try{owner.job.cancel?.(reason);}finally{owner.resolve(false);}
       return true;
     }
-    function cancelOnlineWork(){const owner=onlineWork;onlineWork=null;owner?.job.close?.();}
+    function detachOnlineReady(owner){
+      const unsubscribe=owner?.unsubscribe;if(owner)owner.unsubscribe=null;
+      // Listener cleanup must not turn an already installed settlement into an
+      // apparent failure before its confirmed time is debited below.
+      try{unsubscribe?.();}catch(_){}
+    }
+    function cancelOnlineWork(){const owner=onlineWork;onlineWork=null;detachOnlineReady(owner);owner?.job.close?.();}
+    function watchOnlineReady(owner){
+      if(typeof owner.job.onReady!=='function')return;
+      const unsubscribe=owner.job.onReady(()=>{
+        if(onlineWork!==owner||owner.generation!==schedulerGeneration||owner.job.waiting?.()===true)return;
+        // Remote messages only wake the ordinary host scheduler. Installation
+        // still belongs to a later drain, with all existing guards and debit rules.
+        scheduleOnlineContinuation();
+      });
+      if(typeof unsubscribe==='function')owner.unsubscribe=unsubscribe;
+    }
     function onlineInputKey(){return context.onlineStateKey?.(getState());}
     function failureStillCurrent(){if(!onlineFailure)return false;if(onlineFailure.key!==onlineInputKey()){onlineFailure=null;return false;}return true;}
     function invalidateOnlineScheduler(){cancelOnlineWork();onlineFailure=null;schedulerGeneration++;cancelOnlineContinuation();cancelQiWork();cancelDeferredAction('scheduler-invalidated');}
@@ -98,7 +114,7 @@
       if(deferredAction||manualQi||context.hasDeferredQi?.()||importHold||isHidden()||!isInitialLoadComplete()||onlineBlocked())return 0;
       const job={original:getState(),generation:schedulerGeneration,
         key:WIS.Cultivation.ImmortalLogic.qiBatchStateKey(getState()),shouldRender,value:0};
-      manualQi=job;processOnline();return job.value;
+      cancelOnlineWork();onlineFailure=null;manualQi=job;processOnline();return job.value;
     }
     function setLastTickAt(value){
       lastTickAt=Number.isFinite(Number(value))?Math.max(0,Number(value)):Date.now();
@@ -163,7 +179,7 @@
       if(deferredAction)return true;
       if(manualQi)return true;
       if(failureStillCurrent())return false;
-      if(onlineWork)return true;
+      if(onlineWork)return onlineWork.job.waiting?.()!==true;
       dropEmptyOnlineHeads();
       if(!onlineIntervals.length)return false;
       if(onlineIntervals[0].source==='offline')return true;
@@ -217,13 +233,18 @@
           const part=onlineIntervals[0],seconds=Math.min(cadence,part.clock*part.speed);
           let result;
           if(typeof context.prepareOnlineWork==='function'){
-            if(onlineWork&&(onlineWork.part!==part||onlineWork.generation!==schedulerGeneration||!onlineWork.job.checksInputOnAdvance&&onlineWork.job.valid?.()===false)){cancelOnlineWork();break;}
+            if(onlineWork&&(onlineWork.part!==part||onlineWork.generation!==schedulerGeneration)){cancelOnlineWork();break;}
+            // A remote owner is dormant until notified. Main ticks continue to
+            // capture time and flush presentation, without validating its heavy
+            // snapshot, advancing it, or acquiring another candidate.
+            if(onlineWork?.job.waiting?.()===true)break;
+            if(onlineWork&&!onlineWork.job.checksInputOnAdvance&&onlineWork.job.valid?.()===false){cancelOnlineWork();break;}
             try {
-              if(!onlineWork){onlineWork={part,generation:schedulerGeneration,seconds,job:context.prepareOnlineWork(seconds,{source:'online',compensationEligible:part.compensationEligible,clockRatio:1/part.speed,logicalTickRemaining:cadence,atomicCadence:true})};break;}
+              if(!onlineWork){onlineWork={part,generation:schedulerGeneration,seconds,job:context.prepareOnlineWork(seconds,{source:'online',compensationEligible:part.compensationEligible,clockRatio:1/part.speed,logicalTickRemaining:cadence,atomicCadence:true})};watchOnlineReady(onlineWork);break;}
               // One resume per candidate and host task; give the browser a turn before retrying.
               const owner=onlineWork,next=owner.job.advance(sliceStartedAt+onlineSliceBudgetMs);
               if(!next.done)break;
-              result=context.advanceGameStep(owner.seconds,true,{foreground:true,preparedOnlineSegment:next.token});onlineWork=null;
+              result=context.advanceGameStep(owner.seconds,true,{foreground:true,preparedOnlineSegment:next.token});onlineWork=null;detachOnlineReady(owner);
             } catch(error){
               cancelOnlineWork();
               if(error?.code==='rank-work-stale')break;
@@ -487,3 +508,4 @@
       getSimulationClockAccumulator:()=>onlineAccumulator});
   }});
 }(window.WIS));
+

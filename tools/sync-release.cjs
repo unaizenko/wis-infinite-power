@@ -51,7 +51,7 @@ const files=new Map();for(const relative of fs.readdirSync(path.join(root,'js'),
  const p='js/'+relative.replaceAll('\\','/');if(fs.statSync(path.join(root,p)).isFile())files.set(p,fs.readFileSync(path.join(root,p)));
 }
 for(const p of retiredAssets)files.delete(p);
-files.delete('js/script-manifest.json');files.delete('js/simulation/offline-worker-bundle.js');
+files.delete('js/script-manifest.json');files.delete('js/simulation/offline-worker-bundle.js');files.delete('js/simulation/online-candidate-worker-bundle.js');
 files.set('js/core/build-config.js',read('js/core/build-config.js').replace('mode: "development"','mode: "release"').replace(/id: "[^"]+"/,'id: "'+build+'"').replace('enableSpeedControls: true','enableSpeedControls: false').replace('enableFormulaDetails: true','enableFormulaDetails: false'));
 files.set('js/ui/app.js',releaseApp(read('js/ui/app.js')));
 files.set('game.js',read('game.js'));
@@ -89,9 +89,9 @@ else for(const [p,body] of files)assert(fs.readFileSync(path.join(dest,p)).equal
 function runTool(file,args){const module={exports:{}},req=id=>require(id);req.main=module;const proc={argv:['node',file,...args],exitCode:0};
  vm.runInNewContext(read('tools/'+file),{require:req,module,process:proc,console,Buffer,__dirname:path.join(dest,'tools')},{filename:file});assert.equal(proc.exitCode,0,file);}
 // The manifest validator requires every referenced asset before it can rebuild.
-if(write&&!fs.existsSync(path.join(dest,'js/simulation/offline-worker-bundle.js')))
- fs.copyFileSync(path.join(root,'js/simulation/offline-worker-bundle.js'),path.join(dest,'js/simulation/offline-worker-bundle.js'));
-runTool('update-script-manifest.cjs',[write?'--write':'--check']);runTool('build-offline-worker.cjs',write?[]:['--check']);
+for(const bundle of ['js/simulation/offline-worker-bundle.js','js/simulation/online-candidate-worker-bundle.js'])
+ if(write&&!fs.existsSync(path.join(dest,bundle)))fs.copyFileSync(path.join(root,bundle),path.join(dest,bundle));
+runTool('update-script-manifest.cjs',[write?'--write':'--check']);runTool('build-offline-worker.cjs',write?[]:['--check']);runTool('build-online-candidate-worker.cjs',write?[]:['--check']);
 // Known retired assets only. Never prune unknown/user files or directories.
 // This runs only after all transformed assets and generated payloads validate.
 for(const relative of retiredAssets){

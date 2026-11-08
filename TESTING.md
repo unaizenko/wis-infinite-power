@@ -1,3 +1,43 @@
+## 2026-11-08 发布 0.2.0.4
+
+用户本轮授权同步开发、网页发布版及APK并上传Git。当前开发build为dev-0.2.0.4-20261108-release-r1，网页release-0.2.0.4-20261108，APK目标release-0.2.0.4-apk-20261108，Android versionName0.2.0.4/versionCode20008。schema75/model2/rule3不变，正式版本关闭调试。
+
+纳入吐纳/探寻候选一次性提交及在线私有候选Worker；保留原数值、RNG、0.1秒cadence、取消与债务保存，不启用自动丢时间。必要Node回归116项114通过/2外部原件缺失跳过；最终发布资源四尺寸、旧档往返、真实Worker100步全状态、file启动/吐纳/取消/保存重载通过。没有全量、手机性能/发热降频或真机覆盖安装验收，不能宣称积压根治。构建与发布进度见本次报告，旧章节的未发布结论为历史记录。
+
+## 2026-11-08 在线候选 Worker 与高库存手动动作（已接入开发版）
+
+当前开发 build `dev-0.2.0.3-20261108-online-candidate-r1`；主脚本95，离线/在线 Worker各78。可见版本0.2.0.3、schema75/model2/rule3保持，未同步发布版/APK，未commit/push。
+
+在线采用主线程权威 + 单步私有候选 Worker：Step导出准备记录，接收端绑定完整派发输入并保留当前对象/字段守卫，经正式token安装；Loop waiting不忙轮询，结果通知只排正常续算，按实际processedSeconds一次扣债。动作、导入、离开取消旧候选，迟到/重复包不可安装。Worker仍使用原12ms软预算与ONLINE_EXACT；基础设施故障退役Worker后转本地精确续算，数值错误保留错误和债务。接收端避免重复整包codec，仍完整验证和独立复制可变Decimal/metadata。未启用丢时间/丢收益政策，也未绕过Worker内部完整输入守卫。
+
+高库存吐纳/探寻保留已准备candidate及completion，提交独立COW中只做后处理，不再重算收益；最新ledger/preferences、transient与失败回滚保持。低库存上轮cooperative路径保留。截图product digit capacity故障未复现，不能声称已修复该具体报错。
+
+定向Node回归110项通过；原生Edge Worker真实最新存档100步逐步完整domain/result/tick/rates/transient严格等价。file://实际Blob收包/正式安装、deferred吐纳、离开取消并保留债务、实际保存字节重载全字段一致通过。另有HTTP页面最终A/B诊断；无合格CPU预检/A-A/真机，CPU4未证明Worker同等降速，因此没有正式性能通过结论。Worker移走主线程计算但增加传输成本，不保证持续吞吐，也不能称手机在线积压根治。数值/RNG/clock/debt/Save合同保持。
+
+详见 `../WIS-项目资源/online-candidate-worker-20261108/REPORT.md` 与精简证据。历史缺档/旧夹具失败未改判，不代表全量测试通过。下文“Worker未接入”为此前记录。
+
+## 2026-11-08 在线吞吐实施验收：工具落地，两个候选撤回
+
+保留上轮 dev-0.2.0.3-20261108-manual-work-r1；本轮无生产玩法/数值修改，发布版/APK/commit/push未动。吐纳低库存修复仍在；高库存长任务、截图容量报错和手机在线积压不能称已解决。
+
+本轮新增 tests/helpers/online-throughput-metrics.cjs 与 tests/online-throughput-metrics.test.cjs：5/30/60秒实际提交窗口、饱和能力与恢复、顶层host、登记/提交/债务守恒、生命周期与独立容量身份；缺证据只诊断，清债/停钟不得假通过。正常批次采钟通过 registeredThroughAt / clockEvidence 证明，账本容差固定1e-7秒。新26项加既有测量24项共50/50通过。
+
+resourceMagnitudeAt输入保留及Sources.collect分阶段续算均已实现、对照后撤回。后者8步描述符重复读取284→60，但数学工作量未减；40步A/A/B/B/A逐步全状态一致，耗时不稳定。真实Edge390页面CPU1→4→1诊断，CPU4提交µ约0.180→0.193，15秒仍积压约12秒，恢复常速约8.3秒才回到0.1秒cadence内；宿主仍超标。CPU预检均值15.68%、p95 24.45%不合格，不能作为稳定性能通过。所有候选与测试在E盘资源归档，当前生产Sources/Scale/AmountFormulas已恢复本轮前字节。
+
+报告、原始采样摘要、可复跑候选、Worker具体接入评估见 ../WIS-项目资源/online-throughput-20261108/REPORT.md。Worker未接入，不得描述为吞吐已根治。manifest93与Worker78检查通过，bundle SHA前缀3068acaafcea8968。
+
+以下为历史记录。
+
+## 2026-11-08 手动动作响应性：部分修复，在线积压仍未解决
+
+开发build dev-0.2.0.3-20261108-manual-work-r1；版本0.2.0.3、schema75/model2/rule3，主93/Worker78不变，未发布/更新APK/commit/push。
+
+低于Googol法力库存的吐纳/探寻采用私有分段检查点、完整数学分片、段内冻结Effects以及一次性后处理提交。段入库和探寻付款后失效Effects；每宿主完整逐字段守卫保留原账本/设置排除，陌生形状回退序列化；提交独立COW、失败回滚。高值统一包装曾严重退化，已撤回，保留原积分路径，仍有同步前置长任务；容量报错未复现。
+
+相关53项47通过/6旧失败（5缺原件、1旧错误码断言，原版均复现）；新增15项通过，最新档动作全字段SHA相同。浏览器常速合成吐纳约280–318→140–145ms，宿主最大240→7.7ms；CPU4宿主最大约2.1秒→33ms，但总完成及p99仍有未通过项。均为诊断，未完成干净环境准入或真机验证，不能称积压根治。最终恢复/Worker结果及旧浏览器实时阶段限制见 ../WIS-项目资源/breathing-backlog-20261108/FINAL-REPORT.md。
+
+以下为历史记录。
+
 ## 2026-11-07 发布同步：0.2.0.3
 
 用户授权同步开发、网页发布版和APK并上传Git。开发build dev-0.2.0.3-20261107-release-r1；网页release-0.2.0.3-20261107；APK release-0.2.0.3-apk-20261107，versionName0.2.0.3/versionCode20007，沿用旧证书且Android/WebView/游戏调试关闭。Schema75/model2/rule3不变。

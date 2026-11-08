@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "dev-0.2.0.3-20261107-release-r1",
+  "buildId": "dev-0.2.0.4-20261108-release-r1",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -83,6 +83,8 @@
     "js/simulation/worker-protocol.js",
     "js/simulation/worker-client.js",
     "js/simulation/offline-worker-bundle.js",
+    "js/simulation/online-candidate-worker-bundle.js",
+    "js/simulation/online-candidate-worker.js",
     "js/simulation/offline-worker.js",
     "js/simulation/loop.js",
     "js/ui/source-preview.js",

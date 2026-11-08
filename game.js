@@ -511,10 +511,11 @@
     epsilon: SIMULATION_EPSILON,
     simulationStepSeconds: SIMULATION_STEP_SECONDS
   });
+  const onlineCandidateExecutor=WIS.Simulation.OnlineCandidateWorker?.create({step:stepSimulation});
   simulationLoop = WIS.Simulation.Loop.create({
     getState: () => state,
     advanceGameStep: stepSimulation.advanceGameStep,
-    prepareOnlineWork: stepSimulation.prepareOnlineWork,
+    prepareOnlineWork: onlineCandidateExecutor?.prepareOnlineWork || stepSimulation.prepareOnlineWork,
     onlineStateKey: stepSimulation.onlineStateKey,
     onFirstOnlineSettlement: () => UI.onFirstOnlineSettlement?.(),
     onOnlineSettlementError: error => WIS.Core.Runtime.call('showNotice','本次结算暂时无法完成，资源和待结算时间已保留。可在设置中导出存档。'),

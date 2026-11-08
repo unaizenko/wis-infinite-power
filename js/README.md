@@ -1,3 +1,32 @@
+## 2026-11-08 在线吞吐实施验收：工具落地，两个候选撤回
+
+## 2026-11-08 发布 0.2.0.4
+
+用户本轮授权同步开发、网页发布版及APK并上传Git。当前开发build为dev-0.2.0.4-20261108-release-r1，网页release-0.2.0.4-20261108，APK目标release-0.2.0.4-apk-20261108，Android versionName0.2.0.4/versionCode20008。schema75/model2/rule3不变，正式版本关闭调试。
+
+纳入吐纳/探寻候选一次性提交及在线私有候选Worker；保留原数值、RNG、0.1秒cadence、取消与债务保存，不启用自动丢时间。必要Node回归116项114通过/2外部原件缺失跳过；最终发布资源四尺寸、旧档往返、真实Worker100步全状态、file启动/吐纳/取消/保存重载通过。没有全量、手机性能/发热降频或真机覆盖安装验收，不能宣称积压根治。构建与发布进度见本次报告，旧章节的未发布结论为历史记录。
+
+
+保留上轮 dev-0.2.0.3-20261108-manual-work-r1；本轮无生产玩法/数值修改，发布版/APK/commit/push未动。吐纳低库存修复仍在；高库存长任务、截图容量报错和手机在线积压不能称已解决。
+
+本轮新增 tests/helpers/online-throughput-metrics.cjs 与 tests/online-throughput-metrics.test.cjs：5/30/60秒实际提交窗口、饱和能力与恢复、顶层host、登记/提交/债务守恒、生命周期与独立容量身份；缺证据只诊断，清债/停钟不得假通过。正常批次采钟通过 registeredThroughAt / clockEvidence 证明，账本容差固定1e-7秒。新26项加既有测量24项共50/50通过。
+
+resourceMagnitudeAt输入保留及Sources.collect分阶段续算均已实现、对照后撤回。后者8步描述符重复读取284→60，但数学工作量未减；40步A/A/B/B/A逐步全状态一致，耗时不稳定。真实Edge390页面CPU1→4→1诊断，CPU4提交µ约0.180→0.193，15秒仍积压约12秒，恢复常速约8.3秒才回到0.1秒cadence内；宿主仍超标。CPU预检均值15.68%、p95 24.45%不合格，不能作为稳定性能通过。所有候选与测试在E盘资源归档，当前生产Sources/Scale/AmountFormulas已恢复本轮前字节。
+
+报告、原始采样摘要、可复跑候选、Worker具体接入评估见 ../../WIS-项目资源/online-throughput-20261108/REPORT.md。Worker未接入，不得描述为吞吐已根治。manifest93与Worker78检查通过，bundle SHA前缀3068acaafcea8968。
+
+以下为历史记录。
+
+## 2026-11-08 手动动作响应性：部分修复，在线积压仍未解决
+
+开发build dev-0.2.0.3-20261108-manual-work-r1；版本0.2.0.3、schema75/model2/rule3，主93/Worker78不变，未发布/更新APK/commit/push。
+
+低于Googol法力库存的吐纳/探寻采用私有分段检查点、完整数学分片、段内冻结Effects以及一次性后处理提交。段入库和探寻付款后失效Effects；每宿主完整逐字段守卫保留原账本/设置排除，陌生形状回退序列化；提交独立COW、失败回滚。高值统一包装曾严重退化，已撤回，保留原积分路径，仍有同步前置长任务；容量报错未复现。
+
+相关53项47通过/6旧失败（5缺原件、1旧错误码断言，原版均复现）；新增15项通过，最新档动作全字段SHA相同。浏览器常速合成吐纳约280–318→140–145ms，宿主最大240→7.7ms；CPU4宿主最大约2.1秒→33ms，但总完成及p99仍有未通过项。均为诊断，未完成干净环境准入或真机验证，不能称积压根治。最终恢复/Worker结果及旧浏览器实时阶段限制见 ../../WIS-项目资源/breathing-backlog-20261108/FINAL-REPORT.md。
+
+以下为历史记录。
+
 ## 2026-11-07 发布同步：0.2.0.3
 
 用户授权同步开发、网页发布版和APK并上传Git。开发build dev-0.2.0.3-20261107-release-r1；网页release-0.2.0.3-20261107；APK release-0.2.0.3-apk-20261107，versionName0.2.0.3/versionCode20007，沿用旧证书且Android/WebView/游戏调试关闭。Schema75/model2/rule3不变。
@@ -894,3 +923,18 @@ Xiuzhen.rawRates保留技能合并后的原始N/M率，rates最终应用10/秒�
 未来tools/sync-release.cjs在转换及生成物验证成功后定向清理发布目录的旧strong-feedback-kernel.js普通文件；不清理未知文件。当前开发任务未同步发布。
 
 当前加载与提交阶段（2026-11-01）：State.createLoadNormalizationScope/normalizationTask仅服务Save.prepareWork私有会话，sync API drain同一generator。会话封存输入/默认值，Decimal精确复制，恢复时检查model/schema/mathPolicy；不跨host保留全局scope，不从JSON承认内部句柄。75启用此路径，74测试仍保留旧兼容入口。Scale/Immortal的commit…Parts提供按原顺序的私有回调阶段，同步commit drain它们；Step整段成功才安装并消费clock。Amount.compact仅在既有数值owner内复用已完成的完整输入结果。可见版本/schema/规则/尾项策略未变，发布目录未同步。性能最新仍未准入，见本批REPORT/VERIFICATION。
+
+
+## 2026-11-08：在线私有候选 Worker
+
+`online-candidate-worker.js`是单请求适配器；主线程仍负责动作、账本、保存及正式安装。`online-candidate-worker-entry.js`仅复用headless准备/导出，不安装、不写存档。`Step.createOnlineCandidateReceiver`持有主线程输入守卫并重建一次性token；数据验证与独立Decimal所有权不能省略。`Loop`的waiting/onReady只调度正常续算，绝不在消息回调扣债。动作/生命周期取消及基础设施本地后备均保留未结算时间，数值失败不静默清债。
+
+页面先加载offline-worker-bundle，再加载online-candidate-worker-bundle和client。在线生成物仅存入口和已加载离线引擎的切片引用，生成的Blob仍是独立经典脚本，支持file://。修改引擎后顺序运行：
+
+```powershell
+node tools/update-script-manifest.cjs --write
+node tools/build-offline-worker.cjs
+node tools/build-online-candidate-worker.cjs
+```
+
+三个工具均支持`--check`。`sync-release.cjs`已补目标build下双bundle生成（仅在E盘隔离输出回归，当前未同步发布目录）。构建95/78/78，build `dev-0.2.0.3-20261108-online-candidate-r1`。高库存manual准备完成后保存candidate+completion，提交不能重新执行perform积分。准确测试及性能限制见AGENT_CONTEXT和本轮REPORT。

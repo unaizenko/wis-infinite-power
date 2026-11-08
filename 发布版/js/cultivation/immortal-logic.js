@@ -1640,6 +1640,13 @@
 
   // Model75 retains the existing low-realm averaging/segment law. Only its
   // balances, linear fractions and unspent action quota change representation.
+  let manualQuantityPreparation=null,manualQuantitySequence=0n;
+  function manualPreparationTask(key,factory){
+    if(manualQuantityPreparation){const owner=manualQuantityPreparation;return WIS.Core.CertifiedRankMath.task(owner.id+'|'+key,function*(){
+      const iterator=factory();let next=iterator.next();while(!next.done){const callback=next.value;const value=yield ()=>{owner.effects??=WIS.Core.Effects.createFrozenScope(runtime.getState());return owner.effects.run(callback);};next=iterator.next(value);}return next.value;
+    });}
+    const iterator=factory();let next=iterator.next();while(!next.done)next=iterator.next(next.value());return next.value;
+  }
   function settleManaQuantityProgressive(totalBudget,calculateGain,commitBudget,applyToState,linearBudget,maximumBudgetForSegment,googolPenalty,prepareRate){
     const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,budget=Number(totalBudget);
     if(!Number.isFinite(budget)||budget<0||typeof calculateGain!=='function')throw Object.assign(Error('Manual quantity budget invalid'),{code:'amount-invalid'});
@@ -1649,11 +1656,15 @@
       if(!detail||!('mana' in detail))throw Object.assign(Error('Manual quantity rate missing'),{code:'formula-representation'});
       return {detail,mana:A.from(detail.mana)};
     };
-    const evaluate=(fraction,amount)=>normalize(calculateGain(fraction,amount));
+    const evaluate=(fraction,amount)=>manualPreparationTask(
+      'manual-mana-sample|'+segments+'|'+JSON.stringify([A.serialize(A.from(fraction)),A.serialize(A.from(amount))]),
+      function*(){return normalize(yield ()=>calculateGain(fraction,amount));});
     const average=(a,b)=>({detail:{...a.detail,mana:A.scale(A.add(a.mana,b.mana),.5)},mana:A.scale(A.add(a.mana,b.mana),.5)});
     const result=capped=>({mana:A.project(total),quantities:{mana:total},budgetUsed:A.project(A.subtract(A.from(budget),remaining)),budgetUsedQuantity:A.serialize(A.subtract(A.from(budget),remaining)),segments,capped});
     if(budget===0)return result(false);
-    if(googolPenalty&&linearBudget){
+    const checkpoint=manualQuantityPreparation?.checkpoint;
+    if(checkpoint)({remaining,total,current,segments}=checkpoint);
+    if(!checkpoint&&googolPenalty&&linearBudget){
       const initial=evaluate(A.from(budget),current).mana;
       if(A.compare(current,GOOGOL_PENALTY_THRESHOLD)>=0||A.compare(A.add(current,initial),GOOGOL_PENALTY_THRESHOLD)>0){
         const integrate=()=>{
@@ -1663,6 +1674,7 @@
             {memoizeSamples:!!prepareRate,googolResource:'mana',constantGoogolRawRate:rate.constantRawRate??null});
         };
         total=A.from(prepareRate?runtime.withEvaluationState(WIS.Core.State.cloneForSimulation(runtime.getState()),integrate):integrate());
+        if(manualQuantityPreparation)manualQuantityPreparation.dirty=true;
         if(applyToState&&A.compare(total,0)>0)WIS.Core.Resources.creditExact('cultivation.immortal.mana',total,state);
         commitBudget(A.from(budget),total,{mana:total},current);remaining=A.from(0);segments=1;return result(false);
       }
@@ -1670,10 +1682,13 @@
     const tolerance=Math.max(Number.EPSILON*budget*16,1e-12);
     const commit=(fraction,gain,evaluation,stock)=>{
       if(A.compare(fraction,0)<=0||A.compare(fraction,remaining)>0)throw Object.assign(Error('Manual action budget overrun'),{code:'amount-budget-unresolved'});
+      if(manualQuantityPreparation)manualQuantityPreparation.dirty=true;
       if(applyToState&&A.compare(gain,0)>0)WIS.Core.Resources.creditExact('cultivation.immortal.mana',gain,state);
       commitBudget(fraction,gain,evaluation.detail,stock);total=A.add(total,gain);current=A.add(current,gain);remaining=A.subtract(remaining,fraction);segments++;
+      if(manualQuantityPreparation){manualQuantityPreparation.checkpoint={remaining,total,current,segments,state:WIS.Core.State.cloneForSimulation(runtime.getState())};manualQuantityPreparation.dirty=false;manualQuantityPreparation.effects?.cancel();manualQuantityPreparation.effects=null;}
     };
     while(A.compare(remaining,0)>0&&segments<MANA_PROGRESSIVE_MAX_SEGMENTS){
+      const segment=manualPreparationTask('manual-mana-segment|'+segments,function*(){return yield ()=>{
       const slots=Math.max(1,MANA_PROGRESSIVE_MAX_SEGMENTS-segments),requested=maximumBudgetForSegment(current,remaining,slots);
       let fraction=A.from(requested);
       if(A.compare(fraction,0)<=0)fraction=remaining;
@@ -1689,12 +1704,14 @@
           if(A.compare(delta,needed)>0){needed=delta;boundary=adaptive;gainTolerance=A.scale(A.compare(boundary,1)>0?boundary:A.from(1),Number.EPSILON*16);if(A.compare(gainTolerance,'1e-12')<0)gainTolerance=A.from('1e-12');}
         }
       }
-      if(A.compare(evaluation.mana,0)<=0||!boundary||A.compare(evaluation.mana,A.add(needed,gainTolerance))<=0){commit(fraction,evaluation.mana,evaluation,current);continue;}
+      if(A.compare(evaluation.mana,0)<=0||!boundary||A.compare(evaluation.mana,A.add(needed,gainTolerance))<=0){return {fraction,gain:evaluation.mana,evaluation};}
       let upper=fraction,upperEvaluation=evaluation;
       if(linearBudget)upper=A.multiply(fraction,A.divide(needed,evaluation.mana));
       else {let lower=A.from(0);for(let i=0;i<48;i++){const middle=A.scale(A.add(lower,upper),.5),sample=evaluate(middle,current);if(A.compare(sample.mana,needed)>=0){upper=middle;upperEvaluation=sample;}else lower=middle;}}
-      if(A.compare(upper,0)<=0||A.compare(upper,fraction)>=0)commit(fraction,evaluation.mana,evaluation,current);
-      else commit(upper,needed,upperEvaluation,current);
+      if(A.compare(upper,0)<=0||A.compare(upper,fraction)>=0)return {fraction,gain:evaluation.mana,evaluation};
+      return {fraction:upper,gain:needed,evaluation:upperEvaluation};
+      };});
+      commit(segment.fraction,segment.gain,segment.evaluation,current);
     }
     const capped=A.compare(remaining,0)>0;if(capped){const evaluation=evaluate(remaining,current);commit(remaining,evaluation.mana,evaluation,current);}return result(capped);
   }
@@ -3418,7 +3435,7 @@
   function performBreathing(prepareOnly = false) {
     if (!state.qiRefiningUnlocked) return;
     if (WIS.Core.Amount?.enabled()?WIS.Core.Amount.compare(stockValue('joules'),3000)<0:lt(state.joules,3000)) return;
-    if (!gt(breathingManaGain(), ZERO)) return;
+    if (!gt(manualPreparationTask('breathing-eligibility',function*(){return yield ()=>breathingManaGain();}), ZERO)) return;
     const settlement = applyManaGainProgressive(
       1,
       (actionFraction, currentMana) => manualFraction(breathingManaGain(currentMana), actionFraction),
@@ -3426,7 +3443,7 @@
       { linearBudget: true, googolPenalty: true, prepareRate: prepareBreathingManaRate }
     );
     const gained=settlement.quantities?.mana??settlement.mana;
-    if (prepareOnly) return gained;
+    const complete = () => {
     if (quantityValue(gained)?WIS.Core.Amount.compare(gained,0)<=0:!gt(gained,ZERO)) return false;
     WIS.Core.Resources.set("joules", 0);
     WIS.Core.State.addStatistic(state,'lifetimeTotalMana',gained);
@@ -3436,6 +3453,8 @@
     saveState();
     render();
     return true;
+    };
+    return prepareOnly ? complete : complete();
   }
 
   function minorTribulationPreviewForExploration(
@@ -3847,49 +3866,119 @@
   function createExplorationActionWork(original = runtime.getState()) {
     return createManualManaActionWork(original, performExploration, "探寻");
   }
+  // A prepared candidate owns both the exact settlement and its one-shot
+  // post-settlement action. Only the permitted ledger/preferences may drift.
+  // Same complete stored-data comparison as online work, with only the two
+  // existing manual-action exclusions. Unknown shapes retain serialization.
+  function manualInputCheck(original,serialize){
+    const B=WIS.Core.BigNum,rows=[],seen=new WeakSet(),active=new WeakSet(),unsupported={};
+    const skipped=(path,key)=>path==='core'&&key==='preferences'||path==='core.runtime'&&key==='timeLedger';
+    function capture(owner,key,path){
+      const value=owner[key];if(value===null||typeof value==='string'||typeof value==='boolean'||typeof value==='number'&&Number.isFinite(value))return;
+      if(!value||typeof value!=='object')throw unsupported;
+      const prototype=Object.getPrototypeOf(value);
+      if(B.isDecimal(value)){rows.push({owner,key,value,prototype,decimal:true,sign:value.sign,layer:value.layer,mag:value.mag});return;}
+      if(WIS.Core.Amount?.isCanonicalTail?.(value)||WIS.Core.FiniteProgress?.isCanonical(value)){rows.push({owner,key,value,prototype,immutable:true});return;}
+      if(active.has(value))throw unsupported;if(seen.has(value))return;seen.add(value);active.add(value);
+      const array=Array.isArray(value);if(!array&&prototype!==Object.prototype&&prototype!==null||typeof value.toJSON==='function')throw unsupported;
+      const keys=Object.keys(value).filter(child=>!skipped(path,child)),values=[];
+      for(const child of keys){const descriptor=Object.getOwnPropertyDescriptor(value,child);if(!descriptor||!('value' in descriptor))throw unsupported;values.push(descriptor.value);}
+      rows.push({owner,key,value,prototype,array,length:array?value.length:null,keys,values,path});
+      for(const child of keys)capture(value,child,path+'.'+child);active.delete(value);
+    }
+    try{for(const key of ['core','powerSystem','cultivation','meta'])capture(original,key,key);}catch(error){if(error!==unsupported)throw error;const key=serialize(original);return ()=>serialize(original)===key;}
+    return ()=>{for(const row of rows){const value=row.owner[row.key];if(value!==row.value||Object.getPrototypeOf(value)!==row.prototype)return false;
+      if(row.immutable)continue;if(row.decimal){if(!Object.is(value.sign,row.sign)||!Object.is(value.layer,row.layer)||!Object.is(value.mag,row.mag))return false;continue;}
+      if(row.array&&value.length!==row.length||typeof value.toJSON==='function')return false;
+      let index=0;for(const key in value){if(!Object.prototype.hasOwnProperty.call(value,key)||skipped(row.path,key))continue;if(key!==row.keys[index]||!Object.is(value[key],row.values[index]))return false;index++;}if(index!==row.keys.length)return false;
+    }return true;};
+  }
+
+  function createQuantityManualManaActionWork(original, perform, label) {
+    const R=runtime,S=WIS.Core.State,C=WIS.Core.CertifiedRankMath;
+    const scope=WIS.Power.ScaleLogic.createDeferredDynamicRateScope();
+    const inputKey=s=>{const value=S.toSerializable(s);delete value.core.runtime.timeLedger;delete value.core.preferences;return JSON.stringify(value);};
+    const inputsCurrent=manualInputCheck(original,inputKey),preparation={id:String(++manualQuantitySequence),checkpoint:null,dirty:false,prefixPaid:false,effects:null};let status='pending',prepared=null,draft=S.createDraft(original);
+    const valid=()=>status!=='cancelled'&&status!=='failed'&&R.getState()===original;
+    const check=()=>{if(!valid()||!inputsCurrent())throw Error(label+'候选输入改变，旧候选失效');};
+    const math=C.createWork(()=>{
+      if(preparation.dirty){preparation.effects?.cancel();preparation.effects=null;draft=S.createDraft(preparation.checkpoint?.state||original);preparation.dirty=false;preparation.prefixPaid=!!preparation.checkpoint;}
+      const candidate=draft.state;
+      const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
+      try {
+        const previousPreparation=manualQuantityPreparation;manualQuantityPreparation=preparation;
+        let attempt;try{attempt=scope.attempt(()=>R.withState(candidate,()=>perform(true)));}finally{manualQuantityPreparation=previousPreparation;}
+        if(!attempt.done)throw Error(label+'数学候选未完成');
+        return {candidate:draft.finish(),complete:attempt.value};
+      } finally {WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);}
+    },{isCurrent:valid});
+    const release=()=>{prepared=null;draft=null;preparation.checkpoint=null;preparation.effects?.cancel();preparation.effects=null;math.cancel();scope.cancel();};
+    return Object.freeze({advance(deadline=Infinity,options={}){
+      if(status!=='pending')return {done:status==='ready'};
+      try{check();const next=math.advance({deadline,maximumOperations:256,...options});if(next.done){check();prepared=math.result();status='ready';}return next;}
+      catch(error){status='failed';release();throw error;}
+    },commit(){
+      if(status!=='ready')throw Error(label+'候选尚未完成或已提交/取消');
+      check();const commitDraft=S.createDraft(prepared.candidate),candidate=commitDraft.state,latest=S.cloneForSimulation(original);
+      candidate.core.runtime.timeLedger=latest.core.runtime.timeLedger;
+      candidate.core.preferences=latest.core.preferences;
+      const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
+      try{const value=R.atomic(()=>{const result=R.withState(candidate,()=>typeof prepared.complete==='function'?prepared.complete():prepared.complete);R.setState(commitDraft.finish());return result;});status='committed';release();return value;}
+      catch(error){R.setState(original);WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();status='failed';release();throw error;}
+    },cancel(){if(status==='committed')return;status='cancelled';release();},valid});
+  }
+
   function createManualManaActionWork(original, perform, label) {
+    // High-stock scalar integration keeps its existing continuation. Its ready
+    // private settlement is retained so commit runs only the one-shot completion.
+    if(WIS.Core.Amount?.enabled()&&lt(original.mana,GOOGOL_PENALTY_THRESHOLD))return createQuantityManualManaActionWork(original,perform,label);
     const R=WIS.Core.Runtime,S=WIS.Core.State,scope=WIS.Power.ScaleLogic.createDeferredDynamicRateScope();
-    let status='pending';
+    let status='pending',prepared=null;
     // The owner may enqueue time while this action is private. Nothing else
     // may change gameplay inputs; the latest ledger is copied at final commit.
     const inputKey=s=>{const value=S.toSerializable(s);delete value.core.runtime.timeLedger;delete value.core.preferences;return JSON.stringify(value);};
     const originalKey=inputKey(original);
-    function valid(){return status!=='cancelled'&&R.getState()===original;}
+    function valid(){return status!=='cancelled'&&status!=='failed'&&R.getState()===original;}
     const inputsCurrent=()=>valid()&&inputKey(original)===originalKey;
+    const release=()=>{prepared=null;scope.cancel();};
     return Object.freeze({
       advance(deadline=Infinity,options={}){
         if(status!=='pending')return {done:status==='ready'};
-        if(!valid())throw Error(label+'候选输入改变，旧候选失效');
-        const stepped=scope.advance(deadline,options);if(!stepped.done)return {done:false};
-        if(!inputsCurrent())throw Error(label+'候选输入改变，旧候选失效');
-        const candidate=S.cloneForSimulation(original);
-        const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
         try {
-          const attempt=scope.attempt(()=>R.withState(candidate,()=>perform(true)));
-          if(attempt.done)status='ready';
-          return {done:attempt.done};
-        } finally {WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);}
+          if(!inputsCurrent())throw Error(label+'候选输入改变，旧候选失效');
+          const stepped=scope.advance(deadline,options);if(!stepped.done)return {done:false};
+          if(!inputsCurrent())throw Error(label+'候选输入改变，旧候选失效');
+          const candidate=S.cloneForSimulation(original);
+          const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
+          try {
+            const attempt=scope.attempt(()=>R.withState(candidate,()=>perform(true)));
+            if(attempt.done){prepared={candidate,complete:attempt.value};status='ready';}
+            return {done:attempt.done};
+          } finally {WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);}
+        }catch(error){status='failed';release();throw error;}
       },
       commit(){
         if(status!=='ready')throw Error(label+'候选尚未完成或已提交/取消');
-        if(!inputsCurrent())throw Error(label+'候选输入改变，旧候选失效');
-        const candidate=S.cloneForSimulation(original);
+        if(!inputsCurrent()){status='failed';release();throw Error(label+'候选输入改变，旧候选失效');}
+        const commitDraft=S.createDraft(prepared.candidate),candidate=commitDraft.state,latest=S.cloneForSimulation(original);
+        candidate.core.runtime.timeLedger=latest.core.runtime.timeLedger;
+        candidate.core.preferences=latest.core.preferences;
         const power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
         try {
           const value=R.atomic(()=>{
-            const attempt=scope.attempt(()=>R.withState(candidate,perform));
-            if(!attempt.done)throw Error(label+'候选重放输入改变，未提交');
-            R.setState(candidate);return attempt.value;
+            const result=R.withState(candidate,()=>typeof prepared.complete==='function'?prepared.complete():prepared.complete);
+            R.setState(commitDraft.finish());return result;
           });
-          status='committed';scope.cancel();return value;
-        }catch(error){R.setState(original);WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();throw error;}
+          status='committed';release();return value;
+        }catch(error){R.setState(original);WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();status='failed';release();throw error;}
       },
-      cancel(){if(status==='committed')return;status='cancelled';scope.cancel();},
+      cancel(){if(status==='committed')return;status='cancelled';release();},
       valid
     });
   }
 
   function performExploration(prepareOnly = false) {
+    const prefix=manualPreparationTask('exploration-prefix',function*(){return yield ()=>{
     if (!explorationEnabled()) return;
     const powerCost = explorationPowerCostValue();
     if (!state.goldenCoreUnlocked || (quantityValue(powerCost)?WIS.Core.Amount.compare(powerCost,EXPLORATION_MINIMUM_POWER_COST)<0:lt(powerCost,EXPLORATION_MINIMUM_POWER_COST))) return;
@@ -3899,7 +3988,15 @@
     if (lt(previewGain, ONE)) return;
     const explorationAccounting = prepareExplorationProgress(explorationAmount);
     const previousAchievements = achievementStates();
+    return {powerCost,explorationAmount,tribulationPreview,explorationAccounting,previousAchievements};
+    };});
+    if(!prefix)return;
+    const {powerCost,explorationAmount,tribulationPreview,explorationAccounting,previousAchievements}=prefix;
+    if(!manualQuantityPreparation?.prefixPaid){
+    if(manualQuantityPreparation)manualQuantityPreparation.dirty=true;
     if(quantityValue(powerCost)?!WIS.Core.Resources.debitExact('core.power',powerCost,state):!WIS.Core.Resources.spend('power',powerCost))return false;
+    if(manualQuantityPreparation){manualQuantityPreparation.prefixPaid=true;manualQuantityPreparation.dirty=false;manualQuantityPreparation.effects?.cancel();manualQuantityPreparation.effects=null;}
+    }
     const settlement = applyManaGainProgressive(
       1,
       (actionFraction, currentMana) => manualFraction(explorationPotentialManaGain(
@@ -3913,7 +4010,7 @@
       { linearBudget: true, googolPenalty: true, prepareRate: () => prepareExplorationManaRate(explorationAmount, tribulationPreview.manaExponent) }
     );
     const gained=settlement.quantities?.mana??settlement.mana;
-    if(prepareOnly)return gained;
+    const complete = () => {
     WIS.Core.State.addStatistic(state,'lifetimeTotalMana',gained);
     WIS.Core.State.addStatistic(state,'currentRebirthTotalMana',gained);
 
@@ -3935,6 +4032,8 @@
     if (gt(rewards.mysticHeavenSpiritSlayingSword, ZERO)) rewardParts.push(`仙道·玄天斩灵剑 +${rewards.mysticHeavenSpiritSlayingSword}`);
     if (tribulationTriggered) rewardParts.push("触发小天劫");
     if (rewardParts.length > 0) showNotice(`探寻判定：${rewardParts.join("、")}`, 2800);
+    };
+    return prepareOnly ? complete : complete();
   }
 
   function rollDynamicAttempts(attempts, available, probability, award, options = {}) {
