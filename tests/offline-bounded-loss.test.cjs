@@ -11,39 +11,39 @@ test('hidden wall time does not spend foreground candidate budget',()=>{
 });
 const {loadProductionNumericRuntime}=require('./helpers/production-numeric-runtime.cjs');
 function engine(host={},performanceObject=performance){const runtime=loadProductionNumericRuntime({performanceObject}),W=runtime.W;for(const file of ['discard-effects','offline'])vm.runInContext(fs.readFileSync('js/simulation/'+file+'.js','utf8'),runtime.context);const sim=W.Simulation.OfflineHeadless.create({domain:W.Core.State.fresh()},{checkpoint(){},yield:()=>Promise.resolve(),...host});return{W,sim};}
-test('discard mixed FIFO queue is durable and does not grant compensation or RNG',()=>{
+test('automatic discard refuses mixed FIFO queue and preserves offline income',()=>{
  let saved;const {W,sim}=engine({checkpoint(){saved=JSON.stringify(W.Core.Save.envelope(sim.getState(),false,{offlineRecoveryOverride:sim.offline.getPersistenceSnapshot()}));}});
  sim.offline.appendCatchUpTask(4,2,{source:'online',speed:2,compensationEligible:true,randomMode:'state'});sim.offline.appendCatchUpTask(8,8,{source:'offline',randomMode:'state'});
  assert.equal(typeof sim.getState().core.runtime.randomState,'number');
  const before=JSON.stringify([sim.getState().meta.treasures,sim.getState().core.runtime.randomState,sim.getState().core.runtime.compensation]);
- const result=sim.offline.discardCatchUp('recovery-budget');assert.equal(result.abandoned,true);assert.equal(sim.offline.getPendingCatchUpSeconds(),0);assert.equal(JSON.stringify([sim.getState().meta.treasures,sim.getState().core.runtime.randomState,sim.getState().core.runtime.compensation]),before);assert.equal(JSON.parse(saved).offlineRecovery??null,null);assert.equal(sim.getState().core.runtime.timeLedger.discardedClock,10);
+ const result=sim.offline.discardCatchUp('recovery-budget');assert.equal(result.abandoned,false);assert.equal(sim.offline.getPendingCatchUpSeconds(),12);assert.equal(JSON.stringify([sim.getState().meta.treasures,sim.getState().core.runtime.randomState,sim.getState().core.runtime.compensation]),before);assert.equal(sim.offline.isCatchUpPaused(),true);assert.equal(sim.getState().core.runtime.timeLedger.discardedClock||0,0);
 });
 test('discard save failure rolls back state and preserves exportable debt',()=>{
  const {W,sim}=engine({checkpoint(){throw Error('quota');}});sim.offline.appendCatchUpTask(10,10,{source:'offline'});const before=JSON.stringify(W.Core.State.toSerializable(sim.getState()));const r=sim.offline.discardCatchUp('candidate-timeout');assert.equal(r.abandoned,false);assert.equal(JSON.stringify(W.Core.State.toSerializable(sim.getState())),before);assert.equal(sim.offline.getPendingCatchUpSeconds(),10);assert.equal(sim.offline.isCatchUpPaused(),true);assert.doesNotThrow(()=>JSON.stringify(W.Core.Save.envelope(sim.getState(),false,{offlineRecoveryOverride:sim.offline.getPersistenceSnapshot()})));
 });
 
-test('stalled first complete unit cancels with zero earned time and durable discard',async()=>{
- let now=0,advances=0,closed=0,saves=0;const {W,sim}=engine({checkpoint(){saves++;},yield:()=>Promise.resolve()},{now:()=>now});
+test('stalled offline unit can be paused without losing debt',async()=>{
+ let now=0,advances=0,closed=0,saves=0;const {W,sim}=engine({checkpoint(){saves++;},yield:()=>{if(advances>=3)sim.offline.pauseCatchUpByPlayer();return Promise.resolve();}},{now:()=>now});
  const Fixed=W.Simulation.FixedSegment;W.Simulation.FixedSegment={...Fixed,createWork(){return{advance(){advances++;now+=700;return{done:false};},close(){closed++;}};}};
  sim.offline.appendCatchUpTask(1,1,{source:'offline',randomMode:'state'});const earned=sim.getState().totalElapsedSeconds;
- await sim.offline.simulateOfflineProgress(0,0);assert.equal(sim.offline.getPendingCatchUpSeconds(),0);assert.equal(sim.getState().totalElapsedSeconds,earned);assert.equal(sim.getState().core.runtime.timeLedger.discardedClock,1);assert.equal(advances,3);assert.ok(closed>0);assert.ok(saves>0);
+ await sim.offline.simulateOfflineProgress(0,0);assert.equal(sim.offline.getPendingCatchUpSeconds(),1);assert.equal(sim.offline.isCatchUpPaused(),true);assert.equal(sim.getState().totalElapsedSeconds,earned);assert.equal(sim.getState().core.runtime.timeLedger.discardedClock||0,0);assert.equal(advances,3);assert.ok(saves>0);
 });
-test('confirmed whole task survives budget expiry and next FIFO task is discarded',async()=>{
+test('all offline FIFO tasks survive online budget expiry',async()=>{
  let now=0;const {W,sim}=engine({yield:()=>Promise.resolve()},{now:()=>now});const Fixed=W.Simulation.FixedSegment;let units=0;
  W.Simulation.FixedSegment={...Fixed,createWork(...args){const work=Fixed.createWork(...args);return{...work,advance(deadline){const r=work.advance(deadline);if(r.done){units++;now=101;}return r;}};}};
  sim.offline.appendCatchUpTask(.2,.2,{source:'offline',randomMode:'state'});sim.offline.appendCatchUpTask(.6,.3,{source:'offline',speed:2,randomMode:'state'});
- await sim.offline.simulateOfflineProgress(0,0);assert.equal(units,1);assert.equal(sim.offline.getPendingCatchUpSeconds(),0);assert.ok(Math.abs(sim.getState().totalElapsedSeconds-.2)<1e-9,JSON.stringify({elapsed:sim.getState().totalElapsedSeconds,status:sim.offline.getCatchUpStatus()}));assert.ok(Math.abs(sim.getState().core.runtime.timeLedger.discardedClock-.3)<1e-9);
+ await sim.offline.simulateOfflineProgress(0,0);assert.equal(units,2);assert.ok(Math.abs(Number(sim.getState().joules)-.8)<1e-9);assert.equal(sim.offline.getPendingCatchUpSeconds(),0);assert.ok(Math.abs(sim.getState().totalElapsedSeconds-.5)<1e-9,JSON.stringify({elapsed:sim.getState().totalElapsedSeconds,status:sim.offline.getCatchUpStatus()}));assert.equal(sim.getState().core.runtime.timeLedger.discardedClock||0,0);
 });
 
 test('explicit false checkpoint refuses discard without hiding debt',()=>{const {sim}=engine({checkpoint:()=>false});sim.offline.appendCatchUpTask(2,2,{source:'offline'});assert.equal(sim.offline.discardCatchUp('recovery-budget').abandoned,false);assert.equal(sim.offline.getPendingCatchUpSeconds(),2);});
-test('real closed-G player save can terminate a never-completing candidate without replay debt',async()=>{
+test('real closed-G player save preserves a paused never-completing offline candidate',async()=>{
  let now=0,saved=null;const runtime=loadProductionNumericRuntime({performanceObject:{now:()=>now}}),W=runtime.W;
  for(const file of ['discard-effects','offline'])vm.runInContext(fs.readFileSync('js/simulation/'+file+'.js','utf8'),runtime.context);
  const path='E:/download/WIS-original-save-1794046107463.json';assert.ok(fs.existsSync(path),'required real player fixture exists');const prepared=W.Core.Save.prepare(JSON.parse(fs.readFileSync(path,'utf8')));
- let sim;sim=W.Simulation.OfflineHeadless.create({domain:prepared.state},{yield:()=>Promise.resolve(),checkpoint(){saved=JSON.stringify(W.Core.Save.envelope(sim.getState(),false,{offlineRecoveryOverride:sim.offline.getPersistenceSnapshot()}));}});
+ let sim;sim=W.Simulation.OfflineHeadless.create({domain:prepared.state},{yield:()=>{if(now>=2100)sim.offline.pauseCatchUpByPlayer();return Promise.resolve();},checkpoint(){saved=JSON.stringify(W.Core.Save.envelope(sim.getState(),false,{offlineRecoveryOverride:sim.offline.getPersistenceSnapshot()}));}});
  const Fixed=W.Simulation.FixedSegment;W.Simulation.FixedSegment={...Fixed,createWork(...args){const work=Fixed.createWork(...args);let first=true;return{advance(deadline){if(first){first=false;work.advance(deadline);}now+=700;return{done:false};},close(){work.close();}};}};
  const before=JSON.stringify([sim.getState().powerSystem,sim.getState().cultivation,sim.getState().meta.treasures]);sim.offline.appendCatchUpTask(34.068,34.068,{source:'offline',randomMode:'state'});await sim.offline.simulateOfflineProgress(0,0);
- assert.equal(sim.offline.getPendingCatchUpSeconds(),0);assert.equal(JSON.stringify([sim.getState().powerSystem,sim.getState().cultivation,sim.getState().meta.treasures]),before);assert.equal(JSON.parse(saved).offlineRecovery??null,null);assert.ok(sim.getState().core.runtime.timeLedger.discardedClock>=34.068);
+ assert.equal(sim.offline.getPendingCatchUpSeconds(),34.068);assert.equal(JSON.stringify([sim.getState().powerSystem,sim.getState().cultivation,sim.getState().meta.treasures]),before);assert.equal(JSON.parse(saved).offlineRecovery.tasks[0].gameSeconds,34.068);assert.equal(sim.getState().core.runtime.timeLedger.discardedClock||0,0);
 });
 test('native worker with endless heartbeat is forcibly terminated at the independent deadline',async()=>{
  const {Worker}=require('node:worker_threads');let native,heartbeats=0;const began=performance.now();

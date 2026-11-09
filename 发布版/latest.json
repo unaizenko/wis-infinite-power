@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.1.0",
-  "versionCode": 20100,
+  "version": "0.2.1.1",
+  "versionCode": 20101,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.0/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.1/wis.apk",
     "mirror": null,
-    "sha256": "8a4caf1aa0a84735ceb3172ebd0c0d35a80645b12db176f6ba3cfe0e74898468",
-    "sizeBytes": 6449001
+    "sha256": "d7a842843659ce3ff480c80b13ab19e2a7654db54849bf4403de8b6b8c3d903e",
+    "sizeBytes": 6453097
   },
-  "notes": "加入有限结算：超预算时保留已完成收益，舍弃剩余时间，避免持续积压；修复挑战计时及Android存档导出，提供系统文件保存、分享和完整文本。旧档可升级，新档请勿降级。",
-  "publishedAt": "2026-11-08T09:28:44Z"
+  "notes": "修复离线收益被误舍弃：截断仅针对在线积压，离线按原冻结规则结算；计算慢继续，失败保留剩余时间并可重试。修复混合队列边界，存档格式不变。历史已舍弃收益不自动补偿。",
+  "publishedAt": "2026-11-09T01:06:55.557581Z"
 }

@@ -10,10 +10,13 @@ const state=W.Core.State.fresh();const host=W.Simulation.OfflineHeadless.create(
 W.Simulation.Offline=original;
 let saved=null,fault=false;context.localStorage={getItem:()=>saved,setItem(k,v){if(fault)throw Error('quota');saved=v;}};
 const workers=[];function factory(){const w={sent:[],postMessage(m){this.sent.push(m);},terminate(){this.terminated=true;},emit(m){this.onmessage({data:m});}};workers.push(w);return w;}
+let healthClock=0,healthClient;const realClient=W.Simulation.WorkerClient;W.Simulation.WorkerClient={...realClient,create(options){healthClient=realClient.create({...options,clock:()=>healthClock});return healthClient;}};
 const controller=W.Simulation.OfflineWorker.create({...captured,workerFactory:factory,workerSchedule:false,checkpoint(){W.Core.Save.write(host.getState(),{offlineRecoveryOverride:controller.getPersistenceSnapshot()});},installWorkerSnapshot:captured.restoreState});
 W.Core.Save.bindOfflineRecovery(()=>controller.getPersistenceSnapshot());
 controller.appendCatchUpTask(10,10,{source:'offline',randomMode:'state'});
 const promise=controller.simulateOfflineProgress(0,0),worker=workers[0],start=worker.sent[0];
+for(let i=1;i<=35;i++){healthClock=i*1000;worker.emit({...start,type:'heartbeat'});healthClient.checkHealth();}
+assert.equal(controller.isCatchUpPaused(),false,'healthy yielding offline candidate must survive 35 seconds');assert.equal(controller.getPendingCatchUpSeconds(),10);
 assert.equal(controller.getCatchUpStatus().locked,true);assert.equal(controller.getCatchUpStatus().worker.running,true);
 const initial=W.Simulation.WorkerProtocol.decode(start.payload);
 const next={...initial,snapshot:{...initial.snapshot,domain:W.Core.State.toSerializable(host.getState())},recovery:{...initial.recovery,tasks:initial.recovery.tasks.map(t=>({...t,gameSeconds:9,clockSeconds:9,clockCursor:1}))},status:{...initial.status,pendingGameSeconds:9,pendingClockSeconds:9,phase:'running'}};
@@ -39,4 +42,9 @@ fault=true;retry.emit({type:'checkpoint',jobId:retryStart.jobId,generation:retry
 assert.equal(controller.isCatchUpPaused(),true);assert.equal(String(host.getState().joules),'123');assert.equal(controller.getPendingCatchUpSeconds(),9);
 assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.tasks[0].gameSeconds,9);
 assert.ok(!retry.sent.some(m=>m.type==='ack'));fault=false;
+controller.retryCatchUp();const broken=workers.at(-1),brokenStart=broken.sent[0];
+broken.emit({type:'error',jobId:brokenStart.jobId,generation:brokenStart.generation,message:'injected worker failure',code:'numeric-error'});
+assert.equal(controller.isCatchUpPaused(),true);assert.equal(controller.getPendingCatchUpSeconds(),9);
+assert.equal(String(host.getState().joules),'123');assert.equal(host.getState().core.runtime.timeLedger.discardedClock||0,0);
+assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.tasks[0].gameSeconds,9);
 controller.cancelCatchUp();promise.then(()=>console.log('PASS Worker owner lock, durable checkpoint, immediate pause, debt preserved and stale result ignored'));

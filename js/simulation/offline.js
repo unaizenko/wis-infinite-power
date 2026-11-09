@@ -422,7 +422,14 @@
 
       function abandonCatchUp() { return discardCatchUp('player-abandoned'); }
 
+      // Automatic shedding must never cross an offline barrier. Explicit player
+      // abandonment is a separate action and retains its transactional rollback.
       function discardCatchUp(reason = 'recovery-budget') {
+        if(reason!=='player-abandoned' && (catchUpTasks.some(task=>task.source==='offline') ||
+            getState().core.runtime.timeLedger.pendingContinuousTime?.some(part=>part.source==='offline'))){
+          pauseCatchUp(catchUpDiagnostic('offline-time-retained',catchUpTasks[0],0,null));
+          return {abandoned:false};
+        }
         const discardedGameSeconds=pendingCatchUpSeconds, discardedClockSeconds=pendingCatchUpClockSeconds;
         if(!(discardedGameSeconds>epsilon))return {abandoned:false};
         const world=snapshotState(), tasks=[...catchUpTasks], onlineBoundary=context.snapshotOnlineBoundary?.();
@@ -1131,6 +1138,47 @@
         return simulateOfflineProgress(0, 0);
       }
 
+      function discardOnlinePrefix(reason) {
+        const barrier=catchUpTasks.findIndex(task=>task.source==='offline');
+        const end=barrier<0?catchUpTasks.length:barrier;
+        if(end===0)return;
+        const world=snapshotState(),tasks=[...catchUpTasks];
+        const oldGame=pendingCatchUpSeconds,oldClock=pendingCatchUpClockSeconds,oldOriginal=catchUpOriginalClockSeconds;
+        const parts=tasks.slice(0,end).map(task=>({source:'online',clock:task.remainingClockSeconds,
+          speed:task.speed,compensationEligible:task.compensationEligible}));
+        const previousInternal=internalWork;internalWork=true;
+        // Cancel private candidates; never install their partial resources/RNG.
+        invalidateSourceModels();
+        try {
+          const draft={...world,domain:WIS.Core.State.cloneForSimulation(world.domain)};
+          const discarded=WIS.Simulation.DiscardEffects.apply(draft.domain,parts,reason);
+          draft.domain.core.runtime.onlineCadenceRemaining=0;
+          restoreState(draft);catchUpTasks.splice(0,end);
+          pendingCatchUpSeconds=catchUpTasks.reduce((sum,task)=>sum+task.remainingGameSeconds,0);
+          pendingCatchUpClockSeconds=catchUpTasks.reduce((sum,task)=>sum+task.remainingClockSeconds,0);
+          catchUpOriginalClockSeconds=Math.max(0,oldOriginal-discarded.discardedClock);
+          if(typeof context.checkpoint!=='function'||context.checkpoint()===false)throw Error('在线截断保存失败；剩余时间保留');
+        }catch(error){
+          restoreState(world);catchUpTasks.splice(0,catchUpTasks.length,...tasks);
+          pendingCatchUpSeconds=oldGame;pendingCatchUpClockSeconds=oldClock;catchUpOriginalClockSeconds=oldOriginal;
+          throw error;
+        }finally{internalWork=previousInternal;}
+      }
+
+      function confirmPendingOnlineDiscard() {
+        const pending=getState().core.runtime.timeLedger.pendingDiscard;
+        if(!pending)return;
+        const world=snapshotState();
+        try {
+          const draft={...world,domain:WIS.Core.State.cloneForSimulation(world.domain)};
+          WIS.Simulation.DiscardEffects.apply(draft.domain,[{source:'online',clock:pending.clock,
+            speed:pending.game/pending.clock,compensationEligible:false}],pending.reason);
+          draft.domain.core.runtime.timeLedger.pendingDiscard=null;
+          restoreState(draft);
+          if(typeof context.checkpoint!=='function'||context.checkpoint()===false)throw Error('在线舍弃记录保存失败；离线时间保留');
+        }catch(error){restoreState(world);throw error;}
+      }
+
       function simulateOfflineProgress(elapsedSeconds, clockSeconds = elapsedSeconds) {
         appendCatchUpTask(elapsedSeconds, clockSeconds);
         if (!(pendingCatchUpSeconds > 0)) return Promise.resolve("");
@@ -1141,14 +1189,14 @@
         if (catchUpAwaitingStart) { publishCatchUpStatus(); return catchUpPromise || Promise.resolve(""); }
         if (catchUpPaused||awaySuspended) return Promise.resolve("");
         if (catchUpPromise) return catchUpPromise;
-        if(getState().core.runtime.timeLedger.pendingDiscard){discardCatchUp('recovery-handoff');return Promise.resolve('');}
+        if(getState().core.runtime.timeLedger.pendingDiscard && !catchUpTasks.some(task=>task.source==='offline')){discardCatchUp('recovery-handoff');return Promise.resolve('');}
         // Ordinary sub-frame time is real debt, but has no runnable frame yet.
         // Do not create a worker, save or notification for every 16ms tail.
         if (!prepareQueueHead()) return Promise.resolve("");
         const recoveryStarted=catchUpClockNow();
-        const bounded=true;
+        const bounded=!catchUpTasks.some(task=>task.source==='offline');
         const budgetMs=context.recoveryBudgetMs??100, candidateMs=context.candidateTimeoutMs??2000;
-        let candidateStarted=null;
+        let candidateStarted=null,mixedOnlineStarted=null;
         const generation = ++catchUpGeneration;
         ensureCatchUpSession();
         catchUpOriginalClockLocked = true;
@@ -1164,6 +1212,12 @@
               firstStatus.originalClockSeconds >= CONFIG.offlineNoticeMinSeconds) await yieldForFirstPaint(true);
           while (generation === catchUpGeneration && !catchUpPaused && !awaySuspended) {
             if (catchUpTasks.length === 0||!prepareQueueHead()) break;
+            if(!bounded && catchUpTasks[0].source==='online'){
+              mixedOnlineStarted??=catchUpClockNow();
+              if(catchUpClockNow()-mixedOnlineStarted>=candidateMs){
+                discardOnlinePrefix('online-candidate-timeout');mixedOnlineStarted=null;continue;
+              }
+            }else mixedOnlineStarted=null;
             if(bounded && candidateStarted===null && catchUpClockNow()-recoveryStarted>=budgetMs){discardCatchUp('recovery-budget');return;}
             if(bounded && candidateStarted!==null && catchUpClockNow()-candidateStarted>=candidateMs){discardCatchUp('candidate-timeout');return;}
             // Historical treasure work never runs inside the simulation's
@@ -1228,6 +1282,9 @@
                 pauseCatchUp(catchUpDiagnostic('fixed-income-unavailable',task,bridgeSeconds,null,
                   Error('固定离线结算适配器不可用；进度保留')));break;
               }
+              // An online prefix can finish in this same host slice. Confirm its
+              // discarded interval at the actual FIFO barrier, before capture.
+              if(task.source==='offline')confirmPendingOnlineDiscard();
               if (task.source === "offline" && context.prepareFixedWork ) {
                 try {
                   offlineSegmentBudget ||= WIS.Simulation.CheckpointStrategy.createBudget(task.remainingGameSeconds);
@@ -1387,7 +1444,7 @@
                 pauseCatchUp(catchUpDiagnostic("exception", task, requestedSeconds, result, stepError));
                 break;
               }
-              if (acceptedSeconds > 0) {pauseNotices.reset();candidateStarted=null;}
+              if (acceptedSeconds > 0) {pauseNotices.reset();candidateStarted=null;mixedOnlineStarted=null;}
               if (result?.eventCommitted) {
                 task.currentStepDiscreteEvents += 1;
                 madeProgress = true;
@@ -1415,7 +1472,16 @@
             }
             publishCatchUpStatus();
             checkpointCatchUp(catchUpPaused);
-            if (catchUpPaused) {if(bounded&&!['player-paused','checkpoint-failed'].includes(catchUpPauseReason?.reason))discardCatchUp('numeric-error');break;}
+            if (catchUpPaused) {
+              if(!['player-paused','checkpoint-failed'].includes(catchUpPauseReason?.reason)){
+                if(bounded){discardCatchUp('numeric-error');break;}
+                if(catchUpTasks[0]?.source==='online'){
+                  discardOnlinePrefix('online-numeric-error');
+                  catchUpPaused=false;catchUpPauseReason=null;mixedOnlineStarted=null;continue;
+                }
+              }
+              break;
+            }
             if (planningYieldRequested || catchUpTasks.length > 0 || !madeProgress) await yieldForFirstPaint();
           }
           if (generation !== catchUpGeneration) return;
