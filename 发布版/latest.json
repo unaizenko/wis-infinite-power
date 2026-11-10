@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.1.1",
-  "versionCode": 20101,
+  "version": "0.2.1.2",
+  "versionCode": 20102,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.1/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.2/wis.apk",
     "mirror": null,
-    "sha256": "d7a842843659ce3ff480c80b13ab19e2a7654db54849bf4403de8b6b8c3d903e",
-    "sizeBytes": 6453097
+    "sha256": "d1941ba69842c8b07119c4538fadd577c38327bded7809f5240e55417d49abf5",
+    "sizeBytes": 6457193
   },
-  "notes": "修复离线收益被误舍弃：截断仅针对在线积压，离线按原冻结规则结算；计算慢继续，失败保留剩余时间并可重试。修复混合队列边界，存档格式不变。历史已舍弃收益不自动补偿。",
-  "publishedAt": "2026-11-09T01:09:08Z"
+  "notes": "修复特定炼气存档离线停住、在线不增长的公式精度边界；改进幂差区间收敛及小比例巨大指数计算。离线剩余时间继续保留，存档格式不变。",
+  "publishedAt": "2026-11-10T08:50:46Z"
 }

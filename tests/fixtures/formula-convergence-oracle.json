@@ -1,0 +1,408 @@
+{
+  "oracle": "Python decimal 900 digits; (s+d)^p-s^p; round absolute value or logarithmic coordinate to binary64",
+  "rows": [
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-34",
+        "1e34"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 0,
+        "mag": 1.7182818284590453
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-34",
+        "-1e34"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 0.6321205588285577
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-100",
+        "1e100"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 0,
+        "mag": 1.7182818284590453
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-100",
+        "-1e100"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 0.6321205588285577
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-200",
+        "1e200"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 0,
+        "mag": 1.7182818284590453
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-200",
+        "-1e200"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 0.6321205588285577
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-300",
+        "1e300"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 0,
+        "mag": 1.7182818284590453
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-300",
+        "-1e300"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 0.6321205588285577
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-400",
+        "1e400"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 0,
+        "mag": 1.7182818284590453
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e-400",
+        "-1e400"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 0.6321205588285577
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e34",
+        "0.05"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 0,
+        "mag": 49.11872336272723
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e34",
+        "0.5"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 17.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e34",
+        "-0.05"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 0.9800473768503112
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e35",
+        "0.05"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 0,
+        "mag": 55.23413251903491
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e35",
+        "0.5"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 17.5
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e35",
+        "-0.05"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 0.9822172058996108
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e100",
+        "0.05"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 0,
+        "mag": 99999.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e100",
+        "0.5"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 50.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e100",
+        "-0.05"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 0.99999
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e340",
+        "0.05"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 17.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e340",
+        "0.5"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 170.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e340",
+        "-0.05"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 1.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e350",
+        "0.05"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 17.5
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e350",
+        "0.5"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 175.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e350",
+        "-0.05"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 1.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e400",
+        "0.05"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 20.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e400",
+        "0.5"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 200.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e400",
+        "-0.05"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 1.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e680",
+        "0.05"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 34.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e680",
+        "0.5"
+      ],
+      "expected": {
+        "sign": 1,
+        "layer": 1,
+        "mag": 340.0
+      }
+    },
+    {
+      "operation": "powerIncrement",
+      "args": [
+        "1",
+        "1e680",
+        "-0.05"
+      ],
+      "expected": {
+        "sign": -1,
+        "layer": 0,
+        "mag": 1.0
+      }
+    }
+  ]
+}

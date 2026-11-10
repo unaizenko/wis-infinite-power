@@ -1,12 +1,33 @@
+## 2026-11-10 小比例巨大指数定向强化（仅开发版）
+
+build release-0.2.1.2-20261110；可见版本0.2.1.1、schema76/model2/rule4不变。powerIncrement 新增有向缩放后备：先求 |p|r，再约束 |p|ln(1+r)，避免极小比例的固定点误差被巨大指数放大；原线性快路、完整幂差后备与舍入认证保持。
+
+200/200定向回归通过；新增45项含40组独立参考、正负指数/中点两侧、分片/取消、容量失败不重算和离线86400秒债务保存。两个真实档及新建/武道高值模拟共5组离线+10在线步完整domain逐字段对照、宝物/TREE真实增长、RNG/挑战时钟/存档往返一致。扩展40项33通过7失败，已用本轮前基线复跑确认同样7失败，未作全绿承诺。
+
+6次Edge390px触屏视窗Worker/保存刷新通过；正常CPU离线中位205.3ms，主线程4倍降速262.2ms；极端公式单片最长8.5ms。校准确认Worker未同等降速，无连接手机，不能作为低端手机真机成绩。仍有exp参数2048上限和极接近1的起点尾项放大容量边界；不宣称任意数值终止。发布版/APK/commit/push未动。报告：WIS-项目资源/scaled-increment-hardening-20261110/REPORT.md。以下为历史记录。
+## 2026-11-10 公式区间收敛专项（仅开发版）
+
+开发build release-0.2.1.2-20261110；可见版本/schema76/model2/rule4不变。保留前轮玩家公式修复，新增powerIncrement大差值精确修正和小比例估计无法认证时完整差值后备，均有红绿复现。largeOnePlusLog已有精算后备，两个midpoint侧实际追踪通过；远端尾项、产品、rank-exact与近一对数界均随精度收缩，未发现相同固定宽度平台。
+
+145/145定向回归通过，其中37项专项含31个独立900位参考、单操作续算及原玩家完整81519.567秒离线再在线/严格往返；真实Edge Worker/保存刷新通过。独立数学审查无阻塞。512位容量仍是有限支持边界，例如powerIncrement(1,1e-600,1e600)仍无法认证，不得称所有精度问题已根治。报告WIS-项目资源/formula-convergence-audit-20261110/REPORT.md。发布版/APK/commit/push未动。以下为历史记录。
+
+## 2026-11-10 炼气挑战收益公式舍入边界修复（仅开发版）
+
+开发build release-0.2.1.2-20261110；可见0.2.1.1、schema76/model2/rule4不变。发布版/APK/Git未更新。
+
+玩家11月10日00:58存档在炼气十万年挑战48207层，离线81519.567秒暂停、在线不增长。共享powerOnePlusMinusOne公式在L≈17.22458采用不随精度收紧的[-2×10^-L,0]界，跨越Decimal舍入边界，512位仍报amount-formula-unresolved。改为可表示时严格求log10(1-10^-L)区间；仅低于当前分辨率时保留原极小项界，不降低精度或改变原档。
+
+最终68/68数值/结算回归通过；180位Python Decimal独立参考和定向红绿通过。原档完整81519.567秒离线收益与10个在线步均可提交，资源增长、存读往返正常；真实Edge390px实际Worker重试/保存/刷新通过，原档SHA未改。报告WIS-项目资源/player-qi-stall-20261110/REPORT.md。以下为历史记录。
+
 ## 2026-11-09 发布 0.2.1.1
 
-用户授权同步网页、APK及Git。开发build release-0.2.1.1-20261109；网页release-0.2.1.1-20261109；APK release-0.2.1.1-apk-20261109，versionCode20101。schema76/model2/rule4不变。
+用户授权同步网页、APK及Git。开发build release-0.2.1.2-20261110；网页release-0.2.1.1-20261109；APK release-0.2.1.1-apk-20261109，versionCode20101。schema76/model2/rule4不变。
 
 本版修复0.2.1.0离线收益误舍弃：截断仅针对在线，混合队列在线前缀/尾段失败不吞掉离线；离线按原冻结算法结算，失败保留时间并暂停/重试，健康分片计算不受2秒/30秒提交期限影响。沿用原APK签名及原生导出修复，不自动补偿历史已丢收益。开发验收45/45，真实存档1小时/12小时资源、宝物、TREE与原冻结算法一致；最终发布验收见WIS-项目资源/release-0211-20261109/REPORT.md。以下为历史记录。
 
 ## 2026-11-09 离线收益保留修复（仅开发版）
 
-开发build release-0.2.1.1-20261109，可见版本0.2.1.0；schema76/model2/rule4不变，主97/Worker80。发布版、APK、Git发布未更新。
+开发build release-0.2.1.2-20261110，可见版本0.2.1.0；schema76/model2/rule4不变，主97/Worker80。发布版、APK、Git发布未更新。
 
 用户明确纠正：截断仅用于在线积压，离线保持原冻结收益。修复pendingDiscard误清空整个恢复队列；在线舍弃负面时钟在在线前缀结束、离线冻结前确认。纯在线限额保留；混合队列在线前缀/尾段超时或数值失败只舍弃对应在线段，后续离线继续；保存失败事务回滚。离线任务不受100ms/2秒截断，失败暂停并保存剩余时间；健康Worker不受30秒未提交期限限制，仍保留心跳故障检测及显式暂停/重试。显式玩家确认放弃入口仍保留，不能用于自动失败回退。
 
@@ -16,7 +37,7 @@
 
 ## 2026-11-08 发布 0.2.1.0
 
-本次用户授权同步网页、APK及Git。开发build release-0.2.1.1-20261109；网页release-0.2.1.0-20261108；APK release-0.2.1.0-apk-20261108，versionName0.2.1.0/versionCode20100。schema76/model2/rule4，主脚本97，两个Worker各80。
+本次用户授权同步网页、APK及Git。开发build release-0.2.1.2-20261110；网页release-0.2.1.0-20261108；APK release-0.2.1.0-apk-20261108，versionName0.2.1.0/versionCode20100。schema76/model2/rule4，主脚本97，两个Worker各80。
 
 纳入有限结算：性能不足时允许舍弃未完成时间及其收益，保留完整已提交事务；100ms是软预算，候选期限2秒，不能中断任意同步JS。负面挑战时钟包含舍弃时间，正向收益不白送。新增Android系统文件保存、读回校验和分享/完整文本回退；Java源归档于native/android-export。旧存档可迁移，新schema76存档不支持退回旧版，请先保留备份。
 
@@ -24,7 +45,7 @@
 
 ## 2026-11-08 有限结算与APK导出（仅开发版）
 
-开发build release-0.2.1.1-20261109；schema76/model2/rule4。用户允许性能不足时丢收益：在线一个候选+0.1现实秒等待，100ms恢复软预算，2秒候选期限，失败同输入抑制；保留完整FIFO事务，超过期限可能零收益。pendingDiscard有序推进负面挑战时钟；快速/寿/E2E3衰减包含舍弃，大罗/正向增长不白送。75/model2/rule3迁移保持债务，新76拒model1及非rule4。旧档原件不覆盖，新档不支持退回旧程序。
+开发build release-0.2.1.2-20261110；schema76/model2/rule4。用户允许性能不足时丢收益：在线一个候选+0.1现实秒等待，100ms恢复软预算，2秒候选期限，失败同输入抑制；保留完整FIFO事务，超过期限可能零收益。pendingDiscard有序推进负面挑战时钟；快速/寿/E2E3衰减包含舍弃，大罗/正向增长不白送。75/model2/rule3迁移保持债务，新76拒model1及非rule4。旧档原件不覆盖，新档不支持退回旧程序。
 
 APK工程新增独立SAF保存+分享+完整文本；Java编译及mock-native浏览器通过，无鸿蒙真机验收，未打包发布。定向114项113通过/1HEAD同样失败；7真实档严格往返、两原债务超时安全归零；原生在线100步严格一致、e/ee模拟完整提交、eee6公式失败安全回滚；四浏览器脚本通过。详情与失败边界：../WIS-项目资源/bounded-settlement-implementation-20261108/REPORT.md（js目录文档使用../../）。未修改发布版/commit/push。
 
@@ -32,12 +53,12 @@ APK工程新增独立SAF保存+分享+完整文本；Java编译及mock-native浏
 
 ## 2026-11-08 发布 0.2.0.4
 
-用户本轮授权同步开发、网页发布版及APK并上传Git。当前开发build为release-0.2.1.1-20261109，网页release-0.2.0.4-20261108，APK目标release-0.2.0.4-apk-20261108，Android versionName0.2.0.4/versionCode20008。schema75/model2/rule3不变，正式版本关闭调试。
+用户本轮授权同步开发、网页发布版及APK并上传Git。当前开发build为release-0.2.1.2-20261110，网页release-0.2.0.4-20261108，APK目标release-0.2.0.4-apk-20261108，Android versionName0.2.0.4/versionCode20008。schema75/model2/rule3不变，正式版本关闭调试。
 
 纳入吐纳/探寻候选一次性提交及在线私有候选Worker；保留原数值、RNG、0.1秒cadence、取消与债务保存，不启用自动丢时间。必要Node回归116项114通过/2外部原件缺失跳过；最终发布资源四尺寸、旧档往返、真实Worker100步全状态、file启动/吐纳/取消/保存重载通过。没有全量、手机性能/发热降频或真机覆盖安装验收，不能宣称积压根治。构建与发布进度见本次报告，旧章节的未发布结论为历史记录。
 
 
-保留上轮 release-0.2.1.1-20261109；本轮无生产玩法/数值修改，发布版/APK/commit/push未动。吐纳低库存修复仍在；高库存长任务、截图容量报错和手机在线积压不能称已解决。
+保留上轮 release-0.2.1.2-20261110；本轮无生产玩法/数值修改，发布版/APK/commit/push未动。吐纳低库存修复仍在；高库存长任务、截图容量报错和手机在线积压不能称已解决。
 
 本轮新增 tests/helpers/online-throughput-metrics.cjs 与 tests/online-throughput-metrics.test.cjs：5/30/60秒实际提交窗口、饱和能力与恢复、顶层host、登记/提交/债务守恒、生命周期与独立容量身份；缺证据只诊断，清债/停钟不得假通过。正常批次采钟通过 registeredThroughAt / clockEvidence 证明，账本容差固定1e-7秒。新26项加既有测量24项共50/50通过。
 
@@ -49,7 +70,7 @@ resourceMagnitudeAt输入保留及Sources.collect分阶段续算均已实现、�
 
 ## 2026-11-08 手动动作响应性：部分修复，在线积压仍未解决
 
-开发build release-0.2.1.1-20261109；版本0.2.0.3、schema75/model2/rule3，主93/Worker78不变，未发布/更新APK/commit/push。
+开发build release-0.2.1.2-20261110；版本0.2.0.3、schema75/model2/rule3，主93/Worker78不变，未发布/更新APK/commit/push。
 
 低于Googol法力库存的吐纳/探寻采用私有分段检查点、完整数学分片、段内冻结Effects以及一次性后处理提交。段入库和探寻付款后失效Effects；每宿主完整逐字段守卫保留原账本/设置排除，陌生形状回退序列化；提交独立COW、失败回滚。高值统一包装曾严重退化，已撤回，保留原积分路径，仍有同步前置长任务；容量报错未复现。
 
@@ -59,7 +80,7 @@ resourceMagnitudeAt输入保留及Sources.collect分阶段续算均已实现、�
 
 ## 2026-11-07 发布同步：0.2.0.3
 
-用户授权同步开发、网页发布版和APK并上传Git。开发build release-0.2.1.1-20261109；网页release-0.2.0.3-20261107；APK release-0.2.0.3-apk-20261107，versionName0.2.0.3/versionCode20007，沿用旧证书且Android/WebView/游戏调试关闭。Schema75/model2/rule3不变。
+用户授权同步开发、网页发布版和APK并上传Git。开发build release-0.2.1.2-20261110；网页release-0.2.0.3-20261107；APK release-0.2.0.3-apk-20261107，versionName0.2.0.3/versionCode20007，沿用旧证书且Android/WebView/游戏调试关闭。Schema75/model2/rule3不变。
 
 同步此前闭式G极小视图加载、新建状态规范化、探索进度联合类型稀疏保存修复；未另改数值、RNG、clock/debt或旧档弃债规则。必要回归85项83通过/0失败/2缺失原件skip，包含新旧记录矩阵、真实7档与3组Worker、真实浏览器保存导航读回；网页四尺寸/严格往返/file启动通过。未做全量、性能、APK真机覆盖安装；历史未验证项不计通过。完整产物、SHA、Git与在线核验结果见WIS-项目资源/release-0203-20261107/REPORT.md。
 
@@ -67,7 +88,7 @@ resourceMagnitudeAt输入保留及Sources.collect分阶段续算均已实现、�
 
 ## 2026-11-07 当前开发基线：存档表示与真实恢复提交闭环
 
-开发build release-0.2.1.1-20261109；可见0.2.0.2，Save75/model2/rule3不变，主93/Worker78。发布版/APK未同步，未commit/push。保留上一轮闭式G极小视图修复。
+开发build release-0.2.1.2-20261110；可见0.2.0.2，Save75/model2/rule3不变，主93/Worker78。发布版/APK未同步，未commit/push。保留上一轮闭式G极小视图修复。
 
 State.fresh在当前Amount模型作用域完成正式领域默认/宝物/探寻规范化，避免新游戏首次存读才改变表示；旧schema作用域保持原规则。Save稀疏化保留explorationRewards完整联合类型，避免删掉version后把v2 natural对象误判为旧数组。未改公式、RNG或债务规则。
 
@@ -81,7 +102,7 @@ State.fresh在当前Amount模型作用域完成正式领域默认/宝物/探寻�
 
 ## 2026-11-07 当前开发基线：闭式G极小进度加载修复
 
-开发build为release-0.2.1.1-20261109，可见版本0.2.0.2，Save75/model2/rule3不变，主93/Worker78。发布版/APK仍是此前0.2.0.2，未同步本修复，未commit/push。
+开发build为release-0.2.1.2-20261110，可见版本0.2.0.2，Save75/model2/rule3不变，主93/Worker78。发布版/APK仍是此前0.2.0.2，未同步本修复，未commit/push。
 
 BigNumbers.normalize对已读取的gBatch保留序列化superProgress及原有superResidual，沿用gBudget的严格视图校验方式；不再经旧writeGProgress重投影而制造尾项。真正混入尾项、负视图仍拒绝；没有gBatch/gBudget的旧路径仍保留精确尾项。不改结算公式、RNG、时间或存档格式。
 
@@ -93,7 +114,7 @@ BigNumbers.normalize对已读取的gBatch保留序列化superProgress及原有su
 
 ## 2026-11-07 发布同步：0.2.0.2
 
-用户授权同步开发、网页发布版与APK并上传Git。开发build release-0.2.1.1-20261109；网页release-0.2.0.2-20261107；APK release-0.2.0.2-apk-20261107，versionCode20006，沿用旧签名，release关闭Android/WebView与游戏调试。Schema75/model2/rule3不变。
+用户授权同步开发、网页发布版与APK并上传Git。开发build release-0.2.1.2-20261110；网页release-0.2.0.2-20261107；APK release-0.2.0.2-apk-20261107，versionCode20006，沿用旧签名，release关闭Android/WebView与游戏调试。Schema75/model2/rule3不变。
 
 同步当前全部正式修复：D12超超分形、圆环累计游玩时间、锻炼首次预览可操作性、一次方中点、统计/重置/候选保存一致性、旧格式加载弃债、超容量公式Decimal处理。详细合同见下节。性能仍待实际设备验证；本轮只做发版必要检查，不宣称全量回归或历史85项失败已解决。验证与产物见WIS-项目资源/release-0202-20261107/REPORT.md。
 
@@ -101,7 +122,7 @@ BigNumbers.normalize对已读取的gBatch保留序列化superProgress及原有su
 
 ## 2026-11-07 旧档弃债与超容量公式精度规则（用户授权）
 
-当前开发 build：release-0.2.1.1-20261109；可见版本0.2.0.1，Schema75/model2/rule3，主93/Worker78。发布版/APK未同步，未commit/push。保留此前未提交修复。
+当前开发 build：release-0.2.1.2-20261110；可见版本0.2.0.1，Schema75/model2/rule3，主93/Worker78。发布版/APK未同步，未commit/push。保留此前未提交修复。
 
 旧档定义为schema<75或numericModelVersion=1。完整Save.prepare/prepareWork成功迁移、校验后，丢弃旧offlineRecovery、pendingContinuousTime和onlineCadenceRemaining，清除awaySince，将lastUpdateAt/boundaryAt/registeredUntil设为一次固定的加载时刻；旧债务及导出至加载期间的离线收益不再补算。已结算资源、累计游玩时间、RNG、补偿余额不因弃债而扣减。当前model2/rule3档仍保留并恢复债务；未知模型仍拒绝。低层migrateRecovery继续保护旧规则任务；调用方必须使用prepared.offlineRecovery，不能用原文件队列回填null。
 
@@ -117,7 +138,7 @@ AmountFormulas仅在明确标记的tower logarithm认证坐标容量拒绝时，
 
 ## 2026-11-07 稳定性回归与跨模块一致性修复
 
-当前开发 build 为 release-0.2.1.1-20261109，93主脚本/78 Worker；可见版本0.2.0.1，Save75/model2/rule3不变。保留此前D12、圆环计时、首次锻炼及一次方中点修复；发布版/APK未同步，未commit/push。
+当前开发 build 为 release-0.2.1.2-20261110，93主脚本/78 Worker；可见版本0.2.0.1，Save75/model2/rule3不变。保留此前D12、圆环计时、首次锻炼及一次方中点修复；发布版/APK未同步，未commit/push。
 
 本轮修复三项：State运行时累计统计采用与加载相同的lifetime/currentRebirth总量≥峰值规则，空统计尾项删除键；Reset提交前执行现有ExplorationProgress.validate，避免重置后存档重读才升级旧结构；ClosedTreasures.publish复制可变Decimal，避免准备缓存向两个状态发布同一对象。统计修复不把totalPower抬到highestPower，不修改资源余额或RNG；它让统计在运行时就符合原有加载下限，并非补发资源。
 
@@ -131,7 +152,7 @@ AmountFormulas仅在明确标记的tower logarithm认证坐标容量拒绝时，
 
 ## 2026-11-07 实际存档一次方认证中点修复
 
-开发build release-0.2.1.1-20261109，保留圆环/预览修复和D12。AmountFormulas的power/powerRatio在指数精确为1、除数精确为1时直接投影完整Amount（仍包含尾项），避免恒等运算经ln/exp形成永远跨越浮点中点的区间。除零先检查；其它幂认证不变，无精度门槛放宽。
+开发build release-0.2.1.2-20261110，保留圆环/预览修复和D12。AmountFormulas的power/powerRatio在指数精确为1、除数精确为1时直接投影完整Amount（仍包含尾项），避免恒等运算经ln/exp形成永远跨越浮点中点的区间。除零先检查；其它幂认证不变，无精度门槛放宽。
 
 实际存档WIS-original-save-1794026411791.json（SHA e766f37c…）能加载，但万妖幡倍率1+0.003n=2294898760382616.25的一次方报amount-formula-unresolved。新增中点及两侧定向测试RED→GREEN，公式与修真回归55/55。内存副本正式恢复8.331秒队列清空，随后100个在线逻辑步均处理0.1秒，无新错误。原档SHA不变。该存档为修仙体系，不能据此认定武道战神图录/神国的未复现报错已修复。
 
@@ -140,7 +161,7 @@ Save75/model2/rule3、RNG/clock/debt合同不变，不清空债务、不改原�
 以下为历史记录。
 ## 2026-11-07 开发版修复：圆环累计时间与锻炼首次预览
 
-开发 build `release-0.2.1.1-20261109`，可见版本仍为 0.2.0.1；保留上一轮 D12。圆环之理专用 fresh 分支现在显式保留 totalElapsedSeconds；当前转生计时及其它重置范围保持原规则。已被旧版本清除的时间不能从当前存档推算恢复。
+开发 build `release-0.2.1.2-20261110`，可见版本仍为 0.2.0.1；保留上一轮 D12。圆环之理专用 fresh 分支现在显式保留 totalElapsedSeconds；当前转生计时及其它重置范围保持原规则。已被旧版本清除的时间不能从当前存档推算恢复。
 
 自动首次来源预览仍在积压时避让；锻炼无缓存时，完整 J 达到原 10J 门槛即可点击“计算并锻炼”，走已有可续算正式动作，在证明最终收益后才扣款。已知不足1的预览仍禁用；未完成预览不再成为显式动作的死锁条件。正式收益不使用展示缓存。
 
@@ -151,7 +172,7 @@ Save75/model2/rule3、RNG/clock/debt合同不变，不清空债务、不改原�
 以下为历史记录。
 ## 2026-11-07 开发版D12：超超分形已接入
 
-可见版本0.2.0.1；开发build release-0.2.1.1-20261109。D12费用500无限点，前置D11-1/2/3；G额外速度倍率为1+Σc_i·log10(1+x_i)，x_i=Y、Y↑Y、Y↑↑Y、Y↑↑↑Y，c=[0.0001,0.001,0.01,0.1]。四箭头原加成/时间积分不变。通过Infinity.gSpeedMultiplier同源接入正式在线、冻结离线与UI；完整Amount读取用稳定公式，未持有时直接返回1。在线取每步起点库存；离线整个来源锁定起点。费用、里程碑和G/TREE上限、RNG、0.1秒、clock/debt及Save75/2/3不变，无新存档字段。
+可见版本0.2.0.1；开发build release-0.2.1.2-20261110。D12费用500无限点，前置D11-1/2/3；G额外速度倍率为1+Σc_i·log10(1+x_i)，x_i=Y、Y↑Y、Y↑↑Y、Y↑↑↑Y，c=[0.0001,0.001,0.01,0.1]。四箭头原加成/时间积分不变。通过Infinity.gSpeedMultiplier同源接入正式在线、冻结离线与UI；完整Amount读取用稳定公式，未持有时直接返回1。在线取每步起点库存；离线整个来源锁定起点。费用、里程碑和G/TREE上限、RNG、0.1秒、clock/debt及Save75/2/3不变，无新存档字段。
 
 历史“D12未实施/待比例”记录已被本节取代。节点与付款走现有purchaseLedger/重置退款。两份成熟存档倍率约1.736和1.838；最新G=0存档不提前开G。必要验证64/64，DOM320/390/1280通过；三档未持有D12时前后各10个大数域步骤完整状态SHA一致（非全engine性能门禁）。测试：tests/infinity-d12.test.cjs、tests/infinity-d12-browser.test.cjs。报告 ../../WIS-项目资源/infinity-d12-20261107/REPORT.md。
 
@@ -161,7 +182,7 @@ Save75/model2/rule3、RNG/clock/debt合同不变，不清空债务、不改原�
 
 ## 2026-11-07 发布同步：0.2.0.1
 
-用户授权开发版、网页发布版与 APK 同步并上传 Git。开发 build release-0.2.1.1-20261109；网页 release-0.2.0.1-20261107；APK release-0.2.0.1-apk-20261107，versionCode 20005（高于已发布 20004），沿用旧测试签名，release 构建关闭 Android/WebView 与游戏调试。
+用户授权开发版、网页发布版与 APK 同步并上传 Git。开发 build release-0.2.1.2-20261110；网页 release-0.2.0.1-20261107；APK release-0.2.0.1-apk-20261107，versionCode 20005（高于已发布 20004），沿用旧测试签名，release 构建关闭 Android/WebView 与游戏调试。
 
 本次只升级显示版本与发布装配，Schema75 / numericModel2 / settlementRule3 不变，包含此前积压阻塞修复与预览异步化。既有严格 Save 往返差异仍未修复，历史失败不计为通过。本轮执行版本、发布转换、原生分支和下载入口验证，不重跑全量数值或性能准入，不宣称手机性能已达标。完整记录见 ../../WIS-项目资源/release-0201-20261107/REPORT.md。
 
@@ -169,7 +190,7 @@ Save75/model2/rule3、RNG/clock/debt合同不变，不清空债务、不改原�
 
 ## 2026-11-07 开发基线：实际存档两处结算阻塞修复
 
-Build release-0.2.1.1-20261109，仍为可见0.2.0.0、Schema75 / numericModel2 / settlementRule3，主93脚本 / Worker78。只修BUG，不调整数值合同或调度预算。
+Build release-0.2.1.2-20261110，仍为可见0.2.0.0、Schema75 / numericModel2 / settlementRule3，主93脚本 / Worker78。只修BUG，不调整数值合同或调度预算。
 
 - AmountProducts将普通2049–8192位十进制系数按10^2048精确拆行；单行2048位、产品页及总行数限制不扩大，超限仍拒绝，不投影、不截断。完整容量差异清单见CAPACITY-AUDIT.md。
 - State.createDraft用私有弱所有权表在提交时解析跨草稿代理，包含未改写的浅拷贝分支；嵌套结果安装到仍活跃草稿的根字段时重新包入COW，避免后续写入绕过事务。完整quantityInputCheck保持不变。测试覆盖层WeakSet逐提交扫描代理，不进入生产。
@@ -182,7 +203,7 @@ Build release-0.2.1.1-20261109，仍为可见0.2.0.0、Schema75 / numericModel2 
 
 ## 2026-11-06 开发基线：通用来源预览后台续算
 
-Build release-0.2.1.1-20261109。app.writeSourcePreview 全部来源（含training和修真来源）统一 scheduleSourcePreview；渲染只读缓存/占位，真实paint后创建私有snapshot+FrozenScope+CertifiedRankMath work，3ms软预算和真实timer让出。状态/结构/页面/导入/长按失效完整；保留1s/5s刷新、16/100ms续算、首次积压避让、显式动作同步Preview与锻炼10J边界。SourcePreview.writeRecords仅写已完成records；同步query/write继续供正式显式调用使用，缓存不参与结算。
+Build release-0.2.1.2-20261110。app.writeSourcePreview 全部来源（含training和修真来源）统一 scheduleSourcePreview；渲染只读缓存/占位，真实paint后创建私有snapshot+FrozenScope+CertifiedRankMath work，3ms软预算和真实timer让出。状态/结构/页面/导入/长按失效完整；保留1s/5s刷新、16/100ms续算、首次积压避让、显式动作同步Preview与锻炼10J边界。SourcePreview.writeRecords仅写已完成records；同步query/write继续供正式显式调用使用，缓存不参与结算。
 
 数值、RNG、事务、clock/debt、Save（75/2/3）不改，发布版/APK不动。页面性能不宣称准入：本轮180游戏秒S2–S5先A/A再A/B，环境不合格与相对指标失败均如实记录。必要回归与7项已在before复现的旧失败见 ../../WIS-项目资源/preview-async-20261106/REPORT.md。其它渲染同步计算仅盘点，不继续优化。P2/H只读诊断已停止，未接入生产；P3拆解见 ../../WIS-项目资源/r-main-read-20261106/REPORT.md。
 
@@ -190,7 +211,7 @@ Build release-0.2.1.1-20261109。app.writeSourcePreview 全部来源（含traini
 
 ## 2026-11-06 当前开发基线：在线宿主预算与首次预览避让
 
-开发build release-0.2.1.1-20261109。Loop同一宿主任务对同一在线候选只advance一次，deadline为宿主开始+12ms；未完成交下一宿主任务。完整跨宿主输入守卫与原子提交不变。独立deferred action的3ms保留（一次调用后返回宿主）。首次缺失的自动预览在pending≥0.15秒时留占位，积压退出后刷新；显式操作、真实paint机会、长按和已完成锻炼预览10J资格跨界优先更新保留。
+开发build release-0.2.1.2-20261110。Loop同一宿主任务对同一在线候选只advance一次，deadline为宿主开始+12ms；未完成交下一宿主任务。完整跨宿主输入守卫与原子提交不变。独立deferred action的3ms保留（一次调用后返回宿主）。首次缺失的自动预览在pending≥0.15秒时留占位，积压退出后刷新；显式操作、真实paint机会、长按和已完成锻炼预览10J资格跨界优先更新保留。
 
 同输入600步逐步完整SHA一致（含RNG/clock/debt）；advance5276→1388、来源查询3116→867。最终必要回归82/83，唯一失败为已在before复现的旧pending迁移保护；另8项早期旧基线失败单列，无已确认新增回归。数值、Save、RNG、事务及发布版不变。**性能未准入**：HTTP390环境不合格且host/longtask门槛失败；正式CPU4 A/A波动8.84%，B/ABBA未执行。不能把调用次数减少当作稳定耗时收益。
 
@@ -200,7 +221,7 @@ Build release-0.2.1.1-20261109。app.writeSourcePreview 全部来源（含traini
 
 ## 2026-11-06 开发版：锻炼10J门槛按钮刷新
 
-开发build release-0.2.1.1-20261109。锻炼按钮此前读取1秒（积压时5秒）的收益预览缓存；完整余额跨过10J时仍可能沿用旧的零收益并禁用。现在每次行动页渲染以正式Resources.canAfford读取完整J余额，跨界时只取消该锻炼预览、清除其冷却并优先可续算刷新；不在每次渲染重算全部收益，不改普通自动预览节流。低于10J立即禁用，达到10J后仍需正式最终收益≥1，挑战等限制继续有效。
+开发build release-0.2.1.2-20261110。锻炼按钮此前读取1秒（积压时5秒）的收益预览缓存；完整余额跨过10J时仍可能沿用旧的零收益并禁用。现在每次行动页渲染以正式Resources.canAfford读取完整J余额，跨界时只取消该锻炼预览、清除其冷却并优先可续算刷新；不在每次渲染重算全部收益，不改普通自动预览节流。低于10J立即禁用，达到10J后仍需正式最终收益≥1，挑战等限制继续有效。
 
 数值、RNG、clock/debt、Save及事务不改。开发版已验证，网页发布版仍为app-download-r3，既有APK20004不重包、不修改公开附件。本轮未同步发布目录、未commit/push。报告 ../WIS-项目资源/training-availability-20261106/REPORT.md。
 
@@ -208,7 +229,7 @@ Build release-0.2.1.1-20261109。app.writeSourcePreview 全部来源（含traini
 
 ## 2026-11-06 下载弹窗裁切修复 r3
 
-开发release-0.2.1.1-20261109；网页release-0.2.0.0-20261106-app-download-r3。下载按钮移到弹窗最上方。按用户截图删除网页下载弹窗中的版本/大小/平台说明、更新说明、安装步骤与国产手机提示；保留存档迁移提示、导出、下载/镜像、桌面QR及SHA。原生“发现新版本”仍保留其更新信息，旧APK不重包。
+开发release-0.2.1.2-20261110；网页release-0.2.0.0-20261106-app-download-r3。下载按钮移到弹窗最上方。按用户截图删除网页下载弹窗中的版本/大小/平台说明、更新说明、安装步骤与国产手机提示；保留存档迁移提示、导出、下载/镜像、桌面QR及SHA。原生“发现新版本”仍保留其更新信息，旧APK不重包。
 
 根因：外层settings-dialog overflow:hidden，新增body没有内部滚动，内容被裁切。body现采用min-height:0和overflow-y:auto；测试验证首屏按钮在弹窗可视范围内且命中点击、底部SHA可滚动到达。清单本身不改，网页发布版保持调试关闭；数值/Save/RNG/clock/debt不变。报告 ../WIS-项目资源/app-download-dialog-fix-20261106/REPORT.md。本轮不commit/push，线上仍需用户部署。
 
@@ -216,7 +237,7 @@ Build release-0.2.1.1-20261109。app.writeSourcePreview 全部来源（含traini
 
 ## 2026-11-06 下载入口移至版本号旁，并同步网页发布版
 
-经用户授权，开发build release-0.2.1.1-20261109，网页build release-0.2.0.0-20261106-app-download-r2。顶栏版本号右侧显示“下载安卓 App”，设置页不再重复放入口；版本号与入口共同换行，窄屏保持相邻。原生/file/无有效清单仍隐藏，下载说明、UA策略和存档导出合同不变。
+经用户授权，开发build release-0.2.1.2-20261110，网页build release-0.2.0.0-20261106-app-download-r2。顶栏版本号右侧显示“下载安卓 App”，设置页不再重复放入口；版本号与入口共同换行，窄屏保持相邻。原生/file/无有效清单仍隐藏，下载说明、UA策略和存档导出合同不变。
 
 网页同步移除调速、公式调试与UI测试入口；保留运营维护的latest.json原字节。线上清单已于本次检查返回200，但线上网页仍为旧g-reward-r1，需用户提交推送后由帽子云部署。本轮不提交推送、不重包APK；APK20004保持不变。数值、Save、RNG、clock/debt不改。验证见 ../WIS-项目资源/app-download-release-20261106/REPORT.md。
 
@@ -224,7 +245,7 @@ Build release-0.2.1.1-20261109。app.writeSourcePreview 全部来源（含traini
 
 ## 2026-11-06 当前开发基线：安卓下载入口与更新提示
 
-开发 build release-0.2.1.1-20261109；可见0.2.0.0；93主脚本 / 78Worker。schema75 / numericModel2 / settlementRule3不变。发布网页与APK仍为g-reward-r1 / versionCode20004，本轮没有同步它们；发布目录只新增运营维护的latest.json，原100文件保持不变。
+开发 build release-0.2.1.2-20261110；可见0.2.0.0；93主脚本 / 78Worker。schema75 / numericModel2 / settlementRule3不变。发布网页与APK仍为g-reward-r1 / versionCode20004，本轮没有同步它们；发布目录只新增运营维护的latest.json，原100文件保持不变。
 
 - UI.AppDistribution 在设置页提供“下载安卓 App”；同源 ./latest.json 使用no-store读取，404/格式错误/网络失败隐藏入口。Android浏览器提供下载；微信/QQ/WebView提示用外部浏览器；iOS提示暂不支持；桌面提供链接及本地二维码。原生及file页面不显示网页入口。
 - 下载说明使用textContent显示远程元数据、HTTPS下载链接、大小/版本/说明/SHA256、安装图文及存档迁移提示；导出调用现有exportSave。二维码为MIT qrcode-generator 1.4.4，仅UI装配，Worker不加载。许可证与来源随vendor保留。
@@ -236,7 +257,7 @@ Build release-0.2.1.1-20261109。app.writeSourcePreview 全部来源（含traini
 
 ## 2026-11-06 当前基线：真葛立恒需求下限修正
 
-开发 build release-0.2.1.1-20261109；网页 release-0.2.0.0-20261106-g-reward-r1；APK release-0.2.0.0-apk-20261106-g-reward-r1 / versionCode20004。可见0.2.0.0，schema75 / numericModel2 / settlementRule3保持。
+开发 build release-0.2.1.2-20261110；网页 release-0.2.0.0-20261106-g-reward-r1；APK release-0.2.0.0-apk-20261106-g-reward-r1 / versionCode20004。可见0.2.0.0，schema75 / numericModel2 / settlementRule3保持。
 
 - 用户授权新规则：D6减免、D4除法之后的每阶G进度需求大于1才取^0.95；小于或等于1不变；里程碑倍率的base计价换算在其后。成就描述同步。
 - 正式闭式累计费用按需求1的边界分段，覆盖D6低阶段的下降区间、64后的上升区间及真葛立恒挑战；高阶各段仍复用归一化Newton曲线。在线/冻结离线共用适配器，不修改其它奖励与TREE规则。
@@ -248,7 +269,7 @@ Build release-0.2.1.1-20261109。app.writeSourcePreview 全部来源（含traini
 
 ## 2026-11-06 网页与 APK 发布资源同步
 
-用户明确授权同步发布版。开发真源仍为 release-0.2.1.1-20261109；网页构建 release-0.2.0.0-20261106-shroud-r2，APK资源构建 release-0.2.0.0-apk-20261106-shroud-r2，versionCode20003。发布资源移除调速、公式调试、UI测试入口，速度固定×1；Android采用release变体、debuggable=false、WebView调试显式关闭。经用户确认沿用原测试签名，支持旧包覆盖升级；不代表已配置正式长期发布密钥。未上架或公开部署。
+用户明确授权同步发布版。开发真源仍为 release-0.2.1.2-20261110；网页构建 release-0.2.0.0-20261106-shroud-r2，APK资源构建 release-0.2.0.0-apk-20261106-shroud-r2，versionCode20003。发布资源移除调速、公式调试、UI测试入口，速度固定×1；Android采用release变体、debuggable=false、WebView调试显式关闭。经用户确认沿用原测试签名，支持旧包覆盖升级；不代表已配置正式长期发布密钥。未上架或公开部署。
 
 本轮新增内容和数值合同保持；详情及验证见 ../WIS-项目资源/release-shroud-20261106/REPORT.md。
 
@@ -256,7 +277,7 @@ G/TREE 阶位共用 UI.Format.rank：小于1000显示整数，达到1000改用�
 
 ## 2026-11-06 当前开发基线：秘境流化龙与仙台
 
-Build `release-0.2.1.1-20261109`，可见版本 0.2.0.0；schema75 / numericModel2 / settlementRule3；91 主脚本 / 78 Worker。只更新开发版，未同步发布版，也未重新打包 APK。
+Build `release-0.2.1.2-20261110`，可见版本 0.2.0.0；schema75 / numericModel2 / settlementRule3；91 主脚本 / 78 Worker。只更新开发版，未同步发布版，也未重新打包 APK。
 
 - 四极成就开放帝经、圣体、神王体、源石四种烙印，按实际正向战力/体/体/J 入账独立累计；沿用正式闭式批量、宝物 award、挑战保留和无限重置规则。替换余额、扣款、读档、预览不计进度。帝经只乘武道体与招式战力来源；源石只乘武道气的 J 来源；圣体/神王体进入体/气获取倍率。
 - 化龙九变 9 级：体门槛 2e6、神魂价格 2e5，每级均翻倍；打岩倍率 5^L。化龙成就开放同名挑战，挑战仅秘境流能力有效/可购，基础转换保留；当前解锁 Lv1 完成。奖励令倍率提升至 1+0.03log10(1+体) 次方，不自动解锁打岩。
@@ -269,13 +290,13 @@ Build `release-0.2.1.1-20261109`，可见版本 0.2.0.0；schema75 / numericMode
 
 ## 2026-11-06 APK 开关显示修复 r2
 
-当前build release-0.2.1.1-20261109，可见0.2.0.0，APK versionCode20002。settings-toggle开启样式优先级高于通用secondary-button:hover，并使用中央主题前景色；修复点击后白字浅底。删除用户指定的“每次新增时间戳文件……”说明段落。备份调度、权限、存档和数值合同不变。8组触屏/鼠标、深浅主题测试及原备份UI回归通过；发布版不变。报告 ../WIS-项目资源/apk-toggle-fix-20261106/REPORT.md。
+当前build release-0.2.1.2-20261110，可见0.2.0.0，APK versionCode20002。settings-toggle开启样式优先级高于通用secondary-button:hover，并使用中央主题前景色；修复点击后白字浅底。删除用户指定的“每次新增时间戳文件……”说明段落。备份调度、权限、存档和数值合同不变。8组触屏/鼠标、深浅主题测试及原备份UI回归通过；发布版不变。报告 ../WIS-项目资源/apk-toggle-fix-20261106/REPORT.md。
 
 以下为历史记录。
 
 ## 2026-11-06 当前开发基线：APK 本地自动备份
 
-build release-0.2.1.1-20261109；可见0.2.0.0；schema75/model2/rule3、91主脚本/78Worker不变。独立WIS-App versionCode20001，猫咪图标使用用户提供120×120原图确定性尺寸适配。
+build release-0.2.1.2-20261110；可见0.2.0.0；schema75/model2/rule3、91主脚本/78Worker不变。独立WIS-App versionCode20001，猫咪图标使用用户提供120×120原图确定性尺寸适配。
 
 - APK设置增加本地自动备份：玩家选择并授权目录后启用，间隔6/12/24小时，默认6小时；前台每30秒检查，启动/回前台同样检查，到期只补一份。没有后台常驻服务。
 - 自动和手动目录备份共用原导出capture/clone/Save.envelope文本；读档未就绪、临时保护、导入中、恢复锁定时推迟。数值、RNG、clock/debt不变，不强制新结算。
@@ -289,7 +310,7 @@ build release-0.2.1.1-20261109；可见0.2.0.0；schema75/model2/rule3、91主�
 
 ## 2026-11-05 当前开发基线：0.2.0.0 / Android 适配 r1
 
-build：`release-0.2.1.1-20261109`；可见版本 **0.2.0.0**；schema75 / numericModel2 / settlementRule3 不变；91 主线程脚本 / 78 Worker 脚本。保留 C7、武道扩展和闭式 r2 的全部合同；D12 未实施。
+build：`release-0.2.1.2-20261110`；可见版本 **0.2.0.0**；schema75 / numericModel2 / settlementRule3 不变；91 主线程脚本 / 78 Worker 脚本。保留 C7、武道扩展和闭式 r2 的全部合同；D12 未实施。
 
 - 新增 UI.NativePlatform（主线程）：仅 Capacitor.isNativePlatform() === true 时使用 App / Filesystem / Share；导出与网页共用同一 envelope 文本，Cache UTF-8 写入后分享，失败明确提示。保护模式原始存档导出及启动失败面板也保留原文。
 - Android 返回键优先关闭现有对话框（保留 cancel 合同）；无对话框时两次返回退出，退出前走 pagehide 同一保存路径。失败、未就绪、导入冻结或受保护会话拒绝退出；提示条不拦截第二次返回。
@@ -304,7 +325,7 @@ build：`release-0.2.1.1-20261109`；可见版本 **0.2.0.0**；schema75 / numer
 
 ## 2026-11-05 当前开发基线：无限强化 C7 r1
 
-build：`release-0.2.1.1-20261109`；schema75/model2/rule3、90主线程脚本/78 Worker脚本不变，保留上一轮全部武道扩展。
+build：`release-0.2.1.2-20261110`；schema75/model2/rule3、90主线程脚本/78 Worker脚本不变，保留上一轮全部武道扩展。
 
 - C7-1「体系重置」、C7-2「体系切换」均为C6后的同级强化，各500无限点，一次购买后重复操作不收费。在体系界面主动点击并确认执行，不是周期自动重置。
 - 重置清当前体系资源余额/尾项、境界、普通能力、自动化进度与开关；切换同时清离开体系与目标体系的残留进度。保留J/战力、PowerSystem、大数、共享meta（宝物/无限/高阶多元/成就/挑战奖励）、RNG/clock/debt及历史统计。历史资源total/spent/peak完整数量保留；仙道persistent永久重修/灵根与宝物派生资格不清。
@@ -319,7 +340,7 @@ build：`release-0.2.1.1-20261109`；schema75/model2/rule3、90主线程脚本/7
 
 ## 2026-11-05 当前开发基线：武道扩展 r1
 
-开发 build：`release-0.2.1.1-20261109`；可见版本 0.1.8.4；schema75 / numericModel2 / settlementRule3；主线程90脚本、Worker78脚本。沿用统计页修复与闭式批量 r2；页面性能仍待干净环境 A/A + ABBA 复测，本轮未作性能准入。
+开发 build：`release-0.2.1.2-20261110`；可见版本 0.1.8.4；schema75 / numericModel2 / settlementRule3；主线程90脚本、Worker78脚本。沿用统计页修复与闭式批量 r2；页面性能仍待干净环境 A/A + ABBA 复测，本轮未作性能准入。
 
 - 能力共49项：新增战神图录、神劲、识海星球（3级）、命核、体内世界、神国、彼岸、道宫、四极。既有能力数值不变。
 - 战神图录：长生诀/天魔策/慈航剑典前置，心≥1000，神魂费用5000，不占内功槽；正式累计/边际成本中目标资源自身全部衰减幂×0.5。支撑资源的投入坐标不改，UI与正式结算共用阈值。
@@ -336,7 +357,7 @@ build：`release-0.2.1.1-20261109`；schema75/model2/rule3、90主线程脚本/7
 
 ## 2026-11-05 统计页最高量级显示修复
 
-开发build更新为 `release-0.2.1.1-20261109`。闭式r2数值基线、schema75/model2/rule3不变，页面性能仍待干净环境复测。
+开发build更新为 `release-0.2.1.2-20261110`。闭式r2数值基线、schema75/model2/rule3不变，页面性能仍待干净环境复测。
 
 “最高量级”原先仅索引旧战力量级表，末项为宇宙结构。现在优先读取已有高阶多元阶位/历史记录及修真道历史最高境界，显示高阶多元、多元宇宙、单体宇宙；未达到时回退原量级。查询不依赖当前体系、封印或当期库存，转生后历史不回退；不新增存档字段，不写持久状态。
 
@@ -346,7 +367,7 @@ build：`release-0.2.1.1-20261109`；schema75/model2/rule3、90主线程脚本/7
 
 ## 2026-11-05 当前开发基线：闭式批量 r2，空尾项迁移修复已接入
 
-开发 build：`release-0.2.1.1-20261109`，可见版本0.1.8.4；schema75 / numericModel2 / settlementRule3；主线程90脚本、Worker78脚本。尾项策略 directed-tail-32-8-24-v1 不变。准入状态：**数值已验收、页面性能待干净环境ABBA复测**。以下历史“已回滚”条目只描述当时结果，本条为当前基线。
+开发 build：`release-0.2.1.2-20261110`，可见版本0.1.8.4；schema75 / numericModel2 / settlementRule3；主线程90脚本、Worker78脚本。尾项策略 directed-tail-32-8-24-v1 不变。准入状态：**数值已验收、页面性能待干净环境ABBA复测**。以下历史“已回滚”条目只描述当时结果，本条为当前基线。
 
 ### 当前数值与迁移合同
 
@@ -370,7 +391,7 @@ build：`release-0.2.1.1-20261109`；schema75/model2/rule3、90主线程脚本/7
 
 ## 2026-11-05 正式接入尝试未完成：迁移完整状态往返失败，已回滚
 
-当前仍为 `release-0.2.1.1-20261109`，schema75/model1/rule2、主84/Worker72。用户已授权闭式合同及跳过本轮页面ABBA前置条件，但本次model1→2首次迁移后保存重读会省略38个空宝物尾项键（19个stock、19个progress），未满足完整状态一致要求，因此按失败规则回滚；其余字段值一致。闭式版不能标记为已正式接入。
+当前仍为 `release-0.2.1.2-20261110`，schema75/model1/rule2、主84/Worker72。用户已授权闭式合同及跳过本轮页面ABBA前置条件，但本次model1→2首次迁移后保存重读会省略38个空宝物尾项键（19个stock、19个progress），未满足完整状态一致要求，因此按失败规则回滚；其余字段值一致。闭式版不能标记为已正式接入。
 
 本轮59/59定向、55文件242项228通过/14已知失败、新失败0。新600秒轨迹在迁移失败后中止（E2120步、O3840步），实际旧pending recovery专项保护验证未执行完；不得把上一轮完整轨迹结果冒充本轮完成。页面性能、CPU4、全量测试均未运行。报告与差异：../WIS-项目资源/closed-form-adoption-20261105/REPORT.md、MIGRATION-DIFF.json。
 
@@ -387,7 +408,7 @@ build：`release-0.2.1.1-20261109`；schema75/model2/rule3、90主线程脚本/7
 
 ## 2026-11-05 闭式重新接入：数值通过，环境/A/A未通过，已恢复基线
 
-当前业务仍为 `release-0.2.1.1-20261109`，schema75/model1/rule2，主84/Worker72。闭式修复试验版已归档，未成为当前生产路径。报告：../WIS-项目资源/closed-form-reentry-20261105/REPORT.md。
+当前业务仍为 `release-0.2.1.2-20261110`，schema75/model1/rule2，主84/Worker72。闭式修复试验版已归档，未成为当前生产路径。报告：../WIS-项目资源/closed-form-reentry-20261105/REPORT.md。
 
 试验修复共尺度G局部校正与费用间可续算准备；84个页面G输入3–5次费用评估、无二分；59/59定向，55文件242项228通过/14已知失败、新失败0；E/O各600秒按本轮授权口径通过。宝物采用累计发放相对差或时差的OR判据，不代表所有宝物时差均≤1秒。
 
@@ -413,7 +434,7 @@ build：`release-0.2.1.1-20261109`；schema75/model2/rule3、90主线程脚本/7
 
 ## 2026-11-03 canonicalRows私有品牌，性能目标仍未达到
 
-开发build `release-0.2.1.1-20261109`，84/72；schema75/model1/rule2/尾项及G/TREE合同保持。本轮只将amount-products.canonicalRows身份WeakSet替换为不可反射复制的语言私有品牌，canonical/negateRow在freeze前标记plain object。原型、own keys、序列化/防伪不变；negativeRows及其它缓存、owner memo未动。
+开发build `release-0.2.1.2-20261110`，84/72；schema75/model1/rule2/尾项及G/TREE合同保持。本轮只将amount-products.canonicalRows身份WeakSet替换为不可反射复制的语言私有品牌，canonical/negateRow在freeze前标记plain object。原型、own keys、序列化/防伪不变；negativeRows及其它缓存、owner memo未动。
 
 新增amount-row-brand测试及相关8文件93/93，engine原玩家8步每步完整状态SHA一致。C1单次HTTP390600及C2相同诊断：第299/301步堆快照；canonicalRows原13755/13805条为首位，C2该表消失。区间外MajorGC max/p95 186.947→112.598ms，次数7→11，累计843.5→825.559ms；分配采样估计未下降，快照会扰动GC，不能证明稳定收益/逐表因果。
 
@@ -421,7 +442,7 @@ build：`release-0.2.1.1-20261109`；schema75/model2/rule3、90主线程脚本/7
 
 ## 2026-11-03 积压预览节流，性能门禁仍未通过
 
-开发build `release-0.2.1.1-20261109`，84/72装配；schema75/model1/rule2/尾项和既有G/TREE近似合同保持。app.js只读pendingContinuousTime.clock合计，>=0.15s时自动dirty重试1s→5s、在途自动预览16ms→100ms、自动发布走常规render。首次/显式/程序性刷新保留原调度，hold保持；退出节流区间触发一次最终刷新。仅UI闭包状态，未写正式state/RNG/clock/debt。
+开发build `release-0.2.1.2-20261110`，84/72装配；schema75/model1/rule2/尾项和既有G/TREE近似合同保持。app.js只读pendingContinuousTime.clock合计，>=0.15s时自动dirty重试1s→5s、在途自动预览16ms→100ms、自动发布走常规render。首次/显式/程序性刷新保留原调度，hold保持；退出节流区间触发一次最终刷新。仅UI闭包状态，未写正式state/RNG/clock/debt。
 
 B1唯一HTTP390/600诊断复现64.3/98.1ms长切片，与主线程GC重叠57.995/91.068ms；第三段16.9ms含宝物入账观察区间。trace不是准入，也未证明分配来源。B2无trace正式40/HTTP320600/HTTP390600均值96.205/70.676/79.484ms，p99 7.7/8.7/9.3ms，max60.6/171/74ms，pending0.139/0.071/0.203s；三组均未完整通过。HTTP1280/file430/CPU4按前置门禁未执行，不计通过；尚未证明稳定提速。
 
@@ -469,19 +490,19 @@ Immortal.buildEffects使用逐描述符阶段，保留动态value函数和原顺
 
 ## 2026-11-02 当前六方向工作复用边界
 
-当前release-0.2.1.1-20261109。来源冻结scope保留group输出和逐字段准备；RankBudget会话费用memo只从已接纳记录继承到费用规则不变的funding/cursor副本，关闭清理。有限奖励task只缓存纯准备，投影保存不可变组件，每次独立构造Decimal。显式TREE逐字段保留私有工作进度，超构造/冻结TREE仍走原回滚；未降低Step原地修改检测。规范行取负和同分母归并保持原规范顺序与容量；外部输入无信任标记。
+当前release-0.2.1.2-20261110。来源冻结scope保留group输出和逐字段准备；RankBudget会话费用memo只从已接纳记录继承到费用规则不变的funding/cursor副本，关闭清理。有限奖励task只缓存纯准备，投影保存不可变组件，每次独立构造Decimal。显式TREE逐字段保留私有工作进度，超构造/冻结TREE仍走原回滚；未降低Step原地修改检测。规范行取负和同分母归并保持原规范顺序与容量；外部输入无信任标记。
 
 仅必要定向测试通过，最终40步浏览器性能短测仍失败，未证实稳定提速。完整范围见AGENT_CONTEXT最新节及online-six-stage-20261102/REPORT.md。下方为历史说明。
 
 ## 2026-11-02 当前在线准备与提交边界
 
-当前 release-0.2.1.1-20261109，75已启用，84/72脚本。Resources私有操作保留同步接口，在线以纯准备→一次应用；修真按资源保留阶段，探寻初始化一次。CertifiedRankMath.createNumericScope仅共享当前提交的纯数值准备，任务迭代器/结果保持独立，关闭或失效不可再用；不序列化，不跨候选缓存收益。State.createDraft的replayable供内部奖励重试，reset后重新读取后代。TREE复杂回滚保留。精度、曲线、RNG与时间合同不变。
+当前 release-0.2.1.2-20261110，75已启用，84/72脚本。Resources私有操作保留同步接口，在线以纯准备→一次应用；修真按资源保留阶段，探寻初始化一次。CertifiedRankMath.createNumericScope仅共享当前提交的纯数值准备，任务迭代器/结果保持独立，关闭或失效不可再用；不序列化，不跨候选缓存收益。State.createDraft的replayable供内部奖励重试，reset后重新读取后代。TREE复杂回滚保留。精度、曲线、RNG与时间合同不变。
 
 当前功能641/42/13通过，原600步性能三轮仍未准入；不是稳定提速或所有同步风险消除。详见AGENT_CONTEXT最新节及本批报告。下方旧日期为历史说明。
 
 ## 2026-11-02 当前私有加载与标量证明边界
 
-当前开发release-0.2.1.1-20261109，75模型启用。Core.State.isSealedLoadInput(value)只查询当前load私有封存树，JSON/Object.freeze不能伪造；关闭scope后不再可信。容器校验、RankBasis.assertSerialized及RankBudget.create/read可在该私有作用域保留阶段；所有对象创建参数都须封存，保留结果冻结，公共可变调用继续新鲜验证。normalizeDomain借用封存输入只读，mergeKnown生成独立输出容器。
+当前开发release-0.2.1.2-20261110，75模型启用。Core.State.isSealedLoadInput(value)只查询当前load私有封存树，JSON/Object.freeze不能伪造；关闭scope后不再可信。容器校验、RankBasis.assertSerialized及RankBudget.create/read可在该私有作用域保留阶段；所有对象创建参数都须封存，保留结果冻结，公共可变调用继续新鲜验证。normalizeDomain借用封存输入只读，mergeKnown生成独立输出容器。
 
 AmountFormulas/AmountProducts标量、符号和备用投影可从32位有向区间证明开始，无法确认同一唯一结果则使用原80/160/320/512；Legacy入口和尾项系数压缩仍80位开始。没有新数值格式/求解器/跨候选动态缓存。Step输入守卫每片仍验证值/组件/原型/自身字段顺序，采用for-in及hasOwn过滤避免分配键数组。
 
@@ -489,7 +510,7 @@ AmountFormulas/AmountProducts标量、符号和备用投影可从32位有向区�
 
 ## 2026-10-31 当前阶位运行时装配
 
-开发build `release-0.2.1.1-20261109`，Schema74、78主脚本/66 Worker。SignedLedger后依次为Rank、RankMath、CertifiedRankMath、RankProjection、RankExact、RankGCost、RankBudget、RankBasis、RankSettlement，再接原消费者。下述旧日期段记录历史装配，以本节和版本轴为当前值。
+开发build `release-0.2.1.2-20261110`，Schema74、78主脚本/66 Worker。SignedLedger后依次为Rank、RankMath、CertifiedRankMath、RankProjection、RankExact、RankGCost、RankBudget、RankBasis、RankSettlement，再接原消费者。下述旧日期段记录历史装配，以本节和版本轴为当前值。
 
 RankBudget提供单work私有会话/严格外部读取/精确付款，RankSettlement负责固定原单位和派生字段；BigNumbers共享同步与分片阶段内核，FixedSegment持有子work，Step拥有候选会话。Loop复用原host预算并避免无提交重复渲染。UI只读已确认投影；旧73读取/校验与原求解器退役边界保持。详见AGENT_CONTEXT与本批E盘验收，未改发布版。
 
@@ -529,7 +550,7 @@ Rank/RankMath/CertifiedRankMath/RankProjection/RankExact/RankGCost/RankBudget/Ra
 | --- | --- | --- |
 | gameVersion | `0.1.8.4` | 玩家可见发布版本 |
 | schemaVersion | `75` | Save envelope/State schema |
-| buildId | `release-0.2.1.1-20261109` | 发布构建与静态缓存标识 |
+| buildId | `release-0.2.1.2-20261110` | 发布构建与静态缓存标识 |
 | settlementRuleVersion | `2` | 持久化固定结算规则版本 |
 
 Build mode 为 release，调速和公式详情调试入口已移除，正式速度固定为 ×1。
@@ -903,7 +924,7 @@ HighMultiverse.currentOrder统一当前可见已解锁阶位；Achievements提�
 
 ## 武道七项能力（2026-10-25，仅开发版）
 
-开发版本仍 0.1.7.13；build release-0.2.1.1-20261109。发布版未改，Schema72/rule2/存档key不变。
+开发版本仍 0.1.7.13；build release-0.2.1.2-20261110。发布版未改，Schema72/rule2/存档key不变。
 
 新增天魔策/慈航剑典各200神魂，要求先天、当前心200；实际消费每1心基础给予10气/体。手动/自动神魂转换与Registry心支付均在全部扣费后按候选库存/心计算，再叠丹劲和基因源能并走原长生诀直接收入积分减速，包含即将收入；前置门槛、set、重置、零额、失败支付不触发。预览只读且复用相同奖励函数。
 
@@ -920,7 +941,7 @@ HighMultiverse.currentOrder统一当前可见已解锁阶位；Achievements提�
 
 无限界面在体系未恢复时也显示已保留阶位、当前0库存、跨转生历史最高数量；与其他体系切换不丢失。第七步在本轮再次购买后读取永久最高记录，文案同步更新。新历史行继承大阶数换行规则。现有存档字段足够，Schema72/rule2不变；旧存档可从其仍保留的order/peak补最高，已被旧版清除的记录不伪造还原。下文旧“无限转生清阶位/本轮最高”描述被本节替代。
 
-开发build release-0.2.1.1-20261109，发布目标release-0.1.8.1-20261025；用户明确要求本次同步发布并取消调试。新保留合同5项Node先失败后通过，与原高阶10/修真7/三成就8共30项通过。真实UI1280/390/320宽度覆盖实际点击转生、零库存、记录显示、重载、第五步恢复和80位阶数字符串；四场真实Worker覆盖在线/离线以及尚未恢复/已经恢复来源，与同浏览器本地完整玩法、RNG、debt、Save一致。详见../WIS-项目资源/release-0181-20261025/VERIFICATION.json。
+开发build release-0.2.1.2-20261110，发布目标release-0.1.8.1-20261025；用户明确要求本次同步发布并取消调试。新保留合同5项Node先失败后通过，与原高阶10/修真7/三成就8共30项通过。真实UI1280/390/320宽度覆盖实际点击转生、零库存、记录显示、重载、第五步恢复和80位阶数字符串；四场真实Worker覆盖在线/离线以及尚未恢复/已经恢复来源，与同浏览器本地完整玩法、RNG、debt、Save一致。详见../WIS-项目资源/release-0181-20261025/VERIFICATION.json。
 
 
 本次已完成发布同步：release-0.1.8.1-20261025。发布代码38项Node、保留进度UI三宽度、Worker四场、发布四宽度无调试/只读/Alt+S无效、两份旧档和file启动全部通过；开发圆环保护另9项通过。独立审查复跑30项通过，无阻塞或延后问题。仅本地发布，无commit/push/线上部署。
@@ -967,4 +988,4 @@ node tools/build-offline-worker.cjs
 node tools/build-online-candidate-worker.cjs
 ```
 
-三个工具均支持`--check`。`sync-release.cjs`已补目标build下双bundle生成（仅在E盘隔离输出回归，当前未同步发布目录）。构建95/78/78，build `release-0.2.1.1-20261109`。高库存manual准备完成后保存candidate+completion，提交不能重新执行perform积分。准确测试及性能限制见AGENT_CONTEXT和本轮REPORT。
+三个工具均支持`--check`。`sync-release.cjs`已补目标build下双bundle生成（仅在E盘隔离输出回归，当前未同步发布目录）。构建95/78/78，build `release-0.2.1.2-20261110`。高库存manual准备完成后保存candidate+completion，提交不能重新执行perform积分。准确测试及性能限制见AGENT_CONTEXT和本轮REPORT。

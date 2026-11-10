@@ -176,11 +176,35 @@
         // Integral mean: Delta/(p*d*s^(p-1)) lies between 1 and
         // (1+d/s)^(p-1). Its log correction is bounded by |p-1|*d/s.
         const ratio=ratioLog.hi< -BigInt(places+2)*c.scale?{lo:0n,hi:1n}:yield ()=>c.pow10(ratioLog),bound=c.mul(pm,{lo:0n,hi:ratio.hi});
-        const logP=yield ()=>c.log10(sign>0?p:neg(p));return yield* fromLog(c.add(c.add(deltaLog,c.mul(pm,startLog)),c.add(logP,bound)),c,sign);
+        // A small delta/start alone does not make the linear correction tight:
+        // a large exponent can amplify it. If this enclosure cannot round,
+        // continue with the full difference below in the same precision context.
+        try {
+          const logP=yield ()=>c.log10(sign>0?p:neg(p));
+          return yield* fromLog(c.add(c.add(deltaLog,c.mul(pm,startLog)),c.add(logP,bound)),c,sign);
+        }catch(error){if(!['rank-cost-unresolved','amount-formula-unresolved','amount-unresolved'].includes(error.code))throw error;}
+        // Scale BEFORE rounding a tiny r=d/s: u=|p|*r may be ordinary even
+        // when r is below this context's fixed-point resolution. For r>=0,
+        // 1/(1+r) <= ln(1+r)/r <= 1, hence u/(1+r) <= |p|ln(1+r) <= u.
+        // The outward ratio bound is used only for this relative correction;
+        // never multiply its one-unit absolute error by the huge exponent.
+        try {
+          const logP=yield ()=>c.log10(sign>0?p:neg(p)),scaled=yield ()=>c.pow10(c.add(logP,ratioLog)),one=c.fraction(1n);
+          const weight=c.div(one,c.add(one,{lo:0n,hi:ratio.hi})),argument=c.mul(scaled,weight);
+          const powered=yield ()=>c.exp(sign>0?argument:neg(argument));
+          const increment=sign>0?c.sub(powered,one):c.sub(one,powered);
+          const incrementLog=yield ()=>c.log10(increment);
+          return yield* fromLog(c.add(c.mul(p,startLog),incrementLog),c,sign);
+        }catch(error){if(!['rank-cost-unresolved','amount-formula-unresolved','amount-unresolved'].includes(error.code))throw error;}
       }
       const endLog=yield ()=>logarithm(A.add(input.value,input.delta),c),signedDifference=c.mul(p,c.sub(endLog,startLog)),difference=sign>0?signedDifference:neg(signedDifference);
       if(difference.lo<=0n)fail('power increment needs further refinement');
-      if(difference.lo>17n*c.scale){const correction=difference.lo>BigInt(places+2)*c.scale?{lo:0n,hi:1n}:yield ()=>c.pow10(neg(difference)),end=c.mul(p,sign>0?endLog:startLog);return yield* fromLog({lo:end.lo-2n*correction.hi,hi:end.hi},c,sign);}
+      if(difference.lo>17n*c.scale){
+        const tiny=difference.lo>BigInt(places+2)*c.scale;
+        const correction=tiny?{lo:0n,hi:1n}:yield ()=>c.pow10(neg(difference)),end=c.mul(p,sign>0?endLog:startLog);
+        if(!tiny){const adjustment=yield ()=>c.log10(c.sub(c.fraction(1n),correction));return yield* fromLog(c.add(end,adjustment),c,sign);}
+        return yield* fromLog({lo:end.lo-2n*correction.hi,hi:end.hi},c,sign);
+      }
       const v=yield ()=>c.pow10(difference),incrementLog=yield ()=>c.log10(c.sub(v,c.fraction(1n)));return yield* fromLog(c.add(c.mul(p,sign>0?startLog:endLog),incrementLog),c,sign);
     }
     if(input.operation==='powerOnePlusMinusOne'){
@@ -189,6 +213,14 @@
         // log10(1-10^-L) is in [-2*10^-L,0] for L>17. Enclose
         // the subtraction before Decimal rounding; do not expand 10^L.
         const correction=log.lo>BigInt(places+2)*c.scale?{lo:0n,hi:1n}:yield ()=>c.pow10(neg(log));
+        // The coarse [-2*x,0] bound does not narrow as precision grows and
+        // can straddle a Decimal rounding boundary forever. Refine log10(1-x)
+        // when x is representable in this interval context; retain the tiny
+        // outward bound only below its fixed-point resolution.
+        if(log.lo<=BigInt(places+2)*c.scale){
+          const adjustment=yield ()=>c.log10(c.sub(c.fraction(1n),correction));
+          return yield* fromLog(c.add(log,adjustment),c);
+        }
         return yield* fromLog({lo:log.lo-2n*correction.hi,hi:log.hi},c);
       }
       const powered=yield ()=>c.pow10(log);return yield* fromInterval(c.sub(powered,c.fraction(1n)),c);

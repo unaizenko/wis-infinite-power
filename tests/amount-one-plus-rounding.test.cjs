@@ -1,0 +1,5 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const {loadProductionNumericRuntime}=require('./helpers/production-numeric-runtime.cjs');
+test('one-plus power subtraction certifies the player rounding boundary',()=>{const {W,context}=loadProductionNumericRuntime();vm.runInContext(fs.readFileSync('js/core/amount-formulas.js','utf8'),context);const v=W.Core.AmountFormulas.powerOnePlusMinusOne(W.Core.Amount.from('12229990702359665e306'),'0.05347796355760248');assert.equal(v.layer,1);assert.equal(v.mag,17.224579636774816);});
+
+test('one-plus subtraction preserves threshold and distant logarithm cells',()=>{const {W,context}=loadProductionNumericRuntime();vm.runInContext(fs.readFileSync('js/core/amount-formulas.js','utf8'),context);for(const [x,p,log]of [['1e340','0.05',17],['1e350','0.05',17.5],['1e400','0.05',20],['1e100000','0.01',1000]]){const result=W.Core.AmountFormulas.powerOnePlusMinusOne(W.Core.Amount.from(x),p);assert.equal(result.layer,1);assert.equal(result.mag,log);}});

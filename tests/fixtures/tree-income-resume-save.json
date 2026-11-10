@@ -1,0 +1,197 @@
+{
+  "game": "WIS-无限战力系统",
+  "encoding": "sparse-v1",
+  "schemaVersion": 76,
+  "version": 76,
+  "numericModelVersion": 2,
+  "numericTailPolicyVersion": 1,
+  "settlementRule": 4,
+  "data": {
+    "core": {
+      "preferences": {
+        "treeSuperAutomationEnabled": true
+      },
+      "resources": {
+        "joules": "0",
+        "power": "0"
+      },
+      "runtime": {
+        "lastUpdateAt": 1700000000000,
+        "randomState": 123456789
+      }
+    },
+    "powerSystem": {},
+    "cultivation": {
+      "systems": {
+        "immortal": {
+          "progress": {
+            "explorationRewards": {
+              "version": 2,
+              "natural": {
+                "version": 1,
+                "requirement": "10",
+                "remaining": "10",
+                "carry": "0",
+                "residual": []
+              },
+              "seize": "0",
+              "levelResidual": []
+            }
+          }
+        }
+      }
+    },
+    "meta": {
+      "achievements": {
+        "googol": true
+      },
+      "bigNumbers": {
+        "beyondFractal": true,
+        "fractalLevel": 5,
+        "gBatch": {
+          "acc": "0",
+          "context": {
+            "award": 1,
+            "challenge": null,
+            "costModel": "anchored-v3",
+            "d6": true,
+            "mode": "g-polynomial",
+            "pricing": "raw",
+            "reward": false,
+            "rewardAboveOne": true,
+            "treeDelta": "0"
+          },
+          "funding": "0",
+          "kind": "wis-closed-batch",
+          "n0": "64",
+          "version": 1
+        },
+        "gIndex": 64,
+        "purchases": [
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "rankBasis": {
+          "version": 1,
+          "g": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 64
+          },
+          "tree": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 3,
+            "targetRank": 4,
+            "projectedTargetRequirement": "40320",
+            "projection": {
+              "version": 1,
+              "producer": "schema73-log14-a"
+            }
+          }
+        },
+        "tree": {
+          "batch": {
+            "acc": "0",
+            "context": {
+              "award": 1,
+              "boosted": false
+            },
+            "funding": "5040",
+            "kind": "wis-closed-batch",
+            "n0": "3",
+            "version": 1
+          },
+          "phase": "super",
+          "rank": 3,
+          "superEntryMultiplier": "40320",
+          "superProgress": "0.125"
+        },
+        "unlocked": true
+      },
+      "infinity": {
+        "points": "9769",
+        "purchaseLedger": [
+          {
+            "nodeId": "D1-1",
+            "pricePaid": "1"
+          },
+          {
+            "nodeId": "D1-2",
+            "pricePaid": "1"
+          },
+          {
+            "nodeId": "D2-1",
+            "pricePaid": "2"
+          },
+          {
+            "nodeId": "D2-2",
+            "pricePaid": "2"
+          },
+          {
+            "nodeId": "D3",
+            "pricePaid": "5"
+          },
+          {
+            "nodeId": "D4",
+            "pricePaid": "7"
+          },
+          {
+            "nodeId": "D5",
+            "pricePaid": "12"
+          },
+          {
+            "nodeId": "D6",
+            "pricePaid": "21"
+          },
+          {
+            "nodeId": "D7-1",
+            "pricePaid": "24"
+          },
+          {
+            "nodeId": "D7-2",
+            "pricePaid": "24"
+          },
+          {
+            "nodeId": "D7-3",
+            "pricePaid": "24"
+          },
+          {
+            "nodeId": "D8",
+            "pricePaid": "30"
+          },
+          {
+            "nodeId": "D9",
+            "pricePaid": "36"
+          },
+          {
+            "nodeId": "D10",
+            "pricePaid": "42"
+          }
+        ],
+        "totalPointsEarned": "10000",
+        "unlocked": true,
+        "upgrades": {
+          "D1-1": true,
+          "D1-2": true,
+          "D10": true,
+          "D2-1": true,
+          "D2-2": true,
+          "D3": true,
+          "D4": true,
+          "D5": true,
+          "D6": true,
+          "D7-1": true,
+          "D7-2": true,
+          "D7-3": true,
+          "D8": true,
+          "D9": true
+        },
+        "upgradesUnlocked": true
+      }
+    }
+  }
+}

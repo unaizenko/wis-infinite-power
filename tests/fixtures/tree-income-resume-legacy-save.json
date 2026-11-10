@@ -1,0 +1,310 @@
+{
+  "game": "WIS-无限战力系统",
+  "encoding": "sparse-v1",
+  "schemaVersion": 74,
+  "version": 74,
+  "data": {
+    "core": {
+      "preferences": {
+        "treeSuperAutomationEnabled": true
+      },
+      "resources": {
+        "joules": "0",
+        "power": "0"
+      },
+      "runtime": {
+        "lastUpdateAt": 1700000000000,
+        "randomState": 123456789
+      }
+    },
+    "powerSystem": {},
+    "cultivation": {
+      "systems": {
+        "immortal": {
+          "progress": {
+            "explorationRewards": {
+              "version": 2,
+              "natural": {
+                "version": 1,
+                "requirement": "10",
+                "remaining": "10",
+                "carry": "0"
+              },
+              "seize": "0",
+              "levelResidual": []
+            }
+          }
+        }
+      }
+    },
+    "meta": {
+      "achievements": {
+        "googol": true
+      },
+      "bigNumbers": {
+        "beyondFractal": true,
+        "fractalLevel": 5,
+        "gIndex": 64,
+        "purchases": [
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "rankBasis": {
+          "version": 1,
+          "g": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 64
+          },
+          "tree": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 3,
+            "targetRank": 4,
+            "projectedTargetRequirement": "40320",
+            "projection": {
+              "version": 1,
+              "producer": "schema73-log14-a"
+            }
+          }
+        },
+        "tree": {
+          "phase": "super",
+          "rank": 3,
+          "superEntryMultiplier": "40320",
+          "superProgress": "0.125"
+        },
+        "unlocked": true
+      },
+      "infinity": {
+        "points": "9769",
+        "purchaseLedger": [
+          {
+            "nodeId": "D1-1",
+            "pricePaid": "1"
+          },
+          {
+            "nodeId": "D1-2",
+            "pricePaid": "1"
+          },
+          {
+            "nodeId": "D2-1",
+            "pricePaid": "2"
+          },
+          {
+            "nodeId": "D2-2",
+            "pricePaid": "2"
+          },
+          {
+            "nodeId": "D3",
+            "pricePaid": "5"
+          },
+          {
+            "nodeId": "D4",
+            "pricePaid": "7"
+          },
+          {
+            "nodeId": "D5",
+            "pricePaid": "12"
+          },
+          {
+            "nodeId": "D6",
+            "pricePaid": "21"
+          },
+          {
+            "nodeId": "D7-1",
+            "pricePaid": "24"
+          },
+          {
+            "nodeId": "D7-2",
+            "pricePaid": "24"
+          },
+          {
+            "nodeId": "D7-3",
+            "pricePaid": "24"
+          },
+          {
+            "nodeId": "D8",
+            "pricePaid": "30"
+          },
+          {
+            "nodeId": "D9",
+            "pricePaid": "36"
+          },
+          {
+            "nodeId": "D10",
+            "pricePaid": "42"
+          }
+        ],
+        "totalPointsEarned": "10000",
+        "unlocked": true,
+        "upgrades": {
+          "D1-1": true,
+          "D1-2": true,
+          "D10": true,
+          "D2-1": true,
+          "D2-2": true,
+          "D3": true,
+          "D4": true,
+          "D5": true,
+          "D6": true,
+          "D7-1": true,
+          "D7-2": true,
+          "D7-3": true,
+          "D8": true,
+          "D9": true
+        },
+        "upgradesUnlocked": true
+      },
+      "treasureProgressFinite": {
+        "baLingChi": {
+          "carry": "0",
+          "remaining": "500",
+          "requirement": "500",
+          "version": 1
+        },
+        "cosmicFiber": {
+          "carry": "0",
+          "remaining": "333.3333333333333",
+          "requirement": "333.3333333333333",
+          "version": 1
+        },
+        "cosmicWill": {
+          "carry": "0",
+          "remaining": "1000",
+          "requirement": "1000",
+          "version": 1
+        },
+        "emperorImprint": {
+          "carry": "0",
+          "remaining": "1e18",
+          "requirement": "1e18",
+          "version": 1
+        },
+        "fitnessMembershipCard": {
+          "carry": "0",
+          "remaining": "200",
+          "requirement": "200",
+          "version": 1
+        },
+        "fiveElementsTreasure": {
+          "carry": "0",
+          "remaining": "50",
+          "requirement": "50",
+          "version": 1
+        },
+        "fiveSpiritStone": {
+          "carry": "0",
+          "remaining": "2000",
+          "requirement": "2000",
+          "version": 1
+        },
+        "fuBao": {
+          "carry": "0",
+          "remaining": "1",
+          "requirement": "1",
+          "version": 1
+        },
+        "godBodyImprint": {
+          "carry": "0",
+          "remaining": "1000000",
+          "requirement": "1000000",
+          "version": 1
+        },
+        "immortalCrystal": {
+          "carry": "0",
+          "remaining": "20",
+          "requirement": "20",
+          "version": 1
+        },
+        "lawImprint": {
+          "carry": "0",
+          "remaining": "100000",
+          "requirement": "100000",
+          "version": 1
+        },
+        "mysteriousGreenBottle": {
+          "carry": "0",
+          "remaining": "1",
+          "requirement": "1",
+          "version": 1
+        },
+        "mysticHeavenSacredTree": {
+          "carry": "0",
+          "remaining": "1",
+          "requirement": "1",
+          "version": 1
+        },
+        "mysticHeavenSpiritSlayingSword": {
+          "carry": "0",
+          "remaining": "1",
+          "requirement": "1",
+          "version": 1
+        },
+        "originImprint": {
+          "carry": "0",
+          "remaining": "100",
+          "requirement": "100",
+          "version": 1
+        },
+        "phantomHeavenMirror": {
+          "carry": "0",
+          "remaining": "1",
+          "requirement": "1",
+          "version": 1
+        },
+        "sacredBodyImprint": {
+          "carry": "0",
+          "remaining": "1000000",
+          "requirement": "1000000",
+          "version": 1
+        },
+        "skyCrystal": {
+          "carry": "0",
+          "remaining": "200",
+          "requirement": "200",
+          "version": 1
+        },
+        "sourceStoneImprint": {
+          "carry": "0",
+          "remaining": "1e19",
+          "requirement": "1e19",
+          "version": 1
+        },
+        "superLollipop": {
+          "carry": "0",
+          "remaining": "2000",
+          "requirement": "2000",
+          "version": 1
+        },
+        "tianNiPearl": {
+          "carry": "0",
+          "remaining": "1",
+          "requirement": "1",
+          "version": 1
+        },
+        "wanYaoFan": {
+          "carry": "0",
+          "remaining": "1",
+          "requirement": "1",
+          "version": 1
+        },
+        "xuTianDing": {
+          "carry": "0",
+          "remaining": "1",
+          "requirement": "1",
+          "version": 1
+        },
+        "yuanCrystal": {
+          "carry": "0",
+          "remaining": "25",
+          "requirement": "25",
+          "version": 1
+        }
+      }
+    }
+  }
+}
