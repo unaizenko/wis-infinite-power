@@ -1,0 +1,15 @@
+{
+  "r": {
+    "kind": "wis-closed-batch",
+    "version": 1,
+    "n0": "4.369889922208889e26",
+    "context": {
+      "region": 1,
+      "award": 1
+    },
+    "funding": "ee40.18545766832741",
+    "acc": "ee40.18545766832741"
+  },
+  "income": "ee40.18545766832741",
+  "below": false
+}

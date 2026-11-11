@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "schema": 76,
+  "numericModel": 2,
+  "settlementRule": 4,
+  "description": "Required current correctness, real-browser lifecycle, native contract, and live CPU-throttled regression. Legacy audit failures are tracked separately; this gate allows no missing fixtures or skipped Node cases. Refactor acceptance is mandatory and currently red until five cold samples meet CPU1=3s/CPU4=5s, feedback<=100ms, main-thread<=100ms; do not omit or relax.",
+  "assembly": [
+    "tools/update-script-manifest.cjs",
+    "tools/build-offline-worker.cjs",
+    "tools/build-online-candidate-worker.cjs",
+    "tools/build-math-worker.cjs"
+  ],
+  "node": [
+    "tests/save-backup-protection.test.cjs",
+    "tests/native-save-kind.test.cjs",
+    "tests/offline-worker-preferences.test.cjs",
+    "tests/closed-form-layered-convergence.test.cjs",
+    "tests/current-player-offline.test.cjs",
+    "tests/inverse-continuation.test.cjs",
+    "tests/inverse-comparison.test.cjs",
+    "tests/mana-preview-continuation.test.cjs",
+    "tests/preview-owner.test.cjs",
+    "tests/preview-backlog-scheduling.test.cjs",
+    "tests/online-bounded-loss.test.cjs",
+    "tests/offline-income-preservation.test.cjs",
+    "tests/offline-worker-owner.test.cjs",
+    "tests/offline-worker-retry-span.test.cjs",
+    "tests/deferred-action-owner.test.cjs",
+    "tests/online-worker-loop.test.cjs",
+    "tests/formula-convergence.test.cjs",
+    "tests/scaled-increment.test.cjs",
+    "tests/amount-formulas.test.cjs",
+    "tests/amount-martial.test.cjs",
+    "tests/closed-form-batch.test.cjs",
+    "tests/closed-form-reentry.test.cjs",
+    "tests/amount-fixed-sources.test.cjs",
+    "tests/save-shape-guards.test.cjs",
+    "tests/rank-big-numbers-work.test.cjs",
+    "tests/breathing-fraction-capacity.test.cjs",
+    "tests/amount-compaction-reuse.test.cjs",
+    "tests/amount-products.test.cjs",
+    "tests/amount-tail-owners.test.cjs",
+    "tests/online-candidate-client.test.cjs",
+    "tests/online-candidate-entry.test.cjs",
+    "tests/refactor-numeric-contract.test.cjs",
+    "tests/refactor-inverse-work.test.cjs",
+    "tests/refactor-action-view.test.cjs",
+    "tests/refactor-save-compat.test.cjs",
+    "tests/amount-core.test.cjs",
+    "tests/committed-rate-publication.test.cjs",
+    "tests/committed-rate-view.test.cjs",
+    "tests/continuation-stages.test.cjs",
+    "tests/math-worker-client.test.cjs",
+    "tests/math-worker-exact.test.cjs",
+    "tests/main-thread-publication.test.cjs",
+    "tests/save-encoding-work.test.cjs",
+    "tests/release-output.test.cjs"
+  ],
+  "scripts": [
+    "tests/frozen-offline-contract.test.cjs",
+    "tests/frozen-offline-treasure.test.cjs"
+  ],
+  "browser": [
+    "tests/native-save-export-browser.test.cjs",
+    "tests/save-retry-browser.test.cjs",
+    "tests/refactor-action-view-browser.test.cjs",
+    "tests/training-availability-browser.test.cjs",
+    "tests/refactor-martial-view-browser.test.cjs",
+    "tests/committed-rate-browser.test.cjs",
+    "tests/committed-rate-live-browser.test.cjs"
+  ],
+  "performance": [
+    "tests/live-action-preview-browser.test.cjs",
+    "tests/player-settlement-browser.test.cjs",
+    "tests/high-training-browser.test.cjs",
+    "tests/refactor-performance-browser.test.cjs"
+  ],
+  "native": [
+    "tests/native-save-export-java.cjs"
+  ],
+  "performanceContract": {
+    "firstAllFourValuesMs": 30000,
+    "cpuThrottle": 4,
+    "liveMainLoop": true,
+    "ordinaryActionMustCommit": true,
+    "note": "30s is an existing liveness regression ceiling, not a claim of few-second mobile responsiveness. Report all measured durations; no phone/thermal inference."
+  },
+  "legacyAudit": "../WIS-椤圭洰璧勬簮/audit-0214-20261111/wide-failures.json",
+  "browserNode": [
+    "tests/lifecycle-settings-browser.test.cjs",
+    "tests/math-worker-browser.test.cjs",
+    "tests/main-thread-publication-browser.test.cjs",
+    "tests/mobile-layout-browser.test.cjs",
+    "tests/upgrade-layout-browser.test.cjs"
+  ]
+}

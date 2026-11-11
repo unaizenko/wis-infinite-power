@@ -85,7 +85,19 @@
   // Both operands were strictly decoded already. Identical signed words
   // cancel exactly; only the changed middle needs another arithmetic proof.
   function differentWords(x,y){let begin=0,endX=x.length,endY=y.length;while(begin<endX&&begin<endY&&x[begin]===y[begin])begin++;while(endX>begin&&endY>begin&&x[endX-1]===y[endY-1]){endX--;endY--;}return begin||endX!==x.length||endY!==y.length?[x.slice(begin,endX),y.slice(begin,endY)]:[x,y];}
-  const compare=(a,b)=>{a=from(a);b=from(b);if(a===b)return 0;const originalX=canonicalWords.get(a),originalY=canonicalWords.get(b);if(!originalX.length)return originalY.length?-1:0;if(!originalY.length)return 1;const [x,y]=differentWords(originalX,originalY);if(!x.length)return y.length?-L.strict.sign(y):0;if(!y.length)return L.strict.sign(x);const P=WIS.Core.AmountProducts;if(x.length+y.length>2||P.extended(x)===true||P.extended(y)===true){const order=P.compareRanges(x,y);if(order!==null)return order;}return L.strict.compare(x,y);};
+  // Compare single positive decimal words in scientific coordinates. Equal
+  // orders need only zero-padding the significands, never 10^exponentGap or
+  // a dense subtraction. This is an exact payment-safe comparison.
+  function compareSingleWords(x,y){
+    if(x.length!==1||y.length!==1)return null;
+    const a=/^([1-9]\d*)e([+-]?\d+)$/.exec(x[0]),b=/^([1-9]\d*)e([+-]?\d+)$/.exec(y[0]);
+    if(!a||!b)return null;
+    const ao=BigInt(a[2])+BigInt(a[1].length),bo=BigInt(b[2])+BigInt(b[1].length);
+    if(ao!==bo)return ao<bo?-1:1;
+    const length=Math.max(a[1].length,b[1].length),ac=a[1].padEnd(length,'0'),bc=b[1].padEnd(length,'0');
+    return ac===bc?0:ac<bc?-1:1;
+  }
+  const compare=(a,b)=>{a=from(a);b=from(b);if(a===b)return 0;const originalX=canonicalWords.get(a),originalY=canonicalWords.get(b);if(!originalX.length)return originalY.length?-1:0;if(!originalY.length)return 1;const [x,y]=differentWords(originalX,originalY);if(!x.length)return y.length?-L.strict.sign(y):0;if(!y.length)return L.strict.sign(x);const single=compareSingleWords(x,y);if(single!==null)return single;const P=WIS.Core.AmountProducts;if(x.length+y.length>2||x.some(word=>word.length>256)||y.some(word=>word.length>256)||P.extended(x)===true||P.extended(y)===true){const order=P.compareRanges(x,y);if(order!==null)return order;}return L.strict.compare(x,y);};
   function combineWords(x,y,inverse=false){return WIS.Core.AmountProducts.extended(x)===true||WIS.Core.AmountProducts.extended(y)===true?WIS.Core.AmountProducts.sumView(x,y,inverse):[...x,...(inverse?L.negate(y):y)];}
   const add=(a,b)=>{a=from(a);b=from(b);if(!canonicalWords.get(a).length)return b;if(!canonicalWords.get(b).length)return a;return make(combineWords(canonicalWords.get(a),canonicalWords.get(b)));};
   const addWords=(value,change)=>{value=from(value);const incoming=normalized(change);return incoming.length?make(canonicalWords.get(value).length?combineWords(canonicalWords.get(value),incoming):incoming):value;};
@@ -139,16 +151,17 @@
   function compact(value){return WIS.Core.CertifiedRankMath.withWork(()=>compactInWork(value));}
   function compactInWork(value){
     value=from(value);const P=WIS.Core.AmountProducts,tail=value.tail;
-    if(!enabled()||!tail.length||tail.length<=P.tailPolicy.capacity&&!tail.some(w=>/^-?@(?:sum|ratio):/.test(w)))return Object.freeze({value,lossUpper:from(0),compacted:false,policyId:P.tailPolicy.id});
-    if(P.termCount(tail)<=P.tailPolicy.capacity)return Object.freeze({value,lossUpper:from(0),compacted:false,policyId:P.tailPolicy.id});
+    if(!enabled()||!tail.length||tail.length<=P.tailPolicy.capacity&&!tail.some(w=>/^-?@(?:sum|ratio|product):/.test(w)))return Object.freeze({value,lossUpper:from(0),compacted:false,policyId:P.tailPolicy.id});
+    if(!P.needsCompaction(tail))return Object.freeze({value,lossUpper:from(0),compacted:false,policyId:P.tailPolicy.id});
     // Complete immutable amounts may recur in stock/peak/total owners within
     // one candidate. Never retain partial proofs or cross-candidate results.
     const memo=WIS.Core.RankExact.memo('amount-compaction|'+P.tailPolicy.id);
     let results=memo.get('values');if(!results){results=new WeakMap();memo.set('values',results);}
     if(results.has(value))return results.get(value);
-    const result=P.compact(wordView(value),{force:true});let next;
-    try{next=make(result.words);}catch(error){if(error.code==='amount-negative')fail('Tail compression cannot preserve a nonnegative balance','amount-compaction-unresolved');throw error;}
-    if(P.termCount(next.tail)>P.tailPolicy.target)fail('Tail compression capacity certificate failed','amount-compaction-unresolved');
+    const tailOnly=P.termCount(tail)<=P.tailPolicy.capacity;
+    const result=P.compact(tailOnly?tail:wordView(value),{force:true});let next;
+    try{next=make(tailOnly?[value.main,...result.words]:result.words);}catch(error){if(error.code==='amount-negative')fail('Tail compression cannot preserve a nonnegative balance','amount-compaction-unresolved');throw error;}
+    if(P.termCount(next.tail)>P.tailPolicy.target||P.needsCompaction(next.tail))fail('Tail compression capacity certificate failed','amount-compaction-unresolved');
     const completed=Object.freeze({value:next,lossUpper:make(result.errorWords),compacted:result.compacted,sourceTerms:result.sourceTerms,resultTerms:result.resultTerms,policyId:result.policyId});
     results.set(value,completed);return completed;
   }

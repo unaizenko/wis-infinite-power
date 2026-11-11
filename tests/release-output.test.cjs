@@ -1,6 +1,6 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{spawnSync}=require('node:child_process');
-const root=path.resolve(__dirname,'..');
+const root=path.resolve(__dirname,'..'),vm=require('node:vm');
 test('external output equals default release transform in isolated fixture; dry-run writes nothing',()=>{
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'wis-release-')),fixture=path.join(temp,'source'),out=path.join(temp,'out');fs.mkdirSync(fixture);
  for(const p of ['js','tools'])fs.cpSync(path.join(root,p),path.join(fixture,p),{recursive:true});
@@ -13,6 +13,13 @@ test('external output equals default release transform in isolated fixture; dry-
  for(const dir of [out,path.join(fixture,'发布版')])fs.writeFileSync(path.join(dir,'latest.json'),manifest);
  run(['--out',out,'--build','release-test-0200']);run(['--write','--build','release-test-0200']);
  for(const dir of [out,path.join(fixture,'发布版')])assert.equal(fs.readFileSync(path.join(dir,'latest.json'),'utf8'),manifest,'release synchronization overwrote latest.json');
+ // The pure-math payload is derived from the rebuilt offline engine. Loading
+ // both generated scripts catches a stale development bundle in an APK build.
+ for(const dir of [out,path.join(fixture,'发布版')]){
+  const scope={window:{WIS:{Simulation:{}}}};
+  for(const name of ['offline-worker-bundle.js','math-worker-bundle.js'])vm.runInNewContext(fs.readFileSync(path.join(dir,'js/simulation',name),'utf8'),scope);
+  assert.equal(scope.window.WIS.Simulation.MathWorkerBundle.build,'release-test-0200');
+ }
  run(['--build','release-test-0200']); // generated cache labels must also pass read-only verification
  const relative=fs.readdirSync(out,{recursive:true}).filter(p=>fs.statSync(path.join(out,p)).isFile());
  for(const p of relative)assert(fs.readFileSync(path.join(out,p)).equals(fs.readFileSync(path.join(fixture,'发布版',p))),p);

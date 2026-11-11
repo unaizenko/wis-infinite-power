@@ -1,0 +1,488 @@
+{
+  "game": "WIS-无限战力系统",
+  "encoding": "sparse-v1",
+  "schemaVersion": 76,
+  "version": 76,
+  "numericModelVersion": 2,
+  "numericTailPolicyVersion": 1,
+  "settlementRule": 4,
+  "exportedAt": "2026-11-10T22:50:25.778Z",
+  "data": {
+    "core": {
+      "preferences": {
+        "hideCompletedChallenges": true,
+        "hideUnlockedAchievements": true,
+        "hideUnlockedImmortalAbilities": true,
+        "hideUnlockedInfinityUpgrades": true,
+        "hideUnlockedUpgrades": true
+      },
+      "resources": {
+        "joules": "29032897.748400405",
+        "joulesGainResidualTail": [
+          "-304e-12"
+        ],
+        "power": "0"
+      },
+      "runtime": {
+        "currentScaleElapsedSeconds": 62.70000000000062,
+        "lastSettlement": {
+          "at": 4819329.861975973,
+          "gains": {
+            "highMultiverseCoefficient": "0",
+            "immortalPower": "0",
+            "joules": "36925.45823988309",
+            "mana": "0",
+            "martialBody": "0",
+            "martialHeart": "0",
+            "martialQi": "0",
+            "martialSoul": "0",
+            "multiverseCoefficient": "0",
+            "nieForce": "0",
+            "power": "0",
+            "universeCoefficient": "0",
+            "xianForce": "0",
+            "yuanForce": "0"
+          },
+          "mainChanged": {
+            "highMultiverseCoefficient": false,
+            "immortalPower": false,
+            "joules": true,
+            "mana": false,
+            "martialBody": false,
+            "martialHeart": false,
+            "martialQi": false,
+            "martialSoul": false,
+            "multiverseCoefficient": false,
+            "nieForce": false,
+            "power": false,
+            "universeCoefficient": false,
+            "xianForce": false,
+            "yuanForce": false
+          },
+          "seconds": 0.1
+        },
+        "lastUpdateAt": 1794351025777,
+        "onlineCadenceRemaining": 0.1,
+        "randomState": 430678403,
+        "reincarnationElapsedSeconds": 62.70000000000062,
+        "timeLedger": {
+          "boundaryAt": 1794351025777,
+          "discardedClock": 5.873000000000001,
+          "discardedGame": 5.873000000000001,
+          "lastDiscard": {
+            "clock": 0.09,
+            "game": 0.09,
+            "reason": "online-overload"
+          },
+          "pendingContinuousTime": [
+            {
+              "source": "online",
+              "clock": 0.111,
+              "speed": 1,
+              "compensationEligible": false
+            }
+          ]
+        },
+        "totalElapsedSeconds": 4819329.961975972
+      }
+    },
+    "powerSystem": {},
+    "cultivation": {
+      "systems": {
+        "immortal": {
+          "progress": {
+            "explorationRewards": {
+              "version": 2,
+              "natural": {
+                "version": 1,
+                "requirement": "10",
+                "remaining": "10",
+                "carry": "0",
+                "residual": []
+              },
+              "seize": "0",
+              "levelResidual": []
+            }
+          }
+        }
+      }
+    },
+    "meta": {
+      "achievements": {
+        "ascendImmortal": true,
+        "aspireImmortality": true,
+        "beyondFractal": true,
+        "bodyIntegration": true,
+        "brick": true,
+        "daoFoundation": true,
+        "five": true,
+        "fiveMisfortunesThreeDeficiencies": true,
+        "goldenCore": true,
+        "goldenNature": true,
+        "googol": true,
+        "graham64": true,
+        "greatHeavenlyVenerable": true,
+        "greatLuo": true,
+        "humanRealmDominance": true,
+        "infantSpirit": true,
+        "infantTransformationImmortal": true,
+        "infiniteMultiverse": true,
+        "infinityPower": true,
+        "lightningFiveWhip": true,
+        "mahayana": true,
+        "martialDragon": true,
+        "martialEnergyLaw": true,
+        "martialFourPoles": true,
+        "martialGodBody": true,
+        "martialHarmony": true,
+        "martialImmortalPlatform": true,
+        "martialInnate": true,
+        "powerOne": true,
+        "qiPathComplete": true,
+        "refineTheVoid": true,
+        "scale10": true,
+        "scale11": true,
+        "scale12": true,
+        "scale13": true,
+        "scale14": true,
+        "scale2": true,
+        "scale3": true,
+        "scale4": true,
+        "scale5": true,
+        "scale6": true,
+        "scale7": true,
+        "scale8": true,
+        "scale9": true,
+        "seizeFoundation": true,
+        "selfSeveringSlash": true,
+        "seventhTree": true,
+        "thickEarth": true,
+        "threeDeficiencies": true,
+        "trainingUp": true,
+        "tree3": true,
+        "trueBrick": true,
+        "trueG1": true,
+        "trueGraham": true,
+        "trueScale10": true,
+        "trueScale11": true,
+        "trueScale12": true,
+        "trueScale13": true,
+        "trueScale14": true,
+        "trueScale2": true,
+        "trueScale3": true,
+        "trueScale4": true,
+        "trueScale5": true,
+        "trueScale6": true,
+        "trueScale7": true,
+        "trueScale8": true,
+        "trueScale9": true,
+        "trueTree3": true,
+        "universe": true,
+        "utmostPurity": true,
+        "yuan": true
+      },
+      "bigNumbers": {
+        "rankBasis": {
+          "version": 1,
+          "g": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 0
+          },
+          "tree": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 0,
+            "targetRank": 3,
+            "projectedTargetRequirement": "28800",
+            "projection": {
+              "version": 1,
+              "producer": "schema73-log14-a"
+            }
+          }
+        }
+      },
+      "highMultiverse": {
+        "highest": {
+          "coefficient": "16805.5625697127",
+          "coefficientResidual": [
+            "1256527795274591452740946e-36"
+          ],
+          "order": "6"
+        },
+        "order": "6",
+        "owner": "immortal"
+      },
+      "infinity": {
+        "discardedRunElapsed": 5.873000000000001,
+        "points": "846",
+        "purchaseLedger": [
+          {
+            "nodeId": "E1",
+            "pricePaid": "3",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "E2-2",
+            "pricePaid": "5",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "E3-2",
+            "pricePaid": "7",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "E4",
+            "pricePaid": "9",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B1-1",
+            "pricePaid": "1",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B1-2",
+            "pricePaid": "1",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B2",
+            "pricePaid": "2",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B3-1",
+            "pricePaid": "3",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B3-2",
+            "pricePaid": "3",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B4",
+            "pricePaid": "5",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B5-1",
+            "pricePaid": "8",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B5-2",
+            "pricePaid": "8",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B6",
+            "pricePaid": "32",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C1",
+            "pricePaid": "5",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D1-1",
+            "pricePaid": "1",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D1-2",
+            "pricePaid": "1",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D2-1",
+            "pricePaid": "2",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D2-2",
+            "pricePaid": "2",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D3",
+            "pricePaid": "5",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D4",
+            "pricePaid": "7",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D5",
+            "pricePaid": "12",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D6",
+            "pricePaid": "21",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D7-1",
+            "pricePaid": "24",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D7-2",
+            "pricePaid": "24",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C2",
+            "pricePaid": "10",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D7-3",
+            "pricePaid": "24",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D8",
+            "pricePaid": "30",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D9",
+            "pricePaid": "36",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D10",
+            "pricePaid": "42",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D11-1",
+            "pricePaid": "49",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D11-2",
+            "pricePaid": "49",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D11-3",
+            "pricePaid": "49",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C3",
+            "pricePaid": "50",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C4",
+            "pricePaid": "100",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C5",
+            "pricePaid": "500",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C6",
+            "pricePaid": "1500",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C7-1",
+            "pricePaid": "500",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C7-2",
+            "pricePaid": "500",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D12",
+            "pricePaid": "500",
+            "pricePaidResidual": []
+          }
+        ],
+        "ringChallengeActive": true,
+        "runElapsed": 62.70000000000062,
+        "totalPointsEarned": "7297",
+        "unlocked": true,
+        "upgrades": {
+          "B1-1": true,
+          "B1-2": true,
+          "B2": true,
+          "B3-1": true,
+          "B3-2": true,
+          "B4": true,
+          "B5-1": true,
+          "B5-2": true,
+          "B6": true,
+          "C1": true,
+          "C2": true,
+          "C3": true,
+          "C4": true,
+          "C5": true,
+          "C6": true,
+          "C7-1": true,
+          "C7-2": true,
+          "D1-1": true,
+          "D1-2": true,
+          "D10": true,
+          "D11-1": true,
+          "D11-2": true,
+          "D11-3": true,
+          "D12": true,
+          "D2-1": true,
+          "D2-2": true,
+          "D3": true,
+          "D4": true,
+          "D5": true,
+          "D6": true,
+          "D7-1": true,
+          "D7-2": true,
+          "D7-3": true,
+          "D8": true,
+          "D9": true,
+          "E1": true,
+          "E2-2": true,
+          "E3-2": true,
+          "E4": true
+        },
+        "upgradesUnlocked": true
+      },
+      "statistics": {
+        "amountTails": {
+          "currentRebirthHighestJ": [
+            "-304e-12"
+          ],
+          "currentRebirthTotalJ": [
+            "-304e-12"
+          ],
+          "lifetimeHighestJ": [
+            "-304e-12"
+          ],
+          "lifetimeTotalJ": [
+            "-304e-12"
+          ]
+        },
+        "currentRebirthHighestJ": "29032897.748400405",
+        "currentRebirthTotalJ": "29032897.748400405",
+        "lifetimeHighestJ": "29032897.748400405",
+        "lifetimeHighestPower": "3.0000000000000013e68",
+        "lifetimeHighestScaleIndex": 14,
+        "lifetimeTotalJ": "29032897.748400405",
+        "lifetimeTotalPower": "3.0000000000000013e68"
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+name: Deploy release website
+on:
+  push:
+    branches: [main]
+    paths:
+      - '发布版/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify release-only payload
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          root = Path('发布版')
+          build = (root / 'js/core/build-config.js').read_text(encoding='utf-8')
+          assert 'mode: "release"' in build
+          assert 'enableSpeedControls: false' in build
+          assert 'enableFormulaDetails: false' in build
+          for file in ['index.html', 'styles.css', 'js/ui/app.js']:
+              text = (root / file).read_text(encoding='utf-8')
+              for forbidden in ['debug-speed-button', 'formula-details-toggle', 'resource-debug-panel']:
+                  assert forbidden not in text, (file, forbidden)
+          latest = json.loads((root / 'latest.json').read_text(encoding='utf-8'))
+          assert '>v' + latest['version'] + '</small>' in (root / 'index.html').read_text(encoding='utf-8')
+          assert not (root / 'tests').exists()
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: '发布版'
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -4,7 +4,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=path.resolve(__dirname,'..'),manifest=JSON.parse(fs.readFileSync(path.join(root,'js/script-manifest.json'),'utf8'));
 const scripts=manifest.scripts.filter(p=>p.startsWith('js/')&&!p.startsWith('js/ui/')&&
-  !['js/vendor/qrcode-generator.js','js/simulation/offline-worker-bundle.js','js/simulation/offline-worker.js','js/simulation/worker-client.js','js/simulation/loop.js','js/simulation/online-candidate-worker.js','js/simulation/online-candidate-worker-bundle.js'].includes(p));
+  !['js/simulation/math-worker-bundle.js','js/simulation/math-worker.js','js/simulation/pure-math-work.js','js/vendor/qrcode-generator.js','js/simulation/offline-worker-bundle.js','js/simulation/offline-worker.js','js/simulation/worker-client.js','js/simulation/loop.js','js/simulation/online-candidate-worker.js','js/simulation/online-candidate-worker-bundle.js'].includes(p));
 for(const p of ['js/ui/format.js','js/simulation/worker-protocol.js','js/simulation/offline-headless.js','js/simulation/offline-worker-entry.js'])if(!scripts.includes(p))scripts.push(p);
 const source="'use strict'; self.window=self; self.document=Object.freeze({hidden:false});\n"+scripts.map(p=>'\n// '+p+'\n'+fs.readFileSync(path.join(root,p),'utf8')).join('\n');
 const hash=crypto.createHash('sha256').update(source).digest('hex');

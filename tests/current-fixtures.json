@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "id": "qi-offline",
+      "path": "tests/fixtures/player-reports/qi-offline-20261110.json",
+      "kind": "original-player-save",
+      "source": "WIS-存档-2026-11-10T00-58-17-070Z(1).json",
+      "sha256": "537aa9029d1919b2217e1e9d469b0bf37e6c3806ab920bd3ba4e037b3738461b",
+      "bytes": 56291,
+      "notes": "Byte-identical retained original; tests may alter private in-memory clock only."
+    },
+    {
+      "id": "ring-training",
+      "path": "tests/fixtures/player-reports/ring-training-20261110.json",
+      "kind": "original-player-save",
+      "source": "WIS-存档-2026-11-10T22-50-25-779Z.json",
+      "sha256": "63ebee868f3ae2823282c7b2ffbacef38846ead3eed917d89b50b386e0041dd1",
+      "bytes": 12701,
+      "notes": "Byte-identical retained original; tests may alter private in-memory clock only."
+    },
+    {
+      "id": "live-training",
+      "path": "tests/fixtures/player-reports/live-training-20261111.json",
+      "kind": "original-player-save",
+      "source": "WIS-存档-2026-11-11T01-17-11-990Z.json",
+      "sha256": "3f24329c7506d8026f5409038dc6f4ae5d9031dee12085d14e29a9f189d856d1",
+      "bytes": 24638,
+      "notes": "Byte-identical retained original; tests may alter private in-memory clock only."
+    },
+    {
+      "id": "tree-current",
+      "path": "tests/fixtures/tree-income-resume-save.json",
+      "kind": "synthetic-current-contract",
+      "sha256": "32d1091c1e947879a337cde298f6c43aa9a37a658f207902338a3c5756508a54",
+      "bytes": 4405
+    },
+    {
+      "id": "tree-legacy",
+      "path": "tests/fixtures/tree-income-resume-legacy-save.json",
+      "kind": "synthetic-legacy-contract",
+      "sha256": "fdca60b71cfa27108c6d7c8c7ef060dadc5487ad9c33e1db93d6522f6e0f3127",
+      "bytes": 7166
+    },
+    {
+      "id": "natural-step31",
+      "path": "tests/fixtures/natural-step31-mandatory.json",
+      "kind": "retained-generated-reproduction",
+      "source": "closed-form-batch-20261104/natural-step31-mandatory.json",
+      "sha256": "c4fd84df1e118d767ec6cbae95c743f1ed7a73246596fc7d64e516751b749b5b",
+      "bytes": 284
+    },
+    {
+      "id": "breathing-fraction-capacity",
+      "kind": "synthetic repeated earn/spend failure, not a player original",
+      "path": "tests/fixtures/breathing-fraction-capacity-20261111.json",
+      "sha256": "38f8dee115992cc4bca9be8f811111dbc3263b53ee44c9ec89806539d6c618f7"
+    },
+    {
+      "id": "high-training",
+      "path": "tests/fixtures/player-reports/high-training-20261111.json",
+      "kind": "original-player-save",
+      "source": "WIS-存档-2026-11-11T07-53-58-701Z.json",
+      "sha256": "39880c373c771c2bccd6507616f7d6840d954a5d4304879d811e85574748d41b",
+      "bytes": 57789,
+      "notes": "Byte-identical reported formula coordinate capacity save."
+    }
+  ],
+  "unavailableHistoricalOriginals": [
+    "WIS-original-save-1793284232246.json",
+    "WIS-original-save-1794046107463.json",
+    "WIS-original-save-1794026411791.json"
+  ],
+  "policy": "Required fixtures fail preflight when missing or changed. Retained originals are not replacements for unavailable historical originals."
+}

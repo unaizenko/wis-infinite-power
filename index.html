@@ -133,7 +133,7 @@
   }, 500);
 }(window, document));
     </script>
-    <link rel="stylesheet" href="styles.css?v=dev-0.2.1.4-20261111-release-r1" />
+    <link rel="stylesheet" href="styles.css?v=dev-0.2.2.0-20261112-release-r1" />
   </head>
   <body>
     <aside id="boot-status-panel" class="boot-status-panel" role="status" aria-live="polite">
@@ -159,7 +159,7 @@
           <strong>WIS</strong>
           <span>无限战力系统</span>
           <span class="version-actions">
-            <small id="game-version" class="game-version">v0.2.1.4</small>
+            <small id="game-version" class="game-version">v0.2.2.0</small>
             <button id="android-app-open" class="app-download-link" type="button" aria-haspopup="dialog" hidden>下载安卓 App</button>
           </span>
         </div>
@@ -288,19 +288,19 @@
               <article class="item-row">
                 <div class="item-content">
                   <h2>锻炼</h2>
-                  <p>消耗全部 J 获得战力。<br>战力的上限在哪里呢？</p>
+                  <p>消耗全部 J，提升战力。</p><p class="flavor-text">战力的上限在哪里呢？</p>
                 </div>
                 <div class="action-control">
                   <span id="conversion-preview">至少需要 10 J</span>
                   <small id="next-power-j">下一战力所需：10 J</small>
-                  <button id="train-button" class="primary-button" type="button" disabled>锻炼</button>
+                  <button id="train-button" class="primary-button" type="button" aria-describedby="training-availability" disabled>锻炼</button><small id="training-availability" role="status">至少需要 10 J。</small>
                 </div>
               </article>
 
               <article class="item-row" id="running-action" hidden>
                 <div class="item-content">
                   <h2>健身</h2>
-                  <p>每级提供 +2 J/秒。<br>健身可能变强，但健身变强不太可能。</p>
+                  <p>持续获得 J，升级可提高产量。</p><p class="flavor-text">健身可能变强，但健身变强不太可能。</p>
                 </div>
                 <div class="purchase-control">
                   <span id="running-level">当前：0级</span>
@@ -338,7 +338,7 @@
               <article class="item-row" id="breathing-action" hidden>
                 <div class="item-content">
                   <h2>吐纳</h2>
-                  <p>将全部 J转化为法力。</p>
+                  <p>消耗全部 J，获得法力。</p>
                 </div>
                 <div class="action-control">
                   <span id="breathing-preview">至少需要 3,000 J</span>
@@ -1105,7 +1105,7 @@
       <p id="save-export-status" role="status" aria-live="polite"></p>
       <div class="save-export-actions">
         <button id="save-export-file" type="button">保存到文件</button>
-        <button id="save-export-generic" type="button" class="secondary-button">通用文件类型保存</button>
+        <button id="save-export-generic" type="button" class="secondary-button">换一种保存方式</button>
         <button id="save-export-share" type="button" class="secondary-button">分享存档</button>
         <button id="save-export-view" type="button" class="secondary-button">查看/复制存档文本</button>
       </div>
@@ -1127,7 +1127,7 @@
 
       <div class="settings-list">
         <section class="settings-row">
-          <div><h3>流畅结算</h3><p>仅在线积压过多时舍弃超额在线时间，限时挑战仍计时。离线收益按原规则结算；计算慢会继续，失败保留剩余时间。</p><p id="settlement-limit-status" role="status"></p></div>
+          <div><h3>在线运行</h3><p>设备来不及计算时，会跳过部分在线时长，这部分时长没有收益；限时挑战仍继续计时。离线收益不受此规则影响。</p><p id="settlement-limit-status" role="status"></p></div>
         </section>
         <section class="settings-row">
           <div>
@@ -1141,10 +1141,13 @@
         </section>
 
         <section class="settings-row">
-          <div><h3>自动化管理</h3><p>离线资源与宝物进度按离开时的速率结算，宝物正常获取，新增宝物的效果在返回后生效。离线不执行自动购买、升级、行动及突破。</p></div>
+          <div><h3>自动化管理</h3><p>设置在线时自动进行的购买、升级、行动和突破。</p></div>
           <button id="open-automation-manager" class="secondary-button" type="button">打开</button>
         </section>
 
+        <section class="settings-row">
+          <div><h3>离线收益</h3><p>资源和宝物进度按离开时的速率计算。离线期间获得的宝物会保留，其加成在返回后生效。离线不执行自动购买、升级、行动或突破。</p><p>计算较慢时会继续处理；如果失败，会保留尚未结算的时间，供重试。</p></div>
+        </section>
         <section class="settings-row">
           <div><h3>自动关闭离线弹窗</h3><p>开启后，结算完成直接返回游戏，不显示收益汇总小窗；关闭后保留汇总，等待确认。暂停或异常时仍显示窗口。</p></div>
           <button id="auto-close-offline-toggle" class="secondary-button settings-toggle" type="button" role="switch" aria-label="自动关闭离线弹窗" aria-checked="true">已开启</button>
@@ -1273,102 +1276,106 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" popover="manual" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/vendor/break_eternity.min.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/namespace.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/bignum.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/closed-form-batch.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/stable-product-quotient.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/finite-progress.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/signed-ledger.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/rank.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/rank-math.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/rank-certified-math.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/rank-projection.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/rank-exact.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/rank-g-cost.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/rank-budget.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/rank-basis.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/rank-settlement.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/amount-products.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/amount-ledger.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/amount.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/amount-formulas.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/treasure-rules.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/infinity-config.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/infinity.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/martial-config.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/config.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/big-numbers.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/closed-rank-cost.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/closed-rank-settlement.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/registry.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/formulas.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/penalties.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/integration.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/runtime.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/xiuzhen.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/probability.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/compensation.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/martial-amount.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/martial.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/high-multiverse.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/amount-migration.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-  <script src="js/core/state.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/save.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/resources.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/resources.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/big-number-resources.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/effects.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/sources.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/reset.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/power/scale-logic.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/power/scale.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/immortal-logic.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/immortal.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/martial-system.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/achievements.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/fast-forward.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/treasure-ledger.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/treasures.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/closed-treasures.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/exploration-progress.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/cultivation/closed-natural.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/core/closed-batch-migration.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/meta/challenges.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/automation.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/profiler.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/resource-groups.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/fixed-sources.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/predictor-groups.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/strong-feedback-checkpoint.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/legacy-settlement-checkpoints.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/checkpoint-strategy.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/fixed-segment.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/settlement-limit.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-  <script src="js/simulation/discard-effects.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-  <script src="js/simulation/step.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/offline.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/worker-protocol.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/worker-client.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/offline-worker-bundle.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/online-candidate-worker-bundle.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/online-candidate-worker.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/offline-worker.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/simulation/loop.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/source-preview.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/format.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/cards.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/big-numbers.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/xiuzhen.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/treasures.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/infinity.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/martial.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/dialog.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/vendor/qrcode-generator.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/app-distribution.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/native-platform.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="js/ui/app.js?v=dev-0.2.1.4-20261111-release-r1"></script>
-    <script src="game.js?v=dev-0.2.1.4-20261111-release-r1"></script>
+    <script src="js/core/build-config.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/vendor/break_eternity.min.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/namespace.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/bignum.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/closed-form-batch.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/stable-product-quotient.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/finite-progress.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/signed-ledger.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/rank.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/rank-math.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/rank-certified-math.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/rank-projection.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/rank-exact.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/rank-g-cost.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/rank-budget.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/rank-basis.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/rank-settlement.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/amount-products.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/amount-ledger.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/amount.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/amount-formulas.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/treasure-rules.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/infinity-config.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/infinity.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/martial-config.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/config.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/big-numbers.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/closed-rank-cost.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/closed-rank-settlement.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/registry.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/formulas.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/penalties.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/integration.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/runtime.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/xiuzhen.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/probability.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/compensation.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/martial-amount.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/martial.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/high-multiverse.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/amount-migration.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+  <script src="js/core/state.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/save.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/resources.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/resources.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/big-number-resources.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/effects.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/sources.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/reset.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/power/scale-logic.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/power/scale.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/immortal-logic.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/immortal.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/martial-system.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/achievements.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/fast-forward.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/treasure-ledger.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/treasures.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/closed-treasures.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/exploration-progress.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/cultivation/closed-natural.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/core/closed-batch-migration.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/meta/challenges.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/automation.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/profiler.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/resource-groups.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/fixed-sources.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/predictor-groups.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/strong-feedback-checkpoint.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/legacy-settlement-checkpoints.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/checkpoint-strategy.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/fixed-segment.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/settlement-limit.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+  <script src="js/simulation/discard-effects.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+  <script src="js/simulation/step.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/offline.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/worker-protocol.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/worker-client.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/offline-worker-bundle.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/online-candidate-worker-bundle.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/online-candidate-worker.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/offline-worker.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/loop.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/math-worker-bundle.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/math-worker.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/simulation/pure-math-work.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/source-preview.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/format.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/cards.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/big-numbers.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/xiuzhen.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/treasures.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/infinity.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/martial.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/dialog.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/vendor/qrcode-generator.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/app-distribution.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/native-platform.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/action-view.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="js/ui/app.js?v=dev-0.2.2.0-20261112-release-r1"></script>
+    <script src="game.js?v=dev-0.2.2.0-20261112-release-r1"></script>
   </body>
 </html>

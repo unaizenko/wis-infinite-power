@@ -1,0 +1,6 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+function load(){const calls=[],w={WIS:{UI:{}},Capacitor:{isNativePlatform:()=>true,Plugins:{WisSaveExport:{saveText:async options=>{calls.push(options);return {status:'saved',bytes:Buffer.byteLength(options.text),sha256:'a'.repeat(64)};}}}}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../js/ui/native-platform.js'),'utf8'),{window:w});return {api:w.WIS.UI.NativePlatform,calls};}
+test('ordinary save defaults to validated save kind',async()=>{const {api,calls}=load();await api.saveText('{}','save.json');assert.equal(calls[0].kind,'save');});
+test('raw kind and malformed Unicode text reach native unchanged for both MIME choices',async()=>{const {api,calls}=load(),raw='{坏档\r\n😀';for(const generic of [false,true]){await api.saveText(raw,'original.json',generic,'raw');assert.equal(calls.at(-1).kind,'raw');assert.equal(calls.at(-1).generic,generic);assert.equal(calls.at(-1).text,raw);}});
+test('unknown export kind is rejected before entering the native picker',async()=>{const {api,calls}=load();await assert.rejects(api.saveText('{}','a.json',false,'unsafe'),/类型|kind/);assert.equal(calls.length,0);await api.saveText('{}','a.json');assert.equal(calls.length,1);});

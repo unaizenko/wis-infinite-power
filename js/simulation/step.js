@@ -662,7 +662,7 @@
         const original=getState(), roots=['core','powerSystem','cultivation','meta'].map(k=>original[k]),inputKey=WIS.Core.Amount?.enabled()?null:onlineStateKey(original);
         const inputCurrent=WIS.Core.Amount?.enabled()?quantityInputCheck(original):()=>onlineStateKey(original)===inputKey;
         const current=()=>getState()===original&&inputCurrent();
-        let candidate=S.cloneForSimulation(original), closed=false, workMs=0, remaining=seconds;
+        let candidate=S.cloneForSimulation(original), closed=false, workMs=0, remaining=seconds, progress=0;
         const Budget=WIS.Core.RankBudget?.Budget,budgetSession=WIS.Core.Config.saveVersion>=74&&Budget?Budget.createSession({isCurrent:()=>!closed}):null;
         const withBudget=fn=>budgetSession?Budget.withSession(budgetSession,fn):fn();
         // Recovery bridges share the same clock cursor as Loop's online part.
@@ -713,7 +713,7 @@
             const amounts=Object.fromEntries(fixedKeys().map(k=>[k,WIS.Simulation.ResourceGroups.read(candidate,k)]));
             const preparation=prepareCadence(dt,defer,boundary,covered);activePreparation=preparation;
             while(!C.withFactor(covered?2:1,()=>preparation.advance(sliceDeadline)).done)yield;
-            const unit=preparation.result();activePreparation=null;yield;
+            const unit=preparation.result();activePreparation=null;progress++;yield;
             // Only automation needs to retain the pre-income domain. With no
             // eligible candidates, all remaining inputs are already captured
             // values, so mutate the private outer branch without proxy overhead.
@@ -723,7 +723,7 @@
             const powerPeak={};
             const iterator=F.commitParts(candidate,unit,{projection:true,powerPeak,rewardDeadline:()=>sliceDeadline,...(WIS.Core.Amount?.enabled()?{privateResources:callback=>WIS.Core.Resources.withPrivateCandidate(candidate,callback)}:{})});activeCommit=iterator;let part;
             do {part=C.withFactor(covered?2:1,()=>iterator.next());if(!part.done)yield;}while(!part.done);
-            activeCommit=null;const value=part.value;
+            activeCommit=null;progress++;const value=part.value;
             projectStepTimes(candidate,dt);
             WIS.Core.Registries.getActivePower(candidate)?.afterStep?.(candidate,dt,powerPeak);
             updateLifetimeStatistics();recordCurrentAchievements();WIS.Meta.BigNumbers?.syncUnlock(candidate);checkActiveChallengeCompletion();
@@ -766,19 +766,20 @@
           sliceDeadline=deadline;let next;
           
           do {
-            const before=getState(),liveRates={...WIS.tmp.rates},tick=WIS.tmp.tick,liveTransient=transients(),began=monotonicNow();
+            const before=getState(),liveRates={...WIS.tmp.rates},tick=WIS.tmp.tick,liveTransient=transients(),began=monotonicNow(),proofBefore=WIS.Core.CertifiedRankMath.progressVersion();
             try{R.setState(candidate);restoreTransient(transient);WIS.tmp.tick=candidateTick;
               next=R.withMathPolicy(offlineSource?R.MathPolicy.OFFLINE_APPROX:R.MathPolicy.ONLINE_EXACT,()=>R.withProjection(()=>R.withOfflineExecution(()=>R.withRandomSource(()=>{
                 let v=(candidate.core.runtime.randomState>>>0)||0x6d2b79f5;v^=v<<13;v^=v>>>17;v^=v<<5;candidate.core.runtime.randomState=v>>>0;return (v>>>0)/4294967296;
               },()=>E.withIsolatedState(candidate,()=>withBudget(()=>iterator.next()))))));
               transient=transients();candidateTick=WIS.tmp.tick;rates={...WIS.tmp.rates};
             }catch(error){closeWork();throw error;}finally{restoreTransient(liveTransient);R.setState(before);WIS.tmp.tick=tick;E.invalidate();Object.assign(WIS.tmp.rates,liveRates);}
-            const cost=monotonicNow()-began;workMs+=cost;onlineMetrics.workMs+=cost;onlineMetrics.maxWorkMs=Math.max(onlineMetrics.maxWorkMs,cost);
+            progress+=WIS.Core.CertifiedRankMath.progressVersion()-proofBefore;
+             const cost=monotonicNow()-began;workMs+=cost;onlineMetrics.workMs+=cost;onlineMetrics.maxWorkMs=Math.max(onlineMetrics.maxWorkMs,cost);
             if(next.done){closed=true;budgetSession?.close();const token=Object.freeze({kind:'online-segment-v1',seconds});
               onlinePrepared.set(token,{candidate,roots,result,rates,candidateTick,transient,workMs,offlineSource,current,transferInput:exportInput});return {done:true,token};}
           }while(monotonicNow()<deadline);
           return {done:false};
-        },valid:()=>!closed&&current(),close:closeWork};
+        },progress:()=>progress,valid:()=>!closed&&current(),close:closeWork};
       }
       const fixedKeys=()=>WIS.Simulation.ResourceGroups.keys;
       

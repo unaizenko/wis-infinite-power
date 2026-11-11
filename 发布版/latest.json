@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.1.4",
-  "versionCode": 20104,
+  "version": "0.2.2.0",
+  "versionCode": 20200,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.4/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.2.0/wis.apk",
     "mirror": null,
-    "sha256": "79b3d046c130225fa1490800a62bdddd20640f5386036217432d1f104863903b",
-    "sizeBytes": 6461289
+    "sha256": "4ef6b84977223b0a49db34b19bb928f31abf1491f3fd93a69aa729d9af92be9e",
+    "sizeBytes": 6490409
   },
-  "notes": "修复正常在线锻炼、吐纳预览反复计算；保留分段进度并优化锻炼反算，保持收益精度与存档兼容。",
-  "publishedAt": "2026-11-11T03:05:48Z"
+  "notes": "优化重型计算与顶部收益显示，修复恢复和存档保护，改善手机布局与无限强化详情；特定数值边界仍可能失败。",
+  "publishedAt": "2026-11-11T17:44:04Z"
 }

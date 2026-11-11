@@ -78,6 +78,8 @@
     if(!hadConfirmedStartup)setStateDirect(loadedState);
   };
   let renderPending = false;
+  let queuedRender = null;
+  let queuedRenderForce = false;
   let lastRenderAt = 0;
   let lastUpgradeCostSortSignature = "";
   let lastCultivationCostSortSignature = "";
@@ -221,9 +223,30 @@
     renderPending = true;
   }
 
+  // Publish from the latest committed state in a separate host task. The loop
+  // and an asynchronous action completion can request the same publication.
+  function scheduleRender(now = Date.now(), { force = false } = {}) {
+    if (!renderPending && !force) return false;
+    queuedRenderForce ||= force;
+    if (queuedRender !== null) return true;
+    const handle = window.setTimeout(() => {
+      if (queuedRender !== handle) return;
+      queuedRender = null;
+      const urgent = queuedRenderForce;
+      queuedRenderForce = false;
+      if (document.hidden) return; // Keep dirty state for the foreground.
+      flushRender(Date.now(), { force: urgent });
+    }, 0);
+    queuedRender = handle;
+    return true;
+  }
+
   function flushRender(now = Date.now(), { force = false } = {}) {
     if (!renderPending && !force) return false;
     if (!force && now - lastRenderAt < RENDER_INTERVAL_MS) return false;
+    if (queuedRender !== null) window.clearTimeout(queuedRender);
+    queuedRender = null;
+    queuedRenderForce = false;
     render();
     renderPending = false;
     lastRenderAt = now;
@@ -420,6 +443,7 @@
     achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
     challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt,
     previewOwner,
+    getCommittedRates:()=>simulationLoop?.getCommittedRates(),
     onNativeAppState: active => simulationLoop?.setNativeAppActive(active),
     captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0,
     requestDeferredAction:job=>simulationLoop?.requestDeferredAction(job),
@@ -522,6 +546,7 @@
   const onlineCandidateExecutor=WIS.Simulation.OnlineCandidateWorker?.create({step:stepSimulation});
   simulationLoop = WIS.Simulation.Loop.create({
     getState: () => state,
+    rateIdentity:()=>[previewOwner(),state.powerSystem.active,state.cultivation.active,state.activeChallenge],
     advanceGameStep: stepSimulation.advanceGameStep,
     prepareOnlineWork: onlineCandidateExecutor?.prepareOnlineWork || stepSimulation.prepareOnlineWork,
     onlineStateKey: stepSimulation.onlineStateKey,
@@ -535,7 +560,7 @@
       return true;
     },
     onFirstOnlineSettlement: () => UI.onFirstOnlineSettlement?.(),
-    onOnlineSettlementError: error => WIS.Core.Runtime.call('showNotice','自动结算已停止：'+(error?.message||'计算未能完成')+'。已完成收益保留，可调整玩法后重试或在设置中导出存档。'),
+    onOnlineSettlementError: error => error?.code==='online-candidate-timeout'?WIS.Core.Runtime.call('showNotice','在线计算暂时无进展，已保留完成收益，稍后自动重试。'):WIS.Core.Runtime.call('showNotice','自动结算已停止：'+(error?.message||'计算未能完成')+'。已完成收益保留，可调整玩法后重试或在设置中导出存档。'),
     invalidateDeferredQi: stepSimulation.invalidateDeferredQi,
     hasDeferredQi: stepSimulation.hasDeferredQi,
     beginTransaction: stepSimulation.beginTransaction,
@@ -544,7 +569,9 @@
     achievementStates,
     notifyNewAchievements,
     requestRender,
+    requestGlobalRender() { markGlobalDirty(); renderPending = true; },
     flushRender,
+    scheduleRender,
     saveState,
     effectiveDevSpeed: () => UI.effectiveDevSpeed(),
     isInitialLoadComplete: () => initialLoadComplete,
@@ -569,6 +596,10 @@
     cancelDeferredAction:()=>simulationLoop.cancelDeferredAction(),
     beforePlayerAction:()=>simulationLoop.beforePlayerAction(),
     render: requestRender,
+    renderAfterAction: (pageName) => {
+      requestRender(pageName);
+      scheduleRender(Date.now(), { force: true });
+    },
     renderImmediately: (pageName) => {
       requestRender(pageName);
       flushRender(Date.now(), { force: true });
@@ -653,10 +684,10 @@
   initialLoadComplete=true;
   if(document.hidden)simulationLoop.prepareSave({closing:true});
   ensureAdvancedRealmAbilityGroups();
-  switchPage("actions");
+  switchPage("actions", { deferRender: true });
   markCostGroupsDirty();
   requestRender();
-  flushRender(Date.now(),{force:true});
+  scheduleRender(Date.now(),{force:true});
   BOOT.ready({mode:WIS.Core.Save.sessionPolicy().mode});
   simulationLoop.start();
 
@@ -674,7 +705,7 @@
   simulationLoop.setLastTickAt(Date.now());
   markCostGroupsDirty();
   requestRender();
-  flushRender(Date.now(),{force:true});
+  scheduleRender(Date.now());
   try {saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
   if(!offlineSimulation.isCatchUpPaused()&&!WIS.Core.Save.getLoadError())notifyNewAchievements();
   if(initialOfflineReport&&state.autoCloseOfflineDialogEnabled===false)showNotice(initialOfflineReport,6000);

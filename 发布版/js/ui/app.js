@@ -8,7 +8,11 @@
   }
 
   function globalRateText(value,status,format,relativeHint = "") {
-    return status?.clockSuspended ? "（离线结算中）" : `（+${format(value)}/秒${relativeHint ? ` · ${relativeHint}` : ""}）`;
+    if(status?.phase === "paused")return "（结算暂停）";
+    if(status?.clockSuspended)return "（离线结算中）";
+    if(status?.rateStopped)return "（自动结算暂停）";
+    if(value == null)return "（收益更新中…）";
+    return `（${status?.rateStale ? "上次 " : ""}+${format(value)}/秒${relativeHint ? ` · ${relativeHint}` : ""}）`;
   }
 
   // Presentation-only, bounded to the six displayed resources by the caller.
@@ -552,7 +556,14 @@
     dialog?.classList.remove("offline-completed-presentation");
   }
 
+  function canChangeRecovery() {
+    if (!importTransaction && !importSave.pending) return true;
+    showNotice("正在导入，请等待当前操作完成后再修改结算或存档。", 4000);
+    return false;
+  }
+
   async function abandonOfflineProgress() {
+    if (!canChangeRecovery()) return;
     const current = getCatchUpStatus();
     // awaitingStart must be abandonable too, and abandoning it may not run a
     // single offline step first: abandonCatchUp only discards debt.
@@ -938,6 +949,10 @@
     try { showNotice(message,6000); } catch(error) { WIS.Core.Save.diagnose("notice",error); }
   }
 
+  function canChangePreferences() {
+    return !importTransaction && context.canPerformSavedAction?.() !== false;
+  }
+
   function beforePlayerAction() {
     return (WIS.Game?.beforePlayerAction ? WIS.Game.beforePlayerAction() : runtime.call("beforePlayerAction")) !== false;
   }
@@ -948,8 +963,8 @@
     const ledger = state.core?.runtime?.timeLedger || {};
     const seconds = value => Number.isFinite(value) ? Math.max(0, value).toFixed(2) : "0.00";
     node.textContent = (status?.stopped ? "自动结算已停止，可调整玩法后重试；可导出存档。 " : "") +
-      (status?.pendingDiscard || ledger.pendingDiscard ? "正在确认时间舍弃记录。 " : "") +
-      `累计舍弃现实时间 ${seconds(ledger.discardedClock)} 秒；游戏时间 ${seconds(ledger.discardedGame)} 秒。` +
+      (status?.pendingDiscard || ledger.pendingDiscard ? "正在保存本次在线舍弃记录。 " : "") +
+      `在线累计已舍弃：现实时间 ${seconds(ledger.discardedClock)} 秒；游戏时间 ${seconds(ledger.discardedGame)} 秒。` +
       (ledger.lastDiscard ? ` 最近一次舍弃现实时间 ${seconds(ledger.lastDiscard.clock)} 秒、游戏时间 ${seconds(ledger.lastDiscard.game)} 秒。` : "");
   }
   function performSavedAction(action, update, afterCommit) {
@@ -999,9 +1014,9 @@
 
   let exportSnapshot = null;
   let exportOperationBusy = false;
-  function openSaveExport(text, filename) {
+  function openSaveExport(text, filename, kind = "save") {
     if (exportOperationBusy) { WIS.UI.Dialog.open(byId("save-export-dialog")); return; }
-    exportSnapshot = {text, filename};
+    exportSnapshot = {text, filename, kind};
     byId("save-export-text").value = text;
     byId("save-export-text-panel").hidden = true;
     byId("save-export-status").textContent = "已固定当前备份内容。请选择保存、分享或查看完整文本。";
@@ -1015,7 +1030,7 @@
   }
   async function performSaveExport(kind) {
     if (!exportSnapshot || exportOperationBusy) return;
-    const {text, filename} = exportSnapshot;
+    const {text, filename, kind: exportKind} = exportSnapshot;
     const status = byId("save-export-status");
     exportOperationBusy = true;
     try {
@@ -1024,7 +1039,7 @@
         await WIS.UI.NativePlatform.exportText(text, filename);
         status.textContent = "已打开分享，请自行确认接收结果；这不表示文件已保存。";
       } else if (WIS.UI.NativePlatform?.isNative()) {
-        const result = await WIS.UI.NativePlatform.saveText(text, filename, kind === "generic");
+        const result = await WIS.UI.NativePlatform.saveText(text, filename, kind === "generic", exportKind);
         status.textContent = result.status === "cancelled" ? "已取消保存，仍可重试或复制文本。" : "文件已保存并读回校验通过。";
       } else {
         const url = URL.createObjectURL(new Blob([text], {type:"application/json"}));
@@ -1174,6 +1189,7 @@
     traceImportLifecycle("read-start", { token: transaction.token });
     try {
       const text = await readSaveFileText(file);
+      if (transaction !== importTransaction || transaction.committed) return;
       timer.step("read");
       stage = "parse";
       let parsed;
@@ -1184,13 +1200,16 @@
       stage = "prepare";
       const work=WIS.Core.Save.prepareWork(parsed,{isCurrent:()=>importTransaction===transaction&&!transaction.committed});
       let prepared;
-      try{while(!work.advance({maximumOperations:512,deadline:performance.now()+3}).done)await new Promise(resolve=>window.setTimeout(resolve,0));prepared=work.result();}
+      try{while(!work.advance({maximumOperations:512,deadline:performance.now()+3}).done){
+        await new Promise(resolve=>window.setTimeout(resolve,0));
+        if(transaction!==importTransaction||transaction.committed)return;
+      }prepared=work.result();}
       finally{work.cancel();}
       timer.step("prepare");
       stage = "install";
       // Validation and migration have no access to the current task queue.
       // Backup must succeed before switching either progress or offline debt.
-      WIS.Core.Save.backup(previous.state, { offlineRecoveryOverride: previous.recovery, capturedAt: transaction.startedAt });
+      WIS.Core.Save.backup(previous.state, { offlineRecoveryOverride: previous.recovery, capturedAt: transaction.startedAt, preserveExisting: file?.preserveBackup === true });
       switched = true;
       timer.step("backup");
       offlineCompletedSummary = null;
@@ -1258,6 +1277,7 @@
       timer.step("present");
       timer.finish();
     } catch (error) {
+      if (!installed && (transaction !== importTransaction || transaction.committed)) return;
       const detail = error?.message || error;
       timer.step(stage);
       timer.finish();
@@ -1275,7 +1295,7 @@
         else showNotice(`导入失败，存档格式或内容无效，原进度未改变：${detail}`, 6000);
       }
     } finally {
-      importSave.pending = false;
+      if (!importTransaction || importTransaction === transaction) importSave.pending = false;
       if (importTransaction === transaction && !transaction.committed)
         rollbackUIImportTransaction(transaction, "import-finalize");
       handleOfflineCatchUpStatus(getCatchUpStatus());
@@ -1283,6 +1303,8 @@
   }
 
   function resetGame() {
+    if (importTransaction || importSave.pending) { showNotice("正在导入，请等待当前操作完成后再重置。", 4000); return false; }
+    if (context.canPerformSavedAction?.() === false) return false;
     if (!window.confirm("确定要清空全部游戏进度和个性化设置吗？")) return;
     offlineCompletedSummary = null;
     cancelCatchUp();
@@ -1869,7 +1891,7 @@
 
   function renderResourceDebugPanel() { return false; }
 
-  function renderAdditionalResources() {
+  function renderAdditionalResources(published=context.getCommittedRates?.()) {
     const M = WIS.Meta.BigNumbers, X = WIS.Cultivation.Xiuzhen;
     const big = M.get(state), requirements = M.requirements(state);
     const bigVisible = big.unlocked || (requirements.cosmic && requirements.achievement);
@@ -1891,7 +1913,6 @@
     // may retain blocking presentation, so remaining debt is also required.
     const recovering=status.pendingGameSeconds>0 && (status.presentation==="blocking" || status.offlinePendingGameSeconds>0);
     const paused = status.phase === "paused";
-    const settlement = state.core.runtime.lastSettlement;
     const H=WIS.Meta.HighMultiverse, highestUniverse=H.highestVisible(state);
     for (const key of [...X.resourceKeys,H.key]) {
       const visible = key===H.key ? highestUniverse===key : active && (!["universeCoefficient","multiverseCoefficient"].includes(key) || highestUniverse===key)
@@ -1901,16 +1922,11 @@
         const stock=key===H.key?H.amount(state):X.amount(state,key);
         if(key===H.key)setTextIfChanged(byId("highMultiverseCoefficient-label"),"高阶多元（"+H.symbol(H.get(state).order)+"）");
         setTextIfChanged(byId(key), format(stock));
-        // All registered resource rates are published by the existing committed
-        // step. Presentation must not run another Xiuzhen/Effects evaluation.
-        const rate = WIS.tmp.rates[key + "PerSecond"] ??
-          (settlement?.seconds > 0 && settlement.gains?.[key] != null
-            ? divBN(settlement.gains[key], settlement.seconds) : null);
-        if (paused || status.clockSuspended || recovering || document.hidden || rate == null) byId(key + "-rate").title = "";
-        setTextIfChanged(byId(key + "-rate"), paused ? "结算暂停"
-          : status.clockSuspended || recovering ? "（离线结算中）"
-          : document.hidden ? "当前产出暂不展示"
-          : rate == null ? "尚无结算速率" : committedRateText(key, stock, rate, status));
+        const rate = published?.rates?.[key + "PerSecond"] ?? null;
+        if (document.hidden) byId(key + "-rate").title = "";
+        setTextIfChanged(byId(key + "-rate"), document.hidden ? "当前产出暂不展示"
+          : committedRateText(key, stock, rate, {...status,clockSuspended:status.clockSuspended||recovering,
+            rateStale:published?.stale,rateStopped:published?.stopped}));
       }
     }
     setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys.filter(key => !["universeCoefficient","multiverseCoefficient"].includes(key))]
@@ -1920,20 +1936,25 @@
   const relativeGrowthHint = createRelativeGrowthHintCache(format);
   function committedRateText(key, current, rate, status) {
     const element = byId(key + "-rate");
-    const rateText = status?.clockSuspended ? "" : format(rate);
-    const hint = status?.clockSuspended ? "" : relativeGrowthHint(key, current, rate, byId(key).textContent, rateText);
-    const title = hint ? "相对速率＝最近一次正式结算速率 / 当前库存；后续速率会随状态重新计算，不代表1秒后的库存倍率。" : "";
+    const unavailable=status?.clockSuspended||status?.phase==="paused"||status?.rateStopped||rate==null;
+    let rateText = unavailable ? "" : format(rate);
+    if(!unavailable&&gtBN(rate,ZERO)&&rateText==="0")rateText=WIS.UI.Format.scientificMultiplier(rate);
+    const hint = unavailable ? "" : relativeGrowthHint(key, current, rate, byId(key).textContent, rateText);
+    const title = unavailable ? "" : "最近一次已完成在线结算的自动产出，按游戏秒计算；不含手动操作，计算慢或舍弃在线时间时，现实每秒实际获得可能更少。"
+      + (status?.rateStale ? "当前尚无更新结果，显示上次速率。" : "")
+      + (hint ? "相对速率＝该速率 / 当前库存，不代表1秒后的库存倍率。" : "");
     if (element.title !== title) element.title = title;
     return globalRateText(rate, status, () => rateText, hint);
   }
 
   function renderGlobal() {
     renderOnlineCompensation();
-    const rateStatus=getCatchUpStatus();
-    const gain = WIS.tmp.rates.joulesPerSecond;
-    const passivePowerGain = WIS.tmp.rates.powerPerSecond;
-    const passiveManaGain = WIS.tmp.rates.manaPerSecond;
-    const passiveImmortalPowerGain = WIS.tmp.rates.immortalPowerPerSecond;
+    const published=context.getCommittedRates?.();
+    const rateStatus={...getCatchUpStatus(),rateStale:published?.stale,rateStopped:published?.stopped};
+    const gain = published?.rates?.joulesPerSecond ?? null;
+    const passivePowerGain = published?.rates?.powerPerSecond ?? null;
+    const passiveManaGain = published?.rates?.manaPerSecond ?? null;
+    const passiveImmortalPowerGain = published?.rates?.immortalPowerPerSecond ?? null;
     setTextIfChanged(byId("game-version"), `v${GAME_VERSION}`);
     setTextIfChanged(byId("joules"), format(state.joules));
     setTextIfChanged(byId("power"), format(state.power));
@@ -1949,16 +1970,16 @@
       : "已达到当前量级系统上限");
     setTextIfChanged(byId("joules-rate"), committedRateText("joules",state.joules,gain,rateStatus));
     setTextIfChanged(byId("power-rate"), committedRateText("power",state.power,passivePowerGain,rateStatus));
-    setHiddenIfChanged(byId("power-rate"), !rateStatus.clockSuspended && !gtBN(passivePowerGain, ZERO));
+    setHiddenIfChanged(byId("power-rate"), false);
     setHiddenIfChanged(byId("mana-resource"), !immortalCultivationActive() || !state.qiRefiningUnlocked);
     setTextIfChanged(byId("mana"), format(state.mana));
     setTextIfChanged(byId("mana-rate"), committedRateText("mana",state.mana,passiveManaGain,rateStatus));
-    setHiddenIfChanged(byId("mana-rate"), !rateStatus.clockSuspended && !gtBN(passiveManaGain, ZERO));
+    setHiddenIfChanged(byId("mana-rate"), false);
     setHiddenIfChanged(byId("immortal-power-resource"), !immortalPowerUnlocked());
     setTextIfChanged(byId("immortal-power"), format(state.immortalPower));
     setTextIfChanged(byId("immortal-power-rate"), committedRateText("immortal-power",state.immortalPower,passiveImmortalPowerGain,rateStatus));
-    setHiddenIfChanged(byId("immortal-power-rate"), !rateStatus.clockSuspended && !gtBN(passiveImmortalPowerGain, ZERO));
-    renderAdditionalResources();
+    setHiddenIfChanged(byId("immortal-power-rate"), false);
+    renderAdditionalResources(published);
     updateNavigation();
   }
 
@@ -1978,7 +1999,9 @@
     return !urgent && previewBacklogActive() ? 5000 : 1000;
   }
   function previewContinuationDelay(urgent = false) {
-    return !urgent && previewBacklogActive() ? 100 : 16;
+    // First/explicit results already yield through setTimeout after each bounded
+    // slice. Do not add a full frame of idle time to every arithmetic checkpoint.
+    return urgent ? 0 : previewBacklogActive() ? 100 : 16;
   }
   let previewBacklogSeen = false;
   function syncPreviewBacklog() {
@@ -2024,7 +2047,7 @@
   const explorationStructureFields = [
     "qiRefiningUnlocked", "foundationUnlocked", "goldenCoreUnlocked", "advancedRealmLevel",
     "activeChallenge", "permanentRootLevel", "scatterRetentionLevel", "reincarnationCount",
-    "scatterRebuildLevel", "reincarnationEffectLevel", "currentQiLayer",
+    "scatterRebuildLevel", "reincarnationEffectLevel",
     "largeScaleAdaptationPurchased", "scaleUnificationPurchased",
     "trueSpiritTransformationLevel", "immortalLifeUnlocked", "manaLiquefactionUnlocked",
     "manaSolidificationUnlocked", "techniqueUnlocked", "divineAbilityMasteryUnlocked",
@@ -2033,7 +2056,7 @@
     "spiritTravelVoidUnlocked", "daoTimeLawUnlocked", "daoLawUnityUnlocked",
     "daoAssimilationUnlocked", "daoDomainUnlocked", "immortalApertureLevel", "lawUnlocked"
   ];
-  let explorationStructureState = null, explorationStructureKey = null;
+  let explorationStructureState = null, explorationStructureKey = null, explorationProgressLayer = null;
   function markExplorationPreviewDirty(resetRetry = true, explicit = resetRetry) {
     cancelExplorationPreviewWorks(resetRetry);
     if(explicit)for(const key of ['breathing','tribulation','action','training'])explicitPreviewRequests.add(key);
@@ -2043,7 +2066,7 @@
     cancelSourcePreviewWorks(resetRetry);
     if(resetRetry)explorationPreviewAttempts.clear();
     explorationPreviewGeneration++;
-    for(const entry of explorationPreviewWorks.values()){entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();entry.manaScope?.cancel();}
+    for(const entry of explorationPreviewWorks.values()){entry.unsubscribe?.();entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();entry.manaScope?.cancel();}
     explorationPreviewWorks.clear();
   }
   function publishPreview({urgent = false} = {}) {
@@ -2060,8 +2083,8 @@
     const original=runtime.getState(),snapshot=WIS.Core.State.cloneForSimulation(original);
     const entry={original,snapshot,owner:currentPreviewOwner(),urgent,first,explicit,retry:explorationPreviewAttempts.get(key),generation:explorationPreviewGeneration,scope:WIS.Power.ScaleLogic.createDeferredDynamicRateScope(),startedAt:Date.now()};
     explorationPreviewWorks.set(key,entry);
-    if(key==='breathing'&&WIS.Core.Amount?.enabled()){entry.detailEffects=WIS.Core.Effects.createFrozenScope(snapshot);entry.detailWork=WIS.Core.CertifiedRankMath.createWork(()=>runtime.withState(snapshot,()=>entry.detailEffects.run(()=>joulesForNextBaseMana())));}
-    const cancel=()=>{entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();entry.manaScope?.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
+    if(key==='breathing'&&WIS.Core.Amount?.enabled()&&!WIS.Simulation.MathWorker){entry.detailEffects=WIS.Core.Effects.createFrozenScope(snapshot);entry.detailWork=WIS.Core.CertifiedRankMath.createWork(()=>runtime.withState(snapshot,()=>entry.detailEffects.run(()=>joulesForNextBaseMana())));}
+    const cancel=()=>{entry.unsubscribe?.();entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();entry.manaScope?.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
     const current=()=>explorationPreviewWorks.get(key)===entry&&entry.generation===explorationPreviewGeneration&&currentPreviewOwner()===entry.owner&&!importTransaction&&!document.hidden&&previewVisible(element)&&!explorationHoldActive&&!context.isDeferredActionPending?.();
     const calculate=()=>{
       const valueQuery=()=>key==='breathing'?{mana:Immortal.breathingManaGainProgressive(),...(entry.detailWork?{nextManaJ:entry.detailWork.result()}: {})}:explorationPreviewValues({includeFinal:key==='action'});
@@ -2069,9 +2092,13 @@
       const value=whole?C.task('action-preview-value',function*(){return yield ()=>entry.manaScope?entry.manaScope.run(valueQuery):valueQuery();}):valueQuery();
       const recordsQuery=()=>key==='breathing'?WIS.UI.SourcePreview.query(['breathing'],snapshot,{actionFinals:{breathing:value.mana}}):key==='action'?WIS.UI.SourcePreview.query(['exploration'],snapshot,{actionFinals:{exploration:value.mana}}):null;
       const records=whole?C.task('action-preview-records',function*(){return yield recordsQuery;}):recordsQuery();
-      return {value,records,calculatedAt:entry.startedAt,dirty:false};
+      return {value,records,calculatedAt:entry.startedAt,dirty:entry.refreshAfterCompletion===true};
     };
-    if(WIS.Core.Amount?.enabled()){
+    if(key==='breathing'&&WIS.Core.Amount?.enabled()&&WIS.Simulation.MathWorker){
+      entry.previewWork=WIS.Simulation.MathWorker.createWork('breathing-preview',snapshot,{}, {
+        isCurrent:current,local:()=>WIS.Simulation.PureMathWork.create('breathing-preview',snapshot,{}, {isCurrent:current})
+      });
+    } else if(WIS.Core.Amount?.enabled()){
       entry.manaScope=Immortal.createManaPreviewScope?.(snapshot);
       entry.previewEffects=WIS.Core.Effects.createFrozenScope(snapshot);
       entry.previewWork=WIS.Core.CertifiedRankMath.createWork(()=>entry.previewEffects.run(()=>runtime.withEvaluationState(snapshot,()=>{
@@ -2087,8 +2114,8 @@
         if(entry.detailWork){const detail=entry.detailWork.advance({deadline:performance.now()+3,maximumOperations:256,minimumOperations:32});if(!detail.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}}
         if(entry.previewWork){
           const next=entry.previewWork.advance({deadline:performance.now()+3,maximumOperations:256,minimumOperations:32});
-          if(!next.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}
-          const value={...entry.previewWork.result(),sampledAt:entry.startedAt,calculatedAt:Date.now()};explorationPreviews.set(key,value);if(entry.retry)entry.retry.urgent=false;cancel();publishPreview({urgent:entry.urgent});return;
+          if(!next.done){if(!entry.previewWork.waiting?.())window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}
+          const value={...entry.previewWork.result(),sampledAt:entry.startedAt,calculatedAt:Date.now(),dirty:entry.refreshAfterCompletion===true};explorationPreviews.set(key,value);if(entry.retry)entry.retry.urgent=false;cancel();publishPreview({urgent:entry.urgent});return;
         }
         const progress=entry.scope.advance(performance.now()+3);
         if(!progress.done){window.setTimeout(run,0);return;}
@@ -2097,6 +2124,7 @@
         explorationPreviews.set(key,attempt.value);cancel();publishPreview({urgent:entry.urgent});
       }catch(error){cancel();explorationPreviews.set(key,{error:error.message,records:null,calculatedAt:WIS.Core.Amount?.enabled()?Date.now():entry.startedAt,dirty:false});if(entry.retry)entry.retry.urgent=false;publishPreview({urgent:entry.urgent});}
     };
+    entry.unsubscribe=entry.previewWork?.onReady?.(()=>window.setTimeout(run,0));
     // Even cheap previews start in another host task. Long integrations yield
     // inside their work and never retain an Evaluation across callbacks.
     window.setTimeout(run,0);
@@ -2112,10 +2140,20 @@
       ...Object.values(current.challengeCompletions || {})].join("|");
     if (owner !== explorationStructureState || key !== explorationStructureKey) {
       const resetRetry=!WIS.Core.Amount?.enabled()||key!==explorationStructureKey;
-      explorationStructureState = owner; explorationStructureKey = key;
+      explorationStructureState = owner; explorationStructureKey = key; explorationProgressLayer = current.currentQiLayer;
       // New sessions/discrete structure retire work. Continuous online commits
       // keep the immutable sample alive until it publishes.
       markExplorationPreviewDirty(resetRetry,false);
+    } else if (explorationProgressLayer !== current.currentQiLayer) {
+      explorationProgressLayer = current.currentQiLayer;
+      // Automatic layer growth can be faster than a complete preview proof.
+      // Finish this same-session immutable sample, then request a fresh one;
+      // actions never use these presentation results as settlement inputs.
+      for (const snapshot of explorationPreviews.values()) snapshot.dirty = true;
+      for (const entry of explorationPreviewWorks.values()) entry.refreshAfterCompletion = true;
+      for (const entry of sourcePreviewWorks.values()) entry.refreshAfterCompletion = true;
+      const training = heavyPreviewCache.get(rawById('conversion-preview'));
+      if (training) training.at = -Infinity;
     }
   }
   function explorationPreviewSnapshot(key, element) {
@@ -2161,21 +2199,27 @@
     return { powerCost, available, rawAmount, amount, tribulationPreview, mana, canExplore: available && gteBN(mana, ONE) };
   }
 
-  const BREATHING_NEXT_BASE_MANA_MAX_LOG_GAP = 6;
-
   function breathingNextBaseManaRequirementText(nextJ, currentJ) {
-    const next = BN(nextJ);
-    const current = BN(currentJ);
-    const limitedText = "吐纳基础受当前法力衰减限制";
-    if (!isFiniteBN(next) || isNaNBN(next) || !gtBN(next, ZERO)) return limitedText;
-    if (!isFiniteBN(current) || isNaNBN(current)) return limitedText;
-    if (!gtBN(current, ZERO)) return `下一档基础法力所需：${format(next, 0)} J`;
-    const magnitudeGap = subBN(log10BN(next), log10BN(current));
-    if (!isFiniteBN(magnitudeGap) || isNaNBN(magnitudeGap) ||
-        gtBN(magnitudeGap, BREATHING_NEXT_BASE_MANA_MAX_LOG_GAP)) {
-      return limitedText;
+    const value = WIS.UI.ActionView.nextManaRequirement(nextJ, currentJ);
+    if (value.status === "pending") return "正在计算下一档需求…";
+    if (value.status === "unavailable") return "暂时无法计算下一档需求。";
+    return `下一档基础法力所需：${format(value.amount, 0)} J`;
+  }
+  function showSourcePreviewFailure(element, error) {
+    const failure = WIS.UI.ActionView?.previewFailure(error) || {
+      code: error.code || "preview-unavailable", message: "暂时无法计算收益。", details: String(error.message || error)
+    };
+    setTextIfChanged(element, failure.message);
+    if (element.ownerDocument?.createElement) {
+      let details = element.parentElement?.querySelector(".calculation-details");
+      if (!details) {
+        details = element.ownerDocument.createElement("details"); details.className = "calculation-details";
+        const summary = element.ownerDocument.createElement("summary"); summary.textContent = "查看计算详情";
+        details.append(summary, element.ownerDocument.createElement("pre")); element.after(details);
+      }
+      details.hidden = false; details.querySelector("pre").textContent = failure.details;
     }
-    return `下一档基础法力所需：${format(next, 0)} J`;
+    return failure;
   }
 
   function previewVisible(element) {
@@ -2201,7 +2245,7 @@
   }
   function cancelSourcePreviewWorks(resetRetry = true) {
     if(resetRetry)sourcePreviewAttempts=new WeakMap();
-    for(const entry of sourcePreviewWorks.values()){entry.work?.cancel();entry.effects?.cancel();}sourcePreviewWorks.clear();
+    for(const entry of sourcePreviewWorks.values()){entry.unsubscribe?.();entry.work?.cancel();entry.effects?.cancel();}sourcePreviewWorks.clear();
   }
   let trainingBaseAffordable = null;
   function syncTrainingPreviewBoundary(element) {
@@ -2210,7 +2254,7 @@
     const affordable = WIS.Core.Resources.canAfford('core.joules', 10, runtime.getState());
     if (trainingBaseAffordable !== null && affordable !== trainingBaseAffordable) {
       const entry = sourcePreviewWorks.get(element);
-      entry?.work?.cancel(); entry?.effects?.cancel();
+      entry?.unsubscribe?.(); entry?.work?.cancel(); entry?.effects?.cancel();
       sourcePreviewWorks.delete(element);
       sourcePreviewAttempts.delete(element);
       // A completed preview crossing the action threshold is not a first automatic preview.
@@ -2249,7 +2293,7 @@
     const current = () => sourcePreviewWorks.get(element) === entry && currentPreviewOwner() === entry.owner &&
       structureRevision === revision && !document.hidden && !importTransaction && previewVisible(element) &&
       !explorationHoldActive && !context.isDeferredActionPending?.();
-    const cancel = () => { entry.work?.cancel(); entry.effects?.cancel(); if (sourcePreviewWorks.get(element) === entry) sourcePreviewWorks.delete(element); };
+    const cancel = () => { entry.unsubscribe?.(); entry.work?.cancel(); entry.effects?.cancel(); if (sourcePreviewWorks.get(element) === entry) sourcePreviewWorks.delete(element); };
     entry.current = current; entry.cancel = cancel;
     const run = () => {
       if (!current()) {
@@ -2262,29 +2306,30 @@
       try {
         if (!entry.work) {
           const snapshot = WIS.Core.State.cloneForSimulation(original);
-          entry.effects = WIS.Core.Effects.createFrozenScope(snapshot);
-          entry.work = WIS.Core.CertifiedRankMath.createWork(() => runtime.withState(snapshot, () => entry.effects.run(() => {
-            const C = WIS.Core.CertifiedRankMath;
-            const records = C.task('source-preview-records', function* () { return yield () => WIS.UI.SourcePreview.query(request.ids, snapshot, request.options); });
-            // Only the training button needs the additional exact marginal cost.
-            const nextPowerJ = request.ids.includes('training') ? C.task('training-next-power-cost', function* () { return yield () => joulesForNextBasePower(); }) : undefined;
-            return { records, nextPowerJ };
-          })), { isCurrent: current });
+          const local=()=>WIS.Simulation.PureMathWork.create('source-preview',snapshot,request,{isCurrent:current});
+          // Only training was measured as heavy here; keep ordinary source rows
+          // local so a page of upgrade cards cannot spawn a worker per card.
+          entry.work=request.ids.includes('training')?WIS.Simulation.MathWorker.createWork('source-preview',snapshot,request,{local,isCurrent:current}):local();
+          entry.unsubscribe=entry.work.onReady?.(()=>window.setTimeout(run,0));
         }
-        const next = entry.work.advance({ deadline: performance.now() + 3, maximumOperations: 256, minimumOperations: 32 });
-        if (!next.done) { window.setTimeout(run, previewContinuationDelay(entry.urgent)); return; }
+        const next = entry.work.advance({ deadline: performance.now() + 3, maximumOperations: 256, minimumOperations: entry.urgent ? 128 : 32 });
+        if (!next.done) { if(!entry.work.waiting?.())window.setTimeout(run, previewContinuationDelay(entry.urgent)); return; }
         const { records, nextPowerJ } = entry.work.result();
         if (!current()) { cancel(); return; }
+        const details = element.parentElement?.querySelector?.(".calculation-details");
+        if (details) details.hidden = true;
         WIS.UI.SourcePreview.writeRecords(element, records, format, request.options);
         rememberPreview(element, records);
-        Object.assign(heavyPreviewCache.get(element), { nextPowerJ, request, generation });
+        Object.assign(heavyPreviewCache.get(element), { nextPowerJ, request, generation, ...(entry.refreshAfterCompletion ? { at: -Infinity } : {}) });
         retry.urgent = false; cancel(); publishPreview({ urgent: entry.urgent });
       } catch (error) {
         if (current()) {
-          setTextIfChanged(element, '收益预览暂不可用：' + error.message);
-          rememberPreview(element, [{ final: ZERO }]);
-          Object.assign(heavyPreviewCache.get(element), { request, generation });
+          const failure = showSourcePreviewFailure(element, error);
+          rememberPreview(element, undefined);
+          Object.assign(heavyPreviewCache.get(element), { request, generation, error: failure });
           retry.urgent = false;
+          cancel(); publishPreview({ urgent: entry.urgent });
+          return;
         }
         cancel();
       }
@@ -2330,12 +2375,16 @@
       // The action's cooperative work proves final gain before spending;
       // automatic first previews continue to yield to online debt.
       const trainingBaseReady = syncTrainingPreviewBoundary(byId("conversion-preview"));
-      const conversion = writeSourcePreview("conversion-preview", "training", false)[0].final;
-      const nextPowerJ = WIS.Core.Amount?.enabled()?heavyPreviewCache.get(byId("conversion-preview"))?.nextPowerJ:joulesForNextBasePower();
-    setTextIfChanged(byId("next-power-j"),nextPowerJ===undefined?"下一战力所需：计算中…":`下一战力所需：${format(nextPowerJ, 0)} J`);
-    const awaitingTrainingPreview = WIS.Core.Amount?.enabled() && !heavyPreviewCache.get(byId("conversion-preview"))?.records;
-    setTextIfChanged(byId("train-button"), awaitingTrainingPreview && trainingBaseReady ? "计算并锻炼" : "锻炼");
-    setDisabledIfChanged(byId("train-button"), !trainingBaseReady || (!awaitingTrainingPreview && ltBN(conversion, ONE)));
+      writeSourcePreview("conversion-preview", "training", false);
+      const cachedTraining = heavyPreviewCache.get(byId("conversion-preview"));
+      const nextPowerJ = WIS.Core.Amount?.enabled()?cachedTraining?.nextPowerJ:joulesForNextBasePower();
+      setTextIfChanged(byId("next-power-j"), cachedTraining?.error ? "暂时无法计算下一档需求。" :
+        nextPowerJ === undefined ? "正在计算下一档需求…" : `下一点基础战力所需：${format(nextPowerJ, 0)} J`);
+      const view = WIS.UI.ActionView.training({ enough: trainingBaseReady, busy: context.isDeferredActionPending?.() === true, previewGain: cachedTraining?.records?.[0]?.final });
+      setTextIfChanged(byId("train-button"), view.label);
+      setDisabledIfChanged(byId("train-button"), !view.enabled);
+      setTextIfChanged(byId("training-availability"), view.reason);
+      byId("train-button").setAttribute("aria-busy", view.reasonCode === "busy" ? "true" : "false");
     }
     if (renderUpgrades) {
       const gym = gymMultiplier();
@@ -2355,7 +2404,7 @@
       const fitnessCap = fitnessLevelCap();
       const nextRunningCost = runningCost();
     setTextIfChanged(byId("running-level"), effectiveFitnessLevel() !== state.runningLevel
-      ? `当前：实际 ${state.runningLevel}/${fitnessCap}级；生效 ${effectiveFitnessLevel()}级`
+      ? `升级等级：${state.runningLevel}/${fitnessCap}；加成后按 ${effectiveFitnessLevel()} 级计算`
       : `当前：${state.runningLevel}/${fitnessCap}级`);
     writeSourcePreview("running-rate", "fitness", false);
     setTextIfChanged(byId("running-cost"), `消耗 ${formatCost(nextRunningCost)} 战力`);
@@ -2391,7 +2440,7 @@
     setTextIfChanged(byId("toggle-ghost-back"), state.ghostBackActive ? "关闭" : "激活");
     setDisabledIfChanged(byId("toggle-ghost-back"), !state.ghostBackPurchased);
     setTextIfChanged(byId("rock-level"), effectiveRockLevel() !== state.rockLevel
-      ? `当前：实际 ${state.rockLevel}/${rockCap}级；生效 ${effectiveRockLevel()}级`
+      ? `升级等级：${state.rockLevel}/${rockCap}；加成后按 ${effectiveRockLevel()} 级计算`
       : `当前：${state.rockLevel}/${rockCap}级`);
     writeSourcePreview("rock-rate", "rock", false);
     setTextIfChanged(byId("rock-cost"), `消耗 ${formatCost(nextRockCost)} 战力`);
@@ -2495,10 +2544,11 @@
       const breathingElement = byId("breathing-preview");
       breathingElement.classList.add("source-gain-preview");
       const snapshot = explorationPreviewSnapshot('breathing',breathingElement);
-      if(snapshot?.records)setTextIfChanged(breathingElement,WIS.UI.SourcePreview.text(snapshot.records,format));
-      else setTextIfChanged(breathingElement,snapshot?.error?("收益暂无法计算："+snapshot.error):"收益计算中…");
+      if(snapshot?.records){setTextIfChanged(breathingElement,WIS.UI.SourcePreview.text(snapshot.records,format));const details=breathingElement.parentElement?.querySelector(".calculation-details");if(details)details.hidden=true;}
+      else if (snapshot?.error) showSourcePreviewFailure(breathingElement, { message: snapshot.error });
+      else setTextIfChanged(breathingElement, "正在计算收益…");
       const nextManaJ = WIS.Core.Amount?.enabled()?snapshot?.value?.nextManaJ:joulesForNextBaseMana();
-      setTextIfChanged(byId("next-mana-j"),nextManaJ===undefined?"下一档基础法力计算中…":breathingNextBaseManaRequirementText(nextManaJ,state.joules));
+      setTextIfChanged(byId("next-mana-j"), snapshot?.error ? "暂时无法计算下一档需求。" : breathingNextBaseManaRequirementText(nextManaJ,state.joules));
       // Only the completed formal action decides gain eligibility.
       setDisabledIfChanged(byId("breathing-button"),ltBN(state.joules,3000));
     }
@@ -3290,12 +3340,17 @@
       if (!beforePlayerAction()) return false;
       if (managedCommit) return work();
       const result = work();
-      const completed=value=>{
+      const completed=(value, deferred=false)=>{
         if(value!==false)context.completePlayerAction();
-        runtime.call(cooperative && isHolding ? "render" : "renderImmediately", activePage);
+        const publication = deferred && runtime.has?.("renderAfterAction") ? "renderAfterAction" : "renderImmediately";
+        runtime.call(cooperative && isHolding ? "render" : publication, activePage);
         return value;
       };
-      return result&&typeof result.then==='function'?result.then(completed):completed(result);
+      if (result && typeof result.then === 'function') {
+        if (cooperative) runtime.call('renderImmediately', activePage);
+        return result.then(value=>completed(value,true));
+      }
+      return completed(result);
     };
     action = commit(action);
     repeatAction = commit(repeatAction);
@@ -3485,20 +3540,34 @@
     bigNumberPage.bind();
     xiuzhenPage.bind();
     const blockInteractionDuringCatchUp = (event) => {
-      const readOnlyControl = event.target?.closest?.("#boot-status-panel, #save-export-dialog, #settings-dialog, #app-download-dialog, #catch-up-notice, #offline-progress-dialog, #export-save, #export-unsaved-progress, #export-protected-save, #app-download-export, #open-settings, #close-settings, #offline-open-settings");
+      // Recovery actions bypass ordinary gameplay admission, but must never
+      // mutate the session captured by an active import transaction.
+      const recoveryControl = event.target?.closest?.("#pause-offline-progress, #retry-offline-progress, #abandon-offline-progress, #convert-offline-progress, #convert-quiet-catch-up, #continue-after-offline, #retry-failed-save");
+      if (recoveryControl) {
+        if (canChangeRecovery()) return;
+        event.preventDefault(); event.stopImmediatePropagation(); return;
+      }
+      const readOnlyControl = event.target?.closest?.("#boot-status-panel, #save-export-dialog, #app-download-dialog, #dismiss-paused-catch-up, #show-paused-catch-up, #export-save, #export-unsaved-progress, #export-protected-save, #app-download-export, #open-settings, #close-settings, #offline-open-settings");
       if (readOnlyControl) return;
-      if (!event.target?.closest?.("[data-page], [data-cultivation-page], summary") && ["pointerdown", "click", "keydown"].includes(event.type) && event.target?.closest?.("button, input, select, [role='button']") && !beforePlayerAction()) {
+      // Only these presentation settings may drift while settlement owns a
+      // candidate. Import owns the entire session, including its preferences.
+      if (event.target?.closest?.(".theme-options, #auto-close-offline-toggle")) {
+        if (canChangePreferences()) return;
+        event.preventDefault(); event.stopImmediatePropagation(); applyTheme(); return;
+      }
+      const importing = importTransaction !== null;
+      const sessionReplacementControl = event.target?.closest?.("#import-save, #import-file, #restore-save-backup, #reset-game");
+      // A rejected control must not settle pending time inside an import hold.
+      if (!importing && !sessionReplacementControl && !event.target?.closest?.("[data-page], [data-cultivation-page], summary") && ["pointerdown", "click", "keydown"].includes(event.type) && event.target?.closest?.("button, input, select, [role='button']") && !beforePlayerAction()) {
         event.preventDefault(); event.stopImmediatePropagation(); return;
       }
       if(context.canPerformSavedAction?.()===false){
         event.preventDefault();event.stopImmediatePropagation();return;
       }
-      const importControl = event.target?.closest?.("#import-save, #import-file, #restore-save-backup");
-      // Import is an escape hatch from a long recovery. Its launcher and file
-      // events must reach the real handlers even while settlement owns the UI.
-      if (importControl) return;
+      // Import/reset replace a session rather than settle its pending gameplay.
+      // Their handlers retain the import-owner and confirmation checks.
+      if (sessionReplacementControl) return;
       if (event.target?.closest?.("#save-export-dialog, #export-save, #export-unsaved-progress, #export-protected-save, #app-download-export, #open-settings, #close-settings")) return;
-      const importing = importTransaction !== null;
       const deferred=context.isDeferredActionPending?context.isDeferredActionPending():runtime.call('isDeferredActionPending')===true;
       if(deferred&&event.target?.closest?.('[data-page], [data-cultivation-page], #reset-game')){
         runtime.call('cancelDeferredAction','navigation');cancelExplorationPreviewWorks();return;
@@ -3529,7 +3598,7 @@
     document.querySelectorAll(".nav-item").forEach((button) => {
       button.addEventListener("click", () => switchPage(button.dataset.page));
     });
-    const trainingAction=manual=>{if(!WIS.Core.Amount?.enabled())return train(manual);cancelExplorationPreviewWorks();const factory=snapshot=>WIS.Power.ScaleLogic.createTrainingActionWork(snapshot,manual);return context.requestDeferredAction?context.requestDeferredAction(factory):runtime.call('requestDeferredAction',factory);};
+    const trainingAction=manual=>{if(!WIS.Core.Amount?.enabled())return train(manual);cancelExplorationPreviewWorks();const factory=snapshot=>WIS.Power.ScaleLogic.createTrainingActionWork(snapshot,manual,{worker:true});return context.requestDeferredAction?context.requestDeferredAction(factory):runtime.call('requestDeferredAction',factory);};
     bindHoldButton("train-button", () => trainingAction(true), {
       repeatAction: () => trainingAction(false),cooperative:WIS.Core.Amount?.enabled()===true,
       canRepeat: () => hasAchievement("lightningFiveWhip")
@@ -3896,6 +3965,7 @@
     byId("open-settings").addEventListener("click", openSettings);
     byId("offline-open-settings").addEventListener("click", openSettings);
     byId("auto-close-offline-toggle").addEventListener("click", () => {
+      if (!canChangePreferences()) { renderAutoCloseSetting(); return; }
       const previous = state.autoCloseOfflineDialogEnabled;
       state.autoCloseOfflineDialogEnabled = previous === false;
       try { saveState(); } catch (error) {
@@ -3905,9 +3975,11 @@
       renderAutoCloseSetting();
       handleOfflineCatchUpStatus(getCatchUpStatus());
     });
-    byId("pause-offline-progress").addEventListener("click", () => context.pauseCatchUpByPlayer());
+    byId("pause-offline-progress").addEventListener("click", () => {
+      if (canChangeRecovery()) context.pauseCatchUpByPlayer();
+    });
     for (const id of ["convert-offline-progress", "convert-quiet-catch-up"]) byId(id).addEventListener("click", () => {
-      if (offlineAbandonPending) return;
+      if (!canChangeRecovery() || offlineAbandonPending) return;
       offlineAbandonPending = true;
       try {
         const result = context.convertOfflineToCompensation();
@@ -3942,12 +4014,14 @@
     byId('dismiss-paused-catch-up').addEventListener('click', () => closeOfflineProgressDialog());
     byId('show-paused-catch-up').addEventListener('click', () => openOfflineProgressDialog());
     byId("retry-offline-progress").addEventListener("click", () => {
+      if (!canChangeRecovery()) return;
       void retryCatchUp();
     });
     byId("abandon-offline-progress").addEventListener("click", () => {
       void abandonOfflineProgress();
     });
     byId("continue-after-offline").addEventListener("click", () => {
+      if (!canChangeRecovery()) return;
       dismissOfflineSummary();
     });
     document.addEventListener('visibilitychange', () => {
@@ -3964,6 +4038,7 @@
     });
     document.querySelectorAll('input[name="theme"]').forEach((input) => {
       input.addEventListener("change", () => {
+        if (!canChangePreferences()) { applyTheme(); return; }
         state.theme = input.value === "dark" ? "dark" : "light";
         applyTheme();
         saveState();
@@ -3986,6 +4061,7 @@
     WIS.Core.Save.subscribeStatus(renderSaveStatus);
     renderSaveStatus();
     byId("retry-failed-save").addEventListener("click", () => {
+      if (!canChangeRecovery()) return;
       try {saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
     });
     byId("export-unsaved-progress").addEventListener("click", () => {
@@ -3994,12 +4070,12 @@
     byId("restore-save-backup").addEventListener("click", () => {
       const text=localStorage.getItem(WIS.Core.Save.backupKey());
       if (!text) { showNotice("还没有导入前备份。"); return; }
-      void importSave({ text: async () => text });
+      void importSave({ text: async () => text, preserveBackup: true });
     });
     byId("export-protected-save").addEventListener("click", () => {
       const text=WIS.Core.Save.storageSnapshot().text;
       if (!text) { showNotice("没有本地存档文件。"); return; }
-      openSaveExport(text, "WIS-本地原始存档.json");
+      openSaveExport(text, "WIS-本地原始存档.json", "raw");
     });
     const beginImportSelection = () => {
       if (importSave.pending || importTransaction) {

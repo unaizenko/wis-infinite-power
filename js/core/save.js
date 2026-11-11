@@ -261,6 +261,12 @@
     resetStatus();
   }
   function backup(state, options = {}) {
+    const current = assertStorageUnchanged();
+    // A restore must not replace its own source before the new main save is
+    // durable. Keeping the bytes also survives a second storage-write failure.
+    // Protected sessions retain any earlier backup instead of copying bad data
+    // over it. Ordinary imports still back up the current valid state.
+    if ((options.preserveExisting === true || loadError) && localStorage.getItem(backupKey()) !== null) return backupKey();
     const saved = WIS.Core.State.cloneForSimulation(state);
     const ledger = saved.core.runtime.timeLedger;
     // The caller captured this state and pending together before entering hold.
@@ -271,6 +277,7 @@
       ? options.offlineRecoveryOverride : offlineRecoveryProvider?.(options);
     const text = loadError ? localStorage.getItem(storageKey()) : JSON.stringify(envelope(saved, false,
       { ...options, offlineRecoveryOverride: recovery ? { ...recovery, closedAt: capturedAt } : null }));
+    assertStorageUnchanged(current);
     localStorage.setItem(backupKey(), text);
     return backupKey();
   }
@@ -338,8 +345,9 @@
 
   function sparseData(state) {
     const S=WIS.Core.State;
-    persistenceDefaults ||= S.toSerializable(S.fresh());
-    const data=S.toSerializable(state);
+    persistenceDefaults ||= S.fresh();
+    // envelope owns this validated private snapshot; never passed a live domain.
+    const data={core:state.core,powerSystem:state.powerSystem,cultivation:state.cultivation,meta:state.meta};
     const meta=data.meta;
     for(const key of ['treasureProgress','treasureProgressResidual','treasureProgressResidualTail','treasureStockResidual','treasureCredits']) {
       if(key==='treasureProgress') {for(const k of Object.keys(meta.treasureProgressFinite||{}))delete meta[key][k];}
@@ -384,7 +392,7 @@
       encoding: "sparse-v1",
       schemaVersion: WIS.Core.Config.saveVersion,
       version: WIS.Core.Config.saveVersion,
-      ...(WIS.Core.Amount?.enabled()?{numericModelVersion:state.meta.closedBatchModel===2?2:1,numericTailPolicyVersion:1,...(state.meta.closedBatchModel===2?{settlementRule:WIS.Core.Config.fixedSettlement.version}:{})}:{}),
+      ...(WIS.Core.Amount?.enabled()?{numericModelVersion:state.meta.closedBatchModel===2?2:1,numericTailPolicyVersion:WIS.Core.AmountProducts.tailPolicy.version,...(state.meta.closedBatchModel===2?{settlementRule:WIS.Core.Config.fixedSettlement.version}:{})}:{}),
       ...(includeExportMetadata ? { exportedAt: new Date().toISOString() } : {}),
       ...(offlineRecovery ? { offlineRecovery } : {}),
       data: sparseData(state)

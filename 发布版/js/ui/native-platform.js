@@ -7,12 +7,13 @@
   }
   let saving = false;
   function canSaveText() { return isNative() && typeof global.Capacitor?.Plugins?.WisSaveExport?.saveText === 'function'; }
-  async function saveText(text, filename, generic = false) {
+  async function saveText(text, filename, generic = false, kind = 'save') {
+    if (!['save', 'raw'].includes(kind)) throw Error('不支持的存档导出类型');
     if (!canSaveText()) throw Error('文件保存组件不可用，请升级 APK，或使用分享/存档文本');
     if (saving) throw Error('文件保存正在进行，请完成或取消当前选择');
     saving = true;
     try {
-      const result = await plugins().WisSaveExport.saveText({text, filename, generic});
+      const result = await plugins().WisSaveExport.saveText({text, filename, generic, kind});
       if (result?.status === 'cancelled') return result;
       if (result?.status !== 'saved' || !Number.isSafeInteger(result.bytes) || result.bytes < 0 || typeof result.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(result.sha256)) throw Error('未确认文件已完整保存，请保留存档文本并重试');
       return result;

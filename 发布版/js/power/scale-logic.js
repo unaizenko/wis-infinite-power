@@ -364,12 +364,14 @@
           const prepared=new Map();
           const compare=yield ()=>createQuantityInverseComparator(amount,prepared);
           let lo=yield ()=>F.log10(actual),hi=yield ()=>F.log10(upper);
-          // Keep bounds and the pending midpoint across suspension. The thunk
-          // runs outside the generator, so a suspended child cannot close it.
+          const below=coordinate=>{const gain=A.from(pow10(coordinate));const quick=compare(gain,actual);return quick===null?A.compare(infinitySoftcapGain(gain,amount,'normal',false,prepared),actual)<0:quick;};
+          const narrowed=yield* narrowQuantityInverseBounds(lo,hi,amount,prepared,below);
+          if(narrowed){lo=narrowed.lo;hi=narrowed.hi;}
+          // Keep bounds and the pending midpoint across suspension. Every new
+          // bound is checked against the original rounded forward pipeline.
           for(let i=0;i<80;i++){
             const mid=div(add(lo,hi),2);if(eq(mid,lo)||eq(mid,hi))break;
-            const below=yield ()=>{const gain=A.from(pow10(mid));const quick=compare(gain,actual);return quick===null?A.compare(infinitySoftcapGain(gain,amount,'normal',false,prepared),actual)<0:quick;};
-            if(below)lo=mid;else hi=mid;
+            if(yield ()=>below(mid))lo=mid;else hi=mid;
           }
           return A.from(pow10(hi));
         });
@@ -383,6 +385,31 @@
     for(let i=0;i<80;i++){const mid=div(add(lo,hi),2);if(eq(mid,lo)||eq(mid,hi))break;
       if(lt(infinitySoftcapGain(pow10(mid),amount),actual))lo=mid;else hi=mid;}
     return pow10(hi);
+  }
+
+  // For large inputs the softened curve is close to a power. Use that only
+  // to propose a bracket, never as an income or affordability result. Validate
+  // both ends with the exact existing comparator; unsupported inputs retain
+  // the full search. All scratch state belongs to this suspended inverse.
+  function* narrowQuantityInverseBounds(lo,hi,amount,prepared,below){
+    if(lo.layer!==0||hi.layer!==0||!gte(lo,40)||!lte(hi,'1e12'))return null;
+    const I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig;
+    const early=I.softcapWeakening(state,C.earlyLastStage),late=I.softcapWeakening(state,'宇宙结构');
+    const shared=Math.min(early,late),strongest=Math.max(early,late),w=shared<1?(strongest-shared)/(1-shared):0;
+    const base=toNumber(prepared.get('baseExponent')),scoped=strongest>shared?toNumber(prepared.get('scopedExponent')):base;
+    if(!(base>=1e-7&&base<=1&&scoped>=1e-7&&scoped<=1))return null;
+    const effective=(base*(1-w)+scoped*w)*(1-shared)+shared;
+    const estimate=toNumber(lo)/effective;
+    // These radii only propose search bounds. Both ends must pass the unchanged
+    // rounded forward comparator; failed tight bounds retain the wider fallback.
+    const radii=[Math.max(1e-12,Math.abs(estimate)*Number.EPSILON*8),Math.max(1e-10,Math.abs(estimate)*1e-12)];
+    for(const radius of radii){
+      const lower=maxBN(lo,BN(estimate-radius)),upper=minBN(hi,BN(estimate+radius));
+      if(!lt(lower,upper)||eq(lower,lo)&&eq(upper,hi))continue;
+      if(!(yield ()=>below(lower))||(yield ()=>below(upper)))continue;
+      return {lo:lower,hi:upper};
+    }
+    return null;
   }
 
   function resourceSoftcapEquivalentRawForComponents(normalRawGain, manaRawGain, currentAmount) {
@@ -742,7 +769,10 @@
       const settle=(gain,amount)=>value('settle',[gain,amount],()=>mul(applyResourceSoftcapSettlement(gain,amount),penaltyAt(amount)));
       const refine=(gain,amount)=>C.task(prefix+'refine|'+JSON.stringify([A.words(gain),A.words(amount)]),function*(){
         let estimate=yield ()=>A.from(settle(gain,amount));
-        for(let i=0;i<2;i++)estimate=yield ()=>A.from(settle(gain,logarithmicAmountInterpolation(amount,A.add(amount,estimate),.5)));
+        for(let i=0;i<2;i++){
+          const evaluationAmount=yield ()=>logarithmicAmountInterpolation(amount,A.add(amount,estimate),.5);
+          estimate=yield ()=>A.from(settle(gain,evaluationAmount));
+        }
         return estimate;
       });
       const googol=WIS.Core.Config.googolPenalty.threshold;
@@ -779,9 +809,12 @@
         if(yield ()=>!gt(exponent,ZERO)){remainingRawGain=ZERO;break;}
         const neededActualGain=yield ()=>maxBN(ZERO,sub(nextBoundary,settledAmount));
         if(yield ()=>!gt(neededActualGain,ZERO)){const rest=yield ()=>refine(remainingRawGain,settledAmount);settledGain=yield ()=>add(settledGain,rest);remainingRawGain=ZERO;break;}
-        const neededRawGain=yield ()=>WIS.Meta.Infinity.softcapWeakening(state,'恒星')||WIS.Meta.Infinity.softcapWeakening(state,'宇宙结构')
-          ?infinitySoftcapInverse(rawGainForSoftcappedActualGain(div(neededActualGain,penaltyAt(evaluationAmount)),planetSuppressionSoftcapExponent(evaluationAmount)),evaluationAmount)
-          :rawGainForSoftcappedActualGain(div(neededActualGain,penaltyAt(evaluationAmount)),exponent);
+        // Keep completed preparation in this curve's iterator. The inverse may
+        // suspend many times; retrying it must not redo division/encoding.
+        const weakened=WIS.Meta.Infinity.softcapWeakening(state,'恒星')||WIS.Meta.Infinity.softcapWeakening(state,'宇宙结构');
+        const requiredBeforePenalty=yield ()=>div(neededActualGain,penaltyAt(evaluationAmount));
+        const requiredBeforeNormal=yield ()=>rawGainForSoftcappedActualGain(requiredBeforePenalty,weakened?planetSuppressionSoftcapExponent(evaluationAmount):exponent);
+        const neededRawGain=weakened?(yield ()=>infinitySoftcapInverse(requiredBeforeNormal,evaluationAmount)):requiredBeforeNormal;
         if(!neededRawGain||(yield ()=>lt(remainingRawGain,neededRawGain))){const rest=yield ()=>refine(remainingRawGain,settledAmount);settledGain=yield ()=>add(settledGain,rest);remainingRawGain=ZERO;break;}
         settledAmount=nextBoundary;settledGain=yield ()=>add(settledGain,neededActualGain);remainingRawGain=yield ()=>maxBN(ZERO,sub(remainingRawGain,neededRawGain));continuousSegments++;
         if(nextStageBoundary&&(yield ()=>eq(nextBoundary,nextStageBoundary)))exactStageSegments++;
@@ -1457,23 +1490,28 @@
     const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig;
     const early=I.softcapWeakening(state,C.earlyLastStage),late=I.softcapWeakening(state,'宇宙结构'),shared=Math.min(early,late),strongest=Math.max(early,late);
     const once=(key,compute)=>{if(!prepared.has(key))prepared.set(key,compute());return prepared.get(key);};
-    const candidates=exponent=>F.createPowerOnePlusMinusOneCandidates(minBN(ONE,maxBN(ZERO,exponent)));
+    const candidates=exponent=>{
+      const e=minBN(ONE,maxBN(ZERO,exponent)),low=F.createPowerOnePlusMinusOneCandidates(e),high=F.createPowerOnePlusMinusOneLogCandidates(e);
+      return gain=>high(gain)||low(gain);
+    };
     const base=candidates(once('baseExponent',()=>originalNormalResourceSoftcapExponent(amount,true,'normal',true)));
     const cutoff=CONFIG.scales.findIndex(x=>x.name===C.earlyLastStage),isEarly=name=>CONFIG.scales.findIndex(x=>x.name===name)<=cutoff;
     const scoped=strongest>shared?candidates(once('scopedExponent',()=>originalNormalResourceSoftcapExponent(amount,true,'normal',true,name=>isEarly(name)?early>late:late>early))):null;
-    return (gain,target)=>{
-      const bases=base(gain);if(!bases)return null;
-      const others=scoped?scoped(gain):null;if(scoped&&!others)return null;
+    const prefix='quantity-inverse-compare|'+String(++quantityCurveSequence)+'|';
+    return (gain,target)=>WIS.Core.CertifiedRankMath.task(prefix+JSON.stringify([A.words(gain),A.words(target)]),function*(){
+      const bases=yield ()=>base(gain);if(!bases)return null;
+      const others=scoped?(yield ()=>scoped(gain)):null;if(scoped&&!others)return null;
       let direction=null;
       // Enumerate rounded inputs through the ORIGINAL interpolation. Do not
       // assume host Math.log10/pow are monotone or replace intermediate rounding.
       for(const b of bases)for(const s of others||[b]){
-        const partial=quantityInterpolate(A.from(b),A.from(s),shared<1?(strongest-shared)/(1-shared):0);
-        const result=quantityInterpolate(partial,gain,shared),below=A.compare(result,target)<0;
+        const partial=yield ()=>quantityInterpolate(A.from(b),A.from(s),shared<1?(strongest-shared)/(1-shared):0);
+        const result=yield ()=>quantityInterpolate(partial,gain,shared);
+        const below=yield ()=>A.compare(result,target)<0;
         if(direction!==null&&direction!==below)return null;direction=below;
       }
       return direction;
-    };
+    });
   }
   function quantitySoftcapComponents(normal,mana,amount){const A=WIS.Core.Amount;normal=A.from(normal);mana=A.from(mana);const split=WIS.Cultivation.ImmortalLogic.qiRefiningChallengeActive?.()===true;
     const settled=split?A.add(quantityInfinitySoftcapGain(normal,amount),quantityInfinitySoftcapGain(mana,amount,'mana')):quantityInfinitySoftcapGain(A.add(normal,mana),amount);
@@ -2596,19 +2634,20 @@
       WIS.Core.Effects.invalidate();return result;
     });
   }
-  function createTrainingActionWork(original=runtime.getState(),manualClick=false){
+  function createTrainingActionWork(original=runtime.getState(),manualClick=false,{worker=false}={}){
     const S=WIS.Core.State,R=runtime,C=WIS.Core.CertifiedRankMath;
     if(!WIS.Core.Amount?.enabled())throw Object.assign(Error('完整锻炼模型未启用'),{code:'amount-model-disabled'});
     const inputKey=owner=>{const copy=S.toSerializable(owner);delete copy.core.runtime.timeLedger;delete copy.core.preferences;return JSON.stringify(copy);},key=inputKey(original),snapshot=S.cloneForSimulation(original),effects=WIS.Core.Effects.createFrozenScope(snapshot);
     let status='pending',gain=null;
     const valid=()=>status!=='cancelled'&&R.getState()===original,current=()=>valid()&&inputKey(original)===key;
     const check=()=>{if(!current())throw Object.assign(Error('锻炼候选输入改变，未提交'),{code:'rank-work-stale'});};
-    const math=C.createWork(()=>R.withState(snapshot,()=>effects.run(conversionGainQuantity)),{isCurrent:valid});
-    return Object.freeze({advance(deadline=Infinity,options={}){if(status!=='pending')return {done:status==='ready'};if(!valid())check();const next=math.advance({deadline,maximumOperations:256,...options});if(next.done){check();gain=math.result();status='ready';effects.cancel();}return next;},
+    const local=()=>C.createWork(()=>R.withState(snapshot,()=>effects.run(()=>({gain:conversionGainQuantity()}))),{isCurrent:valid});
+    const math=worker&&WIS.Simulation.MathWorker?WIS.Simulation.MathWorker.createWork('training-gain',snapshot,{}, {local,isCurrent:valid}):local();
+    return Object.freeze({advance(deadline=Infinity,options={}){if(status!=='pending')return {done:status==='ready'};if(!valid())check();const next=math.advance({deadline,maximumOperations:256,...options});if(next.done){check();gain=math.result().gain;if(!WIS.Core.Amount.isAmount(gain))throw Error('锻炼计算结果无效');status='ready';effects.cancel();}return next;},
       commit(){if(status!=='ready')throw Error('锻炼候选尚未完成或已提交/取消');check();const candidate=S.cloneForSimulation(original),power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
         try{const result=R.atomic(()=>{const value=R.withState(candidate,()=>performTrain(manualClick,gain));R.setState(candidate);return value;});status='committed';math.cancel();return result;}
         catch(error){R.setState(original);WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);WIS.Core.Effects.invalidate();throw error;}
-      },cancel(){if(status==='committed')return;status='cancelled';gain=null;math.cancel();effects.cancel();},valid});
+      },cancel(){if(status==='committed')return;status='cancelled';gain=null;math.cancel();effects.cancel();},waiting:()=>math.waiting?.()===true,onReady:fn=>math.onReady?.(fn),valid});
   }
   function performTrain(manualClick = false,preparedGain=null) {
     const whole=WIS.Core.Amount?.enabled(),gained=preparedGain??(whole?conversionGainQuantity():conversionGain());
@@ -3111,7 +3150,7 @@
     planetSuppressionRewardExponent, utmostPuritySoftcapExponent,
     ghostBackJMultiplier, ghostBackPowerMultiplier, gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplierForExponent,
     sonicMovementPotentialMultiplier, sonicMovementMultiplier, godspeedExponent,
-    godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress, rollFitnessMembershipCardAttempts, exercisePotentialMultiplier, exerciseMultiplier, transcendentPotentialMultiplier, transcendentMultiplier, extremeExerciseEffectMultiplier, naturalStrengthPotentialMultiplier, powerMultiplierGroups, powerMultiplier, challengeCompletionCount, challengeRewardExponent, challengeRewardMultiplier, longevityChallengeRewardMultiplier, fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent, currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent, trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier, automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier, lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier, myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus, regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount, fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel, waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap, baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier, conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier, skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent, continentCollapsePotentialExponent, ghostBrainActualPowerPerSecond, joulesForNextBasePower, focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, applyFocusSmoothSoftcap, dynamicFocusMultiplier, focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus, rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus, focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost, rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent, automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost, manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus, train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod, buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower, buyLifePower, buyMyStyle, buyIntuition, buyGhostBack, buySonicMovement, buyCarbonLimit, buyKillingIntent, buyRockStrike, buyHighSpeedMetabolism, buyEnduranceEnhancement, buyBulletTime, buyDynamicFocus, buySuperPerception, buyInvulnerable, buyRegeneration, buySuperpower, buySuperSpeedThinking, buyMountainCollapse, buyMindDivision, buyPowerOneTime, buyHyperRegeneration, buyMentalDomain, buyEarthSplit, buyGodspeed, buySuperpowerEvolution, buySubtle, buySkySplit, buyBiologicalQuantification, buyGhostManTransformation, buyDestroyCountry, buyHumanGhostTransformation, buyKillingIntentSubstance, buyEnergyCycle, buyMountainShatter, buyBioenergy, buyElementalization, buyKillingIntentPerception, buyKillingIntentWave, buyUltimateIntent, buyBrainDomainDevelopment, buyContinentSplit, buyContinentCollapse, toggleGhostBack,
+    godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress, rollFitnessMembershipCardAttempts, exercisePotentialMultiplier, exerciseMultiplier, transcendentPotentialMultiplier, transcendentMultiplier, extremeExerciseEffectMultiplier, naturalStrengthPotentialMultiplier, powerMultiplierGroups, powerMultiplier, challengeCompletionCount, challengeRewardExponent, challengeRewardMultiplier, longevityChallengeRewardMultiplier, fiveMisfortunesRewardExponent, activeChallengeLimitExponent, jGainExponent, powerGainExponent, currentPowerMilestone, reachedPowerMilestone, superpowerExponent, fitnessSourceExponent, trainingSourceExponent, applyGainExponent, additiveLevelMultiplier, jMultiplierGroups, jMultiplier, automaticJPerSecond, jSourceGains, finalJPerSecondFromSources, continentPowerMagnitude, elementalizationJSource, longevityFitnessMultiplier, lifePowerFitnessMultiplier, myStylePotentialFitnessMultiplier, myStyleFitnessMultiplier, carbonLimitPotentialFitnessBonus, carbonLimitFitnessBonus, regenerationFitnessMultiplier, enduranceEnhancementFitnessMultiplier, fitnessMembershipCardCount, fitnessMembershipCardFitnessBonus, fitnessMembershipCardChance, fitnessJBonus, effectiveFitnessLevel, waterPotentialJMultiplier, runningCost, fitnessLevelCap, rockLevelCap, conversionGainQuantity, baseConversionGain, trainingPowerDecayMultiplier, trainingPowerSource, highSpeedMetabolismMultiplier, conversionGain, ghostBrainPotentialPowerBonus, ghostBrainPowerBonus, mentalDomainMultiplier, skySplitPotentialMultiplier, skySplitMultiplier, ghostBrainPowerSource, brainDomainDevelopmentExponent, continentCollapsePotentialExponent, ghostBrainActualPowerPerSecond, joulesForNextBasePower, focusPowerPerSecond, subtleFocusExponent, rawFocusPowerPerSecond, applyFocusSmoothSoftcap, dynamicFocusMultiplier, focusSoftcapExponent, actualFocusPowerPerSecond, killingIntentJBonus, rawKillingIntentPotentialJBonus, killingIntentExtractionRatio, killingIntentWaveExponent, superSpeedThinkingMultiplier, killingIntentPotentialJBonus, focusPercent, intuitionPotentialFocusMultiplier, intuitionFocusMultiplier, rockCost, rockPowerPerSecond, effectiveRockLevel, rockStrikeMultiplier, mountainCollapseExponent, automaticPowerPerSecond, ultimateIntentPowerSource, finalPowerGainFromSources, mindDivisionCost, manualScaleUpgradeHistory, hasManuallyUpgradedScale, autoUpgradeEnhancements, achievementJBonus, train, buyRunning, buyGym, buyExercise, buyTranscendent, buyFocus, buyBreathingMethod, buyExtremeExercise, buyRock, buyWater, buyGhostBrain, buyNaturalStrength, buyMentalPower, buyLifePower, buyMyStyle, buyIntuition, buyGhostBack, buySonicMovement, buyCarbonLimit, buyKillingIntent, buyRockStrike, buyHighSpeedMetabolism, buyEnduranceEnhancement, buyBulletTime, buyDynamicFocus, buySuperPerception, buyInvulnerable, buyRegeneration, buySuperpower, buySuperSpeedThinking, buyMountainCollapse, buyMindDivision, buyPowerOneTime, buyHyperRegeneration, buyMentalDomain, buyEarthSplit, buyGodspeed, buySuperpowerEvolution, buySubtle, buySkySplit, buyBiologicalQuantification, buyGhostManTransformation, buyDestroyCountry, buyHumanGhostTransformation, buyKillingIntentSubstance, buyEnergyCycle, buyMountainShatter, buyBioenergy, buyElementalization, buyKillingIntentPerception, buyKillingIntentWave, buyUltimateIntent, buyBrainDomainDevelopment, buyContinentSplit, buyContinentCollapse, toggleGhostBack,
     getJPerSecond: automaticJPerSecond,
     getPowerPerSecond: automaticPowerPerSecond,
     updateProgress: updateScaleProgress,

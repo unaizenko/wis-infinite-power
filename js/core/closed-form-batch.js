@@ -4,7 +4,17 @@
  const solveDiagnostics={calls:0,costCalls:0,maxCostCalls:0,newton:0,binary:0,correction:0,budgetExhausted:0};
  const creditDiagnostics={calls:0,discardedCount:0,discardedCoordinate:B.ZERO,unabsorbedSignificant:0};
  const error=message=>{throw Object.assign(Error(message),{code:'closed-form-batch'});};
- const decimal=(value,label='value')=>{const n=B.parseFinite(value);if(!n)error('Invalid '+label);return B.Decimal.fromComponents(n.sign,n.layer,n.mag);};
+ // Closed funding is compared as stored binary64 values. The vendor's small
+ // scientific JSON text can round those values, so preserve their native text
+ // locally without changing the global Decimal serialization contract.
+ function decimalJSON(){return this.layer===0?String(this.sign*this.mag):this.toString();}
+ const decimal=(value,label='value')=>{let n=B.parseFinite(value);if(!n)error('Invalid '+label);
+  const native=typeof value==='string'&&n.layer===0?Number(value):NaN;
+  if(Number.isFinite(native))n=B.BN(native);
+  const result=B.Decimal.fromComponents(n.sign,n.layer,n.mag);
+  if(result.layer===0)Object.defineProperty(result,'toJSON',{value:decimalJSON});
+  return result;
+ };
  const positive=(value,label)=>{const n=decimal(value,label);if(n.lt(0))error('Negative '+label);return n;};
  function copy(value){if(B.isDecimal(value))return decimal(value);if(Array.isArray(value))return value.map(copy);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,copy(v)]));return value;}
  function create({n0=0,context={},funding=0,acc=0}={}){const n=positive(n0,'anchor');if(!n.floor().eq(n))error('Noninteger anchor');return {kind:'wis-closed-batch',version:1,n0:n,context:copy(context),funding:positive(funding,'funding'),acc:decimal(acc,'acc')};}
@@ -37,8 +47,8 @@
    return receipt(false,allowed?1:0,allowed?delta:B.ZERO,allowed?0:1);
   }
   const next=r.funding.add(acc);if(!next.isFinite())error('Funding overflow');
-  if(!next.eq(r.funding)){r.acc=r.funding.sub(next).add(acc);r.funding=next;return receipt(true);}
-  r.acc=acc;return receipt();
+  if(!next.eq(r.funding)){r.acc=decimal(r.funding.sub(next).add(acc));r.funding=decimal(next);return receipt(true);}
+  r.acc=decimal(acc);return receipt();
  }
  function log1p(x){x=decimal(x);if(x.lte(-1))error('log1p domain');if(x.abs().lt('1e-5'))return x.mul(B.ONE.sub(x.div(2)).add(x.pow(2).div(3)).sub(x.pow(3).div(4)).add(x.pow(4).div(5)));return x.add(1).ln();}
  function expm1(x){x=decimal(x);if(x.abs().lt('1e-5'))return x.mul(B.ONE.add(x.div(2)).add(x.pow(2).div(6)).add(x.pow(3).div(24)).add(x.pow(4).div(120)));return x.exp().sub(1);}
@@ -81,7 +91,10 @@
    else if(model.logStep?.gt(0))step=c.ln().sub(funds.ln()).div(model.logStep);
    else step=c.ln().sub(funds.ln()).mul(c.div(slope));
    if(!step.isFinite())break;let next=B.max(old,m.sub(step).floor());if(cap!==null)next=B.min(next,cap);
-   if(next.eq(m)||step.abs().lte(B.max(1,m.abs().mul(1e-15)))){m=next;converged=true;break;}
+   // A high-layer relative tolerance can round back to m itself. Such a
+   // threshold cannot certify that a full-size Newton correction is small.
+   const tolerance=B.max(1,m.abs().mul(1e-15));
+   if(next.eq(m)||step.abs().lte(tolerance)&&(m.layer<2||tolerance.lt(m.abs()))){m=next;converged=true;break;}
    m=next;
   }
   // Correct representable published counts, not unobservable batch ULPs at a
@@ -107,7 +120,18 @@
   // bracket or an explicit cap. A fallback is always counted and reported.
   if(hi===null&&model.upperBound){const upper=B.max(lo,positive(model.upperBound(funds),'upper bound'));if(upper.gt(lo)){const c=yield* cost(upper);if(compareFunds(r,c)<0)hi=upper;}}
   if(hi===null&&cap!==null&&cap.gt(lo)){const c=yield* cost(cap);if(compareFunds(r,c)>=0){candidate=representation(cap);spent=yield* cost(candidate.m);if(compareFunds(r,spent)>=0&&candidate.m.lte(cap))return output(candidate,spent);}hi=cap;}
-  if(hi!==null)for(let j=0;j<64;j++){const mid=lo.add(hi).div(2).floor();if(mid.eq(lo)||mid.eq(hi))break;binary++;if(compareFunds(r,yield* cost(mid))>=0)lo=mid;else hi=mid;}
+  if(hi!==null)for(let j=0;j<64;j++){
+   let mid=lo.add(hi).div(2).floor();
+   // At high layers, dividing by two can leave the upper bound unchanged.
+   // Bisect its represented coordinate only when the ordinary midpoint stalls.
+   if(mid.eq(lo)||mid.eq(hi)){
+    const lower=lo.layer===hi.layer?lo.mag:0;
+    mid=B.Decimal.fromComponents(1,hi.layer,lower+(hi.mag-lower)/2).floor();
+    if(mid.lte(lo)||mid.gte(hi))mid=adjacent(hi,false);
+   }
+   if(mid.lte(lo)||mid.gte(hi))break;
+   binary++;if(compareFunds(r,yield* cost(mid))>=0)lo=mid;else hi=mid;
+  }
   candidate=representation(lo);spent=yield* cost(candidate.m);
   for(let j=0;j<2&&(compareFunds(r,spent)<0||cap!==null&&candidate.m.gt(cap));j++){candidate=representation(B.max(old,adjacent(candidate.count,false).sub(origin).div(a).floor()));spent=yield* cost(candidate.m);}
   return compareFunds(r,spent)>=0&&(cap===null||candidate.m.lte(cap))?output(candidate,spent):output(original,paid);

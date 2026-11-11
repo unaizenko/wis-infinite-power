@@ -1,3 +1,100 @@
+## 2026-11-12 0.2.2.0 发布
+
+开发 `dev-0.2.2.0-20261112-release-r1`；网页 `release-0.2.2.0-20261112`；APK `release-0.2.2.0-apk-20261112`，versionCode20200。同步当前开发正式内容与手机适配；发布与APK去除调速/公式调试/UI测试入口，Android及WebView调试关闭。schema76/model2/rule4/tailPolicy2保持，兼容既有APK签名。
+
+发布验收：核心489/489零skip、冻结离线/宝物通过；browser16/16组；发布手机布局4/4、正式网页与APK网页四尺寸/旧档往返/file启动通过；原生导出合同通过。APK内置资源逐字节一致。无真机升级/Harmony验收；未重测性能，已知100ms门槛失败与旧infinity-browser转生断言失败仍保留。两张玩家启动失败截图缺原档，公式认证/武道求根问题不宣称根治。报告 `../WIS-项目资源/release-0220-20261112/REPORT.md`。以下仅开发/未发布说明为历史记录。
+
+## 强化与无限强化手机专项
+
+`tests/upgrade-layout-browser.test.cjs`加入固定browserNode：低进度普通强化全宽/展开/过滤，真实high-training四分支详情就近、宽屏往返、只读浏览、32点购买、过滤空态。开发及临时发布转换各2/2，固定browser16/16。D12独立3视口支付/保存和UI只读通过。旧infinity-browser转生points断言before/after均失败，不能称全仓全绿。证据与重跑说明 `../WIS-项目资源/upgrade-ui-20261111/REPORT.md`。
+
+## 2026-11-11 手机布局与打包回归
+
+新增`tests/mobile-layout-browser.test.cjs`（真实高档，8视口×深浅色×web/native桥，触摸横滑、收起、长资源、短屏导出、只读）进入browserNode清单；`tests/release-output.test.cjs`加入node清单，验证math bundle跟随offline base重建并可正常装配。TEMP/TMP必须在E盘，该测试生成临时发布输出与隔离fixture，完成后清理。
+
+本轮browser phase15/15，开发/实际发布转换后的移动测试各2/2，发布输出2/2，UI只读脚本通过。未重跑全部数学或性能门禁。验收、限制及重跑方法见`../WIS-项目资源/mobile-ui-20261111/REPORT.md`。
+
+## 2026-11-11 提交后重绘与保存去重（仅开发版）
+
+build `dev-0.2.1.4-20261111-publication-r1`，可见0.2.1.4/schema76/model2/rule4/tailPolicy2不变。普通Loop、异步按钮完成和启动完整视图合并到后续host task，读取最新正式state；立即刷新会取消旧排队回调，隐藏保留dirty。保存仅去掉envelope内部稀疏编码的重复复制，关键同步保存/ACK、原子提交、精确数学与离线剩余时间保持。
+
+核心487/487、固定22组21通过；唯一失败为CPU4主线程100ms长任务门槛（两次115/105ms）。10个冷页无功能错误；CPU4最长任务中位152→92ms、最坏179→115ms，锻炼中位0.967→0.867s。CPU4仅主线程，不是真机保证。四真实档旧新存档编码逐字相同、往返完整状态一致。未发布/APK/commit/push。详见`../WIS-项目资源/main-thread-20261111/REPORT.md`。
+
+新增门禁：`tests/main-thread-publication.test.cjs`、`tests/save-encoding-work.test.cjs`和`tests/main-thread-publication-browser.test.cjs`。覆盖队列合并/立即flush/隐藏/换owner、旧编码字节一致、无live改写、同步写失败及重试。沿用原性能阈值，结果中的失败不可省略。保存Node微基准仅用于编码，不代替localStorage/browser测试。
+
+## 2026-11-11 锻炼与重型预览Worker（仅开发版）
+
+build `dev-0.2.1.4-20261111-math-worker-r1`，可见0.2.1.4/schema76/model2/rule4/tailPolicy2不变。纯计算迁移：手动锻炼收益、锻炼来源/下一点需求、吐纳预览/下一档需求。其余来源卡片继续本地分片。MathWorker每任务独立、原始精确分量协议、ready唤醒普通调度器，主线程保留原状态身份+输入key+generation验证与原子提交。失败/取消不安装结果，不修改离线时间。未启用1e-9近似。
+
+PureMathWork与Worker共用原规则；普通多来源请求按行保留完成结果，联合假设解锁仍整体求值。经典Blob复用offline引擎，80脚本offline与82脚本math payload；页面101脚本。结构无效回包一次精确本地后备，数学失败显式返回；30秒无进展终止。见tests/math-worker-*和既有调度/导入/支付门禁。
+
+最终核心477/477零skip；完整回归与性能采样见 `../WIS-项目资源/math-worker-20261111/REPORT.md` 和 `acceptance/summary.json`。CDP不支持Worker降速，CPU4仅指主线程；无真机性能保证。剩余主线程长任务已定位为启动重绘/保存聚集和正式提交后重绘/保存，不能继续统一归给数学公式。未修改发布版/APK，未commit/push。
+
+最终完整固定验收21组20通过；唯一失败仍为CPU4主线程100ms长任务门槛。普通CPU预览/锻炼中位2.224/0.656秒，主线程CPU4为4.183/0.967秒；CPU4最慢预览4.684秒、动作1.025秒、反馈72.6ms、长任务179ms。十个冷页面无功能错误。此结果仅代表主线程CDP降速，Worker降速不支持，不是手机保证。
+
+## 2026-11-11 续算阶段与反算搜索优化（仅开发版）
+
+build `dev-0.2.1.4-20261111-stages-r1`；可见0.2.1.4、schema76/model2/rule4/tailPolicy2保持。Scale渐进结算的前置除法/换算、refine中点、反算比较插值保留在原私有任务阶段中；不再随子任务暂停重做已完成准备。小反算区间先用原比较认证两端，失败保留宽区间/完整搜索。无全局跨存档结果缓存，无1e-9近似，无分片最低操作数上调，无新手动Worker。原收益、支付、事件/RNG/clock及离线剩余时间保持。
+
+四份真实档与本轮before完整动作状态/存读一致；准备后取消/换档、完成后输入改变拒绝提交、小分片后备有测试。最终19组18通过，核心465/465无skip；唯一失败是严格性能门禁，十个冷页面无功能错误。普通CPU预览/实际锻炼中位3.241/0.635秒，CPU4为10.948/6.538秒；CPU4动作最慢8.624秒，主线程最长175ms，仍不达5秒/100ms目标。固定原档CPU4旧新新旧隔离纯计算平均5.590→2.547秒，输出哈希相同；不含UI/主循环，不能当手机端到端保证。
+
+独立审查无可行动问题，另15组反算一致。手动/预览Worker已评估但未扩协议；近似未启用，因此低性能仍有等待。历史12失败/8缺档未处理。不宣称整个重构/全仓验收完成。未修改发布版/APK、未commit/push。报告 ../WIS-项目资源/continuation-stages-20261111/REPORT.md。
+
+## 2026-11-11 顶部速率发布修复（开发版，性能仍未验收）
+
+build `dev-0.2.1.4-20261111-rates-r1`；可见0.2.1.4、schema76/model2/rule4/tailPolicy2保持。顶部不再读取会被Effects清零的tmp速率，改为Loop正式提交的resourceGains/processedSeconds非持久快照。同owner普通积压舍弃保留；动作/换档/重置/体系或挑战切换失效。未知、真实0、过期、暂停分别展示，极小正值不显示0，不新增收益公式求值。状态变化只请求顶部重绘；正式动作未提交分片不再反复请求整页重绘，提交及独立输入仍正常刷新。
+
+最终核心460/460、浏览器11组（含3装配）、正常主循环预览3场景通过；原档历史暂停81519.567秒经正式重试完整完成，CPU4/8已提交收益展示与存档往返通过。未改正式数学、RNG、时间账本和离线规则，未新增近似。
+
+性能未通过：初次完整门禁5次CPU4动作均超45秒；修正分片重绘后的单次CPU4动作44.676秒，尚无最终五轮通过证据。旧UI单次23.850秒，但在线输入不相同，不能判定稳定差值或排除回退；下一项须固定动作输入分解公式/渲染成本。本次不能称链路根治、全仓全绿或可发布。历史12失败/8缺档未处理。报告 ../WIS-项目资源/rate-publication-20261111/REPORT.md；未动发布版/APK，未commit/push。
+
+## 2026-11-11 首轮重构与扩展测试（仅开发版）
+
+build `dev-0.2.1.4-20261111-refactor-r1`；可见0.2.1.4、schema76/model2/rule4/tailPolicy2保持。稀疏比较/认证幂/反算窄区间减少数学工作，action-view分离玩家状态与技术错误，预览失败不发布零收益或禁止有效动作；锁定/非武道界面不再同步计算转换预览，避免离线心跳误超时。原超时、离线权益不变，未新增收入近似。用户允许连续最终收益单次相对误差1e-9，支付/解锁不放宽；此授权优先于旧默认精度描述，但本轮未使用。
+
+核心454/454无skip；最终浏览器9组通过（生命周期8/8），冻结离线/宝物/导出合同通过。schema72及四份玩家档保存往返通过。普通CPU五轮预览中位3.417秒/动作0.810秒，CPU4为12.588/16.217秒，动作保持降速。最长主线程任务73/171ms；严格性能门禁仍失败，现行全套不能称全绿。用户允许有明确提升即扩大测试，3秒/5秒不再是扩大测试前提。
+
+扩展首跑163项142通过21失败：1项旧路径断言已修正并复测；8缺原档；12在禁用新数学捷径参考仍失败，含旧加载器及待核实消费者尾项问题。不可称全仓无bug或整个重构已完成。未发布/APK/commit/push；完整报告 ../WIS-项目资源/refactor-implementation-20261111/REPORT.md。以下为历史记录。
+
+## 2026-11-11 高数值玩家档公式范围与预览续算修复（开发版，性能验收未全过）
+
+build `dev-0.2.1.4-20261111-formula-range-r1`，可见0.2.1.4、schema76/model2/rule4、尾项policy2保持；发布版/APK/Git未同步。保留前轮全部未发布修复。
+
+新原档 WIS-存档-2026-11-11T07-53-58-701Z.json 已原字节入tests/fixtures/player-reports/high-training-20261111.json，SHA256 39880c373c771c2bccd6507616f7d6840d954a5d4304879d811e85574748d41b。反算比较优化仅支持1..1e14，却在资格检查前展开8.811411416139446e2078导致formula coordinate capacity。现先按稀疏Amount检查范围，指数也先检查可选支持范围，不符合直接回原完整公式；不提高容量、不降精度。
+
+该档炼气十万年挑战自动currentQiLayer变化还会每约10秒取消训练预览。现同owner层数进展仅标记完成后刷新；保留初始只读快照直到发布，再重新取最新样本。新owner/挑战切换/隐藏/导入仍硬取消，预览不供正式支付或收益使用。首次/显式来源预览每片128..256操作，3ms仍为软预算，setTimeout逐片yield不额外等待16ms；普通刷新仍32..256且16ms/积压100ms等待。不能称3ms硬上限或所有设备不卡顿。
+
+最终核心399/399无失败/skip；浏览器生命周期8/8，冻结/宝物与导出合同通过；全量门禁仅新增CPU4性能场景失败。已完成原档正式锻炼与关闭优化的完整公式全domain对照，战力1.7261370619147398e1207、J0，宝物/TREE/RNG/时钟和保存往返一致。当前真实file页面普通CPU首次锻炼预览12.33秒、实际按钮6.92秒并保存成功。CPU4预览仍超过60秒，high-training-browser是实际保留的失败；完整门禁不能宣称全绿。单独32操作原档预览能3085片/7.34秒完成，低性能实际页面仍有成本/争用问题，未进一步降低数学精度或放宽验收。详见../WIS-项目资源/formula-range-20261111/RESULTS.json；CPU4按钮未验收（原测试在点击前恢复CPU1）。
+
+## 2026-11-11 玩家容量与超时恢复验收
+
+当前必需清单新增 `breathing-fraction-capacity`、Amount有向压缩、Worker客户端及entry测试；全量入口不变。吐纳夹具是保留的可重复失败合成档，不冒充两位玩家未提供的原档。三份原玩家档继续按哈希固定。
+
+- `node --test tests/breathing-fraction-capacity.test.cjs`：原失败分数、正负误差证书、精确已支付数量不变、极小正值不清零、300次正式转换/消费和12次保存往返。
+- `node --test tests/online-bounded-loss.test.cjs tests/online-candidate-client.test.cjs tests/online-candidate-entry.test.cjs`：健康>2秒续算、真实进度通知、静默超时退避、确定性错误锁存、迟到结果和fallback计数连续。
+- `node tests/player-settlement-browser.test.cjs`：390px真实页面吐纳按钮/保存刷新；武道CPU8启用Worker、CPU4仅在线本地后备，强制实际在线自动化收益>1e6气，恢复CPU1后继续推进。不要禁用全部Worker，否则启动离线会按原合同暂停，测不到在线分支。45秒是该复现的回归上限，不是手机响应承诺。
+
+全量 `node tools/test-current-regression.cjs` 本轮12组通过，Node391/391、浏览器Node8/8，无skip；报告 ../WIS-项目资源/player-fixes-20261111/RESULTS.json。此结论不包括旧广域审计红灯或Android/鸿蒙真机；未生成APK。
+
+## 2026-11-11 当前必需回归入口（开发版审计修复）
+
+当前入口：`node tools/test-current-regression.cjs`，清单为 `tests/current-regression.json`。先加载 E 盘 `../WIS-App-Toolchain/env-ascii.ps1`；Playwright 由 `WIS_PLAYWRIGHT` 指向已安装模块（或正常 Node 模块解析），默认浏览器为 msedge。
+
+输出由 `WIS_REGRESSION_RESULTS` 指定，默认写入同级 `WIS-项目资源/current-regression-results`；临时目录也位于该输出目录。不要在 C 盘运行或输出。浏览器和冻结结算的根目录由 runner 固定为当前源码，避免 A/B 遗留环境误跑其他副本。
+
+- `--list`：预检所有必需文件和夹具 SHA-256，不执行测试。
+- 无参数：装配检查、Node、冻结收益场景、真实浏览器、四倍降速预览、Java 导出合同全部运行。
+- `--phase core|browser|performance|native`：分阶段验收；必须收齐全部阶段才构成完整门禁。每阶段输出 summary.json 和命名日志。
+- Node及浏览器Node用例要求 total=pass、skip=0；缺少输入、依赖、超时、TODO和失败均不算通过。
+- native阶段要求工具链 JAVA_HOME/ANDROID_HOME；实际Java验证使用Gson流式reader适配器，只验证代码合同，不代表Android/鸿蒙文件provider真机验证。
+- performance保持真实主循环，分别记录原档普通CPU、截图数值模拟、390宽CPU4的四个首次预览；每个实际时间必须≤30000ms，并验证在线继续推进和普通训练实际提交。30秒是防长时间不出结果的回归上限，不是低端“数秒可用”的达标声明。性能阶段单独运行，避免并行负载。
+
+`tests/current-fixtures.json` 登记三份原字节玩家存档、两份明确标注的合成TREE夹具和历史step31数值复现；helper校验哈希，真实存档不再依赖下载目录。缺失的历史原档单列记录，不能用新档冒充。文件原件不修改，时钟等仅在测试内存副本调整。
+
+实际结果检查包括资源、宝物库存及累计资金/补偿、G/TREE、RNG、挑战截止与离线债务、完整Save往返。新增故障注入覆盖恢复主档写入失败、导入竞争、Worker偏好写入失败/重试和数值后备。闭式补偿另测Worker→克隆→存读的binary64保持。
+
+旧广域测试红灯与当前门禁分开记录；不能删除旧断言后声称全绿。上一轮审计原始失败名单在同级资源目录 audit-0214-20261111/wide-failures.json，本轮对照在 audit-fixes-0214-20261111/wide。完整验收结果见本轮资源报告。
+
 ## 2026-11-11 0.2.1.4 发布版本
 
 开发build dev-0.2.1.4-20261111-release-r1；网页release-0.2.1.4-20261111；APK release-0.2.1.4-apk-20261111，versionCode20104。纳入锻炼反算比较优化、固定准备阶段复用、正常在线预览生命周期与吐纳预览分段续算修复。schema76/model2/rule4、收益规则和原APK签名保持。前轮真实file测试：普通CPU锻炼约5秒/吐纳约1.8秒；4倍降速锻炼仍约23～28秒，非低端数秒保证。发布验收与Git资产记录见 ../WIS-项目资源/release-0214-20261111/REPORT.md；以下未发布说明为历史记录。

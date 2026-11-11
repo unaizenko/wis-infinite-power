@@ -40,17 +40,18 @@
  // Tasks contain only private arithmetic. A yielded thunk executes outside its
  // parent generator so a suspended child never closes the parent's iterator.
  const suspended=Object.freeze({code:'rank-work-suspended'});let activeWork=null;
+ let progressVersion=0;
  function task(key,factory){
   if(!activeWork)return cached('task|'+key,()=>{const iterator=factory();let next=iterator.next();while(!next.done){let input;try{input=typeof next.value==='function'?next.value():undefined;}catch(error){next=iterator.throw(error);continue;}next=iterator.next(input);}return next.value;});
   let job=activeWork.tasks.get(key);if(!job){if(activeWork.tasks.size>=131072)fail('private proof task capacity');job={iterator:factory(),next:null,done:false,value:undefined};activeWork.tasks.set(key,job);}
   if(job.error)throw job.error;if(job.done)return job.value;
   try{for(;;){
    if(activeWork.operations>=activeWork.maximumOperations||activeWork.operations>=activeWork.minimumOperations&&performance.now()>=activeWork.deadline)throw suspended;
-   if(!job.next){activeWork.operations++;job.next=job.iterator.next();}
+   if(!job.next){activeWork.operations++;job.next=job.iterator.next();progressVersion++;}
    if(job.next.done){job.done=true;job.value=job.next.value;job.iterator=null;job.next=null;return job.value;}
    let value;if(job.ready)value=job.input;else try{value=typeof job.next.value==='function'?job.next.value():undefined;}catch(error){if(error===suspended)throw error;value=error;job.throwing=true;}job.ready=false;job.input=undefined;
    if(activeWork.operations>=activeWork.maximumOperations||activeWork.operations>=activeWork.minimumOperations&&performance.now()>=activeWork.deadline){job.input=value;job.ready=true;throw suspended;}
-   activeWork.operations++;const throwing=job.throwing;job.throwing=false;job.next=throwing?job.iterator.throw(value):job.iterator.next(value);
+   activeWork.operations++;const throwing=job.throwing;job.throwing=false;job.next=throwing?job.iterator.throw(value):job.iterator.next(value);progressVersion++;
   }}catch(error){if(error!==suspended){job.error=error;job.iterator=null;}throw error;}
  }
  // Sibling pure calculations may share immutable preparation inside ONE
@@ -204,5 +205,5 @@
  function certify(op,x){if(typeof x!=='number'||!Number.isFinite(x)||op==='log10'&&x<=0)fail('transcendental input');if(op==='pow10'&&x>309)return Infinity;if(op==='pow10'&&x< -325)return 0;
   for(const p of [80,160,320,512]){const c=context(p);try{return c.round(c[op](c.number(x)));}catch(e){if(e.code!=='rank-cost-unresolved')throw e;}}fail('binary64 rounding not certified');
  }
- W.Core.CertifiedRankMath=Object.freeze({memo,withWork,task,createNumericScope,createWork,isWorkActive:()=>activeWork!==null,isSuspension:e=>e===suspended,context,binaryFraction,roundFraction,log10Number:x=>certify('log10',x),pow10Number:x=>certify('pow10',x)});
+ W.Core.CertifiedRankMath=Object.freeze({progressVersion:()=>progressVersion,memo,withWork,task,createNumericScope,createWork,isWorkActive:()=>activeWork!==null,isSuspension:e=>e===suspended,context,binaryFraction,roundFraction,log10Number:x=>certify('log10',x),pow10Number:x=>certify('pow10',x)});
 }(window.WIS));

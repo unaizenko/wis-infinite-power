@@ -25,7 +25,10 @@
         if(!n.isFinite()||n.isNan())throw Error('Worker Decimal 无效');
         return n;
       }
-      return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,unpack(v)]));
+      const decoded=Object.fromEntries(Object.entries(value).map(([k,v])=>[k,unpack(v)]));
+      // Component transfer preserves binary values; restore the closed record's
+      // local JSON boundary before its Worker result is cloned or saved.
+      return decoded.kind==='wis-closed-batch'?WIS.Core.ClosedFormBatch.read(decoded):decoded;
     }
     return value;
   }

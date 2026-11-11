@@ -13,7 +13,7 @@
     let manualQi=null;
     let deferredAction=null;
     let onlineWork=null,onlineFailure=null,publishedSinceRender=false;
-    let discardFailure=null;
+    let discardFailure=null,timeoutFailures=0;
     const limit=WIS.Simulation.SettlementLimit;
     const bounded=!!limit&&WIS.Core.Config?.saveVersion>=76&&typeof context.commitDiscard==='function';
     const onlineIntervals=(getState().core.runtime.timeLedger.pendingContinuousTime||[]).map(p=>({...p}));
@@ -25,6 +25,28 @@
     let tickRemaining=0;
     const ledger=()=>getState().core.runtime.timeLedger;
     const monotonicNow=()=>window.performance?.now?window.performance.now():Date.now();
+    // Nonpersistent presentation data, published only after a successful online
+    // commit. Effects scratch rates may be cleared by discard/save/action work.
+    let committedRates=null,lastRatePresentation=null;
+    const rateIdentity=()=>context.rateIdentity?.()||[getState()];
+    const sameRateIdentity=(a,b)=>a.length===b.length&&a.every((v,i)=>v===b[i]);
+    function publishCommittedRates(result,identity) {
+      if(!sameRateIdentity(identity,rateIdentity())){committedRates=null;return;}
+      if(!(result?.processedSeconds>0)||!result.resourceGains)return;
+      const B=WIS.Core.BigNum,rates={};
+      // Presentation failure must never interrupt accounting of committed time.
+      for(const [key,gain] of Object.entries(result.resourceGains))try{
+        const value=B.div(gain,result.processedSeconds);
+        if(B.isFiniteBN(value)&&B.gte(value,0))rates[key+'PerSecond']=value;
+      }catch(_){}
+      committedRates={identity,rates:Object.freeze(rates),at:monotonicNow()};
+    }
+    function getCommittedRates() {
+      const current=committedRates&&sameRateIdentity(committedRates.identity,rateIdentity());
+      return {rates:current?committedRates.rates:null,
+        stale:!!current&&monotonicNow()-committedRates.at>2000,
+        stopped:!!onlineFailure||!!discardFailure};
+    }
     let continuationChannel=null,channelTask=null,channelSequence=0n,channelDisabled=false,lastTimerTaskAt=monotonicNow();
     function closeContinuationChannel(){const channel=continuationChannel;continuationChannel=null;channelTask=null;channel?.port1.close?.();channel?.port2.close?.();}
     function queueOnlineTask(callback){
@@ -49,7 +71,7 @@
     function cancelQiWork(){manualQi=null;context.invalidateDeferredQi?.();}
     function cancelDeferredAction(reason='cancelled'){
       const owner=deferredAction;if(!owner)return false;
-      deferredAction=null;
+      deferredAction=null;detachOnlineReady(owner);
       try{owner.job.cancel?.(reason);}finally{owner.resolve(false);}
       return true;
     }
@@ -71,7 +93,7 @@
       if(typeof unsubscribe==='function')owner.unsubscribe=unsubscribe;
     }
     function onlineInputKey(){return (context.onlineFailureKey||context.onlineStateKey)?.(getState());}
-    function failureStillCurrent(){if(!onlineFailure)return false;if(onlineFailure.key!==onlineInputKey()){onlineFailure=null;return false;}return true;}
+    function failureStillCurrent(){if(!onlineFailure)return false;if(onlineFailure.key!==onlineInputKey()){onlineFailure=null;timeoutFailures=0;return false;}if(onlineFailure.retryAt!==undefined&&monotonicNow()>=onlineFailure.retryAt){onlineFailure=null;return false;}return true;}
     function accumulateDiscard(clock,game,reason='online-overload'){
       if(!(clock>0))return;
       const old=ledger().pendingDiscard;
@@ -101,11 +123,18 @@
       cancelOnlineWork(true);
       if(bounded){limitOnlineQueue(0,error?.code||'online-settlement-failed');flushDiscardEffects();}
       onlineFailure={key:onlineInputKey(),code:error?.code||'online-settlement-failed'};
+      if(error?.code==='online-candidate-timeout')onlineFailure.retryAt=monotonicNow()+Math.min(30000,1000*2**Math.min(timeoutFailures++,5));
       context.onOnlineSettlementError?.(error);
     }
     function inspectOnlineTimeout(){
-      if(bounded&&onlineWork&&monotonicNow()-onlineWork.startedAt>=limit.candidateTimeoutMs)
-        stopFailedWork(Object.assign(Error('结算超时，已停止本次计算'),{code:'online-candidate-timeout'}));
+      if(!bounded||!onlineWork)return;
+      // Only persisted arithmetic cursors/phases count. A queued timer or empty
+      // poll cannot extend this deadline. Remote workers own their silence watchdog.
+      const owner=onlineWork,now=monotonicNow(),progress=owner.job.progress?.();
+      if(Number.isSafeInteger(progress)&&progress>(owner.progress||0)){owner.progress=progress;owner.lastProgressAt=now;}
+      if(owner.job.isReady?.()||owner.job.ownsTimeout?.())return;
+      if(now-(owner.lastProgressAt??owner.startedAt)>=limit.candidateTimeoutMs)
+        stopFailedWork(Object.assign(Error('在线计算暂时无进展，将自动重试'),{code:'online-candidate-timeout'}));
     }
     function beforePlayerAction(){
       if(!bounded||!ledger().pendingDiscard)return !discardFailure;
@@ -127,7 +156,8 @@
         if(!job||typeof job.advance!=='function'||typeof job.commit!=='function')throw Error('动作工作接口无效');
       }catch(error){return Promise.reject(error);}
       return new Promise((resolve,reject)=>{
-        deferredAction={job,original,generation,resolve,reject};
+        const owner=deferredAction={job,original,generation,resolve,reject};
+        owner.unsubscribe=job.onReady?.(()=>{if(deferredAction===owner&&owner.generation===schedulerGeneration)scheduleOnlineContinuation();});
         // The first slice also belongs to a later host task. The requesting UI
         // can show its pending state before any expensive candidate work starts.
         scheduleOnlineContinuation();
@@ -142,10 +172,10 @@
         if(owner.original!==getState()||owner.job.valid?.()===false){cancelDeferredAction('stale-action');return false;}
         // Resolve only after an atomic candidate commit. No registered clock is
         // consumed by the action owner; the ordinary ledger drain follows later.
-        const value=owner.job.commit();deferredAction=null;owner.resolve(value);
+        const value=owner.job.commit();deferredAction=null;detachOnlineReady(owner);owner.resolve(value);
         return true;
       }catch(error){
-        deferredAction=null;
+        deferredAction=null;detachOnlineReady(owner);
         try{owner.job.cancel?.('action-failed');}finally{owner.reject(error);}
         return false;
       }
@@ -168,6 +198,7 @@
       if(ledger().awaySince===null)writeLedger({boundaryAt:Math.max(ledger().boundaryAt||0,lastTickAt)});
     }
     function resetAccumulators({preservePending=false}={}){
+      committedRates=null;
       invalidateOnlineScheduler();discardFailure=null;
       const pending=preservePending ? (ledger().pendingContinuousTime||[]).map(p=>({...p})) : [];
       lastTickAt=Date.now();onlineIntervals.splice(0,onlineIntervals.length,...pending);
@@ -223,7 +254,7 @@
     function hasRunnableOnlineWork(flush=false){
       if(importHold||isHidden()||!isInitialLoadComplete())return false;
       if(onlineBlocked())return false;
-      if(deferredAction)return true;
+      if(deferredAction)return deferredAction.job.waiting?.()!==true;
       if(manualQi)return true;
       if(discardFailure||failureStillCurrent())return false;
       if(onlineWork)return onlineWork.job.waiting?.()!==true;
@@ -279,6 +310,7 @@
           const cadence=currentCadence();
           if(availableGame+epsilon<cadence&&!flush&&offlineIndex<0&&!(bounded&&ledger().pendingDiscard))break;
           const part=onlineIntervals[0],seconds=Math.min(cadence,part.clock*part.speed);
+          const committedIdentity=rateIdentity();
           let result;
           if(typeof context.prepareOnlineWork==='function'){
             if(onlineWork&&(onlineWork.part!==part||onlineWork.generation!==schedulerGeneration)){cancelOnlineWork();break;}
@@ -311,7 +343,8 @@
             if(bounded&&!treasureRecoveryRequired)stopFailedWork(Object.assign(Error('结算未产生完整进展'),{code:'online-no-progress'}));
             blocked=true;break;
           }
-          progressed=true;steps++;publishedSinceRender=true;
+          publishCommittedRates(result,committedIdentity);
+          progressed=true;steps++;publishedSinceRender=true;timeoutFailures=0;
           const clock=processed/part.speed;
           part.clock=Math.max(0,part.clock-clock);
           onlineAccumulator=Math.max(0,onlineAccumulator-clock);
@@ -356,8 +389,14 @@
     function flushOnlineRender(now){
       // A private proof changes no confirmed display values. Still flush any
       // presentation requested independently by input/status handlers.
-      if(!onlineWork||publishedSinceRender){requestRender();publishedSinceRender=false;}
-      flushRender(now);
+      const view=getCommittedRates();
+      const presentation=view.stopped?'stopped':!view.rates?'pending':view.stale?'stale':'ready';
+      // One refresh at a status transition, even if the next candidate is still
+      // pending. Repeated stale polls must not dirty costly page previews.
+      if((!onlineWork&&!deferredAction)||publishedSinceRender){requestRender();publishedSinceRender=false;}
+      else if(presentation!==lastRatePresentation)(context.requestGlobalRender||requestRender)();
+      lastRatePresentation=presentation;
+      (context.scheduleRender || flushRender)(now);
     }
     function scheduleOnlineContinuation(){
       if(continuationHandle!==null)return false;if(!hasRunnableOnlineWork(false)){closeContinuationChannel();return false;}
@@ -544,7 +583,7 @@
       document.addEventListener('visibilitychange',handleVisibilityChange);
       window.setInterval(runMainTick,context.logicIntervalMs);
     }
-    return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,handleVisibilityChange,setNativeAppActive,
+    return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,getCommittedRates,handleVisibilityChange,setNativeAppActive,
       prepareSave,restoreClosedTime,handoffImportRecovery,enqueueForegroundAt,captureForegroundTime,beginImportHold,finishImportHold,
       invalidateOnlineScheduler,requestQiBatch,requestDeferredAction,cancelDeferredAction,beforePlayerAction,flushDiscardEffects,
       settlementStatus:()=>({bounded,stopped:!!onlineFailure||!!discardFailure,reason:discardFailure?.message||onlineFailure?.code||null,pendingDiscard:ledger().pendingDiscard||null}),
@@ -552,6 +591,7 @@
       isImportHoldActive:()=>!!importHold,
       snapshot:()=>({lastTickAt,onlineAccumulator,tickRemaining,onlineIntervals:onlineIntervals.map(part=>({...part}))}),
       restore:snapshot=>{
+        committedRates=null;
         invalidateOnlineScheduler();
         lastTickAt=snapshot.lastTickAt;onlineAccumulator=snapshot.onlineAccumulator||0;
         tickRemaining=snapshot.tickRemaining||0;onlineIntervals.splice(0,onlineIntervals.length,...(snapshot.onlineIntervals||[]).map(part=>({...part})));

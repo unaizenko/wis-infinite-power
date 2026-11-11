@@ -298,7 +298,37 @@
   // here. Frozen accessors and detached mutable copies never inherit trust.
   if(encodedInputs.has(values)||values===preparedWords.get(r))wordRanges.set(values,out);return out;
  }
- function compareRanges(a,b){const left=positiveRange(a),right=positiveRange(b);return !left||!right?null:left.lo>right.hi?1:right.lo>left.hi?-1:null;}
+ // Directed significand intervals for exact rational rows. Comparing an
+ // inverse probe must not first construct a thousands-digit difference.
+ // No stored value is rounded: overlap always returns to the exact comparator.
+ const rationalRanges=new WeakMap();
+ function rationalRange(values){
+  const rows=prepare(values);if(rationalRanges.has(rows))return rationalRanges.get(rows);
+  const remember=value=>{const result=value&&Object.freeze(value);rationalRanges.set(rows,result);return result;};
+  if(!rows.length||rows.some(row=>row.f.size))return remember(null);
+  const orders=rows.map(row=>row.e+BigInt(String(abs(row.n)).length-String(row.d).length));
+  const order=orders.reduce((a,b)=>a>b?a:b),places=24n;let lo=0n,hi=0n;
+  for(let i=0;i<rows.length;i++){
+   const row=rows[i];
+   // |row| < 10^(orders[i]+1). Remote terms remain enclosed,
+   // including their signs; they are never deleted from the balance.
+   if(orders[i]+1n+places<=order){if(row.n<0n)lo--;else hi++;continue;}
+   const shift=row.e-order+places;if(shift>4096n||shift< -4096n)return remember(null);
+   const numerator=shift>=0n?row.n*10n**shift:row.n,denominator=shift>=0n?row.d:row.d*10n**(-shift);
+   const q=numerator/denominator,r=numerator-q*denominator;
+   lo+=q-(r<0n?1n:0n);hi+=q+(r>0n?1n:0n);
+  }
+  return remember(lo>0n?{order,lo,hi}:null);
+ }
+ function compareRanges(a,b){
+  const left=positiveRange(a),right=positiveRange(b);
+  if(left&&right){if(left.lo>right.hi)return 1;if(right.lo>left.hi)return -1;}
+  if(!W.Core.Amount?.enabled())return null;
+  const x=rationalRange(a),y=rationalRange(b);if(!x||!y)return null;
+  const delta=x.order-y.order;if(delta>128n||delta< -128n)return null;
+  const sx=delta>=0n?10n**delta:1n,sy=delta<0n?10n**(-delta):1n;
+  return x.lo*sx>y.hi*sy?1:x.hi*sx<y.lo*sy?-1:null;
+ }
  // Conservative guard for a transient nonlinear product. Positive terms
  // cannot cancel; this spread exceeds every supported coefficient/carry span.
  function separatedPositiveProduct(groups){
@@ -386,10 +416,17 @@
 
  // Bounded storage is an explicit owner policy. Generic exact arithmetic and
  // integer/paid-price ledgers do not call this function.
- const tailPolicy=Object.freeze({id:'directed-tail-32-8-24-v1',version:1,coefficientPlaces:32,capacity:24,target:8,retainedFullRows:5});
+ const tailPolicy=Object.freeze({id:'directed-tail-32-8-24-v2',version:2,coefficientPlaces:32,capacity:24,target:8,retainedFullRows:5,coefficientDigits:512});
  function rationalOrder(n,d){n=abs(n);let k=String(n).length-String(d).length;if(k>=0?n<d*10n**BigInt(k):n*10n**BigInt(-k)<d)k--;return BigInt(k);}
  function compactGroupDirected(group,negative){
-  if(group.length===1)return Object.freeze({row:group[0],error:canonical({n:0n,d:1n,e:0n,f:emptyFactors})});
+  if(group.length===1){const row=group[0];if(!oversizedCoefficient(row))return Object.freeze({row,error:canonical({n:0n,d:1n,e:0n,f:emptyFactors})});
+   // Exact integer division gives a directed32-place coefficient certificate;
+   // no logarithm, scalar projection or dense power-of-ten resource is needed.
+   const order=rationalOrder(row.n,row.d),shift=BigInt(tailPolicy.coefficientPlaces)-order;
+   const n=abs(row.n)*(shift>0n?10n**shift:1n),d=row.d*(shift<0n?10n**(-shift):1n),rest=n%d;
+   const coefficient=n/d+(negative&&rest?1n:0n),e=row.e-shift;
+   return Object.freeze({row:canonical({n:negative?-coefficient:coefficient,d:1n,e,f:row.f}),error:canonical({n:rest?1n:0n,d:1n,e,f:row.f})});
+  }
   const key='tail-cap-group|'+negative+'|'+proofIdentity(group);
   return C.task(key,function*(){
    for(const places of [80,160,320,512]){
@@ -414,19 +451,25 @@
    fail('Tail compaction coefficient unresolved','amount-compaction-unresolved');
   });
  }
+ // A single exact fraction can grow without increasing the row count. Owner
+ // compaction must run before its next multiplication reaches the2048-digit
+ // arithmetic boundary. The existing32-place directed certificate is unchanged.
+ const oversizedCoefficient=row=>String(abs(row.n)).length>tailPolicy.coefficientDigits||String(row.d).length>tailPolicy.coefficientDigits;
+ const needsCompaction=values=>{const rows=prepare(values);return rows.length>tailPolicy.capacity||rows.some(oversizedCoefficient);};
  function compact(values,{force=false}={}){
   const input=prepare(values),original=preparedWords.get(input);
-  if(!W.Core.Amount?.enabled()||!force&&input.length<=tailPolicy.capacity)return Object.freeze({words:original,errorWords:Object.freeze([]),sourceTerms:input.length,resultTerms:input.length,compacted:false,policyId:tailPolicy.id});
+  if(!W.Core.Amount?.enabled()||!force&&input.length<=tailPolicy.capacity&&!input.some(oversizedCoefficient))return Object.freeze({words:original,errorWords:Object.freeze([]),sourceTerms:input.length,resultTerms:input.length,compacted:false,policyId:tailPolicy.id});
   return C.task('tail-cap|'+tailPolicy.id+'|'+proofIdentity(input),function*(){
    // Projection chooses only the packing candidate/order. Directed intervals
    // below independently establish every rounding bound.
    const ordered=input.map(row=>({row,estimate:projectRow(row).abs()})).sort((a,b)=>(B.gt(b.estimate,a.estimate)?1:B.lt(b.estimate,a.estimate)?-1:0)|| (rowKey(a.row)<rowKey(b.row)?-1:rowKey(a.row)>rowKey(b.row)?1:0));
-   const retained=ordered.slice(0,tailPolicy.retainedFullRows).map(r=>r.row),rest=ordered.slice(tailPolicy.retainedFullRows).map(r=>r.row),positive=Object.freeze(rest.filter(r=>r.n>0n)),negative=Object.freeze(rest.filter(r=>r.n<0n)),errors=[];
+   const retained=[],rest=[];for(const {row}of ordered)(retained.length<tailPolicy.retainedFullRows&&!oversizedCoefficient(row)?retained:rest).push(row);
+    const positive=Object.freeze(rest.filter(r=>r.n>0n)),negative=Object.freeze(rest.filter(r=>r.n<0n)),errors=[];
    for(const [group,isNegative]of [[positive,false],[negative,true]])if(group.length){const result=yield ()=>compactGroupDirected(group,isNegative);retained.push(result.row);if(result.error.n)errors.push(result.error);}
    const result=finalizedRows(collect(retained)),loss=finalizedRows(collect(errors));
    return Object.freeze({words:preparedWords.get(result),errorWords:preparedWords.get(loss),sourceTerms:input.length,resultTerms:result.length,compacted:true,policyId:tailPolicy.id});
   });
  }
 
- W.Core.AmountProducts=Object.freeze({compact,tailPolicy,termCount:values=>prepare(values).length,wordKinds,compareRanges,numericIdentity,preparedView:values=>{const rows=preparedInput(values);return rows?preparedWords.get(rows):null;},extended:values=>{const rows=preparedInput(values);return rows?extendedRows.get(rows):null;},wordView:values=>preparedWords.get(prepare(values)),copyPrepared,sumView,isPrepared:values=>preparedInput(values)!==null,separatedPositiveProduct,mathWorkMemo,workMemo,inputKey,releaseWorkMemo,numericLog,coordinatePower10,isProduct,hasProduct,validate:raw=>{token(raw);return String(raw);},normalize,multiply,divide,sign,value,logarithm});
+ W.Core.AmountProducts=Object.freeze({compact,tailPolicy,needsCompaction,termCount:values=>prepare(values).length,wordKinds,compareRanges,numericIdentity,preparedView:values=>{const rows=preparedInput(values);return rows?preparedWords.get(rows):null;},extended:values=>{const rows=preparedInput(values);return rows?extendedRows.get(rows):null;},wordView:values=>preparedWords.get(prepare(values)),copyPrepared,sumView,isPrepared:values=>preparedInput(values)!==null,separatedPositiveProduct,mathWorkMemo,workMemo,inputKey,releaseWorkMemo,numericLog,coordinatePower10,isProduct,hasProduct,validate:raw=>{token(raw);return String(raw);},normalize,multiply,divide,sign,value,logarithm});
 }(window.WIS));

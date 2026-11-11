@@ -27,7 +27,9 @@
         const job=active;
         if(worker!==owner||!job||job.status!=='waiting'||!m||m.requestId!==job.id)return;
         if(m.protocol!==1||m.build!==build){infrastructureFailure(Error('在线线程响应版本不匹配'));return;}
-        if(m.type==='result'){
+        if(m.type==='progress'){
+          if(Number.isSafeInteger(m.progress)&&m.progress>job.progress){job.progress=m.progress;job.armTimer();}return;
+        }else if(m.type==='result'){
           if(typeof m.payload!=='string'){infrastructureFailure(Error('在线线程结果编码无效'));return;}
           counts.received++;counts.responseCharacters+=m.payload.length;job.payload=m.payload;job.status='ready';job.clearTimer();job.notify();
         }else if(m.type==='error'){
@@ -45,13 +47,14 @@
       if(disabled||!WIS.Core.Amount?.enabled()||!step.createOnlineCandidateReceiver||(!factory&&typeof Worker!=='function'))return step.prepareOnlineWork(seconds,timeSegment);
       if(active)throw Error('online candidate already active');
       const receiver=step.createOnlineCandidateReceiver(seconds,timeSegment);
-      let timer=null,listener=null,local=null;
-      const job={id:++requestSequence,status:'waiting',payload:null,failure:null,
-        clearTimer(){if(timer!==null){clearTimeout(timer);timer=null;}},
+      let timer=null,listener=null,local=null,timerGeneration=0;
+      const job={id:++requestSequence,status:'waiting',payload:null,failure:null,progress:0,
+        armTimer(){job.clearTimer();const generation=timerGeneration;timer=setTimeout(()=>{if(generation!==timerGeneration||active!==job||job.status!=='waiting')return;job.failure=Object.assign(Error('在线计算暂时无进展，将自动重试'),{code:'online-candidate-timeout'});job.status='failed';job.clearTimer();stopWorker();job.notify();},timeoutMs);},
+        clearTimer(){timerGeneration++;if(timer!==null){clearTimeout(timer);timer=null;}},
         notify(){listener?.();}};
       active=job;
       const retire=()=>{job.clearTimer();listener=null;if(active===job)active=null;if(delivered===job)delivered=null;};
-      const api=Object.freeze({checksInputOnAdvance:true,waiting:()=>job.status==='waiting',
+      const api=Object.freeze({checksInputOnAdvance:true,waiting:()=>job.status==='waiting',isReady:()=>['ready','failed','fallback'].includes(job.status),ownsTimeout:()=>job.status==='waiting',progress:()=>job.status==='local'?job.progress+1+(local?.progress?.()||0):job.progress,
         onReady(callback){listener=callback;if(job.status!=='waiting'&&job.status!=='closed'&&job.status!=='consumed')callback();return ()=>{if(listener===callback)listener=null;};},
         valid:()=>job.status!=='closed'&&job.status!=='consumed'&&(local?.valid?local.valid():receiver.valid()),
         advance(deadline){
@@ -74,7 +77,7 @@
       try{
         const owner=ensureWorker(),payload=receiver.encodedRequest||P.encode(receiver.request);counts.dispatched++;counts.requestCharacters+=payload.length;
         owner.postMessage({type:'compute',protocol:1,build,requestId:job.id,payload});
-        if(job.status==='waiting')timer=setTimeout(()=>{if(active===job&&job.status==='waiting')infrastructureFailure(Error('在线线程响应超时；待结算时间保留'));},timeoutMs);
+        if(job.status==='waiting')job.armTimer();
       }catch(error){infrastructureFailure(error);}
       // close() remains private to the adapter's lifetime, not a public commit.
       job.cancel=api.close;

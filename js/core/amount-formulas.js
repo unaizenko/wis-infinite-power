@@ -119,6 +119,21 @@
  // Enclose that correction at the existing precision, without expanding x/d
  // or x+d. If a boundary remains unresolved, the caller uses the exact sum.
  function* largeOnePlusLog(input,c){const base=yield ()=>logarithm(input.value,c),divisor=yield ()=>A.compare(input.divisor,1)===0?c.fraction(0n):logarithm(input.divisor,c),ratio=subtractLog(base,divisor,c);if(ratio.lo<=17n*c.scale)return null;const upper=ratio.lo>BigInt(c.places+2)*c.scale?1n:(yield ()=>c.pow10(neg(ratio))).hi;return {lo:ratio.lo,hi:ratio.hi+upper,openLo:true,openHi:true};}
+ // Evaluate huge (1+x)^p-1 in log coordinates BEFORE adding 1 to x.
+ // Otherwise the exact ledger may carry that 1 into a thousands-digit
+ // coefficient on every inverse probe. These are directed enclosures of the
+ // same formula, not projection of x or a change of precision.
+ function* sparseOnePlusPower(input,c){
+  if(!W.Core.Amount?.enabled()||(yield ()=>A.compare(input.value,'1e40')<0))return null;
+  const base=yield* largeOnePlusLog({value:input.value,divisor:A.from(1)},c);
+  if(!base)return null;
+  const powered=c.times(base,input.q.n,input.q.d);
+  if(powered.lo<=BigInt(c.places+2)*c.scale)return null;
+  // Here 0 < 10^-powered < 10^-(places+2), and
+  // -2*10^-powered < log10(1-10^-powered) < 0.
+  // Keep the enclosing two fixed-point units until final Decimal rounding.
+  return yield* fromLog({lo:powered.lo-2n,hi:powered.hi},c);
+ }
  // Explicit high-coordinate precision policy (2026-11-07). Only a tagged
  // capacity refusal reaches here; ordinary uncertified boundaries still fail.
  const capacityCounts={calls:0,operations:{}};
@@ -208,6 +223,8 @@
       const v=yield ()=>c.pow10(difference),incrementLog=yield ()=>c.log10(c.sub(v,c.fraction(1n)));return yield* fromLog(c.add(c.mul(p,sign>0?startLog:endLog),incrementLog),c,sign);
     }
     if(input.operation==='powerOnePlusMinusOne'){
+      try{const sparse=yield* sparseOnePlusPower(input,c);if(sparse)return sparse;}
+      catch(error){if(!['rank-cost-unresolved','amount-formula-unresolved','amount-unresolved'].includes(error.code))throw error;}
       log=yield ()=>logarithm(A.add(input.value,1),c);log=c.times(log,input.q.n,input.q.d);
       if(log.lo>17n*c.scale){
         // log10(1-10^-L) is in [-2*10^-L,0] for L>17. Enclose
@@ -271,7 +288,11 @@
  // The returned list contains EVERY possible scalar rounded by fromInterval.
  // No native transcendental estimate, projection of tails, or epsilon is used.
  function createPowerOnePlusMinusOneCandidates(exponent){
-  const captured=capturedExponent(exponent),q=typeof captured==='number'?C.binaryFraction(captured):rational(String(captured)),c=C.context(32),one=c.fraction(1n),p=c.fraction(q.n,q.d);
+  const captured=capturedExponent(exponent);
+  // This optional comparison shortcut must reject unsupported sparse inputs
+  // before any dense rational allocation. The caller then uses the full formula.
+  if(B.lt(captured,'1e-7')||B.gt(captured,1))return ()=>null;
+  const q=typeof captured==='number'?C.binaryFraction(captured):rational(String(captured)),c=C.context(32),one=c.fraction(1n),p=c.fraction(q.n,q.d);
   const view=new DataView(new ArrayBuffer(8));let anchor=null;
   function candidates(interval){
    // Stay strictly inside fromInterval's scalar representation branch.
@@ -284,6 +305,7 @@
    if(q.n<=0n||q.n>q.d||q.n*10000000n<q.d)return null;
    value=A.from(value);if(hasTail(value))return null;
    const words=A.wordView(value);if(words.length!==1||!decimal(words[0]))return null;
+   if(A.compare(value,1)<0||A.compare(value,'1e14')>0)return null;
    const x=rational(words[0]);if(x.n<x.d||x.n>100000000000000n*x.d)return null;
    if(q.n===q.d)return [A.project(value)];
    const sum=c.fraction(x.n+x.d,x.d);
@@ -306,5 +328,50 @@
    const power=c.power(sum,q.n,q.d);anchor={sum,power};return candidates(c.sub(power,one));
   };
  }
- W.Core.AmountFormulas=Object.freeze({createPowerOnePlusMinusOneCandidates,capacityDiagnostics:()=>({calls:capacityCounts.calls,operations:{...capacityCounts.operations}}),powerOnePlusRatio:(v,d,e)=>evaluate(capture('powerOnePlusRatio',[v,e,d])),productPower:(factors,e)=>evaluate(capture('productPower',[factors,e])),logarithmBucket,powerWithExponent:(v,e)=>evaluate(capture('powerWithExponent',[v,e])),powerIncrement:(s,d,p)=>evaluate(capture('powerIncrement',[s,d,p])),floorPowerRatio,logRatio:(v,d=1)=>evaluate(capture("logRatio",[v,d])),powerOnePlusMinusOne:(v,e)=>evaluate(capture("powerOnePlusMinusOne",[v,e])),logOnePlusRatio:(v,d=1)=>evaluate(capture("logOnePlusRatio",[v,d])),powerRatio:(v,d,e)=>evaluate(capture('powerRatio',[v,e,d])),power:(v,e)=>evaluate(capture('power',[v,e])),log10:v=>evaluate(capture('log10',[v])),productQuotient:(n,d=[])=>evaluate(capture('productQuotient',[n,d])),prepareWork:(operation,args,options)=>{const input=capture(operation,args);return C.createWork(()=>evaluate(input),options);}});
+ // Comparison-only candidates in layer-one log coordinates. The input
+ // remains a sparse decimal; only its <=64-digit significand is evaluated.
+ // This scope belongs to one inverse with one immutable exponent.
+ function createPowerOnePlusMinusOneLogCandidates(exponent){
+  const captured=capturedExponent(exponent);
+  if(B.lt(captured,'1e-7')||B.gt(captured,1))return ()=>null;
+  const q=typeof captured==='number'?C.binaryFraction(captured):rational(String(captured)),c=C.context(32);
+  const view=new DataView(new ArrayBuffer(8));let anchor=null;
+  function candidates(order,mantissaLog){
+   const base=c.add(c.fraction(order),{lo:mantissaLog.lo,hi:mantissaLog.hi+1n});
+   const powered=c.times(base,q.n,q.d);
+   if(powered.lo<=34n*c.scale||powered.hi>=9000000000000000n*c.scale)return null;
+   const lo=C.roundFraction(powered.lo-2n,c.scale),hi=C.roundFraction(powered.hi,c.scale),values=[];
+   for(let v=lo;v<=hi&&values.length<4;){
+    values.push(B.Decimal.fromComponents(1,1,v));if(v===hi)return values;
+    view.setFloat64(0,v,false);view.setBigUint64(0,view.getBigUint64(0,false)+1n,false);v=view.getFloat64(0,false);
+   }return null;
+  }
+  return value=>{
+   value=A.from(value); // wordView is the complete exact value, not its display projection.
+   const words=A.wordView(value);if(words.length!==1)return null;
+   const d=decimal(words[0]);if(!d||d.n<=0n)return null;
+   const digits=String(d.n).length,order=d.e+BigInt(digits-1);
+   if(digits>64||order<40n||order>1000000000000n)return null;
+   const m=c.fraction(d.n,10n**BigInt(digits-1));
+   const ln10=c.logFraction(10n,1n);
+   if(anchor){
+    const r=c.div(c.sub(m,anchor.m),anchor.m),radius=abs(r.lo)>abs(r.hi)?abs(r.lo):abs(r.hi);
+    if(radius*8n<=c.scale){
+     let term=r,sum=c.fraction(0n);
+     for(let k=1;k<=12;k++){
+      sum=c.add(sum,c.times(term,k%2?1n:-1n,BigInt(k)));
+      const next=c.mul(term,r),size=abs(next.lo)>abs(next.hi)?abs(next.lo):abs(next.hi);
+      // ln(1+r)'s remaining terms have absolute sum bounded by
+      // |r|^(k+1)/((k+1)*(1-|r|)), also for negative r.
+      const tail=c.times(c.div({lo:0n,hi:size},{lo:c.scale-radius,hi:c.scale-radius}),1n,BigInt(k+1)).hi;
+      const log=c.add(anchor.log,c.div({lo:sum.lo-tail,hi:sum.hi+tail},ln10)),result=candidates(order,log);
+      if(result&&(result.length===1||k===12))return result;
+      term=next;
+     }
+    }
+   }
+   const log=c.log10(m);anchor={m,log};return candidates(order,log);
+  };
+ }
+ W.Core.AmountFormulas=Object.freeze({createPowerOnePlusMinusOneCandidates,createPowerOnePlusMinusOneLogCandidates,capacityDiagnostics:()=>({calls:capacityCounts.calls,operations:{...capacityCounts.operations}}),powerOnePlusRatio:(v,d,e)=>evaluate(capture('powerOnePlusRatio',[v,e,d])),productPower:(factors,e)=>evaluate(capture('productPower',[factors,e])),logarithmBucket,powerWithExponent:(v,e)=>evaluate(capture('powerWithExponent',[v,e])),powerIncrement:(s,d,p)=>evaluate(capture('powerIncrement',[s,d,p])),floorPowerRatio,logRatio:(v,d=1)=>evaluate(capture("logRatio",[v,d])),powerOnePlusMinusOne:(v,e)=>evaluate(capture("powerOnePlusMinusOne",[v,e])),logOnePlusRatio:(v,d=1)=>evaluate(capture("logOnePlusRatio",[v,d])),powerRatio:(v,d,e)=>evaluate(capture('powerRatio',[v,e,d])),power:(v,e)=>evaluate(capture('power',[v,e])),log10:v=>evaluate(capture('log10',[v])),productQuotient:(n,d=[])=>evaluate(capture('productQuotient',[n,d])),prepareWork:(operation,args,options)=>{const input=capture(operation,args);return C.createWork(()=>evaluate(input),options);}});
 }(window.WIS));

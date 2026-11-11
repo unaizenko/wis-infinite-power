@@ -1,0 +1,2 @@
+# Exact bytes are part of the retained save-fixture hash contract.
+tests/fixtures/** -text

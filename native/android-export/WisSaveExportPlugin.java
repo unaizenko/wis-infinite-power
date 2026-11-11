@@ -37,8 +37,10 @@ public class WisSaveExportPlugin extends Plugin {
     @PluginMethod public void saveText(PluginCall call) {
         if (!busy.compareAndSet(false, true)) { call.reject("文件保存正在进行"); return; }
         try {
+            String kind = call.getString("kind", "save");
+            if (!"save".equals(kind) && !"raw".equals(kind)) throw new Exception("不支持的存档导出类型");
             String text = call.getString("text");
-            if (text == null || text.isEmpty()) throw new Exception("存档内容为空");
+            if (text == null || ("save".equals(kind) && text.isEmpty())) throw new Exception("存档内容为空");
             String filename = call.getString("filename", "WIS-save.json").replaceAll("[\\\\/\\r\\n]", "_");
             if (!filename.endsWith(".json")) filename += ".json";
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -60,12 +62,15 @@ public class WisSaveExportPlugin extends Plugin {
         try { writer.execute(() -> {
             try {
                 String text = call.getString("text");
-                // Streaming syntax validation consumes numeric tokens as strings, never doubles.
-                try (JsonReader reader = new JsonReader(new StringReader(text))) {
-                    reader.setLenient(false);
-                    if (reader.peek() != JsonToken.BEGIN_OBJECT) throw new Exception("存档必须为 JSON 对象");
-                    validateValue(reader, 0);
-                    if (reader.peek() != JsonToken.END_DOCUMENT) throw new Exception("存档包含多余内容");
+                // Only explicit raw recovery exports may contain malformed original text.
+                // Valid save exports still validate numeric tokens as strings, never doubles.
+                if (!"raw".equals(call.getString("kind", "save"))) {
+                    try (JsonReader reader = new JsonReader(new StringReader(text))) {
+                        reader.setLenient(false);
+                        if (reader.peek() != JsonToken.BEGIN_OBJECT) throw new Exception("存档必须为 JSON 对象");
+                        validateValue(reader, 0);
+                        if (reader.peek() != JsonToken.END_DOCUMENT) throw new Exception("存档包含多余内容");
+                    }
                 }
                 byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
                 byte[] expected = MessageDigest.getInstance("SHA-256").digest(bytes);

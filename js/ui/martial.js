@@ -161,9 +161,20 @@
     function renderActions() {
       mount(); const s = R.getState(), enabled = active(s);
       $("martial-actions").hidden = !enabled;
+      // Disabled conversion quotes must not compete with the offline Worker.
+      // In particular a synchronous quote can delay queued heartbeats past the
+      // watchdog deadline even while the private settlement is healthy.
+      if (!enabled) { for (const row of rows) row.convert.disabled = true; return; }
+      const busy = locked();
       for (const row of rows) {
-        const p = M.preview(s, row.key);
         row.amount.textContent = "当前" + labels[row.key] + "：" + f(M.amount(s, row.key));
+        if (busy) {
+          row.costs.textContent = "";
+          row.gain.textContent = "结算期间暂停收益预览。";
+          row.convert.disabled = true;
+          continue;
+        }
+        const p = M.preview(s, row.key);
         row.costs.textContent = "消耗全部可用：" + Object.entries(p.costs || p.consumed || {}).map(([key, value]) => `${f(value)} ${labels[key] || key}`).join("、");
         row.gain.textContent = `预计 +${f(p.gain)} ${labels[row.key]}` + (p.reason ? ` · ${p.reason}` : "");
         const rewards = Object.entries(p.heartRewards || {}).filter(([,value]) => B.gt(value,0));

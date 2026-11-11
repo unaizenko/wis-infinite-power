@@ -1,3 +1,72 @@
+## 0.2.2.0 发布构建
+
+开发 build `dev-0.2.2.0-20261112-release-r1`；正式网页与 APK 分别为 `release-0.2.2.0-20261112` / `release-0.2.2.0-apk-20261112`，均独立重建全部 Worker bundle 并关闭开发调试入口。以下各轮 build 为历史记录。
+
+## 手机无限强化详情归属
+
+`UI.Infinity`在≤900px把唯一infinity-details节点插入选中节点所在行后；通过dataset.treeRow保留无详情时行号，大屏移回树后并清除行列定位。过滤/购买仍使用原领域校验与单个购买handler；resize只改DOM不写存档。手机关闭树的浏览器自动滚动锚定，由点击处理补偿详情移动引起的行位置变化。
+
+## 2026-11-11 手机表现层约束
+
+主导航在<=900px为独立横向滚动区；手机竖屏资源为双列且最多40dvh/260px，收起控件在内部滚动保持可见，<=500px短视口资源不吸顶。只改CSS，不触碰Runtime/Evaluation/Save。
+
+CSS缓存随build-config与manifest工具更新。APK/SystemBars原生insets已启用，不重复加CSS系统栏内边距。发布工具必须同时排除原样复制、预置并按offline→online→math顺序重建三类Worker bundle，避免math引用旧offline hash而启动失败。
+
+## 2026-11-11 页面发布边界
+
+`game.js.scheduleRender`拥有最多一个后续host任务，仅保存force/dirty标记，不捕获domain。普通`Loop.flushOnlineRender`和UI异步动作完成使用该入口；`flushRender`显式同步刷新消费已排队请求。首次库存视图仍先绘制；启动完整视图排队，恢复检查点仍同步保存。不得把这个表现队列用于延迟正式状态提交或durable ACK。
+
+`Save.sparseData`仅接收`envelope`复制并校验过的私有域；直接稀疏化以避免再复制一遍。外部live输入仍必须经过envelope边界。数值、schema及保存格式保持。开发build为`dev-0.2.1.4-20261111-publication-r1`；验收见AGENT_CONTEXT/TESTING和E盘main-thread-20261111报告。
+
+## 2026-11-11 锻炼与重型预览Worker（仅开发版）
+
+build `dev-0.2.1.4-20261111-math-worker-r1`，可见0.2.1.4/schema76/model2/rule4/tailPolicy2不变。纯计算迁移：手动锻炼收益、锻炼来源/下一点需求、吐纳预览/下一档需求。其余来源卡片继续本地分片。MathWorker每任务独立、原始精确分量协议、ready唤醒普通调度器，主线程保留原状态身份+输入key+generation验证与原子提交。失败/取消不安装结果，不修改离线时间。未启用1e-9近似。
+
+PureMathWork与Worker共用原规则；普通多来源请求按行保留完成结果，联合假设解锁仍整体求值。经典Blob复用offline引擎，80脚本offline与82脚本math payload；页面101脚本。结构无效回包一次精确本地后备，数学失败显式返回；30秒无进展终止。见tests/math-worker-*和既有调度/导入/支付门禁。
+
+最终核心477/477零skip；完整回归与性能采样见 `../WIS-项目资源/math-worker-20261111/REPORT.md` 和 `acceptance/summary.json`。CDP不支持Worker降速，CPU4仅指主线程；无真机性能保证。剩余主线程长任务已定位为启动重绘/保存聚集和正式提交后重绘/保存，不能继续统一归给数学公式。未修改发布版/APK，未commit/push。
+
+最终完整固定验收21组20通过；唯一失败仍为CPU4主线程100ms长任务门槛。普通CPU预览/锻炼中位2.224/0.656秒，主线程CPU4为4.183/0.967秒；CPU4最慢预览4.684秒、动作1.025秒、反馈72.6ms、长任务179ms。十个冷页面无功能错误。此结果仅代表主线程CDP降速，Worker降速不支持，不是手机保证。
+
+## 2026-11-11 续算阶段与反算搜索优化（仅开发版）
+
+build `dev-0.2.1.4-20261111-stages-r1`；可见0.2.1.4、schema76/model2/rule4/tailPolicy2保持。Scale渐进结算的前置除法/换算、refine中点、反算比较插值保留在原私有任务阶段中；不再随子任务暂停重做已完成准备。小反算区间先用原比较认证两端，失败保留宽区间/完整搜索。无全局跨存档结果缓存，无1e-9近似，无分片最低操作数上调，无新手动Worker。原收益、支付、事件/RNG/clock及离线剩余时间保持。
+
+四份真实档与本轮before完整动作状态/存读一致；准备后取消/换档、完成后输入改变拒绝提交、小分片后备有测试。最终19组18通过，核心465/465无skip；唯一失败是严格性能门禁，十个冷页面无功能错误。普通CPU预览/实际锻炼中位3.241/0.635秒，CPU4为10.948/6.538秒；CPU4动作最慢8.624秒，主线程最长175ms，仍不达5秒/100ms目标。固定原档CPU4旧新新旧隔离纯计算平均5.590→2.547秒，输出哈希相同；不含UI/主循环，不能当手机端到端保证。
+
+独立审查无可行动问题，另15组反算一致。手动/预览Worker已评估但未扩协议；近似未启用，因此低性能仍有等待。历史12失败/8缺档未处理。不宣称整个重构/全仓验收完成。未修改发布版/APK、未commit/push。报告 ../WIS-项目资源/continuation-stages-20261111/REPORT.md。
+
+## 2026-11-11 顶部速率发布修复（开发版，性能仍未验收）
+
+build `dev-0.2.1.4-20261111-rates-r1`；可见0.2.1.4、schema76/model2/rule4/tailPolicy2保持。顶部不再读取会被Effects清零的tmp速率，改为Loop正式提交的resourceGains/processedSeconds非持久快照。同owner普通积压舍弃保留；动作/换档/重置/体系或挑战切换失效。未知、真实0、过期、暂停分别展示，极小正值不显示0，不新增收益公式求值。状态变化只请求顶部重绘；正式动作未提交分片不再反复请求整页重绘，提交及独立输入仍正常刷新。
+
+最终核心460/460、浏览器11组（含3装配）、正常主循环预览3场景通过；原档历史暂停81519.567秒经正式重试完整完成，CPU4/8已提交收益展示与存档往返通过。未改正式数学、RNG、时间账本和离线规则，未新增近似。
+
+性能未通过：初次完整门禁5次CPU4动作均超45秒；修正分片重绘后的单次CPU4动作44.676秒，尚无最终五轮通过证据。旧UI单次23.850秒，但在线输入不相同，不能判定稳定差值或排除回退；下一项须固定动作输入分解公式/渲染成本。本次不能称链路根治、全仓全绿或可发布。历史12失败/8缺档未处理。报告 ../WIS-项目资源/rate-publication-20261111/REPORT.md；未动发布版/APK，未commit/push。
+
+## 2026-11-11 首轮重构边界
+
+`ui/action-view.js` 在app前加载，纯只读状态解释，不求收益、不支付。继续复用createWork/候选/Worker提交边界，未引入第二任务框架。Amount新增稀疏精确比较和可证明分离的分数区间；Scale反算窄区间须原正向公式验证。正式入口、主循环与存档schema不变。武道UI在离线锁定/非武道时不做同步转换预览，恢复后正常计算。开发build refactor-r1；98脚本、80脚本Worker payload。验收与缺口见根目录AGENT_CONTEXT.md及E盘本轮报告。
+
+## 2026-11-11 可选反算范围与自动层数预览边界
+
+AmountFormulas可选comparison候选在dense rational之前检查输入/指数支持范围；越界返回null给原公式，不改变原值或容量。UI将currentQiLayer从硬结构key移到同owner进度标记；进行中快照完成后dirty/at=-Infinity请求更新，导入/挑战/owner变化仍取消。首次来源预览128..256操作+0ms任务等待，普通刷新32..256及16/100ms节流；均是软预算。高值原档CPU4预览60秒失败仍保留，当前不能声明完整门禁通过。
+
+## 2026-11-11 数值复杂度与在线进展边界
+
+- AmountProducts.tailPolicy v2延续原32位系数有向压缩，增加单个分子/分母>512位触发；Amount.compact 只在原有连续owner边界应用。少量复杂尾项单独压缩，主值、paid/count/time精确合同不变；lossUpper为保守误差上界。Save可读policy1/2，写policy2，旧客户端不能降级读新存档。
+- CertifiedRankMath.progressVersion仅在私有算术生成器真实推进时递增；Step同步调用前后取差，加已完成阶段计数，Worker只传递递增进度。空轮询不刷新watchdog。
+- OnlineCandidateWorker持有30秒静默watchdog；ready/failed/fallback终态先被advance消费，不能让主循环2秒本地watchdog覆盖数值错误。fallback以远端计数+阶段增量接续本地进度。Loop只对timeout退避重试，其他同输入确定性错误保持停止。
+- 所有候选仍私有计算/正式提交，导入和输入变更撤销旧任务；离线采用原冻结收益与失败保留债务，不因在线超时丢弃。此机制不提供同步单算子抢占或无限数值容量保证。
+
+## 2026-11-11 审计修复边界
+
+- Save.backup在恢复来源保护或坏主档保护会话中保留已有备份，写入前执行主key冲突检查；正常导入仍备份当前有效进度。恢复成功前不依赖另一笔写入来救回唯一备份。
+- UI异步导入持有期间禁止冲突变更；导入回调在异步边界验证事务身份。离线期间允许漂移的偏好仅为现有theme/autoCloseOfflineSummary，由Worker安装与保存文本同步合并；收益域和时间账本仍由候选提交。
+- 原生导出显式kind=save/raw，默认save验证有效JSON对象；raw用于原始文本备份，允许损坏或空文本，保留UTF-8与写后读回确认。兼容旧调用默认行为。
+- ClosedFormBatch的有限后备搜索保持原费用函数和资金检验；只有普通中点不再前进时使用层级表示坐标中点。局部layer0闭式记录以原binary64序列化，WorkerProtocol仅为明确wis-closed-batch记录恢复该语义，协议版本不变。
+- 当前必需测试入口与夹具来源见根目录TESTING.md、tests/current-regression.json、tests/current-fixtures.json。生成物仍由index.html/build-config与既有工具维护。
+
 ## 2026-11-11 0.2.1.4 发布版本
 
 开发build dev-0.2.1.4-20261111-release-r1；网页release-0.2.1.4-20261111；APK release-0.2.1.4-apk-20261111，versionCode20104。纳入锻炼反算比较优化、固定准备阶段复用、正常在线预览生命周期与吐纳预览分段续算修复。schema76/model2/rule4、收益规则和原APK签名保持。前轮真实file测试：普通CPU锻炼约5秒/吐纳约1.8秒；4倍降速锻炼仍约23～28秒，非低端数秒保证。发布验收与Git资产记录见 ../WIS-项目资源/release-0214-20261111/REPORT.md；以下未发布说明为历史记录。

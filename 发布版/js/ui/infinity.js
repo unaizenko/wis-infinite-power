@@ -5,6 +5,7 @@
     const f=value=>context.format(value,0),label={unimplemented:'尚未实装 / 后续开放',purchased:'已购买',exclusive:'互斥锁定',prerequisite:'未满足前置',available:'可购买',unaffordable:'点数不足'};
     let selected=false,upgrades=false,branch='regular',nodeId='B1-1',displayedRun=0;
     const nodeViews=new Map();
+    const compactLayout=window.matchMedia?.('(max-width: 900px)');
     const nodeName=node=>`${node.id} ${node.name}`;
     const text=(el,value)=>{if(el.textContent!==value)el.textContent=value;};
     const attribute=(el,name,value)=>{if(el.getAttribute(name)!==value)el.setAttribute(name,value);};
@@ -49,6 +50,8 @@
       $('infinity-rebirth').disabled=!v.allowed;$('infinity-requirement').textContent=v.allowed?'当前可无限转生':'需要当前 TREE ≥ TREE(3)';return true;
     }
     function renderUpgrades(){const n=I.get(s);$('infinity-upgrade-tabs').hidden=!n.upgradesUnlocked;if(!n.upgradesUnlocked)upgrades=false;
+      text($('upgrades-page').querySelector('.page-header .section-label'),upgrades?'消耗无限点数':'消耗战力');
+      text($('upgrades-page').querySelector('.page-header > p'),upgrades?'选择强化查看效果，使用无限点数购买。':'消耗战力进行强化。');
       $('ordinary-upgrades-panel').hidden=upgrades;$('infinity-upgrades-panel').hidden=!upgrades;
       $('ordinary-upgrades-tab').setAttribute('aria-selected',String(!upgrades));$('infinity-upgrades-tab').setAttribute('aria-selected',String(upgrades));
       $('ordinary-upgrades-panel').classList.toggle('hide-unlocked-upgrades',s.hideUnlockedUpgrades);
@@ -74,7 +77,13 @@
           button.style.gridRow=String(node.position.row+1);button.style.gridColumn=Object.values(C.nodes).filter(n=>n.branch===node.branch&&n.position.row===node.position.row).length===1?'1 / -1':String(node.position.column+1);
           view={button,name:element('strong'),price:element('span'),status:element('small')};
           button.append(view.name,view.price,view.status);
-          button.addEventListener('click',()=>{nodeId=node.id;renderDetails();});
+          button.addEventListener('click',()=>{
+            const top=button.getBoundingClientRect().top;
+            nodeId=node.id;renderDetails();
+            // Moving the previous detail must not push the tapped row under
+            // the pinned resource panel. This affects scrolling only.
+            if(compactLayout?.matches)window.scrollBy(0,button.getBoundingClientRect().top-top);
+          });
           nodeViews.set(node.id,view);tree.append(button);
         }
         const status=I.status(s,node.id),classes=`infinity-node ${status}${node.position.row>0?' infinity-child':''}`;
@@ -83,7 +92,7 @@
         const row=s.hideUnlockedInfinityUpgrades?visibleRows.indexOf(node.position.row)+1:node.position.row+1;
         if(!hidden){
           const siblings=rowNodes.get(node.position.row),span=columns/siblings.length;
-          view.button.style.gridRow=String(row);view.button.style.gridColumn=String(siblings.indexOf(node)*span+1)+' / span '+span;
+          view.button.dataset.treeRow=String(row);view.button.style.gridRow=String(row);view.button.style.gridColumn=String(siblings.indexOf(node)*span+1)+' / span '+span;
           view.button.classList.toggle('infinity-child',row>1);
         }
         text(view.name,nodeName(node));text(view.price,`${node.price} 无限点`);text(view.status,label[status]);
@@ -91,12 +100,32 @@
       }
       $('infinity-invested').textContent=`已投入无限点数：${f(I.invested(s))}`;renderDetails();return true;
     }
-    function renderDetails(){const node=C.nodes[nodeId];$('infinity-details').hidden=!node;if(!node)return;
+    function placeDetails(){
+      const tree=$('infinity-tree'),details=$('infinity-details'),selectedView=nodeViews.get(nodeId);
+      if(!tree||!details)return;
+      const inline=compactLayout?.matches&&selectedView&&!selectedView.button.hidden&&!details.hidden;
+      const selectedRow=inline?Number(selectedView.button.dataset.treeRow):0;
+      let rowEnd=null;
+      for(const {button} of nodeViews.values())if(!button.hidden){
+        const row=Number(button.dataset.treeRow);
+        button.style.gridRow=String(row+(inline&&row>selectedRow?1:0));
+        if(row===selectedRow)rowEnd=button;
+      }
+      if(inline&&rowEnd){
+        details.style.gridColumn='1 / -1';details.style.gridRow=String(selectedRow+1);
+        if(details.parentElement!==tree||rowEnd.nextSibling!==details)tree.insertBefore(details,rowEnd.nextSibling);
+      }else{
+        details.style.removeProperty('grid-column');details.style.removeProperty('grid-row');
+        if(details.parentElement===tree)tree.after(details);
+      }
+    }
+    function renderDetails(){const node=C.nodes[nodeId];$('infinity-details').hidden=!node;if(!node){placeDetails();return;}
       $('infinity-node-name').textContent=nodeName(node);
       $('infinity-node-price').textContent=`价格：${node.price} 无限点数`;
       $('infinity-node-prerequisites').textContent=`前置：${node.prerequisites.map(id=>nodeName(C.nodes[id])).join(node.prerequisiteMode==='any'?' / ':' + ')||'无'}${node.prerequisiteMode==='any'?'（任意一项）':''}`;
       $('infinity-node-effect').textContent=node.description;$('infinity-buy').disabled=I.status(s,nodeId)!=='available';
-      for(const el of $('infinity-tree').children)attribute(el,'aria-pressed',String(el.dataset.node===nodeId));
+      for(const {button} of nodeViews.values())attribute(button,'aria-pressed',String(button.dataset.node===nodeId));
+      placeDetails();
     }
     function renderChallenges(){for(const [id,def] of Object.entries(C.challenges)){const card=$(`infinity-challenge-${id}`);card.hidden=!WIS.Meta.Challenges.challengeVisible(id);if(card.hidden)continue;
       card.querySelector('.infinity-challenge-status').textContent=`${(def.achievementKey||def.rewardKey)?'本轮完成':'完成'}：${s.challengeCompletions[id]||0}/${def.maxCompletions}${I.isChallengeActive(s,id)?id==='infinityRing'?'　进行中':`　当前 ${context.format(s.activeChallengeElapsedSeconds + (def.deadlineSeconds ? s.meta.challenges.discardedElapsedSeconds || 0 : 0),2)}秒`:''}`;
@@ -123,6 +152,8 @@
         const filter=element('button','secondary-button','隐藏已解锁强化');filter.id=id;filter.type='button';filter.setAttribute('aria-pressed','false');parent.prepend(filter);
         filter.addEventListener('click',()=>{s[key]=!s[key];context.saveState();repaint();});
       }
+      if(compactLayout?.addEventListener)compactLayout.addEventListener('change',placeDetails);
+      else compactLayout?.addListener?.(placeDetails);
       page.append(tabs,ordinary,up);$('ordinary-upgrades-tab').addEventListener('click',()=>{upgrades=false;repaint();});$('infinity-upgrades-tab').addEventListener('click',()=>{upgrades=true;repaint();});
       for(const [key,name] of Object.entries(C.branches)){const button=element('button','',name);button.type='button';button.dataset.branch=key;button.setAttribute('role','tab');button.addEventListener('click',()=>{branch=key;nodeId=Object.values(C.nodes).find(n=>n.branch===key).id;renderUpgrades();});$('infinity-branches').append(button);}
       $('infinity-buy').addEventListener('click',()=>context.performSavedAction(()=>I.purchase(s,nodeId),renderUpgrades));$('infinity-respec').addEventListener('click',()=>rebirth(true));

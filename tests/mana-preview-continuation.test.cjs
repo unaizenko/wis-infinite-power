@@ -1,8 +1,8 @@
 "use strict";
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const {setupFuture}=require('./rank-schema-fixture.cjs');
-const file='E:/download/WIS-存档-2026-11-11T01-17-11-990Z.json';
-test('real breathing preview resumes completed segments and stays readonly',{skip:!fs.existsSync(file)},()=>{
+const file=require('./helpers/current-fixtures.cjs').fixturePath('live-training');
+test('real breathing preview resumes completed segments and stays readonly',()=>{
  const W=setupFuture({targetSchema:76}).W,s=W.Core.Save.prepare(JSON.parse(fs.readFileSync(file,'utf8'))).state;
  W.Simulation.OfflineHeadless.create({domain:s},{checkpoint(){},yield:()=>Promise.resolve()});W.Core.Runtime.setState(s);
  const R=W.Core.Runtime,C=W.Core.CertifiedRankMath,I=W.Cultivation.ImmortalLogic,serial=()=>JSON.stringify(W.Core.State.toSerializable(s)),before=serial();
@@ -14,7 +14,7 @@ test('real breathing preview resumes completed segments and stays readonly',{ski
  assert.throws(()=>scope.run(()=>0),/cancelled/);
 });
 
-test('interleaved mana preview scopes stay isolated when one is cancelled',{skip:!fs.existsSync(file)},()=>{
+test('interleaved mana preview scopes stay isolated when one is cancelled',()=>{
  const W=setupFuture({targetSchema:76}).W,s=W.Core.Save.prepare(JSON.parse(fs.readFileSync(file,'utf8'))).state;
  W.Simulation.OfflineHeadless.create({domain:s},{checkpoint(){},yield:()=>Promise.resolve()});W.Core.Runtime.setState(s);
  const R=W.Core.Runtime,S=W.Core.State,C=W.Core.CertifiedRankMath,I=W.Cultivation.ImmortalLogic,before=JSON.stringify(S.toSerializable(s));

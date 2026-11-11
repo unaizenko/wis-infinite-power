@@ -4,7 +4,7 @@ const {setupFuture}=require('./rank-schema-fixture.cjs');
 function fixture(reference=false){return setupFuture({targetSchema:76,transformSource(file,s){if(file!=='js/power/scale-logic.js')return s;
  s=s.replace('function createQuantityInverseComparator(amount,prepared){','WIS.__comparator=createQuantityInverseComparator;WIS.__gain=infinitySoftcapGain;function createQuantityInverseComparator(amount,prepared){');
  s=s.replace('function infinitySoftcapInverse(actual, amount) {','WIS.__inverse=infinitySoftcapInverse;function infinitySoftcapInverse(actual, amount) {');
- if(reference)s=s.replace('const quick=compare(gain,actual);','const quick=null;');
+ if(reference)s=s.replace('const quick=compare(gain,actual);','const quick=null;').replace('const narrowed=yield* narrowQuantityInverseBounds(lo,hi,amount,prepared,below);','const narrowed=null;');
  const marker='function infinitySoftcapGain(gain,amount,kind="normal",special=false,prepared=null) {';assert(s.includes(marker));
  return s.replace(marker,'function infinitySoftcapGain(...args){const v=probe(...args);WIS.__full=(WIS.__full||0)+1;return v;} function probe(gain,amount,kind="normal",special=false,prepared=null) {');}}).W;}
 function ready(W,s=W.Core.State.fresh()){W.Simulation.OfflineHeadless.create({domain:s},{checkpoint(){},yield:()=>Promise.resolve()});W.Core.Runtime.setState(s);return s;}
@@ -16,8 +16,8 @@ test('local power bounds contain original rounded results and refuse unsupported
   for(const x of ['1e100','1e-30',A.fromParts(100,['1e-90'])])assert.equal(bound(A.from(x)),null);
  }
 });
-const path='E:/download/WIS-存档-2026-11-11T01-17-11-990Z.json';
-test('real training preserves full domain while eliminating most full inverse probes',{skip:!fs.existsSync(path)},()=>{
+const path=require('./helpers/current-fixtures.cjs').fixturePath('live-training');
+test('real training preserves full domain while eliminating most full inverse probes',()=>{
  const raw=JSON.parse(fs.readFileSync(path,'utf8')),results=[];
  for(const reference of [true,false]){const W=fixture(reference),s=ready(W,W.Core.Save.prepare(raw).state),job=W.Power.ScaleLogic.createTrainingActionWork(s,true);let n=0;try{while(!job.advance(Infinity,{maximumOperations:256}).done)assert(++n<10000);job.commit();results.push({full:W.__full,state:JSON.parse(JSON.stringify(W.Core.State.toSerializable(W.Core.Runtime.getState())))});}finally{job.cancel();}}
  assert(results[0].full>=2000,'reference counter must execute');assert.deepEqual(results[1].state,results[0].state);assert(results[1].full<results[0].full/4,`full probes ${results[0].full} -> ${results[1].full}`);
@@ -68,4 +68,25 @@ test('three-deficiencies reward shares the optimized curve without changing exac
  W.Core.Runtime.bind({state:()=>s,updateScaleProgress:W.Power.ScaleLogic.updateScaleProgress,applyResourceSoftcapProgressive:W.Power.ScaleLogic.applyResourceSoftcapProgressive});
  W.Cultivation.ImmortalLogic.grantThreeDeficienciesResetReward();assert(A.compare(Q.readExact('core.power',s),'99999.9')>0);results.push(JSON.parse(JSON.stringify(S.toSerializable(s))));}
  assert.deepEqual(results[0],results[1]);
+});
+
+
+test('optional inverse fast path rejects sparse coordinates before dense expansion',()=>{
+ const W=fixture();ready(W);const A=W.Core.Amount,F=W.Core.AmountFormulas,bound=F.createPowerOnePlusMinusOneCandidates(.5);
+ for(const value of ['8811411416139446e2063','1e2048','1e2049','1e-2049','1e100000','1e-100000','ee3000','eee20','100000000000001','0.9999999999999999',A.fromParts(1,['1e-120'])])assert.equal(bound(A.from(value)),null,String(value));
+ for(const value of [1,'1e14']){const candidates=bound(A.from(value));if(candidates)assert(candidates.some(v=>W.Core.BigNum.eq(v,F.powerOnePlusMinusOne(A.from(value),.5))));}
+ for(const e of ['1e-2049','1e2049','ee3000',0,-1,1.01])assert.equal(F.createPowerOnePlusMinusOneCandidates(W.Core.BigNum.BN(e))(A.from(10)),null,String(e));
+});
+
+test('new high player save formal training matches full fallback and saves all state',()=>{
+ const raw=require('./helpers/current-fixtures.cjs').readFixture('high-training'),results=[];
+ for(const reference of [true,false]){const W=fixture(reference),s=ready(W,W.Core.Save.prepare(raw).state),S=W.Core.State,A=W.Core.Amount,Q=W.Core.Resources,before=JSON.parse(JSON.stringify(S.toSerializable(s))),work=W.Power.ScaleLogic.createTrainingActionWork(s,true),started=performance.now();
+  try{let slices=0;while(!work.advance(performance.now()+3).done){assert(++slices<20000);assert(performance.now()-started<30000);}
+   assert.deepEqual(JSON.parse(JSON.stringify(S.toSerializable(W.Core.Runtime.getState()))),before,'candidate changed live state');work.commit();
+   const after=W.Core.Runtime.getState();assert.equal(A.compare(Q.readExact('core.joules',after),0),0);assert(A.compare(Q.readExact('core.power',after),Q.readExact('core.power',s))>0);assert.equal(String(after.power),'1.7261370619147398e1207');
+   const actual=JSON.parse(JSON.stringify(S.toSerializable(after)));results.push(actual);assert.deepEqual(actual.meta.treasures,before.meta.treasures);assert.deepEqual(actual.meta.bigNumbers,before.meta.bigNumbers);assert.equal(actual.core.runtime.randomState,before.core.runtime.randomState);assert.equal(after.totalElapsedSeconds,s.totalElapsedSeconds);
+   const loaded=W.Core.Save.prepare(JSON.parse(JSON.stringify(W.Core.Save.envelope(after)))).state;assert.deepEqual(JSON.parse(JSON.stringify(S.toSerializable(loaded))),actual,'roundtrip');
+  }finally{work.cancel();}
+ }
+ assert.deepEqual(results[0],results[1],'optimized vs full fallback');
 });

@@ -1,0 +1,1661 @@
+{
+  "game": "WIS-无限战力系统",
+  "encoding": "sparse-v1",
+  "schemaVersion": 76,
+  "version": 76,
+  "numericModelVersion": 2,
+  "numericTailPolicyVersion": 1,
+  "settlementRule": 4,
+  "exportedAt": "2026-11-10T00:58:17.069Z",
+  "offlineRecovery": {
+    "version": 2,
+    "numericModelVersion": 2,
+    "settlementRule": 4,
+    "offlineSegmentSeconds": 60,
+    "confirmedSources": {
+      "version": 1,
+      "online": false,
+      "offline": false,
+      "unknown": false
+    },
+    "presentation": "blocking",
+    "awaySuspended": false,
+    "closedAt": null,
+    "totalClockSeconds": 81519.56700000001,
+    "processedClockSeconds": 0,
+    "before": {
+      "joules": "1.122027614896673e172",
+      "power": "6.853073788185736e115",
+      "mana": "5.141023384625834e47",
+      "immortalPower": "0",
+      "pearls": "9.112133603267969e18",
+      "fitnessCards": "306",
+      "superLollipops": "332",
+      "skyCrystals": "22860",
+      "fiveSpiritStones": "602",
+      "cosmicFibers": "7793",
+      "cosmicWills": "2021",
+      "baLingChi": "2559401",
+      "phantomHeavenMirror": "1.3212201625346804e17",
+      "mysticHeavenSacredTree": "1.3212201625346804e17",
+      "mysticHeavenSpiritSlayingSword": "1.7927840498781693e17"
+    },
+    "gains": [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "errors": [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "errorTerms": [
+      [],
+      [],
+      [],
+      []
+    ],
+    "executionReference": "frozen-offline-v2",
+    "discreteMetrics": {
+      "logicalTicks": 0,
+      "exactTicks": 0,
+      "batches": 0,
+      "largestBatch": 0,
+      "probes": 0,
+      "rejectedBatches": 0,
+      "verification": "not-evaluated"
+    },
+    "processedGameSeconds": 0,
+    "segmentBudget": {
+      "version": 3,
+      "solverVersion": 2,
+      "fallbackBudget": {
+        "version": 1,
+        "microUsed": 0,
+        "consecutiveMicro": 0
+      },
+      "strongFeedback": null,
+      "localDiscrete": null,
+      "martialInterval": null,
+      "totalSeconds": 42.831,
+      "lastExecutorKind": null,
+      "committedSegments": 0,
+      "directWork": 0,
+      "mapBlocks": 0,
+      "virtualSteps": 0,
+      "rejections": 0,
+      "invalidations": 0,
+      "maxDepth": 0,
+      "fallbackWork": 0,
+      "frames": [],
+      "predictor": null,
+      "coldModelBuilds": 0,
+      "hardInvalidations": 0,
+      "hardReasons": {},
+      "softRebases": 0,
+      "settlementCheckpoints": 0,
+      "endpointValidations": 0,
+      "sentinelValidations": 0,
+      "blockHistogram": {},
+      "maximumBlockSteps": 0,
+      "mapEligible": 0,
+      "mapConsidered": 0,
+      "shockRebases": 0,
+      "dualDisagreements": 0,
+      "fixedFallbacks": 0,
+      "validationSkipped": 0,
+      "cadenceMicroSteps": 0,
+      "frozenDirectSteps": 0,
+      "mapCooldowns": 0,
+      "shockAnchors": 0,
+      "progressQueries": 0,
+      "scaleKernelSteps": 0,
+      "scaleIntervals": 0,
+      "coupledKernelSteps": 0,
+      "coupledIntervals": 0,
+      "formulaFramesEvaluated": 0,
+      "rateQueries": 0
+    },
+    "workerRecovery": {
+      "version": 1,
+      "retries": 0,
+      "sequence": 3
+    },
+    "transient": {
+      "power": {
+        "fitnessCardRollAccumulator": 0,
+        "skyCrystalRollAccumulator": 0,
+        "cosmicFiberRollAccumulator": 0,
+        "cosmicWillRollAccumulator": 0
+      },
+      "cultivation": {
+        "passiveManaRollAccumulator": 0,
+        "baLingChiRollAccumulator": 0
+      }
+    },
+    "treasureProgressVersion": 1,
+    "fastForwardUsed": false,
+    "fastForwardMetrics": null,
+    "paused": true,
+    "pauseReason": {
+      "type": "offline-catch-up-paused",
+      "occurredBuild": "release-0.2.1.1-20261109",
+      "occurredRule": 4,
+      "occurredAt": 1794272264368,
+      "reason": "fixed-income-failed",
+      "requestedStepSeconds": 81519.56700000001,
+      "reportedProcessedSeconds": 0,
+      "eventCommitted": false,
+      "pendingGameSeconds": 81519.56700000001,
+      "pendingClockSeconds": 81519.56700000001,
+      "planningBudgetExhaustions": 0,
+      "task": {
+        "id": "segment-172",
+        "clockCursor": 0,
+        "remainingGameSeconds": 81519.56700000001,
+        "remainingClockSeconds": 81519.56700000001,
+        "optimizationDisabled": false,
+        "treasureFallbackMode": false,
+        "treasureBatchMode": false,
+        "planningYieldReason": null,
+        "legacyRetryUsed": false
+      },
+      "state": {
+        "cultivation": "immortal",
+        "activeChallenge": "qiRefiningHundredThousandYears",
+        "highestScaleIndex": 14,
+        "advancedRealmLevel": 0,
+        "currentQiLayer": 48207,
+        "joules": "1.122027614896673e172",
+        "power": "6.853073788185736e115",
+        "mana": "5.141023384625834e47",
+        "immortalPower": "0"
+      },
+      "error": {
+        "name": "Error",
+        "code": "amount-formula-unresolved",
+        "message": "complete-input formula could not be certified",
+        "stack": "Error: complete-input formula could not be certified\n    at steps (blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:3204:23)\n    at steps.next (<anonymous>)\n    at Object.task (blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:1280:132)\n    at blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:3089:45\n    at Object.withWork (blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:1307:48)\n    at evaluateInWork (blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:3089:30)\n    at blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:3080:49\n    at Object.withWork (blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:1307:48)\n    at evaluate (blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:3080:36)\n    at Object.powerOnePlusMinusOne (blob:https://unaizenko.github.io/ff96225d-5d4b-4857-89af-0e2eb1e9b571:3239:534)"
+      }
+    },
+    "awaitingStart": false,
+    "startReason": null,
+    "tasks": [
+      {
+        "id": "segment-172",
+        "source": "offline",
+        "compensationEligible": false,
+        "randomMode": "state",
+        "speed": 1,
+        "sealed": true,
+        "clockCursor": 0,
+        "gameSeconds": 81519.56700000001,
+        "clockSeconds": 81519.56700000001,
+        "logicalTickRemaining": 0,
+        "unverifiableBatchPrecision": false,
+        "fastForward": null
+      }
+    ]
+  },
+  "data": {
+    "core": {
+      "preferences": {
+        "hideCompletedChallenges": true,
+        "hideUnlockedAchievements": true,
+        "hideUnlockedImmortalAbilities": true,
+        "hideUnlockedInfinityUpgrades": true,
+        "hideUnlockedUpgrades": true,
+        "treeSuperAutomationMultiplier": "6"
+      },
+      "resources": {
+        "joules": "1.122027614896673e172",
+        "joulesGainResidualTail": [
+          "-13744645327609242179521510786664582401539419135043559999999980468043383435619999999999999999999999999999993549957130727612168274144706213328154657532509487425712e-2"
+        ],
+        "power": "6.853073788185736e115",
+        "powerGainResidualTail": [
+          "-20994965097429339597213300215927589917846784031063295329368538215960842402835967600028925994204632565328820018e-8"
+        ]
+      },
+      "runtime": {
+        "compensation": {
+          "balance": 156712.40999994727,
+          "grantSequence": 6,
+          "lastConversion": "conversion-6",
+          "totalConsumed": 910.9790000001377,
+          "totalGranted": 157623.389
+        },
+        "currentScaleElapsedSeconds": 38.50000000000028,
+        "lastSettlement": {
+          "at": 5875493.607969057,
+          "gains": {
+            "highMultiverseCoefficient": "0",
+            "immortalPower": "0",
+            "joules": "1.560519878869641e170",
+            "mana": "1.2184900288954628e45",
+            "martialBody": "0",
+            "martialHeart": "0",
+            "martialQi": "0",
+            "martialSoul": "0",
+            "multiverseCoefficient": "0",
+            "nieForce": "0",
+            "power": "7.511668020164534e113",
+            "universeCoefficient": "0",
+            "xianForce": "0",
+            "yuanForce": "0"
+          },
+          "mainChanged": {
+            "highMultiverseCoefficient": false,
+            "immortalPower": false,
+            "joules": true,
+            "mana": true,
+            "martialBody": false,
+            "martialHeart": false,
+            "martialQi": false,
+            "martialSoul": false,
+            "multiverseCoefficient": false,
+            "nieForce": false,
+            "power": true,
+            "universeCoefficient": false,
+            "xianForce": false,
+            "yuanForce": false
+          },
+          "seconds": 0.1
+        },
+        "lastUpdateAt": 1794272297067,
+        "onlineCadenceRemaining": 0,
+        "randomState": 2315555726,
+        "reincarnationElapsedSeconds": 39.000000000000284,
+        "timeLedger": {
+          "boundaryAt": 1794272264376,
+          "discardedClock": 51482.70699999958,
+          "discardedGame": 51482.70699999958,
+          "lastDiscard": {
+            "clock": 0.071,
+            "game": 0.071,
+            "reason": "online-overload"
+          },
+          "nextId": 183,
+          "registeredUntil": 1794272250898
+        },
+        "totalElapsedSeconds": 5875493.707969056
+      }
+    },
+    "powerSystem": {
+      "systems": {
+        "scale": {
+          "actions": {
+            "rockLevel": 140,
+            "runningLevel": 100
+          },
+          "history": {
+            "manualUpgrades": {
+              "bioenergyPurchased": true,
+              "biologicalQuantificationPurchased": true,
+              "brainDomainDevelopmentPurchased": true,
+              "breathingMethodPurchased": true,
+              "bulletTimePurchased": true,
+              "carbonLimitPurchased": true,
+              "chicxulubMeteoritePurchased": true,
+              "continentCollapsePurchased": true,
+              "continentSplitPurchased": true,
+              "cosmicWebPurchased": true,
+              "destroyCountryPurchased": true,
+              "dynamicFocusPurchased": true,
+              "earthSplitPurchased": true,
+              "elementalAwakeningPurchased": true,
+              "elementalizationPurchased": true,
+              "enduranceEnhancementPurchased": true,
+              "energyCyclePurchased": true,
+              "exercisePurchased": true,
+              "extremeExercisePurchased": true,
+              "fiveSpiritStonePurchased": true,
+              "flowStatePurchased": true,
+              "focusPurchased": true,
+              "freedomPurchased": true,
+              "galacticReturnPurchased": true,
+              "ghostBackPurchased": true,
+              "ghostBrainPurchased": true,
+              "ghostManTransformationPurchased": true,
+              "godspeedPurchased": true,
+              "gravitationalCollapsePurchased": true,
+              "greatAttractorPurchased": true,
+              "gymPurchased": true,
+              "highSpeedMetabolismPurchased": true,
+              "humanGhostTransformationPurchased": true,
+              "hyperRegenerationPurchased": true,
+              "intuitionPurchased": true,
+              "invulnerablePurchased": true,
+              "killingIntentPerceptionPurchased": true,
+              "killingIntentPurchased": true,
+              "killingIntentSubstancePurchased": true,
+              "killingIntentWavePurchased": true,
+              "largeScaleAdaptationPurchased": true,
+              "lifePowerPurchased": true,
+              "mentalDomainPurchased": true,
+              "mentalPowerPurchased": true,
+              "mindDivisionLevel": true,
+              "moonfallPurchased": true,
+              "mountainCollapsePurchased": true,
+              "mountainShatterPurchased": true,
+              "myStylePurchased": true,
+              "naturalStrengthPurchased": true,
+              "planetWillPurchased": true,
+              "regenerationPurchased": true,
+              "rockStrikePurchased": true,
+              "scaleUnificationPurchased": true,
+              "selfSuppressionPurchased": true,
+              "selfhoodPurchased": true,
+              "selflessPurchased": true,
+              "skySplitPurchased": true,
+              "sonicMovementPurchased": true,
+              "spaceQuakePurchased": true,
+              "spacetimeFrameworkPurchased": true,
+              "starShatterPurchased": true,
+              "starSpiritPurchased": true,
+              "stellarFurnacePurchased": true,
+              "stellarResonancePurchased": true,
+              "stellarSeaGiftPurchased": true,
+              "stellarTreasureSeekingPurchased": true,
+              "subtlePurchased": true,
+              "superPerceptionPurchased": true,
+              "superSpeedThinkingPurchased": true,
+              "superclusterCollapsePurchased": true,
+              "supernaturalFirePurchased": true,
+              "superpowerEvolutionPurchased": true,
+              "superpowerPurchased": true,
+              "transcendentPurchased": true,
+              "ultimateIntentPurchased": true,
+              "waterPurchased": true,
+              "waveEyePurchased": true
+            }
+          },
+          "progress": {
+            "brickUnlocked": true,
+            "highestPower": "6.853073788185736e115",
+            "highestScaleIndex": 14,
+            "totalPower": "6.853073788185736e115",
+            "wallUnlocked": true
+          },
+          "upgrades": {
+            "bioenergyPurchased": true,
+            "biologicalQuantificationPurchased": true,
+            "brainDomainDevelopmentPurchased": true,
+            "breathingMethodPurchased": true,
+            "bulletTimePurchased": true,
+            "carbonLimitPurchased": true,
+            "chicxulubMeteoritePurchased": true,
+            "continentCollapsePurchased": true,
+            "continentSplitPurchased": true,
+            "cosmicWebPurchased": true,
+            "destroyCountryPurchased": true,
+            "dynamicFocusPurchased": true,
+            "earthSplitPurchased": true,
+            "elementalAwakeningPurchased": true,
+            "elementalizationPurchased": true,
+            "enduranceEnhancementPurchased": true,
+            "energyCyclePurchased": true,
+            "exercisePurchased": true,
+            "extremeExercisePurchased": true,
+            "fiveSpiritStonePurchased": true,
+            "flowStatePurchased": true,
+            "focusPurchased": true,
+            "freedomPurchased": true,
+            "galacticReturnPurchased": true,
+            "ghostBackPurchased": true,
+            "ghostBrainPurchased": true,
+            "ghostManTransformationPurchased": true,
+            "godspeedPurchased": true,
+            "gravitationalCollapsePurchased": true,
+            "greatAttractorPurchased": true,
+            "gymPurchased": true,
+            "highSpeedMetabolismPurchased": true,
+            "humanGhostTransformationPurchased": true,
+            "hyperRegenerationPurchased": true,
+            "intuitionPurchased": true,
+            "invulnerablePurchased": true,
+            "killingIntentPerceptionPurchased": true,
+            "killingIntentPurchased": true,
+            "killingIntentSubstancePurchased": true,
+            "killingIntentWavePurchased": true,
+            "largeScaleAdaptationPurchased": true,
+            "lifePowerPurchased": true,
+            "mentalDomainPurchased": true,
+            "mentalPowerPurchased": true,
+            "mindDivisionLevel": 3,
+            "moonfallPurchased": true,
+            "mountainCollapsePurchased": true,
+            "mountainShatterPurchased": true,
+            "myStylePurchased": true,
+            "naturalStrengthPurchased": true,
+            "planetWillPurchased": true,
+            "regenerationPurchased": true,
+            "rockStrikePurchased": true,
+            "scaleUnificationPurchased": true,
+            "selfSuppressionPurchased": true,
+            "selfhoodPurchased": true,
+            "selflessPurchased": true,
+            "skySplitPurchased": true,
+            "sonicMovementPurchased": true,
+            "spaceQuakePurchased": true,
+            "spacetimeFrameworkPurchased": true,
+            "starShatterPurchased": true,
+            "starSpiritPurchased": true,
+            "stellarFurnacePurchased": true,
+            "stellarResonancePurchased": true,
+            "stellarSeaGiftPurchased": true,
+            "stellarTreasureSeekingPurchased": true,
+            "subtlePurchased": true,
+            "superPerceptionPurchased": true,
+            "superSpeedThinkingPurchased": true,
+            "superclusterCollapsePurchased": true,
+            "supernaturalFirePurchased": true,
+            "superpowerEvolutionPurchased": true,
+            "superpowerPurchased": true,
+            "transcendentPurchased": true,
+            "ultimateIntentPurchased": true,
+            "waterPurchased": true,
+            "waveEyePurchased": true
+          }
+        }
+      }
+    },
+    "cultivation": {
+      "active": "immortal",
+      "systems": {
+        "immortal": {
+          "abilities": {
+            "fiveElementsTreasureUnlocked": true,
+            "heavenlyTreasureLevel": 3,
+            "immortalLifeUnlocked": true,
+            "mysticHeavenlyTreasureLevel": 3,
+            "qiSpellLevel": 3
+          },
+          "history": {
+            "manualAbilities": {
+              "abundantAuraUnlocked": true,
+              "auraControlUnlocked": true,
+              "auraIntoBodyUnlocked": true,
+              "brahmaDemonArtUnlocked": true,
+              "circulationUnlocked": true,
+              "daoAssimilationUnlocked": true,
+              "daoDomainUnlocked": true,
+              "daoLawUnityUnlocked": true,
+              "daoPowerUnlocked": true,
+              "daoTimeLawUnlocked": true,
+              "demonRealmJourneyUnlocked": true,
+              "descendRealmUnlocked": true,
+              "divineAbilityMasteryUnlocked": true,
+              "divineSenseUnlocked": true,
+              "dualInfantUnityUnlocked": true,
+              "equalHeavenLongevityUnlocked": true,
+              "externalIncarnationUnlocked": true,
+              "fiveElementsTreasureUnlocked": true,
+              "fiveElementsUnlocked": true,
+              "flawlessJadeBodyUnlocked": true,
+              "flyingEscapeUnlocked": true,
+              "foundationSpellLevel": true,
+              "goldenCoreLongevityLevel": true,
+              "goldenSealScriptUnlocked": true,
+              "greatCultivatorUnlocked": true,
+              "heavenEarthAuraUnlocked": true,
+              "heavenlyTreasureLevel": true,
+              "immortalApertureIIIUnlocked": true,
+              "immortalApertureIIUnlocked": true,
+              "immortalApertureIVUnlocked": true,
+              "immortalApertureLevel": true,
+              "immortalApertureVIIUnlocked": true,
+              "immortalApertureVIUnlocked": true,
+              "immortalApertureVUnlocked": true,
+              "immortalLifeUnlocked": true,
+              "immortalRealmDivineAbilityUnlocked": true,
+              "immortalSpiritPowerUnlocked": true,
+              "indestructibleDharmaBodyUnlocked": true,
+              "lawAffinityUnlocked": true,
+              "lawCrystalFilamentUnlocked": true,
+              "lawOriginUnlocked": true,
+              "lawUnlocked": true,
+              "longevity800Level": true,
+              "longevityLevel": true,
+              "magicTreasureUnlocked": true,
+              "manaLiquefactionUnlocked": true,
+              "manaSolidificationUnlocked": true,
+              "materialControlUnlocked": true,
+              "minorTechniqueUnlocked": true,
+              "mysticHeavenlyTreasureLevel": true,
+              "nascentSoulCompletionUnlocked": true,
+              "natalMagicTreasureUnlocked": true,
+              "perfectedTechniqueCompletionUnlocked": true,
+              "perfectedTechniqueUnlocked": true,
+              "qiSpellLevel": true,
+              "returnToOriginUnlocked": true,
+              "roamSpiritWorldUnlocked": true,
+              "secondNascentSoulUnlocked": true,
+              "severThreeCorpsesUnlocked": true,
+              "silverTadpoleScriptUnlocked": true,
+              "soulQualitativeChangeUnlocked": true,
+              "spiritCaptureReturnUnlocked": true,
+              "spiritDomainUnlocked": true,
+              "spiritDomainWorldTransformationUnlocked": true,
+              "spiritRefiningArtUnlocked": true,
+              "spiritTravelVoidUnlocked": true,
+              "spiritWorldAscensionUnlocked": true,
+              "techniqueUnlocked": true,
+              "threadsOfLawUnlocked": true,
+              "trinityUnlocked": true,
+              "trueSpiritTransformationLevel": true,
+              "ultimateImmortalApertureUnlocked": true,
+              "undyingPrimordialSpiritUnlocked": true,
+              "unityWithDaoUnlocked": true,
+              "voidRefiningToQiUnlocked": true,
+              "xuanImmortalBodyUnlocked": true
+            },
+            "manualRealmLevel": 13
+          },
+          "persistent": {
+            "permanentRootLevel": 3
+          },
+          "progress": {
+            "currentQiLayer": 48207,
+            "explorationRewards": {
+              "version": 2,
+              "natural": {
+                "version": 1,
+                "requirement": "10",
+                "remaining": "10",
+                "carry": "0",
+                "residual": []
+              },
+              "seize": "0",
+              "levelResidual": []
+            },
+            "qiRefiningUnlocked": true
+          },
+          "resources": {
+            "mana": "5.141023384625834e47",
+            "manaGainResidualTail": [
+              "317959334973870011960732612296271306313441496e-11"
+            ]
+          },
+          "xiuzhen": {
+            "highestRealm": 10,
+            "history": {
+              "abilities": {
+                "body": true,
+                "crystal": true,
+                "divineArt": true,
+                "emptyGate": true,
+                "followLaw": true,
+                "innerWorld": true,
+                "intent": true,
+                "kongJieMie": true,
+                "kongLingYuan": true,
+                "kongNieZhang": true,
+                "kongXuanSheng": true,
+                "materialSpirit": true,
+                "mergeHeaven": true,
+                "originBody": true,
+                "rules": true,
+                "spirit": true,
+                "spiritualGod": true,
+                "spokenLaw": true,
+                "virtualOrigin": true,
+                "worldAura": true,
+                "xianForce": true,
+                "yuanForce": true,
+                "zunYang": true
+              },
+              "realm": 10
+            },
+            "lifetimeHighestRealm": 10,
+            "manaSpent": "9.000000002399997e60",
+            "manaSpentResidual": [
+              "220e0"
+            ],
+            "resources": {
+              "nieForce": {
+                "peak": "1297201023426727",
+                "peakResidual": [
+                  "-51279457554920721303127468e-27"
+                ],
+                "spent": "18101412610000",
+                "total": "1315302436036727",
+                "totalResidual": [
+                  "-51279457554920721303127468e-27"
+                ]
+              },
+              "universeCoefficient": {
+                "peak": "21868.626476678124",
+                "peakResidual": [
+                  "407599977705115835380382e-36"
+                ],
+                "total": "21868.626476678124",
+                "totalResidual": [
+                  "407599977705115835380382e-36"
+                ]
+              },
+              "xianForce": {
+                "peak": "1.3178453080195487e37",
+                "peakResidual": [
+                  "-61386510819585007334774828839456903475482945568e-24"
+                ],
+                "spent": "603300000",
+                "total": "1.3178453080195487e37",
+                "totalResidual": [
+                  "-56880591678314730350614694039456903475482945568e-24"
+                ]
+              },
+              "yuanForce": {
+                "peak": "2.3508029602351797e50",
+                "peakResidual": [
+                  "158550981659089460088657827287674373184114553219452382045068e-24"
+                ],
+                "spent": "1.0000000000080005e24",
+                "spentResidual": [
+                  "300820000e0"
+                ],
+                "total": "2.3508029602351797e50",
+                "totalResidual": [
+                  "158550981668009060881715668124264835003307553219452382045068e-24"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "meta": {
+      "achievements": {
+        "ascendImmortal": true,
+        "aspireImmortality": true,
+        "beyondFractal": true,
+        "bodyIntegration": true,
+        "brick": true,
+        "daoFoundation": true,
+        "five": true,
+        "fiveMisfortunesThreeDeficiencies": true,
+        "goldenCore": true,
+        "goldenNature": true,
+        "googol": true,
+        "graham64": true,
+        "greatHeavenlyVenerable": true,
+        "greatLuo": true,
+        "humanRealmDominance": true,
+        "infantSpirit": true,
+        "infantTransformationImmortal": true,
+        "infinityPower": true,
+        "lightningFiveWhip": true,
+        "mahayana": true,
+        "martialHarmony": true,
+        "martialInnate": true,
+        "powerOne": true,
+        "qiPathComplete": true,
+        "refineTheVoid": true,
+        "scale10": true,
+        "scale11": true,
+        "scale12": true,
+        "scale13": true,
+        "scale14": true,
+        "scale2": true,
+        "scale3": true,
+        "scale4": true,
+        "scale5": true,
+        "scale6": true,
+        "scale7": true,
+        "scale8": true,
+        "scale9": true,
+        "seizeFoundation": true,
+        "selfSeveringSlash": true,
+        "seventhTree": true,
+        "threeDeficiencies": true,
+        "trainingUp": true,
+        "tree3": true,
+        "trueBrick": true,
+        "trueG1": true,
+        "trueGraham": true,
+        "trueScale10": true,
+        "trueScale11": true,
+        "trueScale12": true,
+        "trueScale13": true,
+        "trueScale14": true,
+        "trueScale2": true,
+        "trueScale3": true,
+        "trueScale4": true,
+        "trueScale5": true,
+        "trueScale6": true,
+        "trueScale7": true,
+        "trueScale8": true,
+        "trueScale9": true,
+        "trueTree3": true,
+        "universe": true,
+        "utmostPurity": true,
+        "yuan": true
+      },
+      "bigNumbers": {
+        "beyondFractal": true,
+        "elapsedSeconds": 229222.07700005276,
+        "fractalLevel": 5,
+        "gBatch": {
+          "acc": "3.230922474006796e-17",
+          "context": {
+            "award": 1,
+            "challenge": null,
+            "costModel": "anchored-v3",
+            "d6": true,
+            "mode": "g-polynomial",
+            "pricing": "base",
+            "reward": true,
+            "rewardAboveOne": true,
+            "treeDelta": "3"
+          },
+          "funding": "1.9396398468892233",
+          "kind": "wis-closed-batch",
+          "n0": "238",
+          "version": 1
+        },
+        "gIndex": 239,
+        "purchases": [
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "rankBasis": {
+          "version": 1,
+          "g": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 1
+          },
+          "tree": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 0,
+            "targetRank": 7,
+            "projectedTargetRequirement": "28800",
+            "projection": {
+              "version": 1,
+              "producer": "schema73-log14-a"
+            }
+          }
+        },
+        "resources": [
+          {
+            "amount": "7.954487894057362e20",
+            "residual": [
+              "166731130091714929902465880546917660741188460e-39"
+            ],
+            "total": "7.954487894057362e20",
+            "totalResidual": [
+              "167032130091714929902465880546917660741188460e-39"
+            ],
+            "spent": "301",
+            "spentResidual": [],
+            "peak": "7.954487894057362e20",
+            "peakResidual": [
+              "166731130091714929902465880546917660741188460e-39"
+            ]
+          },
+          {
+            "amount": "9476146.839953177",
+            "residual": [
+              "-8303447906411870760421595e-34"
+            ],
+            "total": "9476746.839953177",
+            "totalResidual": [
+              "-8303447906411870760421595e-34"
+            ],
+            "spent": "600",
+            "spentResidual": [],
+            "peak": "9476146.839953177",
+            "peakResidual": [
+              "-8303447906411870760421595e-34"
+            ]
+          },
+          {
+            "amount": "7158329.671766541",
+            "residual": [
+              "-252705382751672604074388e-34"
+            ],
+            "total": "7159529.671766541",
+            "totalResidual": [
+              "-252705382751672604074388e-34"
+            ],
+            "spent": "1200",
+            "spentResidual": [],
+            "peak": "7158329.671766541",
+            "peakResidual": [
+              "-252705382751672604074388e-34"
+            ]
+          },
+          {
+            "amount": "7091908.422801811",
+            "residual": [
+              "1358776303232843173820397e-34"
+            ],
+            "total": "7094308.422801811",
+            "totalResidual": [
+              "1158776303232843173820397e-34"
+            ],
+            "spent": "2400",
+            "spentResidual": [],
+            "peak": "7091908.422801811",
+            "peakResidual": [
+              "1358776303232843173820397e-34"
+            ]
+          },
+          {
+            "amount": "7029927.821755985",
+            "residual": [
+              "-5089094456969399075495188e-34"
+            ],
+            "total": "7029927.821755985",
+            "totalResidual": [
+              "-5089094456969399075495188e-34"
+            ],
+            "spent": "0",
+            "spentResidual": [],
+            "peak": "7029927.821755985",
+            "peakResidual": [
+              "-5089094456969399075495188e-34"
+            ]
+          }
+        ],
+        "superProgress": "19.76626604861074",
+        "tree": {
+          "batch": {
+            "acc": "-5.476730180475897e-12",
+            "context": {
+              "award": 3,
+              "boosted": false
+            },
+            "funding": "71255.39117851107",
+            "kind": "wis-closed-batch",
+            "n0": "0",
+            "version": 1
+          },
+          "construction": "1.4854673403886487e16",
+          "constructionGainResidualTail": [
+            "318417101492894039883062252609768930338941964528125e-49"
+          ],
+          "phase": "super",
+          "rank": 6,
+          "sequenceWork": "6.50822076394254e18",
+          "sequenceWorkResidual": [
+            "161647147381873404634295868051944371261662661982679114944050926553125e-64"
+          ],
+          "superElapsedSeconds": "527.3220000000302",
+          "superEntryMultiplier": "3.9126355300066926",
+          "superProgress": "0.019300689044053094",
+          "totalConstruction": "2.1482141179624366e16",
+          "totalConstructionResidual": [
+            "766591625206694139883062252609768930338941964528125e-49"
+          ],
+          "upgrades": {
+            "branch": 18,
+            "label": 15,
+            "node": 31
+          }
+        },
+        "unlocked": true,
+        "ySample": {
+          "baseRate": "0.0000011583220441086586",
+          "baseRateResidual": [],
+          "rate": "1.000001158322044",
+          "rateResidual": [
+            "1086586e-22"
+          ],
+          "remaining": 0.92299995354842
+        }
+      },
+      "challenges": {
+        "activeChallenge": "qiRefiningHundredThousandYears",
+        "activeChallengeElapsedSeconds": 39.000000000000284,
+        "bestQiLayer": 37472,
+        "challengeCompletions": {
+          "blackHole": 1,
+          "completeRealm": 3,
+          "fiveMisfortunes": 3,
+          "galaxy": 1,
+          "heavenlyFiveDeclines": 1,
+          "innateDeficiency": 3,
+          "longevity": 3,
+          "moonless": 3,
+          "mortalTransformation": 1,
+          "planetSuppression": 1,
+          "powerless": 3,
+          "severEvilCorpse": 1,
+          "severGoodCorpse": 1,
+          "severSelfCorpse": 1,
+          "solarPower": 1,
+          "yinVoidYangReal": 1
+        },
+        "discardedElapsedSeconds": 208.0069999999982,
+        "threeCorpseChallengesUnlocked": true
+      },
+      "closedBatchMigration": {
+        "accInitializedToZero": true,
+        "fromNumericModel": 1,
+        "fromSettlementRule": 2,
+        "version": 1
+      },
+      "infinity": {
+        "challengeRewards": {
+          "infinityFast": true
+        },
+        "discardedRunElapsed": 51482.70699999958,
+        "purchaseLedger": [
+          {
+            "nodeId": "E1",
+            "pricePaid": "3",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "E2-2",
+            "pricePaid": "5",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B1-1",
+            "pricePaid": "1",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B1-2",
+            "pricePaid": "1",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B2",
+            "pricePaid": "2",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D1-1",
+            "pricePaid": "1",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D1-2",
+            "pricePaid": "1",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D2-1",
+            "pricePaid": "2",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D2-2",
+            "pricePaid": "2",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C1",
+            "pricePaid": "5",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B3-2",
+            "pricePaid": "3",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B3-1",
+            "pricePaid": "3",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D3",
+            "pricePaid": "5",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B4",
+            "pricePaid": "5",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "E3-2",
+            "pricePaid": "7",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "E4",
+            "pricePaid": "9",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B5-1",
+            "pricePaid": "8",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D4",
+            "pricePaid": "7",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "B5-2",
+            "pricePaid": "8",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D5",
+            "pricePaid": "12",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D6",
+            "pricePaid": "21",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D7-2",
+            "pricePaid": "24",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D7-1",
+            "pricePaid": "24",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D7-3",
+            "pricePaid": "24",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "D8",
+            "pricePaid": "30",
+            "pricePaidResidual": []
+          },
+          {
+            "nodeId": "C2",
+            "pricePaid": "10",
+            "pricePaidResidual": []
+          }
+        ],
+        "rebirthCount": 21,
+        "runElapsed": 229223.27700005277,
+        "totalPointsEarned": "223",
+        "unlocked": true,
+        "upgrades": {
+          "B1-1": true,
+          "B1-2": true,
+          "B2": true,
+          "B3-1": true,
+          "B3-2": true,
+          "B4": true,
+          "B5-1": true,
+          "B5-2": true,
+          "C1": true,
+          "C2": true,
+          "D1-1": true,
+          "D1-2": true,
+          "D2-1": true,
+          "D2-2": true,
+          "D3": true,
+          "D4": true,
+          "D5": true,
+          "D6": true,
+          "D7-1": true,
+          "D7-2": true,
+          "D7-3": true,
+          "D8": true,
+          "E1": true,
+          "E2-2": true,
+          "E3-2": true,
+          "E4": true
+        },
+        "upgradesUnlocked": true
+      },
+      "martialQualifications": {
+        "innate": true,
+        "innerHarmony": true,
+        "stealHeaven": true
+      },
+      "milestones": {
+        "graham64": true,
+        "tree3": true
+      },
+      "statistics": {
+        "amountTails": {
+          "currentRebirthHighestJ": [
+            "-13744645327609242179521510786664582401539419135043559999999980468043383435619999999999999999999999999999993549957130727612168274144706213328154657532509487425712e-2"
+          ],
+          "currentRebirthHighestMana": [
+            "317959334973870011960732612296271306313441496e-11"
+          ],
+          "currentRebirthHighestPower": [
+            "-20994965097429339597213300215927589917846784031063295329368538215960842402835967600028925994204632565328820018e-8"
+          ],
+          "currentRebirthTotalJ": [
+            "-13744645327609242179521510786664582401539419135043559999999980468043383435619999999999999999999999999999993549957130727612168274144706213328154657532509487425712e-2"
+          ],
+          "currentRebirthTotalMana": [
+            "317959334973870011960732612296293306313441496e-11"
+          ],
+          "currentRebirthTotalPower": [
+            "-20994965097429339597213200205926588917746773980753285328367548085960727958764076508380481064736749461928820018e-8"
+          ],
+          "highestPower": [
+            "-20994965097429339597213300215927589917846784031063295329368538215960842402835967600028925994204632565328820018e-8"
+          ],
+          "lifetimeTotalImmortalPower": [
+            "2e5169312420173396",
+            "2e5140611745165775",
+            "2e5140611434068506",
+            "2e5140611122971117",
+            "2e5140610811873609",
+            "2e5140610500775958",
+            "2e5140610189678188",
+            "2e5140609878580298",
+            "2e5140609567482266",
+            "2e5140609256384114",
+            "2e5140608945285820",
+            "2e5140608634187429",
+            "2e5140608323088873",
+            "2e5140608011990198",
+            "2e5140607700891403",
+            "2e5140607389792488",
+            "2e5140607078693431",
+            "2e5140606767594255",
+            "2e5140606456494936",
+            "2e5140606145395498",
+            "2e5140605834295940",
+            "199999999999999999999999999999999e5140605523196207"
+          ],
+          "lifetimeTotalJ": [
+            "@ratio:1:{\"terms\":[\"ee16.44326713471623*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee16.44326720501132*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee16.443267275306095*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee16.44326734560054*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee16.44326741589467*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee16.443267486188475*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee16.443267556481956*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee16.443267626775114*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee16.443267697067956*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee22.331182900412465*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee22.828703567184558*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee23.144488019320917*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee23.190562657696805*2\"],\"denominator\":\"10\"}",
+            "1122027614896659255354672390757820478489213335417598460580864956440000000019531956616564380000000000000000000000000000006450042869272387831725855293786671845342467490512574288e-2",
+            "@ratio:1:{\"terms\":[\"ee21.754426531981736*199999999999999999999999999999565\"],\"denominator\":\"1000000000000000000000000000000000\"}"
+          ],
+          "lifetimeTotalMana": [
+            "2e5143523147756382",
+            "2e4982661043251245",
+            "2e4982660795843173",
+            "2e4982660548435019",
+            "2e4982660301026735",
+            "2e4982660053618343",
+            "2e4982659806209847",
+            "2e4982659558801245",
+            "2e4982659311392535",
+            "2e4982659063983721",
+            "2e4982658816574799",
+            "199999999999999999999999999999999e4982658569165739",
+            "1e4026974634138643",
+            "1e4026974428101697",
+            "1e4026974222064644",
+            "1e4026974016027502",
+            "1e4026973809990272",
+            "1e4026973603952953",
+            "1e4026973397915546",
+            "51410233846258657959334973870011960732612296293306313441496e-11"
+          ],
+          "lifetimeTotalPower": [
+            "@ratio:1:{\"terms\":[\"ee23.182213531132298*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee23.18221367177123*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee23.1822138124095*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee23.182213953047103*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee23.182214093684042*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee23.350922479460323*2\"],\"denominator\":\"10\"}",
+            "@ratio:1:{\"terms\":[\"ee23.182213390492684*199999999999999999999999999999999\"],\"denominator\":\"1000000000000000000000000000000000\"}",
+            "6853073788185715005034902570660402786799794073411082253226019246714671632451914039272041235923491619518935263250538071179982e-8"
+          ],
+          "totalPower": [
+            "-20994965097429339597213200205926588917746773980753285328367548085960727958764076508380481064736749461928820018e-8"
+          ]
+        },
+        "currentRebirthHighestCultivationRealmLevel": 1,
+        "currentRebirthHighestJ": "1.122027614896673e172",
+        "currentRebirthHighestMana": "5.141023384625834e47",
+        "currentRebirthHighestPower": "6.853073788185736e115",
+        "currentRebirthHighestScaleIndex": 14,
+        "currentRebirthTotalJ": "1.122027614896673e172",
+        "currentRebirthTotalMana": "5.141023384625834e47",
+        "currentRebirthTotalPower": "6.853073788185736e115",
+        "explorationTotal": "ee16.29855496931485",
+        "explorationTotalApproximate": true,
+        "explorationTotalResidual": [
+          "ee16.29855496931485*8835",
+          "ee16.114656114991575",
+          "1e6470866420951751",
+          "31622776601683795e2784521081996376",
+          "31622776601683795e1089346504438997",
+          "1e397568499776253",
+          "32781211513934587e137591660032993",
+          "2942727176209282e45719521943810",
+          "8936590854299714e14862088227704",
+          "19809567785503388e5251168002268",
+          "4067944321083047e2137158090751",
+          "10462930012960632e852212481869",
+          "6419410040661612e334225486845",
+          "126306345875168179999999999999999e129328006339"
+        ],
+        "immortalSelectionCount": 213,
+        "lifetimeHighestCultivationRealmLevel": 13,
+        "lifetimeHighestImmortalPower": "ee30.514762776331697",
+        "lifetimeHighestJ": "ee36.47538048223694",
+        "lifetimeHighestMana": "ee30.858188261926216",
+        "lifetimeHighestPower": "ee46.90808943653253",
+        "lifetimeHighestScaleIndex": 14,
+        "lifetimeTotalImmortalPower": "ee30.514762776331697",
+        "lifetimeTotalJ": "ee36.47538048223694",
+        "lifetimeTotalMana": "ee30.858188261926216",
+        "lifetimeTotalPower": "ee46.90808943653253"
+      },
+      "treasureBatch": {
+        "baLingChi": {
+          "acc": "-2.631844786549209e-8",
+          "context": {
+            "award": "2"
+          },
+          "funding": "741464171.3709912",
+          "n0": "2559401"
+        },
+        "cosmicFiber": {
+          "acc": "-1.6275869541004795e-13",
+          "context": {
+            "award": "2"
+          },
+          "funding": "14709.95378170394",
+          "n0": "7793"
+        },
+        "cosmicWill": {
+          "acc": "1.1339640337837409e-10",
+          "context": {
+            "award": "2"
+          },
+          "funding": "3465792.7020818507",
+          "n0": "1945"
+        },
+        "emperorImprint": {
+          "context": {
+            "award": "2"
+          }
+        },
+        "fitnessMembershipCard": {
+          "acc": "-7.592504402964551e-11",
+          "context": {
+            "award": "2"
+          },
+          "funding": "1364969.9621185062",
+          "n0": "306"
+        },
+        "fiveElementsTreasure": {
+          "acc": "3.6649453249992803e-8",
+          "context": {
+            "award": "2",
+            "base": "7.0710678118654755",
+            "q": "0.99498743710662"
+          },
+          "funding": "741461265.0373077",
+          "n0": "2559401"
+        },
+        "fiveSpiritStone": {
+          "acc": "-1.2895684520231043e-11",
+          "context": {
+            "award": "2"
+          },
+          "funding": "237509.85126172882",
+          "n0": "602"
+        },
+        "fuBao": {
+          "acc": "ee16.29855496931485",
+          "context": {
+            "award": "2",
+            "q": "0.8366600265340756"
+          },
+          "funding": "ee16.29855496931485",
+          "n0": "2.5676040498976502e17"
+        },
+        "godBodyImprint": {
+          "context": {
+            "award": "2"
+          }
+        },
+        "immortalCrystal": {
+          "context": {
+            "award": "2",
+            "base": "4.47213595499958",
+            "exponent": 0.25
+          },
+          "funding": "23.808412796321193",
+          "n0": "2932193"
+        },
+        "lawImprint": {
+          "context": {
+            "award": "2"
+          }
+        },
+        "mysteriousGreenBottle": {
+          "acc": "ee16.29855496931485",
+          "context": {
+            "award": "2",
+            "q": "0.9219544457292888"
+          },
+          "funding": "ee16.29855496931485",
+          "n0": "5.63503607475682e17"
+        },
+        "mysticHeavenSacredTree": {
+          "acc": "ee16.29855496931485",
+          "context": {
+            "award": "2",
+            "q": "0.7071067811865476"
+          },
+          "funding": "ee16.29855496931485",
+          "n0": "1.3212201625346804e17"
+        },
+        "mysticHeavenSpiritSlayingSword": {
+          "acc": "ee16.29855496931485",
+          "context": {
+            "award": "2",
+            "q": "0.7745966692414834"
+          },
+          "funding": "ee16.29855496931485",
+          "n0": "1.7927840498781693e17"
+        },
+        "originImprint": {
+          "acc": "-0.0000158846378326416",
+          "context": {
+            "base": "10",
+            "q": "0.5773502691896257"
+          },
+          "funding": "391753307395.69214",
+          "n0": "66"
+        },
+        "phantomHeavenMirror": {
+          "acc": "ee16.29855496931485",
+          "context": {
+            "award": "2",
+            "q": "0.7071067811865476"
+          },
+          "funding": "ee16.29855496931485",
+          "n0": "1.3212201625346804e17"
+        },
+        "sacredBodyImprint": {
+          "context": {
+            "award": "2"
+          }
+        },
+        "skyCrystal": {
+          "acc": "-2.1094237467877974e-13",
+          "context": {
+            "award": "2"
+          },
+          "funding": "9120.89590797877",
+          "n0": "22860"
+        },
+        "sourceStoneImprint": {
+          "context": {
+            "award": "2"
+          }
+        },
+        "superLollipop": {
+          "acc": "-1.7717383116178098e-11",
+          "context": {
+            "award": "2"
+          },
+          "funding": "384400.63279301784",
+          "n0": "332"
+        },
+        "tianNiPearl": {
+          "acc": "ee16.29855496931485",
+          "context": {
+            "award": "2"
+          },
+          "funding": "ee16.29855496931485",
+          "n0": "9.112133603267969e18"
+        },
+        "wanYaoFan": {
+          "acc": "ee16.29855496931485",
+          "context": {
+            "award": "2",
+            "q": "0.8660254037844386"
+          },
+          "funding": "ee16.29855496931485",
+          "n0": "3.183375393356936e17"
+        },
+        "xuTianDing": {
+          "acc": "ee16.29855496931485",
+          "context": {
+            "award": "2",
+            "q": "0.8660254037844386"
+          },
+          "funding": "ee16.29855496931485",
+          "n0": "3.183375393356936e17"
+        },
+        "yuanCrystal": {
+          "context": {
+            "award": "2",
+            "base": "5",
+            "exponent": 0.25
+          },
+          "funding": "38.57147533140491",
+          "n0": "2931767"
+        }
+      },
+      "treasureProgress": {
+        "baLingChi": "741464171.3709912",
+        "cosmicFiber": "14709.95378170394",
+        "cosmicWill": "44610.73385977326",
+        "fitnessMembershipCard": "1364969.9621185062",
+        "fiveElementsTreasure": "741461265.0373077",
+        "fiveSpiritStone": "237509.85126172882",
+        "fuBao": "ee16.29855496931485",
+        "immortalCrystal": "23.808412796321193",
+        "mysteriousGreenBottle": "ee16.29855496931485",
+        "mysticHeavenSacredTree": "ee16.29855496931485",
+        "mysticHeavenSpiritSlayingSword": "ee16.29855496931485",
+        "originImprint": "391753307395.69214",
+        "phantomHeavenMirror": "ee16.29855496931485",
+        "skyCrystal": "9120.89590797877",
+        "superLollipop": "384400.63279301784",
+        "tianNiPearl": "ee16.29855496931485",
+        "wanYaoFan": "ee16.29855496931485",
+        "xuTianDing": "ee16.29855496931485",
+        "yuanCrystal": "38.57147533140491"
+      },
+      "treasureProgressPending": {
+        "baLingChi": [],
+        "cosmicFiber": [],
+        "cosmicWill": [],
+        "fitnessMembershipCard": [],
+        "fiveElementsTreasure": [],
+        "fiveSpiritStone": [],
+        "fuBao": [],
+        "immortalCrystal": [],
+        "mysteriousGreenBottle": [],
+        "mysticHeavenSacredTree": [],
+        "mysticHeavenSpiritSlayingSword": [],
+        "originImprint": [],
+        "phantomHeavenMirror": [],
+        "skyCrystal": [],
+        "superLollipop": [],
+        "tianNiPearl": [],
+        "wanYaoFan": [],
+        "xuTianDing": [],
+        "yuanCrystal": []
+      },
+      "treasureProgressStatus": {
+        "baLingChi": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "cosmicFiber": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "cosmicWill": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "fitnessMembershipCard": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "fiveElementsTreasure": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "fiveSpiritStone": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "fuBao": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "immortalCrystal": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "mysteriousGreenBottle": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "mysticHeavenSacredTree": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "mysticHeavenSpiritSlayingSword": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "originImprint": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "phantomHeavenMirror": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "skyCrystal": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "superLollipop": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "tianNiPearl": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "ee-16.29855496931485",
+          "discardedCount": 1,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "wanYaoFan": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "xuTianDing": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        },
+        "yuanCrystal": {
+          "code": "closed-form-batch",
+          "discardedCoordinate": "0",
+          "discardedCount": 0,
+          "state": "limited",
+          "unabsorbedSignificant": 0
+        }
+      },
+      "treasureQualifications": {
+        "fiveElementsTreasure": true,
+        "fiveSpiritStone": true,
+        "heavenlyTreasureLevel": 3,
+        "mysticHeavenlyTreasureLevel": 3
+      },
+      "treasures": {
+        "baLingChi": "2559401",
+        "cosmicFiber": "7793",
+        "cosmicWill": "2021",
+        "fitnessMembershipCard": "306",
+        "fiveElementsTreasure": "2559401",
+        "fiveSpiritStone": "602",
+        "fuBao": "2.5676040498976502e17",
+        "immortalCrystal": "2932193",
+        "mysteriousGreenBottle": "5.63503607475682e17",
+        "mysticHeavenSacredTree": "1.3212201625346804e17",
+        "mysticHeavenSpiritSlayingSword": "1.7927840498781693e17",
+        "originImprint": "66",
+        "phantomHeavenMirror": "1.3212201625346804e17",
+        "skyCrystal": "22860",
+        "superLollipop": "332",
+        "tianNiPearl": "9.112133603267969e18",
+        "wanYaoFan": "3.183375393356936e17",
+        "xuTianDing": "3.183375393356936e17",
+        "yuanCrystal": "2931767"
+      }
+    }
+  }
+}

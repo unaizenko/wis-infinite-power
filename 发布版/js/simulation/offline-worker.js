@@ -71,6 +71,20 @@
           if(next.protocol!==1||!next.snapshot?.domain?.core||!next.status||typeof next.saveText!=='string')throw Error('离线检查点内容无效');
           WIS.Core.Save.validateRecovery(next.recovery);
           const prepared={...next.snapshot,domain:S.cloneForSimulation(next.snapshot.domain)};
+          // These UI-only preferences may change while the private Worker is
+          // running. Merge before BOTH durable write and install; its numerical
+          // inputs, resources, clocks and recovery debt remain Worker-owned.
+          const preferences=context.getState().core.preferences;
+          const changed=['theme','autoCloseOfflineDialogEnabled'].filter(key=>prepared.domain.core.preferences[key]!==preferences[key]);
+          if(changed.length){
+            const saved=JSON.parse(next.saveText);
+            if(!saved.data?.core)throw Error('离线检查点存档内容无效');
+            saved.data.core.preferences={...saved.data.core.preferences};
+            for(const key of changed){prepared.domain.core.preferences[key]=preferences[key];saved.data.core.preferences[key]=preferences[key];}
+            next.snapshot=prepared;next.saveText=JSON.stringify(saved);
+            // Retrying from a durable checkpoint must retain the same settings.
+            payload=P.encode(next);
+          }
           const progressed=next.status.pendingGameSeconds<latest.status.pendingGameSeconds-1e-10;
           // Prepare everything that can fail before the durable write. The
           // same payload carries assets, RNG, clocks, remaining debt and budget.

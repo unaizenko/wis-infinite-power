@@ -1,7 +1,8 @@
 "use strict";
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{pathToFileURL}=require('node:url');
 const {launch,root}=require('./startup-browser-helpers.cjs');
-const file=process.env.WIS_PREVIEW_SAVE||'E:/download/WIS-存档-2026-11-11T01-17-11-990Z.json';
+const ceiling=require('./current-regression.json').performanceContract.firstAllFourValuesMs;
+const file=process.env.WIS_PREVIEW_SAVE||require('./helpers/current-fixtures.cjs').fixturePath('live-training');
 (async()=>{const browser=await launch(),rows=[];try{
  for(const options of [{name:'real-desktop-file',width:1440,rate:1},{name:'screenshot-values-file',width:1440,rate:1,simulated:true},{name:'real-mobile-4x-file',width:390,rate:4}]){
   if(process.env.WIS_PREVIEW_CASE && options.name!==process.env.WIS_PREVIEW_CASE)continue;
@@ -17,6 +18,7 @@ const file=process.env.WIS_PREVIEW_SAVE||'E:/download/WIS-存档-2026-11-11T01-1
    await page.goto(pathToFileURL(path.join(root,'index.html')).href);
    await page.waitForFunction(()=>Object.keys(window.previewTimes||{}).length===4,null,{timeout:30000});
    const first=await page.evaluate(()=>({times:previewTimes,elapsed:WIS.Game.getState().totalElapsedSeconds,j:String(WIS.Game.getState().joules)}));
+   for(const [id,row] of Object.entries(first.times))assert(Number.isFinite(row.ms)&&row.ms<=ceiling,id+' first value exceeded '+ceiling+'ms: '+row.ms);
    await page.waitForTimeout(3500);
    const later=await page.evaluate(()=>({elapsed:WIS.Game.getState().totalElapsedSeconds,j:String(WIS.Game.getState().joules),training:document.getElementById('conversion-preview').textContent,breathing:document.getElementById('breathing-preview').textContent,build:WIS_BUILD.id}));
    assert(later.elapsed>first.elapsed,'normal online clock must remain running');assert(!/计算|暂无法/.test(later.training+later.breathing));assert.deepEqual(errors,[]);
@@ -31,4 +33,4 @@ const file=process.env.WIS_PREVIEW_SAVE||'E:/download/WIS-存档-2026-11-11T01-1
   }catch(error){console.log(JSON.stringify({options,failed:await page.evaluate(()=>({times:window.previewTimes,ready:window.WIS_BOOT?.diagnostics(),texts:['conversion-preview','next-power-j','breathing-preview','next-mana-j'].map(id=>document.getElementById(id)?.textContent)})),errors}));throw error;}finally{await page.close();}
  }
  console.log(JSON.stringify({rows},null,2));
-}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
+}finally{if(process.env.WIS_PREVIEW_REPORT)fs.writeFileSync(process.env.WIS_PREVIEW_REPORT,JSON.stringify({rows},null,2));await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

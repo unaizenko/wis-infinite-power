@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
 const {setupFuture}=require('./rank-schema-fixture.cjs');
-function fixture(){const {W}=setupFuture({targetSchema:76,transformSource(file,source){return file==='js/power/scale-logic.js'?source.replace('function quantitySoftcapExponent(value,exponent){','WIS.__softcap=quantitySoftcapExponent;\n function quantitySoftcapExponent(value,exponent){').replace('function originalNormalResourceSoftcapExponent(', 'function originalNormalResourceSoftcapExponent(...args){const v=originalNormalResourceSoftcapExponentProbe(...args);WIS.__exponentCalls=(WIS.__exponentCalls||0)+1;return v;}\n function originalNormalResourceSoftcapExponentProbe(').replace('if(below)lo=mid;else hi=mid;','WIS.__probeCalls=(WIS.__probeCalls||0)+1;if(below)lo=mid;else hi=mid;').replace('function infinitySoftcapInverse(actual, amount) {','WIS.__inverse=infinitySoftcapInverse;\n  function infinitySoftcapInverse(actual, amount) {'):source;}}),s=W.Core.State.fresh();s.meta.infinity.upgrades={'E1':true,'E2-2':true,'E3-2':true};W.Simulation.OfflineHeadless.create({domain:s},{checkpoint(){},yield:()=>Promise.resolve()});return W;}
+function fixture(){const {W}=setupFuture({targetSchema:76,transformSource(file,source){return file==='js/power/scale-logic.js'?source.replace('function quantitySoftcapExponent(value,exponent){','WIS.__softcap=quantitySoftcapExponent;\n function quantitySoftcapExponent(value,exponent){').replace('function originalNormalResourceSoftcapExponent(', 'function originalNormalResourceSoftcapExponent(...args){const v=originalNormalResourceSoftcapExponentProbe(...args);WIS.__exponentCalls=(WIS.__exponentCalls||0)+1;return v;}\n function originalNormalResourceSoftcapExponentProbe(').replace('if(yield ()=>below(mid))lo=mid;else hi=mid;','const direction=yield ()=>below(mid);WIS.__probeCalls=(WIS.__probeCalls||0)+1;if(direction)lo=mid;else hi=mid;').replace('function infinitySoftcapInverse(actual, amount) {','WIS.__inverse=infinitySoftcapInverse;\n  function infinitySoftcapInverse(actual, amount) {'):source;}}),s=W.Core.State.fresh();s.meta.infinity.upgrades={'E1':true,'E2-2':true,'E3-2':true};W.Simulation.OfflineHeadless.create({domain:s},{checkpoint(){},yield:()=>Promise.resolve()});return W;}
 function inverse(W,operations,actual='1e6',stock='1e5'){const C=W.Core.CertifiedRankMath,A=W.Core.Amount,s=W.Core.Runtime.getState(),scope=W.Core.Effects.createFrozenScope(s);const job=C.createWork(()=>scope.run(()=>W.__inverse(A.from(actual),A.from(stock))));try{for(let n=0;n<4000;n++){if(job.advance({maximumOperations:operations}).done)return {value:JSON.stringify(A.serialize(job.result())),calls:W.__probeCalls||0,slices:n+1};}assert.fail('inverse did not complete within bounded operations');}finally{job.cancel();scope.cancel();}}
 test('infinity inverse small slices preserve search progress and exact result',()=>{const full=inverse(fixture(),65536),sliced=inverse(fixture(),16);assert(full.calls>0&&sliced.calls>0,"probe instrumentation must execute");assert.deepEqual(sliced.value,full.value);assert.equal(JSON.parse(full.value).main,'2024351.904828329');assert(sliced.calls===full.calls,`completed probes replayed: sliced ${sliced.calls}, full ${full.calls}`);});
 
@@ -19,17 +19,17 @@ test('separate effect scopes in one arithmetic work never share inverse results'
  try{while(!job.advance({maximumOperations:16}).done){}assert.deepEqual(Array.from(job.result()),[reference[0],reference[1],reference[0]]);}finally{job.cancel();scopes.forEach(s=>s.cancel());}
 });
 const fs=require('node:fs');
-const playerPath='E:/download/WIS-存档-2026-11-10T22-50-25-779Z.json';
+const playerPath=require('./helpers/current-fixtures.cjs').fixturePath('ring-training');
 function player(path=playerPath){const W=fixture(),raw=JSON.parse(fs.readFileSync(path,'utf8')),s=W.Core.Save.prepare(raw).state;W.Core.Runtime.setState(s);return {W,raw,s,serial:()=>JSON.stringify(W.Core.State.toSerializable(W.Core.Runtime.getState()))};}
 function finishTraining(job){let slices=0;const started=performance.now();while(!job.advance(performance.now()+3).done){assert(++slices<20000,'bounded work');assert(performance.now()-started<10000,'small slices must finish');}}
-test('real ring save training agrees with synchronous whole domain and save reload',{skip:!fs.existsSync(playerPath)},()=>{
+test('real ring save training agrees with synchronous whole domain and save reload',()=>{
  const a=player(),b=player(),before=a.serial(),S=a.W.Core.State,R=a.W.Core.Runtime;
  b.W.Power.ScaleLogic.train(true);assert.equal(String(b.W.Core.Runtime.getState().power),'584957794.7584203');
  const job=a.W.Power.ScaleLogic.createTrainingActionWork(a.s,true);try{finishTraining(job);assert.equal(a.serial(),before);job.commit();assert.deepEqual(JSON.parse(a.serial()),JSON.parse(b.serial()));assert.throws(()=>job.commit());
  const round=a.W.Core.Save.prepare({...a.raw,data:S.toSerializable(R.getState())}).state;assert.deepEqual(JSON.parse(JSON.stringify(S.toSerializable(round))),JSON.parse(a.serial()));
  }finally{job.cancel();}
 });
-test('real training cancellation, changed input and late failure preserve resources',{skip:!fs.existsSync(playerPath)},()=>{
+test('real training cancellation, changed input and late failure preserve resources',()=>{
  for(const mode of ['cancel','changed','failure']){const f=player(),{W,s,serial}=f,before=serial(),job=W.Power.ScaleLogic.createTrainingActionWork(s,true);
  try{if(mode==='cancel'){job.advance(performance.now()+1);job.cancel();assert.throws(()=>job.commit());assert.equal(serial(),before);}
  else{finishTraining(job);if(mode==='changed'){s.power=W.Core.BigNum.BN(1);const changed=serial();assert.throws(()=>job.commit(),e=>e.code==='rank-work-stale');assert.equal(serial(),changed);}
@@ -60,8 +60,8 @@ test('softcap branch guard preserves tiny inputs, exponents and exact tails',()=
  for(const gain of values)for(const e of [0,1e-9,9.999999999999999e-8,1e-7,1.0000000000000001e-7,.5,1])assert.equal(JSON.stringify(A.serialize(W.__softcap(gain,e))),JSON.stringify(A.serialize(reference(gain,e))));
 });
 
-const latestPlayerPath='E:/download/WIS-存档-2026-11-11T01-17-11-990Z.json';
-test('later real save training completes with exact full state and reload',{skip:!fs.existsSync(latestPlayerPath)},()=>{
+const latestPlayerPath=require('./helpers/current-fixtures.cjs').fixturePath('live-training');
+test('later real save training completes with exact full state and reload',()=>{
  const a=player(latestPlayerPath),b=player(latestPlayerPath),before=a.serial(),S=a.W.Core.State,R=a.W.Core.Runtime;
  b.W.Power.ScaleLogic.train(true);assert.equal(String(b.W.Core.Runtime.getState().power),'1533287349.2910054');
  const job=a.W.Power.ScaleLogic.createTrainingActionWork(a.s,true);try{finishTraining(job);assert.equal(a.serial(),before);job.commit();assert.deepEqual(JSON.parse(a.serial()),JSON.parse(b.serial()));assert.equal(String(R.getState().joules),'0');

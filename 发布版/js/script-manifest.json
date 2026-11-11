@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "release-0.2.1.4-20261111",
+  "buildId": "release-0.2.2.0-20261112",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -89,6 +89,9 @@
     "js/simulation/online-candidate-worker.js",
     "js/simulation/offline-worker.js",
     "js/simulation/loop.js",
+    "js/simulation/math-worker-bundle.js",
+    "js/simulation/math-worker.js",
+    "js/simulation/pure-math-work.js",
     "js/ui/source-preview.js",
     "js/ui/format.js",
     "js/ui/cards.js",
@@ -101,6 +104,7 @@
     "js/vendor/qrcode-generator.js",
     "js/ui/app-distribution.js",
     "js/ui/native-platform.js",
+    "js/ui/action-view.js",
     "js/ui/app.js",
     "game.js"
   ]

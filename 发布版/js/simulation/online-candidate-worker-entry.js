@@ -10,13 +10,13 @@
     try{
       const result=owner.job.advance(performance.now()+12);
       if(result.done){const packet=owner.engine.step.exportOnlineCandidate(result.token),payload=P.encode(packet);active=null;post(owner,'result',{payload});}
-      else owner.timer=setTimeout(()=>advance(owner),0);
+      else {const progress=owner.job.progress?.();if(Number.isSafeInteger(progress)&&progress>owner.progress){owner.progress=progress;post(owner,'progress',{progress});}owner.timer=setTimeout(()=>advance(owner),0);}
     }catch(error){failed(owner,error);}
   }
   self.onmessage=({data:m})=>{
     if(m?.type==='cancel'){if(active?.id===m.requestId)close();return;}
     if(m?.type!=='compute')return;
-    close();const owner={id:m.requestId,timer:null,job:null,engine:null};active=owner;
+    close();const owner={id:m.requestId,timer:null,job:null,engine:null,progress:0};active=owner;
     try{
       if(m.protocol!==1||m.build!==build||!Number.isSafeInteger(m.requestId)||m.requestId<=0||typeof m.payload!=='string')throw Error('在线候选请求版本或身份无效');
       const request=P.decode(m.payload);
