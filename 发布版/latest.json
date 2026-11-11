@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.1.2",
-  "versionCode": 20102,
+  "version": "0.2.1.3",
+  "versionCode": 20103,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.2/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.3/wis.apk",
     "mirror": null,
-    "sha256": "d1941ba69842c8b07119c4538fadd577c38327bded7809f5240e55417d49abf5",
+    "sha256": "a255f05b287a457f0b3b3b8973481be45f2f903c48b5cf73ffe2bbc8c9c1d5db",
     "sizeBytes": 6457193
   },
-  "notes": "修复特定炼气存档离线停住、在线不增长的公式精度边界；改进幂差区间收敛及小比例巨大指数计算。离线剩余时间继续保留，存档格式不变。",
-  "publishedAt": "2026-11-10T09:03:34Z"
+  "notes": "修复无限软上限反算分片重复计算，改善圆环之理存档锻炼长时间无结果；保持收益精度和存档兼容。",
+  "publishedAt": "2026-11-11T01:08:48Z"
 }

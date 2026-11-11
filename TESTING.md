@@ -1,3 +1,15 @@
+## 2026-11-11 0.2.1.3 发布版本
+
+开发build dev-0.2.1.3-20261111-release-r1；网页release-0.2.1.3-20261111；APK release-0.2.1.3-apk-20261111，versionCode20103。纳入无限软上限反算续算修复，保持原收益、schema76/model2/rule4与兼容签名。前轮原档和9项专项验收见下文；本轮发布验证记录位于WIS-项目资源/release-0213-20261111/REPORT.md。下文未发布说明为历史记录。
+
+## 2026-11-11 无限软上限反算续算修复（仅开发版）
+
+build dev-0.2.1.2-20261111-inverse-continuation-r1，可见版本0.2.1.2、schema76/model2/rule4不变。scale-logic.infinitySoftcapInverse 的 Amount 分支改为候选内完整输入绑定的 CertifiedRankMath.task，保留二分上下界/当前探针；80次上限、原算术顺序和返回上界不变。同步调用仍同式计算，取消/变更/失败沿用原事务。
+
+原11月10日22:50圆环存档锻炼小片由15秒未结束变为Node约0.81秒完成，战力仍584957794.7584203；浏览器390px实际点击正常CPU583ms、4倍降速7638ms（单次桌面模拟，非手机保证），保存刷新全domain一致。9/9专项通过；扩展185项183通过/1外部缺档跳过/1旧heavenly-softcap测试脚本失败，该脚本缺MartialAmount.capturePassive，使用HEAD反算复跑同样失败。真实档未修改。
+
+同类审计：共享软上限反算的分段结算调用一并受益；武道求根/闭式宝物批量/Amount公式精度循环已有续算；当前吐纳与探寻只走linearBudget，不走48次非线性分支；探寻64次估算、炼气门槛查找不调用可挂起公式。未发现第二个已证实生产重算缺陷，未改变这些算法。两个Worker已重建，独立审查无阻塞。发布版、APK、Git提交/推送未更新。证据：../WIS-项目资源/inverse-continuation-20261111/REPORT.md。
+
 ## 2026-11-10 0.2.1.2 发布版本
 
 开发dev-0.2.1.2-20261110-release-r1；网页release-0.2.1.2-20261110；APK release-0.2.1.2-apk-20261110，versionName0.2.1.2/versionCode20102。schema76/model2/rule4、原兼容签名、收益规则保持。

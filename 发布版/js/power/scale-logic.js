@@ -341,12 +341,35 @@
   }
   function infinitySoftcapInverse(actual, amount) {
     if(isQuantity(actual)){
-      const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,I=WIS.Meta.Infinity;
-      const upper=rawGainForSoftcappedActualGain(actual,resourceSoftcapExponent(amount));
-      if(!I.softcapWeakening(state,'恒星')&&!I.softcapWeakening(state,'宇宙结构'))return upper;
-      if(A.compare(actual,0)===0)return A.from(0);let lo=F.log10(actual),hi=F.log10(upper);
-      for(let i=0;i<80;i++){const mid=div(add(lo,hi),2);if(eq(mid,lo)||eq(mid,hi))break;if(A.compare(infinitySoftcapGain(A.from(pow10(mid)),amount),actual)<0)lo=mid;else hi=mid;}
-      return A.from(pow10(hi));
+      const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,I=WIS.Meta.Infinity,C=WIS.Core.CertifiedRankMath;
+      actual=A.from(actual);amount=A.from(amount);
+      return C.withWork(()=>{
+        // Results depend on the complete stocks AND the candidate's effects.
+        // Scope identities are private to this arithmetic work, never global.
+        const domain=runtime.getState(),scope=WIS.Core.Effects.continuationMemo?.(domain)||deferredDynamicRateScope;
+        let stateKey;
+        if(scope){
+          const owners=C.memo('quantity-inverse-domains');let roots=owners.get(scope);
+          if(!roots){roots=new Map();owners.set(scope,roots);}
+          if(!roots.has(domain))roots.set(domain,roots.size+1);
+          stateKey=['immutable-scope', [...owners.keys()].indexOf(scope),roots.get(domain)];
+        }else stateKey=WIS.Core.State.toSerializable(domain);
+        const key='quantity-inverse|'+JSON.stringify([A.words(actual),A.words(amount),runtime.getMathPolicy(),stateKey]);
+        return C.task(key,function*(){
+          const upper=yield ()=>rawGainForSoftcappedActualGain(actual,resourceSoftcapExponent(amount));
+          if(!I.softcapWeakening(state,'恒星')&&!I.softcapWeakening(state,'宇宙结构'))return upper;
+          if(yield ()=>A.compare(actual,0)===0)return A.from(0);
+          let lo=yield ()=>F.log10(actual),hi=yield ()=>F.log10(upper);
+          // Keep bounds and the pending midpoint across suspension. The thunk
+          // runs outside the generator, so a suspended child cannot close it.
+          for(let i=0;i<80;i++){
+            const mid=div(add(lo,hi),2);if(eq(mid,lo)||eq(mid,hi))break;
+            const below=yield ()=>A.compare(infinitySoftcapGain(A.from(pow10(mid)),amount),actual)<0;
+            if(below)lo=mid;else hi=mid;
+          }
+          return A.from(pow10(hi));
+        });
+      });
     }
     const I=WIS.Meta.Infinity;
     if(!I.softcapWeakening(state,"恒星")&&!I.softcapWeakening(state,"宇宙结构"))return rawGainForSoftcappedActualGain(actual,resourceSoftcapExponent(amount));
