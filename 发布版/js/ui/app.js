@@ -1102,6 +1102,7 @@
     const transaction = beginImportTransaction?.();
     if (!transaction) return null;
     cancelDeferredRecoveryStart();
+    cancelExplorationPreviewWorks();
     importTransaction = { ...transaction, phase, committed: false };
     traceImportLifecycle("hold-begin", { token: importTransaction.token, phase });
     return importTransaction;
@@ -1964,6 +1965,7 @@
   // Local presentation snapshots only. Never used by explore()/settlement.
   // Only automatic presentation work backs off. First/explicit requests keep
   // their normal paint, retry and continuation contract; no ledger is written.
+  const currentPreviewOwner = () => context.previewOwner?.() ?? runtime.getState();
   function previewBacklogActive() {
     let pending = 0;
     for (const part of runtime.getState().core?.runtime?.timeLedger?.pendingContinuousTime || []) {
@@ -1984,7 +1986,10 @@
     if (previewBacklogSeen && !active) {
       // Retain displayed values, but request one final fresh snapshot as soon
       // as online debt leaves the throttled range (also covers an empty queue).
-      markExplorationPreviewDirty(true,false);
+      // Clearing ordinary debt must not discard an unfinished snapshot.
+      for (const snapshot of explorationPreviews.values()) snapshot.dirty = true;
+      explorationPreviewAttempts.clear();
+      sourcePreviewAttempts = new WeakMap();
       const training = heavyPreviewCache.get(rawById('conversion-preview'));
       if (training) training.at = -Infinity;
       dirtyPages.add(activePage);
@@ -2038,7 +2043,7 @@
     cancelSourcePreviewWorks(resetRetry);
     if(resetRetry)explorationPreviewAttempts.clear();
     explorationPreviewGeneration++;
-    for(const entry of explorationPreviewWorks.values()){entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();}
+    for(const entry of explorationPreviewWorks.values()){entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();entry.manaScope?.cancel();}
     explorationPreviewWorks.clear();
   }
   function publishPreview({urgent = false} = {}) {
@@ -2048,26 +2053,26 @@
   }
   function startExplorationPreviewWork(key,element) {
     const first=!explorationPreviews.has(key),explicit=explicitPreviewRequests.has(key);
-    if(first&&!explicit&&previewBacklogActive())return;
     explicitPreviewRequests.delete(key);
     const last=explorationPreviewAttempts.get(key);
     const urgent=!explorationPreviews.has(key)||!last||last.urgent===true;
     if(WIS.Core.Amount?.enabled())explorationPreviewAttempts.set(key,{at:performance.now(),urgent});
     const original=runtime.getState(),snapshot=WIS.Core.State.cloneForSimulation(original);
-    const entry={original,snapshot,urgent,first,explicit,retry:explorationPreviewAttempts.get(key),generation:explorationPreviewGeneration,scope:WIS.Power.ScaleLogic.createDeferredDynamicRateScope(),startedAt:Date.now()};
+    const entry={original,snapshot,owner:currentPreviewOwner(),urgent,first,explicit,retry:explorationPreviewAttempts.get(key),generation:explorationPreviewGeneration,scope:WIS.Power.ScaleLogic.createDeferredDynamicRateScope(),startedAt:Date.now()};
     explorationPreviewWorks.set(key,entry);
     if(key==='breathing'&&WIS.Core.Amount?.enabled()){entry.detailEffects=WIS.Core.Effects.createFrozenScope(snapshot);entry.detailWork=WIS.Core.CertifiedRankMath.createWork(()=>runtime.withState(snapshot,()=>entry.detailEffects.run(()=>joulesForNextBaseMana())));}
-    const cancel=()=>{entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
-    const current=()=>explorationPreviewWorks.get(key)===entry&&entry.generation===explorationPreviewGeneration&&runtime.getState()===original&&!document.hidden&&previewVisible(element)&&!explorationHoldActive&&!context.isDeferredActionPending?.();
+    const cancel=()=>{entry.scope.cancel();entry.detailWork?.cancel();entry.detailEffects?.cancel();entry.previewWork?.cancel();entry.previewEffects?.cancel();entry.manaScope?.cancel();if(explorationPreviewWorks.get(key)===entry)explorationPreviewWorks.delete(key);};
+    const current=()=>explorationPreviewWorks.get(key)===entry&&entry.generation===explorationPreviewGeneration&&currentPreviewOwner()===entry.owner&&!importTransaction&&!document.hidden&&previewVisible(element)&&!explorationHoldActive&&!context.isDeferredActionPending?.();
     const calculate=()=>{
       const valueQuery=()=>key==='breathing'?{mana:Immortal.breathingManaGainProgressive(),...(entry.detailWork?{nextManaJ:entry.detailWork.result()}: {})}:explorationPreviewValues({includeFinal:key==='action'});
       const C=WIS.Core.CertifiedRankMath,whole=WIS.Core.Amount?.enabled();
-      const value=whole?C.task('action-preview-value',function*(){return yield valueQuery;}):valueQuery();
+      const value=whole?C.task('action-preview-value',function*(){return yield ()=>entry.manaScope?entry.manaScope.run(valueQuery):valueQuery();}):valueQuery();
       const recordsQuery=()=>key==='breathing'?WIS.UI.SourcePreview.query(['breathing'],snapshot,{actionFinals:{breathing:value.mana}}):key==='action'?WIS.UI.SourcePreview.query(['exploration'],snapshot,{actionFinals:{exploration:value.mana}}):null;
       const records=whole?C.task('action-preview-records',function*(){return yield recordsQuery;}):recordsQuery();
       return {value,records,calculatedAt:entry.startedAt,dirty:false};
     };
     if(WIS.Core.Amount?.enabled()){
+      entry.manaScope=Immortal.createManaPreviewScope?.(snapshot);
       entry.previewEffects=WIS.Core.Effects.createFrozenScope(snapshot);
       entry.previewWork=WIS.Core.CertifiedRankMath.createWork(()=>entry.previewEffects.run(()=>runtime.withEvaluationState(snapshot,()=>{
         const attempt=entry.scope.attempt(calculate);if(!attempt.done)throw Error('协作预览缺少已完成的积分子任务');return attempt.value;
@@ -2076,11 +2081,12 @@
     const run=()=>{
       if(!current()){cancel();if(WIS.Core.Amount?.enabled())window.setTimeout(()=>{if(explorationPreviewAttempts.get(key)===entry.retry&&!document.hidden&&previewVisible(element))publishPreview({urgent:entry.urgent});},previewRefreshDelay(entry.urgent));return;}
       // Backlog can start after the first-paint callback was queued.
-      if(entry.first&&!entry.explicit&&previewBacklogActive()){cancel();return;}
       try {
-        if(entry.detailWork){const detail=entry.detailWork.advance({deadline:performance.now()+3,maximumOperations:256});if(!detail.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}}
+        // The 3ms deadline is soft: on slow hosts, admit a bounded minimum
+        // so entering the evaluation scope cannot consume every slice.
+        if(entry.detailWork){const detail=entry.detailWork.advance({deadline:performance.now()+3,maximumOperations:256,minimumOperations:32});if(!detail.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}}
         if(entry.previewWork){
-          const next=entry.previewWork.advance({deadline:performance.now()+3,maximumOperations:256});
+          const next=entry.previewWork.advance({deadline:performance.now()+3,maximumOperations:256,minimumOperations:32});
           if(!next.done){window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}
           const value={...entry.previewWork.result(),sampledAt:entry.startedAt,calculatedAt:Date.now()};explorationPreviews.set(key,value);if(entry.retry)entry.retry.urgent=false;cancel();publishPreview({urgent:entry.urgent});return;
         }
@@ -2096,7 +2102,7 @@
     window.setTimeout(run,0);
   }
   function syncExplorationPreviewStructure() {
-    const current = runtime.getState();
+    const current = runtime.getState(), owner = currentPreviewOwner();
     // Discrete UI event detection also covers automation and load replacement.
     // No resource balances, elapsed time, treasure amounts or Effect revision.
     const key = [current.cultivation.active, current.powerSystem.active,
@@ -2104,11 +2110,11 @@
       ...explorationStructureFields.map(field => current[field]),
       current.unlockedAchievements.seizeFoundation, current.unlockedAchievements.greatLuo,
       ...Object.values(current.challengeCompletions || {})].join("|");
-    if (current !== explorationStructureState || key !== explorationStructureKey) {
+    if (owner !== explorationStructureState || key !== explorationStructureKey) {
       const resetRetry=!WIS.Core.Amount?.enabled()||key!==explorationStructureKey;
-      explorationStructureState = current; explorationStructureKey = key;
-      // Every new root still retires old work. Only explicit/discrete changes
-      // reset the retry interval; ordinary commits must not restart it per frame.
+      explorationStructureState = owner; explorationStructureKey = key;
+      // New sessions/discrete structure retire work. Continuous online commits
+      // keep the immutable sample alive until it publishes.
       markExplorationPreviewDirty(resetRetry,false);
     }
   }
@@ -2121,7 +2127,6 @@
     if(key==="breathing"&&snapshot&&Date.now()-snapshot.calculatedAt>=(snapshot.error?5000:previewRefreshDelay()))snapshot.dirty=true;
     if(explorationPreviewWorks.has(key))return snapshot||null;
     if (explorationPreviewRefreshPending) return snapshot || null;
-    if(!snapshot&&!explicitPreviewRequests.has(key)&&previewBacklogActive())return null;
     if (!snapshot && firstExplorationPreviewReady !== key) {
       requestFirstExplorationPreview(key, element);
       return null;
@@ -2183,11 +2188,11 @@
   }
   function heavyPreviewDue(element) {
     const previous = heavyPreviewCache.get(element), current = runtime.getState();
-    return renderingStructure || !previous || previous.state !== current ||
+    return renderingStructure || !previous || previous.owner !== currentPreviewOwner() ||
       previous.revision !== structureRevision || Date.now() - previous.at >= HEAVY_PREVIEW_REFRESH_MS;
   }
   function rememberPreview(element, records) {
-    heavyPreviewCache.set(element, { state:runtime.getState(), revision:structureRevision, at:Date.now(), records });
+    heavyPreviewCache.set(element, { state:runtime.getState(), owner:currentPreviewOwner(), revision:structureRevision, at:Date.now(), records });
   }
   function setPreviewText(element, compute) {
     if (!previewVisible(element) || !heavyPreviewDue(element)) return;
@@ -2233,16 +2238,15 @@
     const first = !heavyPreviewCache.has(element), explicit = request.ids.some(id => explicitPreviewRequests.has(id));
     if (first) setTextIfChanged(element, '正在计算收益…');
     if (document.hidden || importTransaction || !previewVisible(element) || explorationHoldActive || context.isDeferredActionPending?.()) return;
-    if (first && !explicit && previewBacklogActive()) return;
     const last = sourcePreviewAttempts.get(element), elapsed = performance.now() - last?.at;
     if (last !== undefined && sameSourcePreviewRequest(last.request, request) && elapsed >= 0 && elapsed < previewRefreshDelay(last.urgent)) return;
     const urgent = first || !last || last.urgent === true;
     for (const id of request.ids) explicitPreviewRequests.delete(id);
     const retry = { at: performance.now(), urgent, request }; sourcePreviewAttempts.set(element, retry);
     const original = runtime.getState(), revision = structureRevision, generation = explorationPreviewGeneration;
-    const entry = { original, revision, urgent, first, explicit, request, work: null, effects: null };
+    const entry = { original, owner:currentPreviewOwner(), revision, urgent, first, explicit, request, work: null, effects: null };
     sourcePreviewWorks.set(element, entry);
-    const current = () => sourcePreviewWorks.get(element) === entry && runtime.getState() === original &&
+    const current = () => sourcePreviewWorks.get(element) === entry && currentPreviewOwner() === entry.owner &&
       structureRevision === revision && !document.hidden && !importTransaction && previewVisible(element) &&
       !explorationHoldActive && !context.isDeferredActionPending?.();
     const cancel = () => { entry.work?.cancel(); entry.effects?.cancel(); if (sourcePreviewWorks.get(element) === entry) sourcePreviewWorks.delete(element); };
@@ -2255,7 +2259,6 @@
         }, previewRefreshDelay(entry.urgent));
         return;
       }
-      if (entry.first && !entry.explicit && previewBacklogActive()) { cancel(); return; }
       try {
         if (!entry.work) {
           const snapshot = WIS.Core.State.cloneForSimulation(original);
@@ -2268,7 +2271,7 @@
             return { records, nextPowerJ };
           })), { isCurrent: current });
         }
-        const next = entry.work.advance({ deadline: performance.now() + 3, maximumOperations: 256 });
+        const next = entry.work.advance({ deadline: performance.now() + 3, maximumOperations: 256, minimumOperations: 32 });
         if (!next.done) { window.setTimeout(run, previewContinuationDelay(entry.urgent)); return; }
         const { records, nextPowerJ } = entry.work.result();
         if (!current()) { cancel(); return; }

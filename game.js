@@ -61,6 +61,8 @@
   await paintOpportunity();
   assertBootHealthy();
   let state = WIS.Core.State.cloneForSimulation(loadedState);
+  const previewOwners = new WeakMap();
+  function previewOwner(value = state) { if (!previewOwners.has(value)) previewOwners.set(value, {}); return previewOwners.get(value); }
   let initialLoadComplete = false;
   const canPerformSavedAction = () => initialLoadComplete;
   const canPersistConfirmedState = () => initialLoadComplete && WIS.Core.Save.sessionPolicy().persistenceAllowed;
@@ -136,7 +138,8 @@
     }
   }
 
-  function setStateDirect(nextState) {
+  function setStateDirect(nextState, { presentationContinuation = false } = {}) {
+    if (presentationContinuation) previewOwners.set(nextState, previewOwner());
     state = nextState;
     WIS.Core.Effects.invalidate();
   }
@@ -272,6 +275,7 @@
   }
 
   function completePlayerAction() {
+    previewOwners.set(state, {});
     recordCurrentAchievements();
     updateLifetimeStatistics();
     WIS.Meta.BigNumbers.syncUnlock(state);
@@ -415,6 +419,7 @@
     planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages,
     achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
     challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt,
+    previewOwner,
     onNativeAppState: active => simulationLoop?.setNativeAppActive(active),
     captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0,
     requestDeferredAction:job=>simulationLoop?.requestDeferredAction(job),
@@ -525,7 +530,7 @@
       const candidate=WIS.Core.State.cloneForSimulation(state);
       const result=WIS.Simulation.DiscardEffects.apply(candidate,parts,reason);
       candidate.core.runtime.timeLedger.pendingDiscard=null;
-      setStateDirect(candidate);
+      setStateDirect(candidate, { presentationContinuation: result.events.length === 0 });
       if(result.events.length)try{showNotice('挑战期限已到，本次挑战结束。');}catch(_){}
       return true;
     },

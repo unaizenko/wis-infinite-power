@@ -335,8 +335,8 @@
   function normalResourceSoftcapExponent(amount,spaceQuake,kind="normal",realm=true,omit=null) {
     return originalNormalResourceSoftcapExponent(amount,spaceQuake,kind,realm,omit);
   }
-  function infinitySoftcapGain(gain,amount,kind="normal",special=false) {
-    if(isQuantity(gain))return quantityInfinitySoftcapGain(gain,amount,kind,special);
+  function infinitySoftcapGain(gain,amount,kind="normal",special=false,prepared=null) {
+    if(isQuantity(gain))return quantityInfinitySoftcapGain(gain,amount,kind,special,prepared);
     return originalInfinitySoftcapGain(gain,amount,kind,special);
   }
   function infinitySoftcapInverse(actual, amount) {
@@ -356,15 +356,19 @@
         }else stateKey=WIS.Core.State.toSerializable(domain);
         const key='quantity-inverse|'+JSON.stringify([A.words(actual),A.words(amount),runtime.getMathPolicy(),stateKey]);
         return C.task(key,function*(){
-          const upper=yield ()=>rawGainForSoftcappedActualGain(actual,resourceSoftcapExponent(amount));
+          const exponent=yield ()=>resourceSoftcapExponent(amount);
+          const upper=yield ()=>rawGainForSoftcappedActualGain(actual,exponent);
           if(!I.softcapWeakening(state,'恒星')&&!I.softcapWeakening(state,'宇宙结构'))return upper;
           if(yield ()=>A.compare(actual,0)===0)return A.from(0);
+          // One inverse owns a fixed stock and immutable effect context.
+          const prepared=new Map();
+          const compare=yield ()=>createQuantityInverseComparator(amount,prepared);
           let lo=yield ()=>F.log10(actual),hi=yield ()=>F.log10(upper);
           // Keep bounds and the pending midpoint across suspension. The thunk
           // runs outside the generator, so a suspended child cannot close it.
           for(let i=0;i<80;i++){
             const mid=div(add(lo,hi),2);if(eq(mid,lo)||eq(mid,hi))break;
-            const below=yield ()=>A.compare(infinitySoftcapGain(A.from(pow10(mid)),amount),actual)<0;
+            const below=yield ()=>{const gain=A.from(pow10(mid));const quick=compare(gain,actual);return quick===null?A.compare(infinitySoftcapGain(gain,amount,'normal',false,prepared),actual)<0:quick;};
             if(below)lo=mid;else hi=mid;
           }
           return A.from(pow10(hi));
@@ -1429,6 +1433,10 @@
   function quantitySoftcapExponent(value,exponent){
     const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,gain=A.from(value),e=minBN(ONE,maxBN(ZERO,exponent));
     if(A.compare(gain,0)===0||!gt(e,0))return A.from(0);if(gte(e,1))return gain;
+    // gain >= 1 implies log10(1+gain) >= log10(2) > 0.3. With
+    // e >= 1e-7 the existing tiny-log branch (<1e-8) cannot apply.
+    // Use the SAME certified regular formula without proving that branch twice.
+    if(gte(e,'1e-7')&&A.compare(gain,1)>=0)return A.from(F.powerOnePlusMinusOne(gain,e));
     const log=mul(F.logOnePlusRatio(gain,1),e);
     if(!gt(log,0))throw Object.assign(Error('Positive quantity softcap has no certified positive rate'),{code:'amount-formula-unresolved'});
     // Preserve the existing tiny-log linear branch; the regular branch uses
@@ -1436,13 +1444,36 @@
     return A.from(lt(log,'1e-8')?mul(log,Math.LN10):F.powerOnePlusMinusOne(gain,e));
   }
   function quantityInterpolate(softened,raw,w){const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas;if(w<=0)return A.from(softened);if(w>=1)return A.from(raw);if(A.compare(raw,0)<=0||A.compare(softened,0)<=0)return A.from(0);return A.from(pow10(add(mul(F.log10(softened),1-w),mul(F.log10(raw),w))));}
-  function quantityInfinitySoftcapGain(gain,amount,kind='normal',special=false){
+  function quantityInfinitySoftcapGain(gain,amount,kind='normal',special=false,prepared=null){
+    const once=(key,compute)=>{if(!prepared)return compute();if(!prepared.has(key))prepared.set(key,compute());return prepared.get(key);};
     const A=WIS.Core.Amount,I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig,early=I.softcapWeakening(state,C.earlyLastStage),late=I.softcapWeakening(state,'宇宙结构');
-    const base=quantitySoftcapExponent(gain,originalNormalResourceSoftcapExponent(amount,true,kind,!special));
+    const base=quantitySoftcapExponent(gain,once('baseExponent',()=>originalNormalResourceSoftcapExponent(amount,true,kind,!special)));
     if((!early&&!late)||A.compare(gain,0)<=0)return base;
     const cutoff=CONFIG.scales.findIndex(x=>x.name===C.earlyLastStage),isEarly=name=>CONFIG.scales.findIndex(x=>x.name===name)<=cutoff;
-    const shared=Math.min(early,late),strongest=Math.max(early,late),scoped=strongest>shared?quantitySoftcapExponent(gain,originalNormalResourceSoftcapExponent(amount,true,kind,!special,name=>isEarly(name)?early>late:late>early)):base;
+    const shared=Math.min(early,late),strongest=Math.max(early,late),scoped=strongest>shared?quantitySoftcapExponent(gain,once('scopedExponent',()=>originalNormalResourceSoftcapExponent(amount,true,kind,!special,name=>isEarly(name)?early>late:late>early))):base;
     const partial=quantityInterpolate(base,scoped,shared<1?(strongest-shared)/(1-shared):0);return quantityInterpolate(partial,gain,shared);
+  }
+  function createQuantityInverseComparator(amount,prepared){
+    const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig;
+    const early=I.softcapWeakening(state,C.earlyLastStage),late=I.softcapWeakening(state,'宇宙结构'),shared=Math.min(early,late),strongest=Math.max(early,late);
+    const once=(key,compute)=>{if(!prepared.has(key))prepared.set(key,compute());return prepared.get(key);};
+    const candidates=exponent=>F.createPowerOnePlusMinusOneCandidates(minBN(ONE,maxBN(ZERO,exponent)));
+    const base=candidates(once('baseExponent',()=>originalNormalResourceSoftcapExponent(amount,true,'normal',true)));
+    const cutoff=CONFIG.scales.findIndex(x=>x.name===C.earlyLastStage),isEarly=name=>CONFIG.scales.findIndex(x=>x.name===name)<=cutoff;
+    const scoped=strongest>shared?candidates(once('scopedExponent',()=>originalNormalResourceSoftcapExponent(amount,true,'normal',true,name=>isEarly(name)?early>late:late>early))):null;
+    return (gain,target)=>{
+      const bases=base(gain);if(!bases)return null;
+      const others=scoped?scoped(gain):null;if(scoped&&!others)return null;
+      let direction=null;
+      // Enumerate rounded inputs through the ORIGINAL interpolation. Do not
+      // assume host Math.log10/pow are monotone or replace intermediate rounding.
+      for(const b of bases)for(const s of others||[b]){
+        const partial=quantityInterpolate(A.from(b),A.from(s),shared<1?(strongest-shared)/(1-shared):0);
+        const result=quantityInterpolate(partial,gain,shared),below=A.compare(result,target)<0;
+        if(direction!==null&&direction!==below)return null;direction=below;
+      }
+      return direction;
+    };
   }
   function quantitySoftcapComponents(normal,mana,amount){const A=WIS.Core.Amount;normal=A.from(normal);mana=A.from(mana);const split=WIS.Cultivation.ImmortalLogic.qiRefiningChallengeActive?.()===true;
     const settled=split?A.add(quantityInfinitySoftcapGain(normal,amount),quantityInfinitySoftcapGain(mana,amount,'mana')):quantityInfinitySoftcapGain(A.add(normal,mana),amount);
@@ -1771,7 +1802,8 @@
     );
   }
 
-  function trainingPowerSource() {
+  function trainingPowerSource() { return snapshotMemo("trainingPowerSource", trainingPowerSourceUncached); }
+  function trainingPowerSourceUncached() {
     const baseGain = baseConversionGain();
     if (lt(baseGain, ONE)) return ZERO;
     return calculateSourceGain({
@@ -1792,7 +1824,13 @@
     return snapshotMemo("conversionGain", conversionGainUncached);
   }
 
-  function conversionGainQuantity(){return snapshotMemo('conversionGainQuantity',()=>martialFinalRate(applyResourceSoftcapProgressive(quantityPreSoftcap([quantityPowerSource(trainingPowerSource(),'training')],'power'),WIS.Core.Resources.readExact('core.power',state),{googolResource:'power'})));}
+  function conversionGainQuantity(){return snapshotMemo('conversionGainQuantity',()=>WIS.Core.Effects.runFrozenSteps(state,'training-conversion',function*(){
+    const source=yield ()=>quantityPowerSource(trainingPowerSource(),'training');
+    const raw=yield ()=>quantityPreSoftcap([source],'power');
+    const stock=yield ()=>WIS.Core.Resources.readExact('core.power',state);
+    const gain=yield ()=>applyResourceSoftcapProgressive(raw,stock,{googolResource:'power'});
+    return yield ()=>martialFinalRate(gain);
+  }));}
   function conversionGainUncached() {
     if(WIS.Core.Amount?.enabled())return WIS.Core.Amount.project(conversionGainQuantity());
     return martialFinalRate(applyResourceSoftcapProgressive(

@@ -267,5 +267,44 @@
   while(compare(n+1n)>=0){if(++steps>4)fail('integer estimate outside proof neighborhood');n++;}
   return B.BN(String(n));
  });}
- W.Core.AmountFormulas=Object.freeze({capacityDiagnostics:()=>({calls:capacityCounts.calls,operations:{...capacityCounts.operations}}),powerOnePlusRatio:(v,d,e)=>evaluate(capture('powerOnePlusRatio',[v,e,d])),productPower:(factors,e)=>evaluate(capture('productPower',[factors,e])),logarithmBucket,powerWithExponent:(v,e)=>evaluate(capture('powerWithExponent',[v,e])),powerIncrement:(s,d,p)=>evaluate(capture('powerIncrement',[s,d,p])),floorPowerRatio,logRatio:(v,d=1)=>evaluate(capture("logRatio",[v,d])),powerOnePlusMinusOne:(v,e)=>evaluate(capture("powerOnePlusMinusOne",[v,e])),logOnePlusRatio:(v,d=1)=>evaluate(capture("logOnePlusRatio",[v,d])),powerRatio:(v,d,e)=>evaluate(capture('powerRatio',[v,e,d])),power:(v,e)=>evaluate(capture('power',[v,e])),log10:v=>evaluate(capture('log10',[v])),productQuotient:(n,d=[])=>evaluate(capture('productQuotient',[n,d])),prepareWork:(operation,args,options)=>{const input=capture(operation,args);return C.createWork(()=>evaluate(input),options);}});
+ // Private, bounded support for repeated comparison probes with one exponent.
+ // The returned list contains EVERY possible scalar rounded by fromInterval.
+ // No native transcendental estimate, projection of tails, or epsilon is used.
+ function createPowerOnePlusMinusOneCandidates(exponent){
+  const captured=capturedExponent(exponent),q=typeof captured==='number'?C.binaryFraction(captured):rational(String(captured)),c=C.context(32),one=c.fraction(1n),p=c.fraction(q.n,q.d);
+  const view=new DataView(new ArrayBuffer(8));let anchor=null;
+  function candidates(interval){
+   // Stay strictly inside fromInterval's scalar representation branch.
+   if(interval.lo*10000000n<c.scale||interval.hi>=100000000000000n*c.scale)return null;
+   const lo=C.roundFraction(interval.lo,c.scale),hi=C.roundFraction(interval.hi,c.scale),values=[];
+   for(let v=lo;v<=hi&&values.length<4;){values.push(B.BN(v));if(v===hi)return values;view.setFloat64(0,v,false);view.setBigUint64(0,view.getBigUint64(0,false)+1n,false);v=view.getFloat64(0,false);}
+   return null;
+  }
+  return value=>{
+   if(q.n<=0n||q.n>q.d||q.n*10000000n<q.d)return null;
+   value=A.from(value);if(hasTail(value))return null;
+   const words=A.wordView(value);if(words.length!==1||!decimal(words[0]))return null;
+   const x=rational(words[0]);if(x.n<x.d||x.n>100000000000000n*x.d)return null;
+   if(q.n===q.d)return [A.project(value)];
+   const sum=c.fraction(x.n+x.d,x.d);
+   if(anchor){
+    const r=c.div(c.sub(sum,anchor.sum),anchor.sum),radius=abs(r.lo)>abs(r.hi)?abs(r.lo):abs(r.hi);
+    if(radius*8n<=c.scale){
+     let term=c.mul(p,r),series=one;
+     for(let k=1;k<=12;k++){
+      series=c.add(series,term);
+      const next=c.mul(c.times(c.mul(term,c.sub(p,c.fraction(BigInt(k)))),1n,BigInt(k+1)),r);
+      // For 0<e<1 and k>=1, |t[k+2]/t[k+1]| <= |r|.
+      // Enclose the entire remainder by its first term / (1-|r|).
+      const size=abs(next.lo)>abs(next.hi)?abs(next.lo):abs(next.hi),tail=c.div({lo:0n,hi:size},{lo:c.scale-radius,hi:c.scale-radius}).hi;
+      const bound=c.sub(c.mul(anchor.power,{lo:series.lo-tail,hi:series.hi+tail}),one),result=candidates(bound);
+      if(result&&(result.length===1||k===12))return result;term=next;
+     }
+    }
+   }
+   // A suspended/failed preparation cannot publish an incomplete anchor.
+   const power=c.power(sum,q.n,q.d);anchor={sum,power};return candidates(c.sub(power,one));
+  };
+ }
+ W.Core.AmountFormulas=Object.freeze({createPowerOnePlusMinusOneCandidates,capacityDiagnostics:()=>({calls:capacityCounts.calls,operations:{...capacityCounts.operations}}),powerOnePlusRatio:(v,d,e)=>evaluate(capture('powerOnePlusRatio',[v,e,d])),productPower:(factors,e)=>evaluate(capture('productPower',[factors,e])),logarithmBucket,powerWithExponent:(v,e)=>evaluate(capture('powerWithExponent',[v,e])),powerIncrement:(s,d,p)=>evaluate(capture('powerIncrement',[s,d,p])),floorPowerRatio,logRatio:(v,d=1)=>evaluate(capture("logRatio",[v,d])),powerOnePlusMinusOne:(v,e)=>evaluate(capture("powerOnePlusMinusOne",[v,e])),logOnePlusRatio:(v,d=1)=>evaluate(capture("logOnePlusRatio",[v,d])),powerRatio:(v,d,e)=>evaluate(capture('powerRatio',[v,e,d])),power:(v,e)=>evaluate(capture('power',[v,e])),log10:v=>evaluate(capture('log10',[v])),productQuotient:(n,d=[])=>evaluate(capture('productQuotient',[n,d])),prepareWork:(operation,args,options)=>{const input=capture(operation,args);return C.createWork(()=>evaluate(input),options);}});
 }(window.WIS));

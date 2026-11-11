@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.1.3",
-  "versionCode": 20103,
+  "version": "0.2.1.4",
+  "versionCode": 20104,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.3/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.1.4/wis.apk",
     "mirror": null,
-    "sha256": "a255f05b287a457f0b3b3b8973481be45f2f903c48b5cf73ffe2bbc8c9c1d5db",
-    "sizeBytes": 6457193
+    "sha256": "79b3d046c130225fa1490800a62bdddd20640f5386036217432d1f104863903b",
+    "sizeBytes": 6461289
   },
-  "notes": "修复无限软上限反算分片重复计算，改善圆环之理存档锻炼长时间无结果；保持收益精度和存档兼容。",
-  "publishedAt": "2026-11-11T01:12:00Z"
+  "notes": "修复正常在线锻炼、吐纳预览反复计算；保留分段进度并优化锻炼反算，保持收益精度与存档兼容。",
+  "publishedAt": "2026-11-11T03:03:45Z"
 }

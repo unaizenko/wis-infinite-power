@@ -1641,6 +1641,18 @@
   // Model75 retains the existing low-realm averaging/segment law. Only its
   // balances, linear fractions and unspent action quota change representation.
   let manualQuantityPreparation=null,manualQuantitySequence=0n;
+  // One readonly sampled action retains the same segment checkpoints as its
+  // formal counterpart. The owner never escapes an evaluation callback.
+  function createManaPreviewScope(snapshot) {
+    const preparation={id:String(++manualQuantitySequence),checkpoint:null,dirty:false,effects:null};
+    let closed=false;
+    return Object.freeze({run(callback){
+      if(closed)throw Error('Mana preview scope cancelled');
+      if(runtime.getState()!==snapshot||!runtime.isEvaluating())throw Error('Mana preview requires its readonly snapshot');
+      const previous=manualQuantityPreparation;manualQuantityPreparation=preparation;
+      try{return callback();}finally{manualQuantityPreparation=previous;}
+    },cancel(){closed=true;preparation.checkpoint=null;preparation.effects?.cancel();preparation.effects=null;}});
+  }
   function manualPreparationTask(key,factory){
     if(manualQuantityPreparation){const owner=manualQuantityPreparation;return WIS.Core.CertifiedRankMath.task(owner.id+'|'+key,function*(){
       const iterator=factory();let next=iterator.next();while(!next.done){const callback=next.value;const value=yield ()=>{owner.effects??=WIS.Core.Effects.createFrozenScope(runtime.getState());return owner.effects.run(callback);};next=iterator.next(value);}return next.value;
@@ -4211,7 +4223,7 @@
     reconcileMahayanaReincarnationEffects,
     explorationManaSources, explorationManaGainFromSources, prepareExplorationManaRate,
     nextManaProgressBoundary, applyManaGainProgressive, previewManaGainProgressive,
-    breathingManaGainProgressive, explorationManaGainProgressive,
+    breathingManaGainProgressive, explorationManaGainProgressive, createManaPreviewScope,
     automaticManaComponents, planAutomaticManaGain, commitAutomaticManaGain, commitAutomaticManaGainParts, automaticManaGainProgressive,
     automaticBaseManaBeforeSuppressionPerSecond, automaticExplorationManaBeforeSuppressionPerSecond,
     automaticManaBeforeSuppressionPerSecond, automaticManaBeforeGoogolPenaltyPerSecond,
