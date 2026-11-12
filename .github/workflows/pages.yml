@@ -5,6 +5,7 @@ on:
     paths:
       - '发布版/**'
       - '.github/workflows/pages.yml'
+      - 'docs/pages-legacy-redirect.html'
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,11 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Verify release-only payload
+      - name: Prepare release-only payload with legacy link compatibility
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import json
+          import json, os, shutil
           root = Path('发布版')
           build = (root / 'js/core/build-config.js').read_text(encoding='utf-8')
           assert 'mode: "release"' in build
@@ -38,11 +39,16 @@ jobs:
           latest = json.loads((root / 'latest.json').read_text(encoding='utf-8'))
           assert '>v' + latest['version'] + '</small>' in (root / 'index.html').read_text(encoding='utf-8')
           assert not (root / 'tests').exists()
+          output = Path(os.environ['RUNNER_TEMP']) / 'wis-pages'
+          shutil.copytree(root, output)
+          legacy = output / '发布版'
+          legacy.mkdir()
+          shutil.copyfile('docs/pages-legacy-redirect.html', legacy / 'index.html')
           PY
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: '发布版'
+          path: ${{ runner.temp }}/wis-pages
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

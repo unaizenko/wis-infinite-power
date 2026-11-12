@@ -1,3 +1,7 @@
+## 2026-11-12 GitHub Pages旧发布路径兼容
+
+0.2.2.0将Pages改为只部署发布版内容至站点根路径，遗漏原 `/发布版/` 目录，导致旧书签404。部署产物现附加该目录的跳转页面，保留query/hash，使用同origin、同存档key，不写localStorage。覆盖目录、index.html、无末尾斜杠与禁用JS的手动入口。新增 `tests/pages-legacy-path.test.cjs` 进入browserNode；旧工作流确实失败，修复后1/1通过。仅部署修正，版本仍0.2.2.1，未改游戏运行代码或APK。证据 `../WIS-项目资源/pages-compat-20261112/REPORT.md`。
+
 ## 2026-11-12 0.2.2.1 发布
 
 开发 `dev-0.2.2.1-20261112-release-r1`；网页 `release-0.2.2.1-20261112`；APK `release-0.2.2.1-apk-20261112`，versionCode20201。纳入手机成就/统计入口可见性修复：紧凑换行，已解锁入口无需横滑即可看到。成就条件、奖励、存档schema76/model2/rule4/tailPolicy2与APK签名保持。正式网页/APK关闭调试功能。最终验收与发布记录见 `../WIS-项目资源/release-0221-20261112/REPORT.md`；以下未发布说明为历史记录。

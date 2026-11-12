@@ -91,6 +91,7 @@
     "tests/math-worker-browser.test.cjs",
     "tests/main-thread-publication-browser.test.cjs",
     "tests/mobile-layout-browser.test.cjs",
-    "tests/upgrade-layout-browser.test.cjs"
+    "tests/upgrade-layout-browser.test.cjs",
+    "tests/pages-legacy-path.test.cjs"
   ]
 }
