@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.2.0",
-  "versionCode": 20200,
+  "version": "0.2.2.1",
+  "versionCode": 20201,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.2.0/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.2.1/wis.apk",
     "mirror": null,
-    "sha256": "4ef6b84977223b0a49db34b19bb928f31abf1491f3fd93a69aa729d9af92be9e",
+    "sha256": "0b318b2cf7b90464c16dbd2562c3dbf760c5f3aa6742109d2bfba37b1ff930c6",
     "sizeBytes": 6490409
   },
-  "notes": "优化重型计算与顶部收益显示，修复恢复和存档保护，改善手机布局与无限强化详情；特定数值边界仍可能失败。",
-  "publishedAt": "2026-11-11T17:49:43Z"
+  "notes": "修复手机导航中成就、统计入口不可见：已解锁入口紧凑换行展示，保持原存档和奖励规则。",
+  "publishedAt": "2026-11-12T00:44:54Z"
 }

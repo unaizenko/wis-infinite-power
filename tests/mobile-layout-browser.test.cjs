@@ -17,12 +17,13 @@ for(const native of [false,true])test(`mobile layout and touch targets (${native
      const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};
      const panel=document.querySelector('.resource-panel'),nav=document.querySelector('.navigation'),settings=document.getElementById('open-settings'),scale=document.querySelector('.scale-progress');
      const buttons=[...nav.querySelectorAll('button')].filter(e=>!e.hidden);
-     return {bodyWidth:document.documentElement.scrollWidth,resources:rect(panel),position:getComputedStyle(panel).position,navRows:new Set(buttons.map(e=>Math.round(e.getBoundingClientRect().y))).size,settings:rect(settings),scale:rect(scale),mainY:document.querySelector('.main-panel').getBoundingClientRect().y};
+     return {bodyWidth:document.documentElement.scrollWidth,resources:rect(panel),position:getComputedStyle(panel).position,navRows:new Set(buttons.map(e=>Math.round(e.getBoundingClientRect().y))).size,clipped:buttons.filter(e=>{const b=e.getBoundingClientRect(),n=nav.getBoundingClientRect();return b.left<n.left-1||b.right>n.right+1;}).map(e=>e.dataset.page),settings:rect(settings),scale:rect(scale),mainY:document.querySelector('.main-panel').getBoundingClientRect().y};
     },theme);rows.push({native,width,height,theme,...result});
     const tag=`${width}x${height}/${theme}`;
     if(result.bodyWidth>width+1)failures.push(tag+' page overflow');
     if(width<=900){
-     if(result.navRows!==1)failures.push(tag+' navigation wraps');
+     if(result.navRows>2)failures.push(tag+' navigation too tall');
+     if(result.clipped.length)failures.push(tag+' hidden navigation entries: '+result.clipped.join(','));
      if(result.settings.height<44||result.settings.width<44)failures.push(tag+' settings touch area');
      if(result.settings.y>result.scale.bottom||result.settings.bottom<result.scale.y)failures.push(tag+' settings displaced by compensation');
      if(height<=500&&result.position==='sticky')failures.push(tag+' short viewport blocked by sticky resources');
@@ -36,13 +37,9 @@ for(const native of [false,true])test(`mobile layout and touch targets (${native
   }
   await h.page.setViewportSize({width:320,height:568});
   await h.page.evaluate(()=>{window.scrollTo(0,0);document.querySelector('.navigation').scrollLeft=0;});
-  const cdp=await h.page.context().newCDPSession(h.page),nav=await h.page.locator('.navigation').boundingBox();
-  const x=nav.x+nav.width-10,y=nav.y+nav.height/2;
-  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
-  for(let i=1;i<=8;i++){await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x-180*i/8,y}]});await h.page.waitForTimeout(16);}
-  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-  await h.page.waitForFunction(()=>document.querySelector('.navigation').scrollLeft>0);
+  assert.deepEqual(failures,[],'all unlocked navigation must be visible without horizontal swiping');
   const before=await h.page.evaluate(()=>JSON.stringify(WIS.Core.State.toSerializable(WIS.Game.getState())));
+  await h.page.locator('[data-page="achievements"]').tap();assert(await h.page.locator('#achievements-page').isVisible());assert(Number(await h.page.locator('#achievement-total-count').textContent())>0);
   await h.page.locator('[data-page="statistics"]').click();assert(await h.page.locator('#statistics-page').isVisible());await h.page.locator('[data-page="actions"]').click();
   await h.page.locator('#toggle-resource-panel').click();assert.equal(await h.page.locator('#toggle-resource-panel').getAttribute('aria-expanded'),'false');assert(await h.page.locator('#primary-resources').isHidden());await h.page.locator('#toggle-resource-panel').click();
   const stress=await h.page.evaluate(()=>{
