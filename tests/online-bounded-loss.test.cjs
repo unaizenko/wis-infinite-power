@@ -26,3 +26,27 @@ test('completed zero-time result stops repeated no-progress work',()=>{const x=s
 test('native file picker foreground transition cannot retry unchanged failing input',()=>{const x=setup({duration:0,fail:true});x.tick();x.tick();assert.equal(x.jobs.length,1);x.loop.setNativeAppActive(false);x.loop.setNativeAppActive(true);x.tick();assert.equal(x.jobs.length,1);});
 
 test('healthy certified progress outlives wall timeout and commits once',()=>{const x=setup({duration:3500,progress:true});for(let i=0;i<45;i++)x.tick();assert(x.counts().committed>0,'healthy candidate was timed out');assert(!x.loop.settlementStatus().stopped);});
+
+
+test('rejected input cannot flush discarded time while a manual candidate owns state',async()=>{
+ const x=setup();let done=false,commits=0;
+ const pending=x.loop.requestDeferredAction({waiting:()=>!done,advance:()=>({done}),commit:()=>++commits});
+ try{
+  x.tick(500);assert(x.state.core.runtime.timeLedger.pendingDiscard);
+  const owned=JSON.stringify(x.state),counts=x.counts();
+  assert.equal(x.loop.beforePlayerAction(),false,'pending action must reject before applying time effects');
+  assert.equal(JSON.stringify(x.state),owned);assert.deepEqual(x.counts(),counts);
+  done=true;x.tick();assert.equal(await pending,1);assert.equal(commits,1);
+  x.loop.beforePlayerAction();assert(x.counts().discarded>0,'time effects must remain payable after the action');
+ }finally{x.loop.cancelDeferredAction('test-end');}
+});
+
+test('discard flush waits for the manual owner even with no queued online interval',async()=>{
+ const x=setup();let done=false;
+ const pending=x.loop.requestDeferredAction({waiting:()=>!done,advance:()=>({done}),commit:()=>true});
+ x.state.core.runtime.timeLedger.pendingDiscard={clock:.2,game:.2,reason:'online-overload'};
+ assert.equal(x.loop.flushDiscardEffects(),true);
+ assert.equal(x.counts().discarded,0,'discard commit cannot replace the action input');
+ assert.equal(x.state.core.runtime.timeLedger.pendingDiscard.clock,.2);
+ done=true;x.tick();await pending;x.loop.beforePlayerAction();assert(x.counts().discarded>=.2);
+});

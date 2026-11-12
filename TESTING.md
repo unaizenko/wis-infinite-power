@@ -1,3 +1,13 @@
+## 2026-11-12 0.2.2.2 发布构建
+
+开发 `dev-0.2.2.2-20261112-release-r1`；网页 `release-0.2.2.2-20261112`；APK `release-0.2.2.2-apk-20261112`，versionCode20202。包含手机吐纳重复点击导致候选被在线舍弃记录取消的修复及计算中反馈；收益公式、旧存档schema76/model2/rule4/tailPolicy2保持。正式构建去除调速/公式调试/UI测试入口，Android与WebView调试关闭。验收及发布结果见 `../WIS-项目资源/release-0222-20261112/REPORT.md`。以下仅开发/未发布说明为历史记录。
+
+## 2026-11-12 手机吐纳重复触摸取消修复（仅开发版）
+
+build `dev-0.2.2.1-20261112-breathing-owner-r1`，版本0.2.2.1及存档合同保持。真实原档1794400666597（原J=0，测试副本补J）CPU8连点复现：捕获拦截先调用beforePlayerAction，提交在线pendingDiscard替换当前状态，使已在计算的吐纳被stale-action取消。现在先拒绝已有deferred owner期间的新游戏操作，并阻止flushDiscardEffects越过该owner；待处理时间保留，完成后照常处理。吐纳增加计算中/aria-busy反馈。共享动作路径锻炼/探寻同时受保护，收益公式未改。
+
+旧代码2个归属单测与真实手机连点测试确实失败；修复后核心495/495、冻结离线/宝物、浏览器18/18组通过。四个J输入完整正式结果和存档往返一致；额外20项手动计算及唯一owner/长按通过（旧长按夹具补齐缺少的beforePlayerAction回调）。CPU8三次独立约10.1/2.9/3.3秒，回归重跑12.2/3.8/6.7秒，等待仍长；没有真机验证/全量性能复测，不宣称性能根治。原档哈希纳入current-fixtures，新增结果及浏览器测试纳入固定清单。未修改发布版/APK，未commit/push。报告 `../WIS-项目资源/breathing-owner-20261112/REPORT.md`。
+
 ## 2026-11-12 GitHub Pages旧发布路径兼容
 
 0.2.2.0将Pages改为只部署发布版内容至站点根路径，遗漏原 `/发布版/` 目录，导致旧书签404。部署产物现附加该目录的跳转页面，保留query/hash，使用同origin、同存档key，不写localStorage。覆盖目录、index.html、无末尾斜杠与禁用JS的手动入口。新增 `tests/pages-legacy-path.test.cjs` 进入browserNode；旧工作流确实失败，修复后1/1通过。仅部署修正，版本仍0.2.2.1，未改游戏运行代码或APK。证据 `../WIS-项目资源/pages-compat-20261112/REPORT.md`。

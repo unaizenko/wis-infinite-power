@@ -54,7 +54,8 @@
     "tests/math-worker-exact.test.cjs",
     "tests/main-thread-publication.test.cjs",
     "tests/save-encoding-work.test.cjs",
-    "tests/release-output.test.cjs"
+    "tests/release-output.test.cjs",
+    "tests/breathing-mobile-result.test.cjs"
   ],
   "scripts": [
     "tests/frozen-offline-contract.test.cjs",
@@ -92,6 +93,7 @@
     "tests/main-thread-publication-browser.test.cjs",
     "tests/mobile-layout-browser.test.cjs",
     "tests/upgrade-layout-browser.test.cjs",
-    "tests/pages-legacy-path.test.cjs"
+    "tests/pages-legacy-path.test.cjs",
+    "tests/breathing-mobile-owner-browser.test.cjs"
   ]
 }

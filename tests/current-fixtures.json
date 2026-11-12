@@ -64,6 +64,15 @@
       "sha256": "39880c373c771c2bccd6507616f7d6840d954a5d4304879d811e85574748d41b",
       "bytes": 57789,
       "notes": "Byte-identical reported formula coordinate capacity save."
+    },
+    {
+      "id": "breathing-mobile",
+      "path": "tests/fixtures/player-reports/breathing-mobile-20261112.json",
+      "kind": "original-player-save",
+      "source": "WIS-original-save-1794400666597.json",
+      "sha256": "df5e60ba6291aab6bfd5551f4963066699af537b7dca756e6adc918177b68447",
+      "bytes": 14567,
+      "notes": "Byte-identical original. Browser variants reset arrival timestamps and add J explicitly because original J is zero."
     }
   ],
   "unavailableHistoricalOriginals": [

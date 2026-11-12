@@ -112,7 +112,8 @@
       accumulateDiscard(plan.discardedClock,plan.discardedGame,reason);syncPendingLedger();
     }
     function flushDiscardEffects(){
-      if(!bounded||onlineWork||onlineIntervals.length||discardFailure)return !discardFailure;
+      // A manual candidate owns gameplay inputs; keep only ledger metadata pending.
+      if(!bounded||deferredAction||onlineWork||onlineIntervals.length||discardFailure)return !discardFailure;
       const pending=ledger().pendingDiscard;if(!pending)return true;
       try{
         if(context.commitDiscard([{source:'online',clock:pending.clock,speed:pending.game/pending.clock,compensationEligible:false}],pending.reason)===false)throw Error('舍弃时间未提交');
@@ -137,6 +138,8 @@
         stopFailedWork(Object.assign(Error('在线计算暂时无进展，将自动重试'),{code:'online-candidate-timeout'}));
     }
     function beforePlayerAction(){
+      // Rejected repeated input must not commit discard effects into this owner.
+      if(deferredAction)return false;
       if(!bounded||!ledger().pendingDiscard)return !discardFailure;
       if(onlineBlocked())return false;
       cancelOnlineWork(true);limitOnlineQueue(0,'action-boundary');return flushDiscardEffects();

@@ -2922,6 +2922,9 @@
       const nextManaJ = WIS.Core.Amount?.enabled()?snapshot?.value?.nextManaJ:joulesForNextBaseMana();
       setTextIfChanged(byId("next-mana-j"), snapshot?.error ? "暂时无法计算下一档需求。" : breathingNextBaseManaRequirementText(nextManaJ,state.joules));
       // Only the completed formal action decides gain eligibility.
+      const breathingBusy=context.isDeferredActionPending?.()===true;
+      setTextIfChanged(byId("breathing-button"),breathingBusy?"计算中…":"吐纳");
+      byId("breathing-button").setAttribute("aria-busy",breathingBusy?"true":"false");
       setDisabledIfChanged(byId("breathing-button"),ltBN(state.joules,3000));
     }
     if (immortalCultivationActive() && state.goldenCoreUnlocked) {
