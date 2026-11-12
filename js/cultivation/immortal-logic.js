@@ -3902,7 +3902,7 @@
     return ()=>{for(const row of rows){const value=row.owner[row.key];if(value!==row.value||Object.getPrototypeOf(value)!==row.prototype)return false;
       if(row.immutable)continue;if(row.decimal){if(!Object.is(value.sign,row.sign)||!Object.is(value.layer,row.layer)||!Object.is(value.mag,row.mag))return false;continue;}
       if(row.array&&value.length!==row.length||typeof value.toJSON==='function')return false;
-      let index=0;for(const key in value){if(!Object.prototype.hasOwnProperty.call(value,key)||skipped(row.path,key))continue;if(key!==row.keys[index]||!Object.is(value[key],row.values[index]))return false;index++;}if(index!==row.keys.length)return false;
+      const keys=Object.keys(value),ignored=row.path==='core'?'preferences':row.path==='core.runtime'?'timeLedger':null;let index=0;for(let i=0;i<keys.length;i++){const key=keys[i];if(key===ignored)continue;if(key!==row.keys[index]||!Object.is(value[key],row.values[index]))return false;index++;}if(index!==row.keys.length)return false;
     }return true;};
   }
 

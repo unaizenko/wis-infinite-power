@@ -2270,8 +2270,7 @@
     setHiddenIfChanged(byId("big-number-resource"), !bigVisible);
     if (bigVisible) {
       const v = M.headerSummary(state);
-      const f = value => gtBN(value, ZERO) && !gteBN(value, 0.001)
-        ? WIS.UI.Format.scientificMultiplier(value) : format(value, 2);
+      const f = value => WIS.UI.Format.quantity(value, 2);
       const rankText = WIS.UI.Format.rank;
       setTextIfChanged(byId("big-number-dominant"), v.phase === 'tree' ? `TREE(${rankText(v.treeRank)})` : v.phase === 'g'
         ? `G${rankText(v.gIndex)}` : `${f(v.amount)} ${v.symbol}`);

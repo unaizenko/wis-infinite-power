@@ -55,7 +55,12 @@
     "tests/main-thread-publication.test.cjs",
     "tests/save-encoding-work.test.cjs",
     "tests/release-output.test.cjs",
-    "tests/breathing-mobile-result.test.cjs"
+    "tests/breathing-mobile-result.test.cjs",
+    "tests/compaction-final-form.test.cjs",
+    "tests/nonzero-quantity-format.test.cjs",
+    "tests/offline-calculation-progress.test.cjs",
+    "tests/amount-tail-cap.test.cjs",
+    "tests/manual-mana-cooperative.test.cjs"
   ],
   "scripts": [
     "tests/frozen-offline-contract.test.cjs",
@@ -94,6 +99,7 @@
     "tests/mobile-layout-browser.test.cjs",
     "tests/upgrade-layout-browser.test.cjs",
     "tests/pages-legacy-path.test.cjs",
-    "tests/breathing-mobile-owner-browser.test.cjs"
+    "tests/breathing-mobile-owner-browser.test.cjs",
+    "tests/settlement-hardening-browser.test.cjs"
   ]
 }

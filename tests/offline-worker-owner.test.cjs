@@ -47,4 +47,11 @@ broken.emit({type:'error',jobId:brokenStart.jobId,generation:brokenStart.generat
 assert.equal(controller.isCatchUpPaused(),true);assert.equal(controller.getPendingCatchUpSeconds(),9);
 assert.equal(String(host.getState().joules),'123');assert.equal(host.getState().core.runtime.timeLedger.discardedClock||0,0);
 assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.tasks[0].gameSeconds,9);
+controller.retryCatchUp();const stalled=workers.at(-1),stalledStart=stalled.sent[0];
+for(let i=0;i<62;i++){healthClock+=1000;stalled.emit({...stalledStart,type:'heartbeat',calculation:{taskId:'segment-1',phase:'gains',revision:1}});healthClient.checkHealth();}
+assert.equal(controller.isCatchUpPaused(),true);assert.equal(controller.getPendingCatchUpSeconds(),9);assert.equal(String(host.getState().joules),'123');
+assert.equal(controller.getPersistenceSnapshot().pauseReason.error.code,'offline-stalled');
+assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.pauseReason.calculation.revision,1);
+assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.pauseReason.calculation.phase,'gains');
+assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.tasks[0].gameSeconds,9);
 controller.cancelCatchUp();promise.then(()=>console.log('PASS Worker owner lock, durable checkpoint, immediate pause, debt preserved and stale result ignored'));

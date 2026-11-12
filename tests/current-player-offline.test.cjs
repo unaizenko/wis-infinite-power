@@ -3,7 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const {loadProductionNumericRuntime}=require('./helpers/production-numeric-runtime.cjs');
 const {readFixture}=require('./helpers/current-fixtures.cjs');
 const plain=value=>JSON.parse(JSON.stringify(value));
-for(const id of ['qi-offline','ring-training','live-training','high-training'])test('retained real '+id+' earns frozen income and preserves results after save reload',async()=>{
+for(const id of ['qi-offline','ring-training','live-training','high-training','exploration-compaction'])test('retained real '+id+' earns frozen income and preserves results after save reload',async()=>{
  const {W}=loadProductionNumericRuntime(),S=W.Core.State,B=W.Core.BigNum,raw=readFixture(id),start=W.Core.Save.prepare(raw).state;
  const sim=W.Simulation.OfflineHeadless.create({domain:start},{checkpoint:()=>true,yield:()=>Promise.resolve()});
  const before=S.cloneForSimulation(sim.getState()),reference=S.cloneForSimulation(before),seconds=60;
@@ -22,7 +22,7 @@ for(const id of ['qi-offline','ring-training','live-training','high-training'])t
  assert.deepEqual(plain(after.meta.bigNumbers),plain(reference.meta.bigNumbers),id+' G/TREE progress');
  assert.equal(after.core.runtime.randomState,before.core.runtime.randomState,'frozen deterministic rewards preserve RNG');
  assert(Math.abs(after.totalElapsedSeconds-before.totalElapsedSeconds-seconds)<1e-7,'full offline clock');
- assert.equal(after.core.runtime.timeLedger.discardedClock||0,before.core.runtime.timeLedger.discardedClock||0,'offline time never discarded');
+ assert.equal(after.core.runtime.timeLedger.discardedClock||0,(before.core.runtime.timeLedger.discardedClock||0)+(before.core.runtime.timeLedger.pendingDiscard?.clock||0),'only the already registered online discard is confirmed; offline time never discarded');
  assert(B.gt(after.joules,before.joules)||B.gt(after.power,before.power),'real positive resource income');
  const wire=plain(W.Core.Save.envelope(after,false,{offlineRecoveryOverride:sim.offline.getPersistenceSnapshot()}));
  assert.deepEqual(plain(S.toSerializable(W.Core.Save.prepare(wire).state)),plain(S.toSerializable(after)),'whole-domain save roundtrip');

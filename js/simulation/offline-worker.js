@@ -45,7 +45,7 @@
     }
     function failed(error) {
       retire({pause:{reason:'offline-worker-failed',error:{name:error.name||'Error',code:error.code||null,message:String(error.message||error)},
-        pendingGameSeconds:latest?.status.pendingGameSeconds||0}});
+        pendingGameSeconds:latest?.status.pendingGameSeconds||0,calculation:error.calculation||client?.status().calculation||null}});
       try{persist();}catch(saveError){WIS.Core.Save.noteFailure(saveError);}
     }
     function start() {
@@ -64,7 +64,7 @@
       activePromise=new Promise(resolve=>{resolveActive=resolve;});const result=activePromise;
       // Healthy yielding frozen work may take arbitrarily long before its atomic
       // commit. Heartbeat failure still pauses at the last durable checkpoint.
-      client=WIS.Simulation.WorkerClient.create({factory:context.workerFactory||browserWorker,schedule:context.workerSchedule,maxRetries:0,progressTimeoutMs:Infinity,
+      client=WIS.Simulation.WorkerClient.create({factory:context.workerFactory||browserWorker,schedule:context.workerSchedule,maxRetries:0,progressTimeoutMs:Infinity,calculationTimeoutMs:60000,
         commit(payload,stamp) {
           if(baseRoots.some((root,i)=>root!==roots()[i]))throw Error('离线计算起点已改变；候选未安装');
           const next=P.decode(payload);

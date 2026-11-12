@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.2.2",
-  "versionCode": 20202,
+  "version": "0.2.2.3",
+  "versionCode": 20203,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.2.2/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.2.3/wis.apk",
     "mirror": null,
-    "sha256": "740d960c12f59ad439c59d21286337df89af6e39a81730c03983f967def5c235",
-    "sizeBytes": 6445422
+    "sha256": "79067cfb074dec9f1f38c984516c4d199e1bdca905ff9c859e7dcc6e7a94cd65",
+    "sizeBytes": 6494505
   },
-  "notes": "修复手机吐纳计算期间重复点击导致动作被取消；增加计算中提示，保持原收益公式和旧存档兼容。",
-  "publishedAt": "2026-11-12T03:22:08Z"
+  "notes": "修复部分旧存档离线结算失败、小额大数显示为零；优化吐纳计算，结算无进展时保留剩余离线时间并暂停。",
+  "publishedAt": "2026-11-12T05:09:28Z"
 }

@@ -5,19 +5,26 @@
     const clock=options.clock||(()=>performance.now()),hidden=options.hidden||(()=>document.hidden);
     const timeout=options.heartbeatTimeoutMs||5000,progressTimeout=options.progressTimeoutMs||30000,maxRetries=options.maxRetries??2;
     let worker=null,timer=null,request=null,jobId=null,generation=0,sequence=0,version=0,retries=0;
-    let candidateElapsed=0;
+    let candidateElapsed=0,lastCalculation=0,calculation=null;
     let lastBeat=0,lastProgress=0,lastCheck=0,wasHidden=false,running=false;
     const stop=()=>{worker?.terminate();worker=null;if(timer!==null)clearInterval(timer);timer=null;running=false;};
     function fail(error) {stop();options.onFailure?.(error);}
     function launch() {
-      generation++;candidateElapsed=0;lastBeat=lastProgress=lastCheck=clock();wasHidden=hidden();running=true;
+      generation++;candidateElapsed=0;calculation=null;lastCalculation=lastBeat=lastProgress=lastCheck=clock();wasHidden=hidden();running=true;
       try {
         worker=options.factory();const owner=worker,active=generation;
         worker.onmessage=event=>{
           const m=event.data;
           if(!running||worker!==owner||active!==generation||!m||m.jobId!==jobId||m.generation!==generation)return;
           lastBeat=clock();
-          if(m.type==='heartbeat'){options.onHeartbeat?.(m);return;}
+          if(m.type==='heartbeat'){
+            const p=m.calculation;
+            if(p&&typeof p.taskId==='string'&&p.taskId.length<=120&&typeof p.phase==='string'&&p.phase.length<=80&&Number.isSafeInteger(p.revision)&&p.revision>=0&&
+              (!calculation||p.taskId===calculation.taskId&&p.revision>calculation.revision)){
+              calculation={taskId:p.taskId,phase:p.phase,revision:p.revision};lastCalculation=clock();
+            }
+            options.onHeartbeat?.(m);return;
+          }
           if(m.type==='error'){fail(Object.assign(Error(m.message||'离线线程出错'),{code:m.code}));return;}
           if(m.type==='checkpoint') {
             checkHealth();
@@ -32,7 +39,7 @@
               sequence=m.sequence;version++;
               // Re-emitting the starting checkpoint is not mathematical progress.
               // Otherwise a crash immediately after startup could retry forever.
-              if(next?.progressed===true){retries=0;lastProgress=clock();candidateElapsed=0;}
+              if(next?.progressed===true){retries=0;lastCalculation=lastProgress=clock();calculation=null;candidateElapsed=0;}
               owner.postMessage({type:'ack',jobId,generation,sequence,baseStateVersion:version});
               options.onCommit?.();
             }catch(error){fail(error);}
@@ -57,15 +64,16 @@
       if(!running)return;
       const now=clock(),isHidden=hidden(),gap=now-lastCheck;lastCheck=now;
       // Suspended tabs/system sleep are not evidence of a wedged calculation.
-      if(isHidden||wasHidden||gap>timeout*2){lastBeat=lastProgress=now;wasHidden=isHidden;return;}
+      if(isHidden||wasHidden||gap>timeout*2){lastCalculation=lastBeat=lastProgress=now;wasHidden=isHidden;return;}
       wasHidden=false;
       candidateElapsed+=Math.max(0,gap);
       if(candidateElapsed>=(options.candidateTimeoutMs??Infinity)){fail(Object.assign(Error('离线候选超过前台计算期限'),{code:'candidate-timeout'}));return;}
       if(now-lastBeat>timeout)recover(Error('离线计算线程响应超时；未确认进度已丢弃，剩余时间保留'));
+      else if(now-lastCalculation>(options.calculationTimeoutMs??Infinity))fail(Object.assign(Error('离线计算长时间没有推进；已暂停，剩余时间保留'),{code:'offline-stalled',calculation}));
       else if(now-lastProgress>progressTimeout)recover(Error('离线计算长时间未提交进度；未确认候选已丢弃，剩余时间保留'));
     }
     return Object.freeze({start(value){stop();request=value;jobId=Date.now().toString(36)+'-'+(++nextJob);sequence=0;version=0;retries=value.retries||0;launch();},
-      cancel(){generation++;stop();},checkHealth,status:()=>({running,jobId,generation,sequence,baseStateVersion:version,retries})});
+      cancel(){generation++;stop();},checkHealth,status:()=>({running,jobId,generation,sequence,baseStateVersion:version,retries,calculation:calculation?{...calculation}:null})});
   }
   WIS.Simulation.WorkerClient=Object.freeze({create});
 }(window.WIS));

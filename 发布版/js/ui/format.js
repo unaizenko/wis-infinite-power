@@ -178,11 +178,18 @@
     }).join('');
   }
 
+  // A positive stock must not disappear when precision switches at a threshold.
+  // Presentation only: no rounding is written back to the quantity or save.
+  function formatQuantity(value, digits = 2) {
+    const n=BN(value),magnitude=absBN(n);
+    return gt(magnitude,0)&&!gte(magnitude,BN('1e-'+digits))
+      ? scientificMultiplier(n) : formatNumber(n,digits);
+  }
   const formatCost = (value) => formatNumber(value, 0);
   WIS.UI.Format = Object.freeze({
     elapsedTime: formatElapsedTime, gameCalendar: formatGameCalendar, multiplierGroups: formatMultiplierGroups, progressPercentage,
     compact: formatCompact,
-    number: formatNumber, rank: formatRank,
+    number: formatNumber, quantity: formatQuantity, rank: formatRank,
     cost: formatCost,
     scientificMultiplier, smallMultiplier: formatSmallMultiplier
   });

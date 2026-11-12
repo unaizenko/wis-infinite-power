@@ -18,7 +18,7 @@
     const payload=P.encode(checkpoint);
     await new Promise(resolve=>{ack=resolve;post('checkpoint',{sequence:stamp.sequence+1,payload});});
   }
-  setInterval(()=>{if(running)post('heartbeat');},250);
+  setInterval(()=>{if(running)post('heartbeat',{calculation:engine?.offline.getCalculationProgress?.()||null});},250);
   self.onmessage=event=>{
     const message=event.data;
     if(message?.type==='ack') {

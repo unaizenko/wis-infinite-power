@@ -159,9 +159,12 @@
     let results=memo.get('values');if(!results){results=new WeakMap();memo.set('values',results);}
     if(results.has(value))return results.get(value);
     const tailOnly=P.termCount(tail)<=P.tailPolicy.capacity;
-    const result=P.compact(tailOnly?tail:wordView(value),{force:true});let next;
+    let result=P.compact(tailOnly?tail:wordView(value),{force:true}),next;
     try{next=make(tailOnly?[value.main,...result.words]:result.words);}catch(error){if(error.code==='amount-negative')fail('Tail compression cannot preserve a nonnegative balance','amount-compaction-unresolved');throw error;}
-    if(P.termCount(next.tail)>P.tailPolicy.target||P.needsCompaction(next.tail))fail('Tail compression capacity certificate failed','amount-compaction-unresolved');
+    if(P.termCount(next.tail)>P.tailPolicy.target||P.needsCompaction(next.tail)){
+      result=P.compact(wordView(value),{force:true,collapse:true});next=make(result.words);
+      if(P.termCount(next.tail)>P.tailPolicy.target||P.needsCompaction(next.tail))fail('Tail compression capacity certificate failed','amount-compaction-unresolved');
+    }
     const completed=Object.freeze({value:next,lossUpper:make(result.errorWords),compacted:result.compacted,sourceTerms:result.sourceTerms,resultTerms:result.resultTerms,policyId:result.policyId});
     results.set(value,completed);return completed;
   }

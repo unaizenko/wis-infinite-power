@@ -254,6 +254,11 @@
         return "idle";
       }
 
+      // Diagnostic only; candidates and their partial gains never cross this boundary.
+      function getCalculationProgress(){
+        const task=catchUpTasks[0],progress=task?.fixedWork?.progress?.();
+        return progress?{taskId:task.id,...progress}:null;
+      }
       function getCatchUpStatus() {
         const phase = catchUpPhase();
         const sourceView=sessionSourceView();
@@ -271,6 +276,7 @@
         );
         return Object.freeze({
           phase,
+          calculation:getCalculationProgress(),
           treasureRecovery:treasureRecoveryJob?.status()||treasureRecoveryResult,
           locked: !!treasureRecoveryJob || phase === "paused" || (phase === "running"&&presentation==='blocking'&&!inlineOnline),
           // The runner remains idle during handoff/paint even though the UI
@@ -1575,7 +1581,7 @@
         cancelCatchUp,
         abandonCatchUp, discardCatchUp,
         convertOfflineToCompensation,
-        retryCatchUp,
+        getCalculationProgress, retryCatchUp,
         holdCatchUpUntilUserStart, releaseCatchUpUserStart, startCatchUp,
         pauseCatchUpByPlayer, pauseAfterOnlineError,
         acknowledgeCatchUp,

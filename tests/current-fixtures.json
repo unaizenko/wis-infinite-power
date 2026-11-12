@@ -73,6 +73,14 @@
       "sha256": "df5e60ba6291aab6bfd5551f4963066699af537b7dca756e6adc918177b68447",
       "bytes": 14567,
       "notes": "Byte-identical original. Browser variants reset arrival timestamps and add J explicitly because original J is zero."
+    },
+    {
+      "id": "exploration-compaction",
+      "path": "tests/fixtures/player-reports/exploration-compaction-20261112.json",
+      "kind": "original-player-save",
+      "source": "WIS-存档-2026-11-12T04-00-42-312Z 2026-11-12 1214.json",
+      "sha256": "5ffd562d3aa2597a4c0a1db9c95133530f259d6f2efe78a48d1e28cecb71490a",
+      "bytes": 263897
     }
   ],
   "unavailableHistoricalOriginals": [

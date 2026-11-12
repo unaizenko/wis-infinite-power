@@ -360,10 +360,13 @@
     const candidate=S.cloneForSimulation(state), roots=[state.core,state.powerSystem,state.cultivation,state.meta];
     const mathPolicy=options.offline===true ? R.MathPolicy.OFFLINE_APPROX : R.MathPolicy.ONLINE_EXACT;
     if(!options.frozenOffline)R.withMathPolicy(mathPolicy,()=>R.withState(candidate,()=>R.withOfflineExecution(()=>E.withIsolatedState(candidate,()=>WIS.Cultivation.ExplorationProgress.settleRetained(candidate)))));
-    let unit, preparation, parts, closed=false, workMs=0;
+    let unit, preparation, parts, closed=false, workMs=0,revision=0,phase='prepare';
+    const notifyPhase=options.onPhase;options={...options,onPhase(next){if(phase!==next){phase=next;revision++;}notifyPhase?.(next);}};
 
     return {
+      progress(){return {phase,revision};},
       advance(deadline) {
+        const proofStart=WIS.Core.CertifiedRankMath.progressVersion();
         try {
         if(closed) throw Error("固定段候选已失效");
         let next;
@@ -396,7 +399,8 @@
           }
         } while(clock()<deadline);
         return {done:false};
-        } catch(error) {closed=true;preparation?.cancel();parts?.return?.();throw failed(error);}
+         } catch(error) {closed=true;preparation?.cancel();parts?.return?.();throw failed(error);}
+        finally {revision+=WIS.Core.CertifiedRankMath.progressVersion()-proofStart;}
       },
       close(){closed=true;preparation?.cancel();parts?.return?.();}
     };

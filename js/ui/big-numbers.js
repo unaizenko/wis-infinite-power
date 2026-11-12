@@ -5,11 +5,7 @@
     const state = WIS.Core.Runtime.state, $ = id => document.getElementById(id);
     let selected = false, lastGraham = false;
     const text = (id, value) => { const el = $(id); if (el.textContent !== value) el.textContent = value; };
-    const f = (x, digits = 4) => {
-      const n = B.BN(x);
-      if (B.gt(n, 0) && B.lt(n, 0.001)) return WIS.UI.Format.scientificMultiplier(n);
-      return context.format(n, digits);
-    };
+    const f = (x, digits = 4) => WIS.UI.Format.quantity(x, digits);
     const rankText = WIS.UI.Format.rank;
     const quantity = (value, order) => `${f(value, 2)} ${M.SYMBOLS[order]}`;
     const rows = [], milestones = [], treeRows = [];

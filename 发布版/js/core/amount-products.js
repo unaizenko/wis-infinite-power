@@ -418,7 +418,7 @@
  // integer/paid-price ledgers do not call this function.
  const tailPolicy=Object.freeze({id:'directed-tail-32-8-24-v2',version:2,coefficientPlaces:32,capacity:24,target:8,retainedFullRows:5,coefficientDigits:512});
  function rationalOrder(n,d){n=abs(n);let k=String(n).length-String(d).length;if(k>=0?n<d*10n**BigInt(k):n*10n**BigInt(-k)<d)k--;return BigInt(k);}
- function compactGroupDirected(group,negative){
+ function compactGroupDirected(group,negative,signed=false){
   if(group.length===1){const row=group[0];if(!oversizedCoefficient(row))return Object.freeze({row,error:canonical({n:0n,d:1n,e:0n,f:emptyFactors})});
    // Exact integer division gives a directed32-place coefficient certificate;
    // no logarithm, scalar projection or dense power-of-ten resource is needed.
@@ -427,11 +427,11 @@
    const coefficient=n/d+(negative&&rest?1n:0n),e=row.e-shift;
    return Object.freeze({row:canonical({n:negative?-coefficient:coefficient,d:1n,e,f:row.f}),error:canonical({n:rest?1n:0n,d:1n,e,f:row.f})});
   }
-  const key='tail-cap-group|'+negative+'|'+proofIdentity(group);
+  const key='tail-cap-group|'+negative+'|'+signed+'|'+proofIdentity(group);
   return C.task(key,function*(){
    for(const places of [80,160,320,512]){
     try{return yield ()=>C.task(key+'|'+places,function*(){
-     const c=C.context(places),unit=10n**BigInt(places-tailPolicy.coefficientPlaces),logs=[];
+     const c=C.context(places),logs=[];let unit=10n**BigInt(places-tailPolicy.coefficientPlaces);
      for(const row of group)logs.push(yield ()=>rowLog(row,c));
      let best=0;for(let i=1;i<logs.length;i++)if(logs[i].lo>logs[best].lo)best=i;
      const chosen=group[best],basis=canonical({n:1n,d:1n,e:chosen.e+rationalOrder(chosen.n,chosen.d),f:chosen.f}),origin=yield ()=>rowLog(basis,c);
@@ -440,10 +440,19 @@
       const delta=c.sub(logs[i],origin);let interval;
       if(delta.hi < -BigInt(places+4)*c.scale)interval={lo:0n,hi:1n};
       else {if(delta.hi>c.scale)throw Object.assign(Error('Tail anchor needs refinement'),{code:'rank-cost-unresolved'});interval=yield ()=>coordinatePower10(c,delta);}
-      lo+=interval.lo;hi+=interval.hi;
+      if(signed&&group[i].n<0n){lo-=interval.hi;hi-=interval.lo;}else{lo+=interval.lo;hi+=interval.hi;}
      }
-     if(lo<=0n||hi-lo>unit)throw Object.assign(Error('Tail coefficient needs refinement'),{code:'rank-cost-unresolved'});
-     const coefficient=negative?(hi+unit-1n)/unit:lo/unit,denominator=10n**BigInt(tailPolicy.coefficientPlaces),error=negative?coefficient*unit-lo:hi-coefficient*unit;
+     if(lo<=0n)throw Object.assign(Error('Tail coefficient needs refinement'),{code:'rank-cost-unresolved'});
+     // Cancellation can make the net balance much smaller than the anchor.
+     // Quantize that NET interval to32 decimal places, refining the proof if
+     // it does not yet resolve that many digits. Never round a tiny net to0.
+     if(signed){const shift=String(lo).length-1-tailPolicy.coefficientPlaces;
+      if(shift<0)throw Object.assign(Error('Tail net coefficient needs refinement'),{code:'rank-cost-unresolved'});
+      unit=10n**BigInt(shift);
+     }
+     if(hi-lo>unit)throw Object.assign(Error('Tail coefficient needs refinement'),{code:'rank-cost-unresolved'});
+     const coefficient=negative?(hi+unit-1n)/unit:lo/unit,denominator=signed?c.scale/unit:10n**BigInt(tailPolicy.coefficientPlaces),error=negative?coefficient*unit-lo:hi-coefficient*unit;
+     if(coefficient<=0n)throw Object.assign(Error('Tail positive coefficient needs refinement'),{code:'rank-cost-unresolved'});
      if(error<0n||error>2n*unit)fail('Tail coefficient error certificate invalid');
      return Object.freeze({row:canonical({...basis,n:negative?-coefficient:coefficient,d:denominator}),error:canonical({...basis,n:error,d:c.scale})});
     });}catch(error){if(error.code!=='rank-cost-unresolved')throw error;}
@@ -456,10 +465,18 @@
  // arithmetic boundary. The existing32-place directed certificate is unchanged.
  const oversizedCoefficient=row=>String(abs(row.n)).length>tailPolicy.coefficientDigits||String(row.d).length>tailPolicy.coefficientDigits;
  const needsCompaction=values=>{const rows=prepare(values);return rows.length>tailPolicy.capacity||rows.some(oversizedCoefficient);};
- function compact(values,{force=false}={}){
+ function compact(values,{force=false,collapse=false}={}){
   const input=prepare(values),original=preparedWords.get(input);
   if(!W.Core.Amount?.enabled()||!force&&input.length<=tailPolicy.capacity&&!input.some(oversizedCoefficient))return Object.freeze({words:original,errorWords:Object.freeze([]),sourceTerms:input.length,resultTerms:input.length,compacted:false,policyId:tailPolicy.id});
-  return C.task('tail-cap|'+tailPolicy.id+'|'+proofIdentity(input),function*(){
+  return C.task('tail-cap|'+tailPolicy.id+'|'+collapse+'|'+proofIdentity(input),function*(){
+   // Final-form fallback: one directed signed coefficient prevents the exact
+   // collector from recreating long gap-filled coefficients between retained rows.
+   // Re-evaluate the ORIGINAL input so this bound includes the entire loss.
+   if(collapse){
+    const packed=yield ()=>compactGroupDirected(input,false,true);
+    const result=finalizedRows(collect([packed.row])),loss=finalizedRows(collect([packed.error]));
+    return Object.freeze({words:preparedWords.get(result),errorWords:preparedWords.get(loss),sourceTerms:input.length,resultTerms:result.length,compacted:true,policyId:tailPolicy.id});
+   }
    // Projection chooses only the packing candidate/order. Directed intervals
    // below independently establish every rounding bound.
    const ordered=input.map(row=>({row,estimate:projectRow(row).abs()})).sort((a,b)=>(B.gt(b.estimate,a.estimate)?1:B.lt(b.estimate,a.estimate)?-1:0)|| (rowKey(a.row)<rowKey(b.row)?-1:rowKey(a.row)>rowKey(b.row)?1:0));
