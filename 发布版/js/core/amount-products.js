@@ -416,16 +416,21 @@
 
  // Bounded storage is an explicit owner policy. Generic exact arithmetic and
  // integer/paid-price ledgers do not call this function.
- const tailPolicy=Object.freeze({id:'directed-tail-32-8-24-v2',version:2,coefficientPlaces:32,capacity:24,target:8,retainedFullRows:5,coefficientDigits:512});
+ const tailPolicy=Object.freeze({id:'directed-tail-32-8-24-v3',version:3,coefficientPlaces:32,capacity:24,target:8,retainedFullRows:5,coefficientDigits:96});
  function rationalOrder(n,d){n=abs(n);let k=String(n).length-String(d).length;if(k>=0?n<d*10n**BigInt(k):n*10n**BigInt(-k)<d)k--;return BigInt(k);}
- function compactGroupDirected(group,negative,signed=false){
-  if(group.length===1){const row=group[0];if(!oversizedCoefficient(row))return Object.freeze({row,error:canonical({n:0n,d:1n,e:0n,f:emptyFactors})});
+ function compactGroupDirected(group,negative,signed=false,continuous=false){
+  if(group.length===1){const row=group[0];if(!oversizedCoefficient(row)&&!continuous)return Object.freeze({row,error:canonical({n:0n,d:1n,e:0n,f:emptyFactors})});
    // Exact integer division gives a directed32-place coefficient certificate;
    // no logarithm, scalar projection or dense power-of-ten resource is needed.
    const order=rationalOrder(row.n,row.d),shift=BigInt(tailPolicy.coefficientPlaces)-order;
    const n=abs(row.n)*(shift>0n?10n**shift:1n),d=row.d*(shift<0n?10n**(-shift):1n),rest=n%d;
    const coefficient=n/d+(negative&&rest?1n:0n),e=row.e-shift;
    return Object.freeze({row:canonical({n:negative?-coefficient:coefficient,d:1n,e,f:row.f}),error:canonical({n:rest?1n:0n,d:1n,e,f:row.f})});
+  }
+  if(group.length>1&&group.every(row=>factorKey(row)===factorKey(group[0]))){
+   const positive=negative?group.map(negateRow):group;
+   const result=finiteEconomic(preparedWords.get(finalizedRows(positive.slice())),32,negative),row=prepare(result.words)[0];
+   return Object.freeze({row:negative?negateRow(row):row,error:prepare(result.errorWords)[0]||canonical({n:0n,d:1n,e:0n,f:emptyFactors})});
   }
   const key='tail-cap-group|'+negative+'|'+signed+'|'+proofIdentity(group);
   return C.task(key,function*(){
@@ -465,15 +470,15 @@
  // arithmetic boundary. The existing32-place directed certificate is unchanged.
  const oversizedCoefficient=row=>String(abs(row.n)).length>tailPolicy.coefficientDigits||String(row.d).length>tailPolicy.coefficientDigits;
  const needsCompaction=values=>{const rows=prepare(values);return rows.length>tailPolicy.capacity||rows.some(oversizedCoefficient);};
- function compact(values,{force=false,collapse=false}={}){
+ function compact(values,{force=false,collapse=false,continuous=false}={}){
   const input=prepare(values),original=preparedWords.get(input);
   if(!W.Core.Amount?.enabled()||!force&&input.length<=tailPolicy.capacity&&!input.some(oversizedCoefficient))return Object.freeze({words:original,errorWords:Object.freeze([]),sourceTerms:input.length,resultTerms:input.length,compacted:false,policyId:tailPolicy.id});
-  return C.task('tail-cap|'+tailPolicy.id+'|'+collapse+'|'+proofIdentity(input),function*(){
+  return C.task('tail-cap|'+tailPolicy.id+'|'+collapse+'|'+continuous+'|'+proofIdentity(input),function*(){
    // Final-form fallback: one directed signed coefficient prevents the exact
    // collector from recreating long gap-filled coefficients between retained rows.
    // Re-evaluate the ORIGINAL input so this bound includes the entire loss.
    if(collapse){
-    const packed=yield ()=>compactGroupDirected(input,false,true);
+    const packed=yield ()=>compactGroupDirected(input,false,true,continuous);
     const result=finalizedRows(collect([packed.row])),loss=finalizedRows(collect([packed.error]));
     return Object.freeze({words:preparedWords.get(result),errorWords:preparedWords.get(loss),sourceTerms:input.length,resultTerms:result.length,compacted:true,policyId:tailPolicy.id});
    }
@@ -488,5 +493,107 @@
   });
  }
 
- W.Core.AmountProducts=Object.freeze({compact,tailPolicy,needsCompaction,termCount:values=>prepare(values).length,wordKinds,compareRanges,numericIdentity,preparedView:values=>{const rows=preparedInput(values);return rows?preparedWords.get(rows):null;},extended:values=>{const rows=preparedInput(values);return rows?extendedRows.get(rows):null;},wordView:values=>preparedWords.get(prepare(values)),copyPrepared,sumView,isPrepared:values=>preparedInput(values)!==null,separatedPositiveProduct,mathWorkMemo,workMemo,inputKey,releaseWorkMemo,numericLog,coordinatePower10,isProduct,hasProduct,validate:raw=>{token(raw);return String(raw);},normalize,multiply,divide,sign,value,logarithm});
+
+ // Exact fractional part of a sparse quantity. Resource magnitudes never
+ // become dense integers: work scales with the exponent spelling and divisor.
+ // Signed rows are truncated individually; their bounded remainders are then
+ // carried together, so cancellation cannot manufacture or lose an integer.
+ // Modular evaluation of represented INTEGER power towers. Divisor <=1e9,
+ // height <=8, and an integer top coordinate are an explicit support contract.
+ // Euler lifting preserves non-coprime divisors (2/5 factors); no factoring of
+ // arbitrary enormous denominators is attempted. All loops are work-owned.
+ function modularPower(base,exponent,modulus){
+  if(modulus===1n)return 0n;
+  return C.task('integer-mod-power|'+base+'|'+exponent+'|'+modulus,function*(){
+   let b=(base%modulus+modulus)%modulus,e=exponent,result=1n;
+   while(e){yield ()=>{for(let i=0;i<8&&e;i++){if(e&1n)result=result*b%modulus;e>>=1n;if(e)b=b*b%modulus;}};}
+   return result;
+  });
+ }
+ function totient(modulus){return C.task('integer-totient|'+modulus,function*(){let n=modulus,value=n,p=2n;while(p*p<=n){yield ()=>{for(let i=0;i<128&&p*p<=n;i++,p=p===2n?3n:p+2n)if(n%p===0n){while(n%p===0n)n/=p;value=value/p*(p-1n);}};}if(n>1n)value=value/n*(n-1n);return value;});}
+ function towerCap(height,top,limit){if(limit<=1n)return limit;if(!height)return top<limit?top:limit;const digits=BigInt(String(limit).length),e=towerCap(height-1,top,digits);if(e>=digits)return limit;const v=10n**e;return v<limit?v:limit;}
+ function towerMod(height,top,modulus){if(modulus===1n)return 0n;if(!height)return top%modulus;return C.task('integer-tower-mod|'+height+'|'+top+'|'+modulus,function*(){const phi=yield ()=>totient(modulus);let exponent=yield ()=>towerMod(height-1,top,phi);if(towerCap(height-1,top,phi)>=phi)exponent+=phi;return yield ()=>modularPower(10n,exponent,modulus);});}
+ function integerAtomMod(text,modulus){const value=B.BN(text);if(value.sign!==1||!Number.isInteger(value.layer)||value.layer<1||value.layer>8||value.mag<0)fail('整数幂塔超出当前求余范围','amount-integer-unresolved');const coordinate=atom(String(value.mag));if(coordinate.f.size||coordinate.d!==1n||coordinate.e<0n||coordinate.e>4096n)fail('整数幂塔坐标无法确认','amount-integer-unresolved');return towerMod(value.layer,coordinate.n*10n**coordinate.e,modulus);}
+ function splitInteger(values){
+  const input=prepare(values),key='amount-integer-split|'+proofIdentity(input);
+  return C.task(key,function*(){
+   const fractions=[];
+   for(const row of input){
+    const remainder=yield ()=>C.task(key+'|row|'+coefficientKey(row)+'|'+factorKey(row),function*(){
+     if(row.f.size){
+      if(row.d===1n&&row.e>=0n&&[...row.f].every(([atom,count])=>count>0n&&(()=>{try{L.integer(atom);return true;}catch(_){return false;}})()))return null;
+      if(row.e< -9n||[...row.f.values()].some(count=>count<0n))fail('当前进度的整数边界暂时无法确认，本次操作未提交','amount-integer-unresolved');
+      const denominator=row.d*(row.e<0n?10n**(-row.e):1n);
+      if(denominator>1000000000n)fail('当前整数求余分母超过支持范围，本次操作未提交','amount-integer-unresolved');
+      let rest=row.n%denominator;
+      if(row.e>0n){const power=yield ()=>modularPower(10n,row.e,denominator);rest=rest*power%denominator;}
+      for(const [text,count] of row.f){const base=yield ()=>integerAtomMod(text,denominator),power=yield ()=>modularPower(base,count,denominator);rest=rest*power%denominator;}
+      return rest?canonical({n:rest,d:denominator,e:0n,f:emptyFactors}):null;
+     }
+     if(row.e<0n){
+      // When the coefficient has fewer digits than the negative exponent,
+      // its magnitude is already below one. Preserve it without expansion.
+      if(-row.e>=BigInt(String(abs(row.n)).length))return row;
+      const denominator=row.d*10n**(-row.e),rest=row.n%denominator;
+      return rest?canonical({...row,n:rest}):null;
+     }
+     if(row.d===1n)return null;
+     let exponent=row.e,base=10n%row.d,power=1n%row.d;
+     while(exponent){
+      // At most eight modular squarings per uninterruptible callback.
+      yield ()=>{for(let i=0;i<8&&exponent;i++){if(exponent&1n)power=power*base%row.d;exponent>>=1n;if(exponent)base=base*base%row.d;}};
+     }
+     const rest=(row.n%row.d)*power%row.d;
+     return rest?canonical({...row,n:rest,e:0n}):null;
+    });
+    if(remainder)fractions.push(remainder);
+   }
+   if(!fractions.length)return Object.freeze({fractionWords:Object.freeze([])});
+   const words=yield ()=>preparedWords.get(finalizedRows(collect(fractions)));
+   let lo=-fractions.length,hi=fractions.length+1;
+   while(hi-lo>1){const mid=Math.floor((lo+hi)/2),order=yield ()=>sign([...words,String(-mid)]);if(order>=0)lo=mid;else hi=mid;}
+   const fractionWords=yield ()=>Object.freeze(normalize([...words,String(-lo)]));
+   return Object.freeze({fractionWords});
+  });
+ }
+ // Finite economic values share a deterministic coefficient rule. Common
+ // factors stay symbolic; only the rational coefficient is quantized. Sparse
+ // decimal bounds avoid log/exp certification and huge exponent expansion.
+ function finiteEconomic(values,places=18,up=true){
+  const input=prepare(values),original=preparedWords.get(input);
+  if(!input.length)return Object.freeze({words:original,errorWords:Object.freeze([])});
+  if(input.length===1&&input[0].d===1n&&String(abs(input[0].n)).length<=places)return Object.freeze({words:original,errorWords:Object.freeze([])});
+  const key='economic-finite|'+places+'|'+up+'|'+proofIdentity(input);
+  return C.task(key,function*(){
+   if(!input.every(row=>factorKey(row)===factorKey(input[0]))){
+    // Mixed symbolic bases retain the established bounded certificate path.
+    const bounded=yield ()=>compactGroupDirected(input,false,true,true);
+    const upper=up?yield ()=>finalizedRows(collect([bounded.row,bounded.error])):finalizedRows([bounded.row]);
+    const result=yield ()=>finiteEconomic(preparedWords.get(upper),places,up);
+    return Object.freeze({words:result.words,errorWords:preparedWords.get(finalizedRows(collect([bounded.error,...prepare(result.errorWords)])))});
+   }
+   let order=input[0].e+rationalOrder(input[0].n,input[0].d);
+   for(const row of input){const next=row.e+rationalOrder(row.n,row.d);if(next>order)order=next;}
+   let quantum=order-BigInt(places+12);
+   for(let pass=0;pass<34;pass++,quantum-=64n){
+    let lo=0n,hi=0n;
+    for(const row of input){const pair=yield ()=>{
+     if(row.e+rationalOrder(row.n,row.d)<quantum)return row.n<0n?[-1n,0n]:[0n,1n];
+     const shift=row.e-quantum;if(abs(shift)>8192n)fail('费用系数超出当前支持范围，操作未提交','economic-policy-unresolved');
+     const n=row.n*(shift>0n?10n**shift:1n),d=row.d*(shift<0n?10n**(-shift):1n),q=n/d,r=n%d;
+     return r<0n?[q-1n,q]:r>0n?[q,q+1n]:[q,q];
+    };lo+=pair[0];hi+=pair[1];}
+    if(lo<=0n|| (hi-lo)*1000000000000n>lo)continue;
+    const shift=Math.max(0,String(hi).length-places),unit=10n**BigInt(shift),n=up?(hi+unit-1n)/unit:lo/unit;
+    const result=canonical({n,d:1n,e:quantum+BigInt(shift),f:input[0].f});
+    const error=canonical({n:up?n*unit-lo:hi-n*unit,d:1n,e:quantum,f:input[0].f});
+    return Object.freeze({words:preparedWords.get(finalizedRows([result])),errorWords:preparedWords.get(finalizedRows(error.n?[error]:[]))});
+   }
+   fail('费用相消边界超出当前支持范围，操作未提交','economic-policy-unresolved');
+  });
+ }
+ const economyPolicy=Object.freeze({version:1,priceDigits:18,incomeDigits:32,relativeErrorTarget:'1e-9'});
+ const continuousPolicy=Object.freeze({id:'final-continuous-32-v1',version:1,coefficientDigits:96,terms:8,relativeErrorLimit:'1e-9'});
+ const needsContinuousCompaction=values=>{const rows=prepare(values);return rows.length>continuousPolicy.terms||rows.some(row=>String(abs(row.n)).length>continuousPolicy.coefficientDigits||String(row.d).length>continuousPolicy.coefficientDigits);};
+ W.Core.AmountProducts=Object.freeze({economyPolicy,finiteEconomic,continuousPolicy,needsContinuousCompaction,splitInteger,compact,tailPolicy,needsCompaction,termCount:values=>prepare(values).length,wordKinds,compareRanges,numericIdentity,preparedView:values=>{const rows=preparedInput(values);return rows?preparedWords.get(rows):null;},extended:values=>{const rows=preparedInput(values);return rows?extendedRows.get(rows):null;},wordView:values=>preparedWords.get(prepare(values)),copyPrepared,sumView,isPrepared:values=>preparedInput(values)!==null,separatedPositiveProduct,mathWorkMemo,workMemo,inputKey,releaseWorkMemo,numericLog,coordinatePower10,isProduct,hasProduct,validate:raw=>{token(raw);return String(raw);},normalize,multiply,divide,sign,value,logarithm});
 }(window.WIS));

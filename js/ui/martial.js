@@ -1,7 +1,7 @@
 (function defineMartialUI(WIS) {
   "use strict";
   WIS.UI.Martial = Object.freeze({ create(context) {
-    const M = WIS.Cultivation.Martial, C = WIS.Cultivation.MartialConfig;
+    const M = (context.session?context.session.facade('martial',WIS.Cultivation.Martial):WIS.Cultivation.Martial), C = WIS.Cultivation.MartialConfig;
     const R = WIS.Core.Runtime, B = WIS.Core.BigNum;
     const $ = id => document.getElementById(id);
     const labels = Object.freeze({ qi: "气", body: "体", heart: "心", soul: "神魂", joules: "J", power: "战力" });
@@ -19,10 +19,10 @@
       const node = el("button", text, "primary-button"); node.type = "button"; node.id = id;
       node.addEventListener("click", handler); return node;
     }
-    function perform(action, render) {
+    async function perform(action, render) {
       if (locked() || !active(R.getState())) return;
       pending = true;
-      try { context.performSavedAction(() => action(R.getState()), render); }
+      try { await context.performSavedAction(() => action(R.getState()), render); }
       finally { pending = false; render(); renderSummary(); }
     }
     function item(parent, name, description) {

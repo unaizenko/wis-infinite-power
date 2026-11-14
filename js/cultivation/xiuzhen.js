@@ -354,7 +354,7 @@
         for(const key of frozen.keys){if(!shengKeys.includes(key))throw Error('Unknown Sheng reward');
           const point=n.shengProgress[key]||(emptyPoint ||= F.create(1)),prior=F.quantity(point);
           let result=completed.get(prior);
-          if(!result){const total=A.add(prior,gain),whole=WIS.Meta.BigNumbers.rankQuantity(A.floor(total));result={whole,fraction:A.subtract(total,whole),point:null};}
+          if(!result){const total=A.add(prior,gain),whole=A.integerPart(total);result={whole,fraction:A.subtract(total,whole),point:null};}
           if(A.compare(result.whole,0)>0)WIS.Meta.Treasures.add(state,key,result.whole,{applyAwardMultiplier:false});
           const next=result.point||F.create(1,result.fraction);n.shengProgress[key]=next;
           // Only internally confirmed immutable points can be shared. Other
@@ -463,10 +463,11 @@
     awardOrigin(state,gains);
     if (n !== get(state)) { state.cultivation.systems.immortal.xiuzhen = n; WIS.Core.Effects?.invalidate(); }
   }
-  function effects(state) {
+  // The registry requests deferred values; direct callers retain numeric descriptors.
+  function effects(state, { deferValues = false } = {}) {
     if (!active(state) || sealed(state) || (!get(state).entered && !yinYang(state))) return [];
     const effect = (id, target, layer, value) => ({ id: "xiuzhen-" + id, name: abilities.find(a => a.key === id)?.name || "阴虚阳实",
-      group: "修真道", target, layer, value:typeof value==="function"?value(state):value, valueAt:typeof value==="function"?value:null, dynamicResources:({body:["xianForce"],rules:["yuanForce"],divineArt:["yuanForce"],spokenLaw:["nieForce"],followLaw:["universeCoefficient"],tierTranscendence:["highMultiverseCoefficient"]})[id]||[] });
+      group: "修真道", target, layer, value:deferValues?value:(typeof value==="function"?value(state):value), valueAt:typeof value==="function"?value:null, dynamicResources:({body:["xianForce"],rules:["yuanForce"],divineArt:["yuanForce"],spokenLaw:["nieForce"],followLaw:["universeCoefficient"],tierTranscendence:["highMultiverseCoefficient"]})[id]||[] });
     const result = [effect("intent", "power", "regionExponent", has(state, "intent") ? 1.05 : 1),
       effect("spirit", "mana", "regionExponent", has(state, "spirit") ? 1.05 : 1),
       effect("body", "joules", "regionMultiplier", current=>abilityMultiplier(current, "body")),

@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.2.3",
-  "versionCode": 20203,
+  "version": "0.2.3.0",
+  "versionCode": 20300,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.2.3/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.3.0/wis.apk",
     "mirror": null,
-    "sha256": "79067cfb074dec9f1f38c984516c4d199e1bdca905ff9c859e7dcc6e7a94cd65",
-    "sizeBytes": 6494505
+    "sha256": "edde3435202edc18723808557b3d1cd6d1b75bc9714272f18dee0286377a1bfc",
+    "sizeBytes": 6573073
   },
-  "notes": "修复部分旧存档离线结算失败、小额大数显示为零；优化吐纳计算，结算无进展时保留剩余离线时间并暂停。",
-  "publishedAt": "2026-11-12T05:12:10Z"
+  "notes": "优化在线结算、锻炼与挑战响应；改进保存恢复、切档和后台返回，减少收益预览与页面重复更新。",
+  "publishedAt": "2026-11-14T09:16:02Z"
 }

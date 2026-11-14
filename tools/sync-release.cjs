@@ -51,7 +51,7 @@ const files=new Map();for(const relative of fs.readdirSync(path.join(root,'js'),
  const p='js/'+relative.replaceAll('\\','/');if(fs.statSync(path.join(root,p)).isFile())files.set(p,fs.readFileSync(path.join(root,p)));
 }
 for(const p of retiredAssets)files.delete(p);
-files.delete('js/script-manifest.json');files.delete('js/simulation/offline-worker-bundle.js');files.delete('js/simulation/online-candidate-worker-bundle.js');files.delete('js/simulation/math-worker-bundle.js');
+files.delete('js/script-manifest.json');files.delete('js/simulation/offline-worker-bundle.js');files.delete('js/simulation/online-candidate-worker-bundle.js');files.delete('js/simulation/math-worker-bundle.js');files.delete('js/simulation/session-worker-bundle.js');
 files.set('js/core/build-config.js',read('js/core/build-config.js').replace('mode: "development"','mode: "release"').replace(/id: "[^"]+"/,'id: "'+build+'"').replace('enableSpeedControls: true','enableSpeedControls: false').replace('enableFormulaDetails: true','enableFormulaDetails: false'));
 files.set('js/ui/app.js',releaseApp(read('js/ui/app.js')));
 files.set('game.js',read('game.js'));
@@ -68,6 +68,9 @@ files.set('README.md',`# WIS-无限战力系统 · 发布版
 当前版本：**${gameVersion}**；构建：${build}；存档 Schema：${saveVersion}；结算规则版本：${settlementRule}。
 
 本版同步当前开发版全部正式内容：
+
+- 公共在线Session统一正式提交，命令日志、持久确认及保存/切档恢复同步；预览和显示更新减少重复处理。
+- 私有消息任务减少双层定时调度等待，保留FIFO、取消、0.1秒容量及确认语义。
 
 - 吐纳预览和动作采用可续算候选，避免高进度旧存档阻塞首屏；遇到数值精度停滞时明确提示并保留资源，不提交未完成收益。\n- 独立启动故障提示、原始存档备份与诊断；读档失败后的临时会话保持前台运行，禁止正式保存与后台收益；分阶段首屏与弹窗兼容。\n- 三类宇宙使用平滑双重对数获取和库存衰减，配套调整神融天地、法随身动、道无涯及内天地、尊阳、虚本源、六；道无涯与道源费用分别为300、3000多元。
 - G、TREE阶位使用大数表示；购买对应无限强化后解除原安全整数阶位上限。
@@ -89,9 +92,9 @@ else for(const [p,body] of files)assert(fs.readFileSync(path.join(dest,p)).equal
 function runTool(file,args){const module={exports:{}},req=id=>require(id);req.main=module;const proc={argv:['node',file,...args],exitCode:0};
  vm.runInNewContext(read('tools/'+file),{require:req,module,process:proc,console,Buffer,__dirname:path.join(dest,'tools')},{filename:file});assert.equal(proc.exitCode,0,file);}
 // The manifest validator requires every referenced asset before it can rebuild.
-for(const bundle of ['js/simulation/offline-worker-bundle.js','js/simulation/online-candidate-worker-bundle.js','js/simulation/math-worker-bundle.js'])
+for(const bundle of ['js/simulation/offline-worker-bundle.js','js/simulation/online-candidate-worker-bundle.js','js/simulation/math-worker-bundle.js','js/simulation/session-worker-bundle.js'])
  if(write&&!fs.existsSync(path.join(dest,bundle)))fs.copyFileSync(path.join(root,bundle),path.join(dest,bundle));
-runTool('update-script-manifest.cjs',[write?'--write':'--check']);runTool('build-offline-worker.cjs',write?[]:['--check']);runTool('build-online-candidate-worker.cjs',write?[]:['--check']);runTool('build-math-worker.cjs',write?[]:['--check']);
+runTool('update-script-manifest.cjs',[write?'--write':'--check']);runTool('build-offline-worker.cjs',write?[]:['--check']);runTool('build-session-worker.cjs',write?[]:['--check']);runTool('build-online-candidate-worker.cjs',write?[]:['--check']);runTool('build-math-worker.cjs',write?[]:['--check']);
 // Known retired assets only. Never prune unknown/user files or directories.
 // This runs only after all transformed assets and generated payloads validate.
 for(const relative of retiredAssets){

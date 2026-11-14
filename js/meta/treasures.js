@@ -50,14 +50,14 @@
     balance(state,key) { return L.stock(state,key); },
     affineQuantity(state,key,factor=1,base=0){const A=WIS.Core.Amount;if(!A?.enabled())throw Object.assign(Error('Quantity treasure model disabled'),{code:'amount-model-disabled'});return A.add(base,A.scale(this.quantity(state,key),factor));},
     affineValue(state,key,factor=1,base=0){return WIS.Core.Amount?.enabled()?WIS.Core.AmountFormulas.power(this.affineQuantity(state,key,factor,base),1):addBN(base,mul(this.count(state,key),factor));},
-    quantity(state,key){if(WIS.Meta.ClosedTreasures?.enabled(state))return WIS.Core.Amount.from(state.meta.treasures[key]||0);if(!this.isTreasure(key))throw Error('Unknown treasure');const A=WIS.Core.Amount,value=A.fromParts(0,L.stock(state,key));if(A.compare(value,WIS.Meta.BigNumbers.rankQuantity(A.floor(value)))!==0)throw Error('Treasure inventory must be an integer');return value;},
+    quantity(state,key){if(WIS.Meta.ClosedTreasures?.enabled(state))return WIS.Core.Amount.from(state.meta.treasures[key]||0);if(!this.isTreasure(key))throw Error('Unknown treasure');const A=WIS.Core.Amount,value=A.fromParts(0,L.stock(state,key));if(A.compare(value,A.integerPart(value))!==0)throw Error('Treasure inventory must be an integer');return value;},
     lastFailure() { return lastFailure; },
     add(state, key, amount = 1, { applyAwardMultiplier = true } = {}) {
       if(WIS.Meta.ClosedTreasures?.enabled(state))return WIS.Meta.ClosedTreasures.external(state,key,amount,applyAwardMultiplier?this.getTreasureAwardMultiplier(state,key):1,false);
       WIS.Core.Runtime.assertMutable();
       if (!this.isTreasure(key) || !Object.prototype.hasOwnProperty.call(state.meta.treasures, key)) throw new Error(`未知宝物：${key}`);
       const A=WIS.Core.Amount,whole=A?.enabled()&&A.isAmount(amount);
-      if(whole){if(A.compare(amount,WIS.Meta.BigNumbers.rankQuantity(A.floor(amount)))!==0)throw Error('Treasure award must be an integer');}else L.integer(amount);
+      if(whole){if(A.compare(amount,A.integerPart(amount))!==0)throw Error('Treasure award must be an integer');}else L.integer(amount);
       const awarded=L.scale(whole?A.words(amount):L.normalize([typeof amount === "string" ? amount.trim().replace(/^\+/,"") : amount]),
         applyAwardMultiplier ? this.getTreasureAwardMultiplier(state,key) : 1);
       return L.transaction(state,()=>{
@@ -143,7 +143,7 @@
     return start.pow(p).mul(expm1(log1p(delta.div(start)).mul(p)));
   }
   function cumulativeQuantityForRule(r,key,n,batches,award=1){
-    const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,count=A.from(batches),m=WIS.Meta.BigNumbers.rankQuantity(A.floor(count)),a=A.from(award),start=A.from(n);
+    const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,count=A.from(batches),m=A.integerPart(count),a=A.from(award),start=A.from(n);
     if(A.compare(m,0)===0)return A.from(0);
     if(r.type==='exponential'){
       const first=A.from(requirementForRule(r,key,start));if(A.compare(m,1)===0)return first;
@@ -415,6 +415,7 @@
     let reward;
     try {reward=applyInput(state,key,units,gain);}
     catch(error) {
+      if(WIS.Core.CertifiedRankMath?.isSuspension(error))throw error;
       // Error context is attached to the exception; failed awards never enter
       // the persisted commit journal. The enclosing frame restores all domains.
       try {error.treasureContext=diagnosticBefore(state,key,units,gain,before);}
@@ -583,10 +584,12 @@
     const gain = BN(input.gain), award = BN(input.award);
     return applyInput(state,key,units,gain,award);
   }
-  function advance(state, key, units, { available = true } = {}) {
+  function advance(state, key, units, { available = true, prepareGain = null } = {}) {
     ensure(state);
     if (!available || qualification(state, key) !== null) return ZERO;
-    return apply(state, key, units, unitGain(state, key));
+    // The optional private continuation prepares only the immutable pre-award read.
+    const gain=prepareGain?prepareGain(start=>unitGain(start,key),state,key):unitGain(state,key);
+    return apply(state, key, units, gain);
   }
   function settle(state, key) { ensure(state); return apply(state, key, ZERO, ZERO); }
   function reconcileRequirements(state) {

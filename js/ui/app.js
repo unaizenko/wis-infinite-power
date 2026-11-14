@@ -75,6 +75,9 @@
   function create(context) {
     const runtime = WIS.Core.Runtime;
     const state = runtime.state;
+    const session=context.session;
+    const setPreference=(key,value)=>session?session.preference(key,value).catch(error=>{showNotice(error.message,6000);return false;}):(state[key]=value);
+    const actionFacade=(group,value)=>session?session.facade(group,value):value;
     const {
       BN, ZERO, ONE, add: addBN, sub: subBN, mul: mulBN, div: divBN, pow: powBN, log10: log10BN,
       max: maxBN, abs: absBN, sum: sumBN, gt: gtBN, gte: gteBN, lt: ltBN, eq: eqBN,
@@ -202,7 +205,7 @@
       ? skippedRenderElement
       : element;
   };
-  const Scale = WIS.Power.ScaleLogic;
+  const Scale = actionFacade('scale',WIS.Power.ScaleLogic);
   const {
     gymPotentialMultiplier, gymMultiplier, sonicMovementMultiplier, godspeedExponent,
     godspeedPotentialExponent, breathingMethodGymMultiplier, scaleIndexForPower, updateScaleProgress,
@@ -255,7 +258,7 @@
     brainDomainDevelopmentPotentialExponent, killingIntentWavePotentialExponent,
     continentCollapsePotentialExponent
   } = Scale;
-  const Immortal = WIS.Cultivation.ImmortalLogic;
+  const Immortal = actionFacade('immortal',WIS.Cultivation.ImmortalLogic);
   const {
     celestialDeclineActive, celestialDeclineExponent, immortalApertureCost, immortalApertureCap,
     immortalPowerUnlocked, nextImmortalPowerRealmCost, immortalPowerProgressRatio, immortalPowerManaSuppressionExponent,
@@ -342,8 +345,7 @@
         isUnlocked: () => hasAchievement(unlockAchievement),
         isEnabled: () => state[stateKey] !== false,
         toggle: () => {
-          state[stateKey] = state[stateKey] === false;
-          return state[stateKey];
+          return setPreference(stateKey,state[stateKey]===false);
         }
       });
 
@@ -398,7 +400,7 @@
         ['numbers-tree-super','自动进入超构造','D7-3','treeSuperAutomationEnabled','在线时满足超构造解锁条件，且当前进入倍率达到设定值时自动进入。拥有D8后超构造期间也产出树构造点。拥有D10时，此开关同时控制连续推进；关闭后完成当前TREE目标便停止，保留剩余进度。']
       ].map(([id,name,node,key,description])=>Object.freeze({id,name,group:'numbers',description,
         isUnlocked:()=>WIS.Meta.Infinity.has(state,node),isEnabled:()=>state[key]===true,
-        isDisabled:()=>Boolean(getCatchUpStatus().locked),toggle:()=>state[key]=!state[key]
+        isDisabled:()=>Boolean(getCatchUpStatus().locked),toggle:()=>setPreference(key,!state[key])
       })),
       ...["qi", "body", "heart", "soul"].map((key, index) => Object.freeze({
         id: "martial-" + key,
@@ -410,8 +412,9 @@
         isDisabled: () => Boolean(getCatchUpStatus().locked),
         toggle: () => {
           const enabled = !WIS.Cultivation.Martial.get(state).automation[key];
-          WIS.Cultivation.Martial.setAutomation(state, key, enabled);
-          return Boolean(WIS.Cultivation.Martial.get(state).automation[key]);
+          if(session)return actionFacade('martial',WIS.Cultivation.Martial).setAutomation(state,key,enabled).then(()=>enabled);
+          WIS.Cultivation.Martial.setAutomation(state,key,enabled);return enabled;
+          
         }
       }))
     ]);
@@ -508,11 +511,11 @@
             const input=document.createElement('input');input.id=label.htmlFor;input.type='text';input.inputMode='decimal';input.autocomplete='off';input.spellcheck=false;input.placeholder='例如 2 或 1e3';input.setAttribute('aria-describedby','tree-super-auto-error');
             const apply=document.createElement('button');apply.id='save-tree-super-auto-multiplier';apply.type='button';apply.className='secondary-button';apply.textContent='保存倍率';
             const error=document.createElement('p');error.id='tree-super-auto-error';error.setAttribute('role','status');error.hidden=true;
-            apply.addEventListener('click',()=>{
+            apply.addEventListener('click',async()=>{
               if(!definition.isUnlocked() || definition.isDisabled())return;
               const value=input.value.trim(),n=value?WIS.Core.BigNum.parseFinite(value):null;
               if(!n || n.lt(1)){error.textContent='请输入大于或等于 1 的有效倍率。';error.hidden=false;input.setAttribute('aria-invalid','true');return;}
-              state.treeSuperAutomationMultiplier=n;error.hidden=true;input.removeAttribute('aria-invalid');saveState();renderAutomationManager(true);showNotice('超构造进入倍率已保存');
+              await setPreference('treeSuperAutomationMultiplier',String(n));error.hidden=true;input.removeAttribute('aria-invalid');saveState();renderAutomationManager(true);showNotice('超构造进入倍率已保存');
             });
             field.append(label,input,apply);copy.append(field,error);
           }
@@ -521,9 +524,9 @@
           if(definition.kind==='selection') {
             toggle.id='cultivation-automation-target';toggle.setAttribute('aria-label','转生后自动选择体系');
             for(const [value,label] of [['','关闭'],['immortal','仙道'],['martial','武道']]){const option=document.createElement('option');option.value=value;option.textContent=label;toggle.append(option);}
-            toggle.addEventListener('change',()=>{
+            toggle.addEventListener('change',async()=>{
               if(!definition.isUnlocked()||definition.isDisabled())return;
-              state.cultivationAutomationTarget=toggle.value;saveState();renderAutomationManager(true);showNotice('转生后自动选择体系已保存');
+              await setPreference('cultivationAutomationTarget',toggle.value);saveState();renderAutomationManager(true);showNotice('转生后自动选择体系已保存');
             });
           }else toggle.type = "button";
           toggle.dataset.automationId = definition.id;
@@ -980,8 +983,8 @@
     return !importTransaction && context.canPerformSavedAction?.() !== false;
   }
 
-  function beforePlayerAction() {
-    return (WIS.Game?.beforePlayerAction ? WIS.Game.beforePlayerAction() : runtime.call("beforePlayerAction")) !== false;
+  function beforePlayerAction(deferOnline=false) {
+    return (WIS.Game?.beforePlayerAction ? WIS.Game.beforePlayerAction({deferOnline}) : runtime.call("beforePlayerAction",{deferOnline})) !== false;
   }
   function renderSettlementStatus() {
     const node = rawById("settlement-limit-status");
@@ -995,6 +998,11 @@
       (ledger.lastDiscard ? ` 最近一次舍弃现实时间 ${seconds(ledger.lastDiscard.clock)} 秒、游戏时间 ${seconds(ledger.lastDiscard.game)} 秒。` : "");
   }
   function performSavedAction(action, update, afterCommit) {
+    if(session)return (async()=>{
+      if(!beforePlayerAction()||!context.canPerformSavedAction())return false;
+      try{const result=await action();if(result===false)return false;update();render({forceGlobal:true,forcePage:true});return true;}
+      catch(error){WIS.Core.Save.diagnose('operation',error);safeOperationNotice(error.message);return false;}
+    })();
     if (!beforePlayerAction()) return false;
     if(context.canPerformSavedAction?.()===false)return false;
     const storage=WIS.Core.Save;
@@ -1029,6 +1037,7 @@
   }
 
   function captureExportText() {
+    if(session)return session.exportSave();
     // Export captures the current foreground watermark but never forces online
     // settlement; the pending ordered time ledger travels with the snapshot.
     const capturedAt = Date.now();
@@ -1051,9 +1060,9 @@
     byId("save-export-generic").hidden = !WIS.UI.NativePlatform?.isNative();
     WIS.UI.Dialog.open(byId("save-export-dialog"));
   }
-  function exportSave() {
+  async function exportSave() {
     if (exportOperationBusy) { WIS.UI.Dialog.open(byId("save-export-dialog")); return; }
-    openSaveExport(captureExportText(), `WIS-存档-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    openSaveExport(session?await session.exportSave():captureExportText(), `WIS-存档-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   }
   async function performSaveExport(kind) {
     if (!exportSnapshot || exportOperationBusy) return;
@@ -1140,6 +1149,13 @@
   }
 
   function beginUIImportTransaction(phase = "reading") {
+    if(session){
+      if(importTransaction)return importTransaction;
+      cancelDeferredRecoveryStart();cancelExplorationPreviewWorks();
+      const transaction={token:Date.now(),startedAt:Date.now(),phase,committed:false};
+      transaction.ready=session.beginImport().then(previous=>{transaction.previous=previous;return previous;});
+      importTransaction=transaction;return transaction;
+    }
     if (importTransaction) return importTransaction;
     const transaction = beginImportTransaction?.();
     if (!transaction) return null;
@@ -1161,6 +1177,12 @@
   }
 
   function rollbackUIImportTransaction(transaction = importTransaction, reason = "import-cancel") {
+    if(session){
+      if(!transaction||transaction!==importTransaction||transaction.committed)return false;
+      importTransaction=null;
+      void transaction.ready.then(()=>session.rollbackImport(reason)).then(()=>{applyTheme();markGlobalDirty();markPagesDirty();render({forceGlobal:true,forcePage:true});}).catch(error=>showNotice(error.message,6000));
+      return true;
+    }
     if (!transaction || transaction !== importTransaction || transaction.committed) return false;
     let result;
     try {
@@ -1209,12 +1231,13 @@
     if (!transaction) { showNotice("无法开始导入：另一个导入事务尚未结束。", 4000); return; }
     transaction.phase = "reading";
     importSave.pending = true;
-    const previous = transaction.previous;
+    let previous = transaction.previous;
     let switched = false, installed = false, stage = "read";
     const previousSummary = offlineCompletedSummary;
     const timer = createImportTimer();
     traceImportLifecycle("read-start", { token: transaction.token });
     try {
+      if(session)previous=await transaction.ready;
       const text = await readSaveFileText(file);
       if (transaction !== importTransaction || transaction.committed) return;
       timer.step("read");
@@ -1234,6 +1257,13 @@
       finally{work.cancel();}
       timer.step("prepare");
       stage = "install";
+      if(session){
+        WIS.Core.Save.backup(previous.state,{offlineRecoveryOverride:previous.recovery,capturedAt:transaction.startedAt,preserveExisting:file?.preserveBackup===true});
+        await session.importPrepared(prepared);transaction.committed=true;importTransaction=null;installed=true;
+        achievementPresentation.reset();markCostGroupsDirty();markAchievementsDirty();markGlobalDirty();markPagesDirty();applyTheme();
+        WIS.UI.Dialog.close(byId("settings-dialog"));handleOfflineCatchUpStatus(getCatchUpStatus());render({forceGlobal:true,forcePage:true});
+        showNotice("存档已导入",1400);return;
+      }
       // Validation and migration have no access to the current task queue.
       // Backup must succeed before switching either progress or offline debt.
       WIS.Core.Save.backup(previous.state, { offlineRecoveryOverride: previous.recovery, capturedAt: transaction.startedAt, preserveExisting: file?.preserveBackup === true });
@@ -1329,11 +1359,15 @@
     }
   }
 
-  function resetGame() {
+  async function resetGame() {
     if (importTransaction || importSave.pending) { showNotice("正在导入，请等待当前操作完成后再重置。", 4000); return false; }
     if (context.canPerformSavedAction?.() === false) return false;
     if (!window.confirm("确定要清空全部游戏进度和个性化设置吗？")) return;
     offlineCompletedSummary = null;
+    if(session){
+      try{await session.beginImport();await session.importPrepared({state:freshDefaultState(),offlineRecovery:null});achievementPresentation.reset();activePage="actions";activeCultivationPage="realms";markGlobalDirty();markPagesDirty();applyTheme();switchPage("actions");}
+      catch(error){showNotice(error.message,6000);}return;
+    }
     cancelCatchUp();
     runtime.setState(freshDefaultState());
     WIS.Meta.TreasureProgress.ensure(runtime.getState());
@@ -1572,7 +1606,7 @@
       const button = rawById(id);
       if (!button || button.dataset.lazyBound === "true") return;
       button.dataset.lazyBound = "true";
-      bindHoldButton(id, () => recordManualProgress(manualImmortalAbilityHistory, key, action));
+      bindHoldButton(id, () => session?session.withManual({kind:'immortal',key},action):recordManualProgress(manualImmortalAbilityHistory,key,action));
     });
   }
 
@@ -2395,6 +2429,7 @@
   const explorationPreviewWorks = new Map();
   const explorationPreviewAttempts = new Map();
   let explorationPreviewGeneration = 0;
+  let previewPublication = null;
   let explorationPreviewRefreshPending = false;
   const firstExplorationPreviewPending = new Set();
   let firstExplorationPreviewReady = null;
@@ -2411,7 +2446,7 @@
       // Read the current state only now. No captured values/Evaluation survive
       // this scheduling boundary, so load replacement cannot publish old data.
       firstExplorationPreviewReady = key;
-      try { publishPreview({urgent:true}); }
+      try { renderPreview({urgent:true}); }
       finally { firstExplorationPreviewReady = null; }
     });
   }
@@ -2434,6 +2469,7 @@
     for (const snapshot of explorationPreviews.values()) snapshot.dirty = true;
   }
   function cancelExplorationPreviewWorks(resetRetry = true) {
+    previewPublication = null;
     cancelSourcePreviewWorks(resetRetry);
     if(resetRetry)explorationPreviewAttempts.clear();
     explorationPreviewGeneration++;
@@ -2441,6 +2477,20 @@
     explorationPreviewWorks.clear();
   }
   function publishPreview({urgent = false} = {}) {
+    // Completion must release the host task before refreshing the page. Keep a
+    // single request, fenced by the same lifecycle as the immutable preview.
+    const owner=currentPreviewOwner();
+    if(previewPublication&&previewPublication.owner===owner&&previewPublication.page===activePage){previewPublication.urgent ||= urgent;return;}
+    const request={owner,page:activePage,generation:explorationPreviewGeneration,urgent};
+    previewPublication=request;
+    window.setTimeout(()=>{
+      if(previewPublication!==request)return;
+      previewPublication=null;
+      if(request.owner!==currentPreviewOwner()||request.generation!==explorationPreviewGeneration||request.page!==activePage||document.hidden||importTransaction||explorationHoldActive||context.isDeferredActionPending?.())return;
+      renderPreview(request);
+    },0);
+  }
+  function renderPreview({urgent = false} = {}) {
     // A new preview changes text, not page structure. A structural request
     // would invalidate the cache revision it has just published.
     runtime.call(!urgent && previewBacklogActive() ? 'render' : 'renderImmediately',WIS.Core.Amount?.enabled()?undefined:activePage);
@@ -2486,14 +2536,14 @@
         if(entry.previewWork){
           const next=entry.previewWork.advance({deadline:performance.now()+3,maximumOperations:256,minimumOperations:32});
           if(!next.done){if(!entry.previewWork.waiting?.())window.setTimeout(run,previewContinuationDelay(entry.urgent));return;}
-          const value={...entry.previewWork.result(),sampledAt:entry.startedAt,calculatedAt:Date.now(),dirty:entry.refreshAfterCompletion===true};explorationPreviews.set(key,value);if(entry.retry)entry.retry.urgent=false;cancel();publishPreview({urgent:entry.urgent});return;
+          const value={...entry.previewWork.result(),sampledAt:entry.startedAt,calculatedAt:Date.now(),dirty:entry.refreshAfterCompletion===true};explorationPreviews.set(key,value);if(entry.retry)entry.retry.urgent=false;cancel();if(key==='breathing')renderBreathingPreviewResult(value,element);else publishPreview({urgent:entry.urgent});return;
         }
         const progress=entry.scope.advance(performance.now()+3);
         if(!progress.done){window.setTimeout(run,0);return;}
         const attempt=entry.scope.attempt(()=>runtime.withState(snapshot,calculate));
         if(!attempt.done){window.setTimeout(run,0);return;}
         explorationPreviews.set(key,attempt.value);cancel();publishPreview({urgent:entry.urgent});
-      }catch(error){cancel();explorationPreviews.set(key,{error:error.message,records:null,calculatedAt:WIS.Core.Amount?.enabled()?Date.now():entry.startedAt,dirty:false});if(entry.retry)entry.retry.urgent=false;publishPreview({urgent:entry.urgent});}
+      }catch(error){cancel();explorationPreviews.set(key,{error:error.message,records:null,calculatedAt:WIS.Core.Amount?.enabled()?Date.now():entry.startedAt,dirty:false});if(entry.retry)entry.retry.urgent=false;if(key==='breathing')renderBreathingPreviewResult(explorationPreviews.get(key),element);else publishPreview({urgent:entry.urgent});}
     };
     entry.unsubscribe=entry.previewWork?.onReady?.(()=>window.setTimeout(run,0));
     // Even cheap previews start in another host task. Long integrations yield
@@ -2678,9 +2728,8 @@
         if (!entry.work) {
           const snapshot = WIS.Core.State.cloneForSimulation(original);
           const local=()=>WIS.Simulation.PureMathWork.create('source-preview',snapshot,request,{isCurrent:current});
-          // Only training was measured as heavy here; keep ordinary source rows
-          // local so a page of upgrade cards cannot spawn a worker per card.
-          entry.work=request.ids.includes('training')?WIS.Simulation.MathWorker.createWork('source-preview',snapshot,request,{local,isCurrent:current}):local();
+          // Keep unmeasured card previews local; these three action sources are heavy.
+          entry.work=WIS.Simulation.MathWorker&&request.ids.some(id=>['training','fitness','rock'].includes(id))?WIS.Simulation.MathWorker.createWork('source-preview',snapshot,request,{local,isCurrent:current}):local();
           entry.unsubscribe=entry.work.onReady?.(()=>window.setTimeout(run,0));
         }
         const next = entry.work.advance({ deadline: performance.now() + 3, maximumOperations: 256, minimumOperations: entry.urgent ? 128 : 32 });
@@ -2692,14 +2741,14 @@
         WIS.UI.SourcePreview.writeRecords(element, records, format, request.options);
         rememberPreview(element, records);
         Object.assign(heavyPreviewCache.get(element), { nextPowerJ, request, generation, ...(entry.refreshAfterCompletion ? { at: -Infinity } : {}) });
-        retry.urgent = false; cancel(); publishPreview({ urgent: entry.urgent });
+        retry.urgent = false; cancel(); if(request.ids.includes('training'))renderTrainingPreviewControls(syncTrainingPreviewBoundary(element));
       } catch (error) {
         if (current()) {
           const failure = showSourcePreviewFailure(element, error);
           rememberPreview(element, undefined);
           Object.assign(heavyPreviewCache.get(element), { request, generation, error: failure });
           retry.urgent = false;
-          cancel(); publishPreview({ urgent: entry.urgent });
+          cancel(); if(request.ids.includes('training'))renderTrainingPreviewControls(syncTrainingPreviewBoundary(element));
           return;
         }
         cancel();
@@ -2720,6 +2769,66 @@
     return heavyPreviewCache.get(element)?.records || [{ final: ZERO }];
   }
 
+  // Completion changes only preview text and its dependent controls.
+  function renderTrainingPreviewControls(trainingBaseReady) {
+      const cachedTraining = heavyPreviewCache.get(byId("conversion-preview"));
+      const nextPowerJ = WIS.Core.Amount?.enabled()?cachedTraining?.nextPowerJ:joulesForNextBasePower();
+      setTextIfChanged(byId("next-power-j"), cachedTraining?.error ? "暂时无法计算下一档需求。" :
+        nextPowerJ === undefined ? "正在计算下一档需求…" : `下一点基础战力所需：${format(nextPowerJ, 0)} J`);
+      const view = WIS.UI.ActionView.training({ enough: trainingBaseReady, busy: context.isDeferredActionPending?.() === true, previewGain: cachedTraining?.records?.[0]?.final });
+      setTextIfChanged(byId("train-button"), view.label);
+      setDisabledIfChanged(byId("train-button"), !view.enabled);
+      setTextIfChanged(byId("training-availability"), view.reason);
+      byId("train-button").setAttribute("aria-busy", view.reasonCode === "busy" ? "true" : "false");
+  }
+  function renderBreathingPreviewResult(snapshot,breathingElement) {
+      breathingElement.classList.add("source-gain-preview");
+      if(snapshot?.records){setTextIfChanged(breathingElement,WIS.UI.SourcePreview.text(snapshot.records,format));const details=breathingElement.parentElement?.querySelector(".calculation-details");if(details)details.hidden=true;}
+      else if (snapshot?.error) showSourcePreviewFailure(breathingElement, { message: snapshot.error });
+      else setTextIfChanged(breathingElement, "正在计算收益…");
+      const nextManaJ = WIS.Core.Amount?.enabled()?snapshot?.value?.nextManaJ:joulesForNextBaseMana();
+      setTextIfChanged(byId("next-mana-j"), snapshot?.error ? "暂时无法计算下一档需求。" : breathingNextBaseManaRequirementText(nextManaJ,state.joules));
+      // Only the completed formal action decides gain eligibility.
+      const breathingBusy=context.isDeferredActionPending?.()===true;
+      setTextIfChanged(byId("breathing-button"),breathingBusy?"计算中…":"吐纳");
+      byId("breathing-button").setAttribute("aria-busy",breathingBusy?"true":"false");
+      setDisabledIfChanged(byId("breathing-button"),ltBN(state.joules,3000));
+  }
+  // Presentation only: these level controls depend on upgrades/achievements,
+  // not online balances. Never feed this retained view into a formal purchase.
+  // Cap effects: scale biologicalQuantification/destroyCountry and immortal longevity/auraIntoBody.
+  // A newly registered provider takes the conservative uncached path.
+  const actionLevelProviders = WIS.Core.Effects.providerIds?.().join('|') ?? null;
+  let actionLevelPresentation = null;
+  function actionLevelPresentationSnapshot() {
+    const a = state.unlockedAchievements || {};
+    const key = [session?.displayOwner?.() ?? currentPreviewOwner(), structureRevision, state.powerSystem?.active,
+      WIS.Core.Amount?.enabled(), WIS.Core.Runtime?.getMathPolicy?.(),
+      state.cultivation?.active, state.activeChallenge, state.equalHeavenLongevityUnlocked,
+      state.longevityLevel, state.goldenCoreLongevityLevel, state.longevity800Level, state.auraIntoBodyUnlocked,
+      state.runningLevel, state.rockLevel, state.humanGhostTransformationPurchased,
+      state.ghostManTransformationPurchased, state.continentSplitPurchased,
+      state.enduranceEnhancementPurchased, state.hyperRegenerationPurchased,
+      state.biologicalQuantificationPurchased, state.rockStrikePurchased,
+      state.mountainCollapsePurchased, state.earthSplitPurchased, state.destroyCountryPurchased,
+      a.trueBrick, a.trueScale2, a.scale7];
+    const reusable = actionLevelProviders !== null && WIS.Core.Effects.providerIds?.().join('|') === actionLevelProviders;
+    if (reusable && actionLevelPresentation?.key.every((value, i) => Object.is(value, key[i]))) return actionLevelPresentation;
+    const fitnessCap = fitnessLevelCap(), rockCap = rockLevelCap();
+    const fitnessLevel = effectiveFitnessLevel(), rockLevel = effectiveRockLevel();
+    const nextRunningCost = runningCost(), nextRockCost = rockCost();
+    const view = { key, fitnessCap, rockCap, nextRunningCost, nextRockCost,
+      fitnessText: fitnessLevel !== state.runningLevel
+        ? `升级等级：${state.runningLevel}/${fitnessCap}；加成后按 ${fitnessLevel} 级计算`
+        : `当前：${state.runningLevel}/${fitnessCap}级`,
+      rockText: rockLevel !== state.rockLevel
+        ? `升级等级：${state.rockLevel}/${rockCap}；加成后按 ${rockLevel} 级计算`
+        : `当前：${state.rockLevel}/${rockCap}级`,
+      runningCostText: `消耗 ${formatCost(nextRunningCost)} 战力`,
+      rockCostText: `消耗 ${formatCost(nextRockCost)} 战力` };
+    actionLevelPresentation = view; // Publish only after every calculation succeeds.
+    return view;
+  }
   function renderPageContent(pageName) {
     const renderActions = pageName === "actions";
     const renderUpgrades = pageName === "upgrades";
@@ -2740,6 +2849,7 @@
     let nextImmortalApertureCost;
     let nextTrueSpiritTransformationCost;
     let immortalSelected;
+    let actionLevels;
 
     if (renderActions) {
       // A missing presentation result must not lock out explicit training.
@@ -2747,15 +2857,7 @@
       // automatic first previews continue to yield to online debt.
       const trainingBaseReady = syncTrainingPreviewBoundary(byId("conversion-preview"));
       writeSourcePreview("conversion-preview", "training", false);
-      const cachedTraining = heavyPreviewCache.get(byId("conversion-preview"));
-      const nextPowerJ = WIS.Core.Amount?.enabled()?cachedTraining?.nextPowerJ:joulesForNextBasePower();
-      setTextIfChanged(byId("next-power-j"), cachedTraining?.error ? "暂时无法计算下一档需求。" :
-        nextPowerJ === undefined ? "正在计算下一档需求…" : `下一点基础战力所需：${format(nextPowerJ, 0)} J`);
-      const view = WIS.UI.ActionView.training({ enough: trainingBaseReady, busy: context.isDeferredActionPending?.() === true, previewGain: cachedTraining?.records?.[0]?.final });
-      setTextIfChanged(byId("train-button"), view.label);
-      setDisabledIfChanged(byId("train-button"), !view.enabled);
-      setTextIfChanged(byId("training-availability"), view.reason);
-      byId("train-button").setAttribute("aria-busy", view.reasonCode === "busy" ? "true" : "false");
+      renderTrainingPreviewControls(trainingBaseReady);
     }
     if (renderUpgrades) {
       const gym = gymMultiplier();
@@ -2772,13 +2874,11 @@
     setPreviewText(byId("extreme-exercise-preview"), () => `${state.extremeExercisePurchased ? "当前：" : "解锁后："}运动倍率 ×${format(mulBN(1.5, WIS.Cultivation.Martial.abilityMultiplier(state,"mingQuan")), 2)}`);
     }
     if (renderActions) {
-      const fitnessCap = fitnessLevelCap();
-      const nextRunningCost = runningCost();
-    setTextIfChanged(byId("running-level"), effectiveFitnessLevel() !== state.runningLevel
-      ? `升级等级：${state.runningLevel}/${fitnessCap}；加成后按 ${effectiveFitnessLevel()} 级计算`
-      : `当前：${state.runningLevel}/${fitnessCap}级`);
+      const levelView = actionLevels = actionLevelPresentationSnapshot();
+      const { fitnessCap, nextRunningCost } = levelView;
+    setTextIfChanged(byId("running-level"), levelView.fitnessText);
     writeSourcePreview("running-rate", "fitness", false);
-    setTextIfChanged(byId("running-cost"), `消耗 ${formatCost(nextRunningCost)} 战力`);
+    setTextIfChanged(byId("running-cost"), levelView.runningCostText);
     setTextIfChanged(byId("buy-running"), state.runningLevel >= fitnessCap ? "已达上限" : "升级");
     setDisabledIfChanged(byId("buy-running"), state.runningLevel >= fitnessCap || !canAffordPower(nextRunningCost));
     setHiddenIfChanged(byId("running-action"), ltBN(state.totalPower, 1));
@@ -2800,8 +2900,8 @@
     setHiddenIfChanged(byId("cosmic-upgrades"), state.highestScaleIndex < 14);
     }
     if (renderActions) {
-      const nextRockCost = rockCost();
-      const rockCap = rockLevelCap();
+      const levelView = actionLevels;
+      const { rockCap, nextRockCost } = levelView;
     setHiddenIfChanged(byId("rock-action"), !state.wallUnlocked);
     setHiddenIfChanged(byId("ghost-back-action"), !state.ghostBackPurchased);
     toggleClassIfChanged(byId("ghost-back-action"), "purchased", state.ghostBackActive);
@@ -2810,11 +2910,9 @@
     setTextIfChanged(byId("ghost-back-state"), state.ghostBackActive ? "当前已激活" : "当前未激活");
     setTextIfChanged(byId("toggle-ghost-back"), state.ghostBackActive ? "关闭" : "激活");
     setDisabledIfChanged(byId("toggle-ghost-back"), !state.ghostBackPurchased);
-    setTextIfChanged(byId("rock-level"), effectiveRockLevel() !== state.rockLevel
-      ? `升级等级：${state.rockLevel}/${rockCap}；加成后按 ${effectiveRockLevel()} 级计算`
-      : `当前：${state.rockLevel}/${rockCap}级`);
+    setTextIfChanged(byId("rock-level"), levelView.rockText);
     writeSourcePreview("rock-rate", "rock", false);
-    setTextIfChanged(byId("rock-cost"), `消耗 ${formatCost(nextRockCost)} 战力`);
+    setTextIfChanged(byId("rock-cost"), levelView.rockCostText);
     setTextIfChanged(byId("buy-rock"), state.rockLevel >= rockCap ? "已达上限" : "升级");
     setDisabledIfChanged(byId("buy-rock"), state.rockLevel >= rockCap || !canAffordPower(nextRockCost));
     }
@@ -2913,20 +3011,12 @@
     setHiddenIfChanged(byId("exploration-action"), !immortalCultivationActive() || !state.goldenCoreUnlocked);
     if (immortalCultivationActive() && state.qiRefiningUnlocked && previewVisible(byId("breathing-preview"))) {
       const breathingElement = byId("breathing-preview");
-      breathingElement.classList.add("source-gain-preview");
-      const snapshot = explorationPreviewSnapshot('breathing',breathingElement);
-      if(snapshot?.records){setTextIfChanged(breathingElement,WIS.UI.SourcePreview.text(snapshot.records,format));const details=breathingElement.parentElement?.querySelector(".calculation-details");if(details)details.hidden=true;}
-      else if (snapshot?.error) showSourcePreviewFailure(breathingElement, { message: snapshot.error });
-      else setTextIfChanged(breathingElement, "正在计算收益…");
-      const nextManaJ = WIS.Core.Amount?.enabled()?snapshot?.value?.nextManaJ:joulesForNextBaseMana();
-      setTextIfChanged(byId("next-mana-j"), snapshot?.error ? "暂时无法计算下一档需求。" : breathingNextBaseManaRequirementText(nextManaJ,state.joules));
-      // Only the completed formal action decides gain eligibility.
-      const breathingBusy=context.isDeferredActionPending?.()===true;
-      setTextIfChanged(byId("breathing-button"),breathingBusy?"计算中…":"吐纳");
-      byId("breathing-button").setAttribute("aria-busy",breathingBusy?"true":"false");
-      setDisabledIfChanged(byId("breathing-button"),ltBN(state.joules,3000));
+      renderBreathingPreviewResult(explorationPreviewSnapshot('breathing',breathingElement),breathingElement);
     }
     if (immortalCultivationActive() && state.goldenCoreUnlocked) {
+    const explorationBusy=context.isDeferredActionPending?.()===true;
+    setTextIfChanged(byId("exploration-button"),explorationBusy?"计算中…":"探寻");
+    byId("exploration-button").setAttribute("aria-busy",explorationBusy?"true":"false");
     setTextIfChanged(byId("exploration-cost"), "消耗当前 10% 战力，至少消耗 1M");
     // A stale low-yield preview must never prevent a newly valid live action.
     // The formal action is the authority for gain and payment eligibility.
@@ -3711,7 +3801,7 @@
 
   function bindHoldButton(id, action, { repeatAction = action, canRepeat = () => true, cooperative = false, managedCommit = false } = {}) {
     const commit = work => () => {
-      if (!beforePlayerAction()) return false;
+      if (!beforePlayerAction(cooperative)) return false;
       if (managedCommit) return work();
       const result = work();
       const completed=(value, deferred=false)=>{
@@ -3884,7 +3974,7 @@
   }
 
   function bindManualScaleUpgrade(id, key, action) {
-    bindHoldButton(id, () => recordManualProgress(manualScaleUpgradeHistory, key, action));
+    bindHoldButton(id, () => session?session.withManual({kind:'scale',key},action):recordManualProgress(manualScaleUpgradeHistory,key,action));
   }
 
   function bindManualImmortalAbility(id, key, action) {
@@ -3892,11 +3982,11 @@
       registerAdvancedAbilityBinding(id, key, action);
       return;
     }
-    bindHoldButton(id, () => recordManualProgress(manualImmortalAbilityHistory, key, action));
+    bindHoldButton(id, () => session?session.withManual({kind:'immortal',key},action):recordManualProgress(manualImmortalAbilityHistory,key,action));
   }
 
   function bindManualRealmBreakthrough(id, action) {
-    bindHoldButton(id, () => recordManualRealmBreakthrough(action));
+    bindHoldButton(id, () => session?session.withManual({kind:'realm'},action):recordManualRealmBreakthrough(action));
   }
 
   // 高级境界能力首次达到对应境界时创建，事件绑定在节点创建后补齐。
@@ -3932,7 +4022,7 @@
       const importing = importTransaction !== null;
       const sessionReplacementControl = event.target?.closest?.("#import-save, #import-file, #restore-save-backup, #reset-game");
       // A rejected control must not settle pending time inside an import hold.
-      if (!importing && !sessionReplacementControl && !event.target?.closest?.("[data-page], [data-cultivation-page], summary") && ["pointerdown", "click", "keydown"].includes(event.type) && event.target?.closest?.("button, input, select, [role='button']") && !beforePlayerAction()) {
+      if (!importing && !sessionReplacementControl && !event.target?.closest?.("[data-page], [data-cultivation-page], summary") && ["pointerdown", "click", "keydown"].includes(event.type) && event.target?.closest?.("button, input, select, [role='button']") && !beforePlayerAction(!!event.target?.closest?.("#breathing-button, #exploration-button") || WIS.Core.Amount?.enabled()===true && !!event.target?.closest?.("#train-button"))) {
         event.preventDefault(); event.stopImmediatePropagation(); return;
       }
       if(context.canPerformSavedAction?.()===false){
@@ -3972,7 +4062,7 @@
     document.querySelectorAll(".nav-item").forEach((button) => {
       button.addEventListener("click", () => switchPage(button.dataset.page));
     });
-    const trainingAction=manual=>{if(!WIS.Core.Amount?.enabled())return train(manual);cancelExplorationPreviewWorks();const factory=snapshot=>WIS.Power.ScaleLogic.createTrainingActionWork(snapshot,manual,{worker:true});return context.requestDeferredAction?context.requestDeferredAction(factory):runtime.call('requestDeferredAction',factory);};
+    const trainingAction=manual=>{if(session)return Scale.train(manual);if(!WIS.Core.Amount?.enabled())return train(manual);cancelExplorationPreviewWorks();const factory=snapshot=>WIS.Power.ScaleLogic.createTrainingActionWork(snapshot,manual,{worker:true});return context.requestDeferredAction?context.requestDeferredAction(factory):runtime.call('requestDeferredAction',factory);};
     bindHoldButton("train-button", () => trainingAction(true), {
       repeatAction: () => trainingAction(false),cooperative:WIS.Core.Amount?.enabled()===true,
       canRepeat: () => hasAchievement("lightningFiveWhip")
@@ -4008,58 +4098,59 @@
     bindManualScaleUpgrade("buy-super-speed-thinking", "superSpeedThinkingPurchased", buySuperSpeedThinking);
     bindManualScaleUpgrade("buy-mountain-collapse", "mountainCollapsePurchased", buyMountainCollapse);
     bindManualScaleUpgrade("buy-mind-division", "mindDivisionLevel", buyMindDivision);
-    bindManualScaleUpgrade("buy-hyper-regeneration", "hyperRegenerationPurchased", () => WIS.Power.Scale.buyUpgrade("hyperRegeneration"));
-    bindManualScaleUpgrade("buy-superpower-evolution", "superpowerEvolutionPurchased", () => WIS.Power.Scale.buyUpgrade("superpowerEvolution"));
-    bindManualScaleUpgrade("buy-earth-split", "earthSplitPurchased", () => WIS.Power.Scale.buyUpgrade("earthSplit"));
-    bindManualScaleUpgrade("buy-mental-domain", "mentalDomainPurchased", () => WIS.Power.Scale.buyUpgrade("mentalDomain"));
-    bindManualScaleUpgrade("buy-godspeed", "godspeedPurchased", () => WIS.Power.Scale.buyUpgrade("godspeed"));
-    bindManualScaleUpgrade("buy-subtle", "subtlePurchased", () => WIS.Power.Scale.buyUpgrade("subtle"));
-    bindManualScaleUpgrade("buy-sky-split", "skySplitPurchased", () => WIS.Power.Scale.buyUpgrade("skySplit"));
-    bindManualScaleUpgrade("buy-biological-quantification", "biologicalQuantificationPurchased", () => WIS.Power.Scale.buyUpgrade("biologicalQuantification"));
-    bindManualScaleUpgrade("buy-ghost-man-transformation", "ghostManTransformationPurchased", () => WIS.Power.Scale.buyUpgrade("ghostManTransformation"));
-    bindManualScaleUpgrade("buy-destroy-country", "destroyCountryPurchased", () => WIS.Power.Scale.buyUpgrade("destroyCountry"));
-    bindManualScaleUpgrade("buy-human-ghost-transformation", "humanGhostTransformationPurchased", () => WIS.Power.Scale.buyUpgrade("humanGhostTransformation"));
-    bindManualScaleUpgrade("buy-killing-intent-substance", "killingIntentSubstancePurchased", () => WIS.Power.Scale.buyUpgrade("killingIntentSubstance"));
-    bindManualScaleUpgrade("buy-energy-cycle", "energyCyclePurchased", () => WIS.Power.Scale.buyUpgrade("energyCycle"));
-    bindManualScaleUpgrade("buy-mountain-shatter", "mountainShatterPurchased", () => WIS.Power.Scale.buyUpgrade("mountainShatter"));
-    bindManualScaleUpgrade("buy-bioenergy", "bioenergyPurchased", () => WIS.Power.Scale.buyUpgrade("bioenergy"));
-    bindManualScaleUpgrade("buy-elementalization", "elementalizationPurchased", () => WIS.Power.Scale.buyUpgrade("elementalization"));
-    bindManualScaleUpgrade("buy-killing-intent-perception", "killingIntentPerceptionPurchased", () => WIS.Power.Scale.buyUpgrade("killingIntentPerception"));
-    bindManualScaleUpgrade("buy-killing-intent-wave", "killingIntentWavePurchased", () => WIS.Power.Scale.buyUpgrade("killingIntentWave"));
-    bindManualScaleUpgrade("buy-ultimate-intent", "ultimateIntentPurchased", () => WIS.Power.Scale.buyUpgrade("ultimateIntent"));
-    bindManualScaleUpgrade("buy-brain-domain-development", "brainDomainDevelopmentPurchased", () => WIS.Power.Scale.buyUpgrade("brainDomainDevelopment"));
-    bindManualScaleUpgrade("buy-continent-split", "continentSplitPurchased", () => WIS.Power.Scale.buyUpgrade("continentSplit"));
-    bindManualScaleUpgrade("buy-continent-collapse", "continentCollapsePurchased", () => WIS.Power.Scale.buyUpgrade("continentCollapse"));
-    bindManualScaleUpgrade("buy-wave-eye", "waveEyePurchased", () => WIS.Power.Scale.buyUpgrade("waveEye"));
-    bindManualScaleUpgrade("buy-elemental-awakening", "elementalAwakeningPurchased", () => WIS.Power.Scale.buyUpgrade("elementalAwakening"));
-    bindManualScaleUpgrade("buy-moonfall", "moonfallPurchased", () => WIS.Power.Scale.buyUpgrade("moonfall"));
-    bindManualScaleUpgrade("buy-flow-state", "flowStatePurchased", () => WIS.Power.Scale.buyUpgrade("flowState"));
-    bindManualScaleUpgrade("buy-selfhood", "selfhoodPurchased", () => WIS.Power.Scale.buyUpgrade("selfhood"));
-    bindManualScaleUpgrade("buy-freedom", "freedomPurchased", () => WIS.Power.Scale.buyUpgrade("freedom"));
-    bindManualScaleUpgrade("buy-chicxulub-meteorite", "chicxulubMeteoritePurchased", () => WIS.Power.Scale.buyUpgrade("chicxulubMeteorite"));
-    bindManualScaleUpgrade("buy-planet-will", "planetWillPurchased", () => WIS.Power.Scale.buyUpgrade("planetWill"));
-    bindManualScaleUpgrade("buy-star-spirit", "starSpiritPurchased", () => WIS.Power.Scale.buyUpgrade("starSpirit"));
-    bindManualScaleUpgrade("buy-star-shatter", "starShatterPurchased", () => WIS.Power.Scale.buyUpgrade("starShatter"));
-    bindManualScaleUpgrade("buy-space-quake", "spaceQuakePurchased", () => WIS.Power.Scale.buyUpgrade("spaceQuake"));
-    bindManualScaleUpgrade("buy-selfless", "selflessPurchased", () => WIS.Power.Scale.buyUpgrade("selfless"));
-    bindManualScaleUpgrade("buy-supernatural-fire", "supernaturalFirePurchased", () => WIS.Power.Scale.buyUpgrade("supernaturalFire"));
-    bindManualScaleUpgrade("buy-five-spirit-stone", "fiveSpiritStonePurchased", () => WIS.Power.Scale.buyUpgrade("fiveSpiritStone"));
-    bindManualScaleUpgrade("buy-self-suppression", "selfSuppressionPurchased", () => WIS.Power.Scale.buyUpgrade("selfSuppression"));
-    bindManualScaleUpgrade("buy-stellar-furnace", "stellarFurnacePurchased", () => WIS.Power.Scale.buyUpgrade("stellarFurnace"));
-    bindManualScaleUpgrade("buy-stellar-treasure-seeking", "stellarTreasureSeekingPurchased", () => WIS.Power.Scale.buyUpgrade("stellarTreasureSeeking"));
-    bindManualScaleUpgrade("buy-gravitational-collapse", "gravitationalCollapsePurchased", () => WIS.Power.Scale.buyUpgrade("gravitationalCollapse"));
-    bindManualScaleUpgrade("buy-galactic-return", "galacticReturnPurchased", () => WIS.Power.Scale.buyUpgrade("galacticReturn"));
-    bindManualScaleUpgrade("buy-stellar-sea-gift", "stellarSeaGiftPurchased", () => WIS.Power.Scale.buyUpgrade("stellarSeaGift"));
-    bindManualScaleUpgrade("buy-stellar-resonance", "stellarResonancePurchased", () => WIS.Power.Scale.buyUpgrade("stellarResonance"));
-    bindManualScaleUpgrade("buy-great-attractor", "greatAttractorPurchased", () => WIS.Power.Scale.buyUpgrade("greatAttractor"));
-    bindManualScaleUpgrade("buy-large-scale-adaptation", "largeScaleAdaptationPurchased", () => WIS.Power.Scale.buyUpgrade("largeScaleAdaptation"));
-    bindManualScaleUpgrade("buy-supercluster-collapse", "superclusterCollapsePurchased", () => WIS.Power.Scale.buyUpgrade("superclusterCollapse"));
-    bindManualScaleUpgrade("buy-cosmic-web", "cosmicWebPurchased", () => WIS.Power.Scale.buyUpgrade("cosmicWeb"));
-    bindManualScaleUpgrade("buy-scale-unification", "scaleUnificationPurchased", () => WIS.Power.Scale.buyUpgrade("scaleUnification"));
-    bindManualScaleUpgrade("buy-spacetime-framework", "spacetimeFrameworkPurchased", () => WIS.Power.Scale.buyUpgrade("spacetimeFramework"));
+    bindManualScaleUpgrade("buy-hyper-regeneration", "hyperRegenerationPurchased", () => Scale.buyUpgrade("hyperRegeneration"));
+    bindManualScaleUpgrade("buy-superpower-evolution", "superpowerEvolutionPurchased", () => Scale.buyUpgrade("superpowerEvolution"));
+    bindManualScaleUpgrade("buy-earth-split", "earthSplitPurchased", () => Scale.buyUpgrade("earthSplit"));
+    bindManualScaleUpgrade("buy-mental-domain", "mentalDomainPurchased", () => Scale.buyUpgrade("mentalDomain"));
+    bindManualScaleUpgrade("buy-godspeed", "godspeedPurchased", () => Scale.buyUpgrade("godspeed"));
+    bindManualScaleUpgrade("buy-subtle", "subtlePurchased", () => Scale.buyUpgrade("subtle"));
+    bindManualScaleUpgrade("buy-sky-split", "skySplitPurchased", () => Scale.buyUpgrade("skySplit"));
+    bindManualScaleUpgrade("buy-biological-quantification", "biologicalQuantificationPurchased", () => Scale.buyUpgrade("biologicalQuantification"));
+    bindManualScaleUpgrade("buy-ghost-man-transformation", "ghostManTransformationPurchased", () => Scale.buyUpgrade("ghostManTransformation"));
+    bindManualScaleUpgrade("buy-destroy-country", "destroyCountryPurchased", () => Scale.buyUpgrade("destroyCountry"));
+    bindManualScaleUpgrade("buy-human-ghost-transformation", "humanGhostTransformationPurchased", () => Scale.buyUpgrade("humanGhostTransformation"));
+    bindManualScaleUpgrade("buy-killing-intent-substance", "killingIntentSubstancePurchased", () => Scale.buyUpgrade("killingIntentSubstance"));
+    bindManualScaleUpgrade("buy-energy-cycle", "energyCyclePurchased", () => Scale.buyUpgrade("energyCycle"));
+    bindManualScaleUpgrade("buy-mountain-shatter", "mountainShatterPurchased", () => Scale.buyUpgrade("mountainShatter"));
+    bindManualScaleUpgrade("buy-bioenergy", "bioenergyPurchased", () => Scale.buyUpgrade("bioenergy"));
+    bindManualScaleUpgrade("buy-elementalization", "elementalizationPurchased", () => Scale.buyUpgrade("elementalization"));
+    bindManualScaleUpgrade("buy-killing-intent-perception", "killingIntentPerceptionPurchased", () => Scale.buyUpgrade("killingIntentPerception"));
+    bindManualScaleUpgrade("buy-killing-intent-wave", "killingIntentWavePurchased", () => Scale.buyUpgrade("killingIntentWave"));
+    bindManualScaleUpgrade("buy-ultimate-intent", "ultimateIntentPurchased", () => Scale.buyUpgrade("ultimateIntent"));
+    bindManualScaleUpgrade("buy-brain-domain-development", "brainDomainDevelopmentPurchased", () => Scale.buyUpgrade("brainDomainDevelopment"));
+    bindManualScaleUpgrade("buy-continent-split", "continentSplitPurchased", () => Scale.buyUpgrade("continentSplit"));
+    bindManualScaleUpgrade("buy-continent-collapse", "continentCollapsePurchased", () => Scale.buyUpgrade("continentCollapse"));
+    bindManualScaleUpgrade("buy-wave-eye", "waveEyePurchased", () => Scale.buyUpgrade("waveEye"));
+    bindManualScaleUpgrade("buy-elemental-awakening", "elementalAwakeningPurchased", () => Scale.buyUpgrade("elementalAwakening"));
+    bindManualScaleUpgrade("buy-moonfall", "moonfallPurchased", () => Scale.buyUpgrade("moonfall"));
+    bindManualScaleUpgrade("buy-flow-state", "flowStatePurchased", () => Scale.buyUpgrade("flowState"));
+    bindManualScaleUpgrade("buy-selfhood", "selfhoodPurchased", () => Scale.buyUpgrade("selfhood"));
+    bindManualScaleUpgrade("buy-freedom", "freedomPurchased", () => Scale.buyUpgrade("freedom"));
+    bindManualScaleUpgrade("buy-chicxulub-meteorite", "chicxulubMeteoritePurchased", () => Scale.buyUpgrade("chicxulubMeteorite"));
+    bindManualScaleUpgrade("buy-planet-will", "planetWillPurchased", () => Scale.buyUpgrade("planetWill"));
+    bindManualScaleUpgrade("buy-star-spirit", "starSpiritPurchased", () => Scale.buyUpgrade("starSpirit"));
+    bindManualScaleUpgrade("buy-star-shatter", "starShatterPurchased", () => Scale.buyUpgrade("starShatter"));
+    bindManualScaleUpgrade("buy-space-quake", "spaceQuakePurchased", () => Scale.buyUpgrade("spaceQuake"));
+    bindManualScaleUpgrade("buy-selfless", "selflessPurchased", () => Scale.buyUpgrade("selfless"));
+    bindManualScaleUpgrade("buy-supernatural-fire", "supernaturalFirePurchased", () => Scale.buyUpgrade("supernaturalFire"));
+    bindManualScaleUpgrade("buy-five-spirit-stone", "fiveSpiritStonePurchased", () => Scale.buyUpgrade("fiveSpiritStone"));
+    bindManualScaleUpgrade("buy-self-suppression", "selfSuppressionPurchased", () => Scale.buyUpgrade("selfSuppression"));
+    bindManualScaleUpgrade("buy-stellar-furnace", "stellarFurnacePurchased", () => Scale.buyUpgrade("stellarFurnace"));
+    bindManualScaleUpgrade("buy-stellar-treasure-seeking", "stellarTreasureSeekingPurchased", () => Scale.buyUpgrade("stellarTreasureSeeking"));
+    bindManualScaleUpgrade("buy-gravitational-collapse", "gravitationalCollapsePurchased", () => Scale.buyUpgrade("gravitationalCollapse"));
+    bindManualScaleUpgrade("buy-galactic-return", "galacticReturnPurchased", () => Scale.buyUpgrade("galacticReturn"));
+    bindManualScaleUpgrade("buy-stellar-sea-gift", "stellarSeaGiftPurchased", () => Scale.buyUpgrade("stellarSeaGift"));
+    bindManualScaleUpgrade("buy-stellar-resonance", "stellarResonancePurchased", () => Scale.buyUpgrade("stellarResonance"));
+    bindManualScaleUpgrade("buy-great-attractor", "greatAttractorPurchased", () => Scale.buyUpgrade("greatAttractor"));
+    bindManualScaleUpgrade("buy-large-scale-adaptation", "largeScaleAdaptationPurchased", () => Scale.buyUpgrade("largeScaleAdaptation"));
+    bindManualScaleUpgrade("buy-supercluster-collapse", "superclusterCollapsePurchased", () => Scale.buyUpgrade("superclusterCollapse"));
+    bindManualScaleUpgrade("buy-cosmic-web", "cosmicWebPurchased", () => Scale.buyUpgrade("cosmicWeb"));
+    bindManualScaleUpgrade("buy-scale-unification", "scaleUnificationPurchased", () => Scale.buyUpgrade("scaleUnification"));
+    bindManualScaleUpgrade("buy-spacetime-framework", "spacetimeFrameworkPurchased", () => Scale.buyUpgrade("spacetimeFramework"));
     byId("toggle-ghost-back").addEventListener("click", toggleGhostBack);
     bindManualRealmBreakthrough("unlock-qi-refining", unlockQiRefining);
     bindHoldButton("breathing-button", () => {
+      if(session)return Immortal.breathe().then(value=>{markExplorationPreviewDirty();return value;});
       cancelExplorationPreviewWorks();
       const result=context.requestDeferredAction
         ?context.requestDeferredAction(snapshot=>Immortal.createBreathingActionWork(snapshot))
@@ -4068,6 +4159,7 @@
       return result&&typeof result.then==='function'?result.then(finish):finish(result);
     }, {cooperative:true,canRepeat:()=>gteBN(state.joules,3000)});
     cancelExplorationHold = bindHoldButton("exploration-button", () => {
+      if(session)return Immortal.explore().then(value=>{markExplorationPreviewDirty();return value;});
       const powerBefore = state.power;
       const finish=result=>{if(state.power!==powerBefore)markExplorationPreviewDirty();return state.power!==powerBefore?result:false;};
       // The browser always uses the cooperative owner. The synchronous domain
@@ -4112,52 +4204,52 @@
     bindManualImmortalAbility("unlock-void-refining-to-qi", "voidRefiningToQiUnlocked", () => unlockVoidRefinementAbility("voidRefiningToQiUnlocked", VOID_REFINING_TO_QI_COST));
     bindManualImmortalAbility("unlock-immortal-realm-divine", "immortalRealmDivineAbilityUnlocked", () => unlockVoidRefinementAbility("immortalRealmDivineAbilityUnlocked", IMMORTAL_REALM_DIVINE_ABILITY_COST));
     bindManualImmortalAbility("unlock-spirit-refining-art", "spiritRefiningArtUnlocked", () => unlockVoidRefinementAbility("spiritRefiningArtUnlocked", SPIRIT_REFINING_ART_COST));
-    bindManualImmortalAbility("unlock-perfected-technique", "perfectedTechniqueUnlocked", () => WIS.Cultivation.Immortal.buyAbility("perfectedTechnique"));
-    bindManualImmortalAbility("unlock-heaven-earth-aura", "heavenEarthAuraUnlocked", () => WIS.Cultivation.Immortal.buyAbility("heavenEarthAura"));
-    bindManualImmortalAbility("unlock-divine-ability-mastery", "divineAbilityMasteryUnlocked", () => WIS.Cultivation.Immortal.buyAbility("divineAbilityMastery"));
-    bindManualImmortalAbility("unlock-dual-infant-unity", "dualInfantUnityUnlocked", () => WIS.Cultivation.Immortal.buyAbility("dualInfantUnity"));
-    bindManualImmortalAbility("unlock-aura-into-body", "auraIntoBodyUnlocked", () => WIS.Cultivation.Immortal.buyAbility("auraIntoBody"));
-    bindManualImmortalAbility("unlock-external-incarnation", "externalIncarnationUnlocked", () => WIS.Cultivation.Immortal.buyAbility("externalIncarnation"));
-    bindManualImmortalAbility("unlock-demon-realm-journey", "demonRealmJourneyUnlocked", () => WIS.Cultivation.Immortal.buyAbility("demonRealmJourney"));
-    bindManualImmortalAbility("unlock-return-to-origin", "returnToOriginUnlocked", () => WIS.Cultivation.Immortal.buyAbility("returnToOrigin"));
-    bindManualImmortalAbility("unlock-natal-magic-treasure", "natalMagicTreasureUnlocked", () => WIS.Cultivation.Immortal.buyAbility("natalMagicTreasure"));
-    bindManualImmortalAbility("unlock-perfected-technique-completion", "perfectedTechniqueCompletionUnlocked", () => WIS.Cultivation.Immortal.buyAbility("perfectedTechniqueCompletion"));
-    bindManualImmortalAbility("unlock-roam-spirit-world", "roamSpiritWorldUnlocked", () => WIS.Cultivation.Immortal.buyAbility("roamSpiritWorld"));
-    bindManualImmortalAbility("unlock-descend-realm", "descendRealmUnlocked", () => WIS.Cultivation.Immortal.buyAbility("descendRealm"));
-    bindManualImmortalAbility("buy-mystic-heavenly-treasure", "mysticHeavenlyTreasureLevel", () => WIS.Cultivation.Immortal.buyAbility("mysticHeavenlyTreasure"));
-    bindManualImmortalAbility("unlock-nascent-soul-completion", "nascentSoulCompletionUnlocked", () => WIS.Cultivation.Immortal.buyAbility("nascentSoulCompletion"));
-    bindManualImmortalAbility("unlock-spirit-travel-void", "spiritTravelVoidUnlocked", () => WIS.Cultivation.Immortal.buyAbility("spiritTravelVoid"));
-    bindManualImmortalAbility("unlock-golden-seal-script", "goldenSealScriptUnlocked", () => WIS.Cultivation.Immortal.buyAbility("goldenSealScript"));
-    bindManualImmortalAbility("unlock-undying-primordial-spirit", "undyingPrimordialSpiritUnlocked", () => WIS.Cultivation.Immortal.buyAbility("undyingPrimordialSpirit"));
-    bindManualImmortalAbility("buy-immortal-aperture", "immortalApertureLevel", () => WIS.Cultivation.Immortal.buyAbility("immortalAperture"));
-    bindManualImmortalAbility("unlock-xuan-immortal-body", "xuanImmortalBodyUnlocked", () => WIS.Cultivation.Immortal.buyAbility("xuanImmortalBody"));
-    bindManualImmortalAbility("unlock-law", "lawUnlocked", () => WIS.Cultivation.Immortal.buyAbility("law"));
-    bindManualImmortalAbility("unlock-immortal-aperture-ii", "immortalApertureIIUnlocked", () => WIS.Cultivation.Immortal.buyAbility("immortalApertureII"));
-    bindManualImmortalAbility("unlock-spirit-domain", "spiritDomainUnlocked", () => WIS.Cultivation.Immortal.buyAbility("spiritDomain"));
-    bindManualImmortalAbility("unlock-threads-of-law", "threadsOfLawUnlocked", () => WIS.Cultivation.Immortal.buyAbility("threadsOfLaw"));
-    bindManualImmortalAbility("unlock-immortal-aperture-iii", "immortalApertureIIIUnlocked", () => WIS.Cultivation.Immortal.buyAbility("immortalApertureIII"));
-    bindManualImmortalAbility("unlock-spirit-capture-return", "spiritCaptureReturnUnlocked", () => WIS.Cultivation.Immortal.buyAbility("spiritCaptureReturn"));
-    bindManualImmortalAbility("unlock-indestructible-dharma-body", "indestructibleDharmaBodyUnlocked", () => WIS.Cultivation.Immortal.buyAbility("indestructibleDharmaBody"));
-    bindManualImmortalAbility("unlock-five-elements-treasure", "fiveElementsTreasureUnlocked", () => WIS.Cultivation.Immortal.buyAbility("fiveElementsTreasure"));
-    bindManualImmortalAbility("unlock-immortal-aperture-iv", "immortalApertureIVUnlocked", () => WIS.Cultivation.Immortal.buyAbility("immortalApertureIV"));
-    bindManualImmortalAbility("unlock-immortal-aperture-v", "immortalApertureVUnlocked", () => WIS.Cultivation.Immortal.buyAbility("immortalApertureV"));
-    bindManualImmortalAbility("unlock-law-affinity", "lawAffinityUnlocked", () => WIS.Cultivation.Immortal.buyAbility("lawAffinity"));
-    bindManualImmortalAbility("unlock-flawless-jade-body", "flawlessJadeBodyUnlocked", () => WIS.Cultivation.Immortal.buyAbility("flawlessJadeBody"));
-    bindManualImmortalAbility("unlock-spirit-domain-world-transformation", "spiritDomainWorldTransformationUnlocked", () => WIS.Cultivation.Immortal.buyAbility("spiritDomainWorldTransformation"));
-    bindManualImmortalAbility("unlock-immortal-aperture-vi", "immortalApertureVIUnlocked", () => WIS.Cultivation.Immortal.buyAbility("immortalApertureVI"));
-    bindManualImmortalAbility("unlock-soul-qualitative-change", "soulQualitativeChangeUnlocked", () => WIS.Cultivation.Immortal.buyAbility("soulQualitativeChange"));
-    bindManualImmortalAbility("unlock-immortal-aperture-vii", "immortalApertureVIIUnlocked", () => WIS.Cultivation.Immortal.buyAbility("immortalApertureVII"));
-    bindManualImmortalAbility("unlock-trinity", "trinityUnlocked", () => WIS.Cultivation.Immortal.buyAbility("trinity"));
-    bindManualImmortalAbility("unlock-unity-with-dao", "unityWithDaoUnlocked", () => WIS.Cultivation.Immortal.buyAbility("unityWithDao"));
-    bindManualImmortalAbility("unlock-law-origin", "lawOriginUnlocked", () => WIS.Cultivation.Immortal.buyAbility("lawOrigin"));
-    bindManualImmortalAbility("unlock-law-crystal-filament", "lawCrystalFilamentUnlocked", () => WIS.Cultivation.Immortal.buyAbility("lawCrystalFilament"));
-    bindManualImmortalAbility("unlock-sever-three-corpses", "severThreeCorpsesUnlocked", () => WIS.Cultivation.Immortal.buyAbility("severThreeCorpses"));
-    bindManualImmortalAbility("unlock-ultimate-immortal-aperture", "ultimateImmortalApertureUnlocked", () => WIS.Cultivation.Immortal.buyAbility("ultimateImmortalAperture"));
-    bindManualImmortalAbility("unlock-dao-law-unity", "daoLawUnityUnlocked", () => WIS.Cultivation.Immortal.buyAbility("daoLawUnity"));
-    bindManualImmortalAbility("unlock-dao-domain", "daoDomainUnlocked", () => WIS.Cultivation.Immortal.buyAbility("daoDomain"));
-    bindManualImmortalAbility("unlock-dao-power", "daoPowerUnlocked", () => WIS.Cultivation.Immortal.buyAbility("daoPower"));
-    bindManualImmortalAbility("unlock-dao-time-law", "daoTimeLawUnlocked", () => WIS.Cultivation.Immortal.buyAbility("daoTimeLaw"));
-    bindManualImmortalAbility("unlock-dao-assimilation", "daoAssimilationUnlocked", () => WIS.Cultivation.Immortal.buyAbility("daoAssimilation"));
+    bindManualImmortalAbility("unlock-perfected-technique", "perfectedTechniqueUnlocked", () => Immortal.buyAbility("perfectedTechnique"));
+    bindManualImmortalAbility("unlock-heaven-earth-aura", "heavenEarthAuraUnlocked", () => Immortal.buyAbility("heavenEarthAura"));
+    bindManualImmortalAbility("unlock-divine-ability-mastery", "divineAbilityMasteryUnlocked", () => Immortal.buyAbility("divineAbilityMastery"));
+    bindManualImmortalAbility("unlock-dual-infant-unity", "dualInfantUnityUnlocked", () => Immortal.buyAbility("dualInfantUnity"));
+    bindManualImmortalAbility("unlock-aura-into-body", "auraIntoBodyUnlocked", () => Immortal.buyAbility("auraIntoBody"));
+    bindManualImmortalAbility("unlock-external-incarnation", "externalIncarnationUnlocked", () => Immortal.buyAbility("externalIncarnation"));
+    bindManualImmortalAbility("unlock-demon-realm-journey", "demonRealmJourneyUnlocked", () => Immortal.buyAbility("demonRealmJourney"));
+    bindManualImmortalAbility("unlock-return-to-origin", "returnToOriginUnlocked", () => Immortal.buyAbility("returnToOrigin"));
+    bindManualImmortalAbility("unlock-natal-magic-treasure", "natalMagicTreasureUnlocked", () => Immortal.buyAbility("natalMagicTreasure"));
+    bindManualImmortalAbility("unlock-perfected-technique-completion", "perfectedTechniqueCompletionUnlocked", () => Immortal.buyAbility("perfectedTechniqueCompletion"));
+    bindManualImmortalAbility("unlock-roam-spirit-world", "roamSpiritWorldUnlocked", () => Immortal.buyAbility("roamSpiritWorld"));
+    bindManualImmortalAbility("unlock-descend-realm", "descendRealmUnlocked", () => Immortal.buyAbility("descendRealm"));
+    bindManualImmortalAbility("buy-mystic-heavenly-treasure", "mysticHeavenlyTreasureLevel", () => Immortal.buyAbility("mysticHeavenlyTreasure"));
+    bindManualImmortalAbility("unlock-nascent-soul-completion", "nascentSoulCompletionUnlocked", () => Immortal.buyAbility("nascentSoulCompletion"));
+    bindManualImmortalAbility("unlock-spirit-travel-void", "spiritTravelVoidUnlocked", () => Immortal.buyAbility("spiritTravelVoid"));
+    bindManualImmortalAbility("unlock-golden-seal-script", "goldenSealScriptUnlocked", () => Immortal.buyAbility("goldenSealScript"));
+    bindManualImmortalAbility("unlock-undying-primordial-spirit", "undyingPrimordialSpiritUnlocked", () => Immortal.buyAbility("undyingPrimordialSpirit"));
+    bindManualImmortalAbility("buy-immortal-aperture", "immortalApertureLevel", () => Immortal.buyAbility("immortalAperture"));
+    bindManualImmortalAbility("unlock-xuan-immortal-body", "xuanImmortalBodyUnlocked", () => Immortal.buyAbility("xuanImmortalBody"));
+    bindManualImmortalAbility("unlock-law", "lawUnlocked", () => Immortal.buyAbility("law"));
+    bindManualImmortalAbility("unlock-immortal-aperture-ii", "immortalApertureIIUnlocked", () => Immortal.buyAbility("immortalApertureII"));
+    bindManualImmortalAbility("unlock-spirit-domain", "spiritDomainUnlocked", () => Immortal.buyAbility("spiritDomain"));
+    bindManualImmortalAbility("unlock-threads-of-law", "threadsOfLawUnlocked", () => Immortal.buyAbility("threadsOfLaw"));
+    bindManualImmortalAbility("unlock-immortal-aperture-iii", "immortalApertureIIIUnlocked", () => Immortal.buyAbility("immortalApertureIII"));
+    bindManualImmortalAbility("unlock-spirit-capture-return", "spiritCaptureReturnUnlocked", () => Immortal.buyAbility("spiritCaptureReturn"));
+    bindManualImmortalAbility("unlock-indestructible-dharma-body", "indestructibleDharmaBodyUnlocked", () => Immortal.buyAbility("indestructibleDharmaBody"));
+    bindManualImmortalAbility("unlock-five-elements-treasure", "fiveElementsTreasureUnlocked", () => Immortal.buyAbility("fiveElementsTreasure"));
+    bindManualImmortalAbility("unlock-immortal-aperture-iv", "immortalApertureIVUnlocked", () => Immortal.buyAbility("immortalApertureIV"));
+    bindManualImmortalAbility("unlock-immortal-aperture-v", "immortalApertureVUnlocked", () => Immortal.buyAbility("immortalApertureV"));
+    bindManualImmortalAbility("unlock-law-affinity", "lawAffinityUnlocked", () => Immortal.buyAbility("lawAffinity"));
+    bindManualImmortalAbility("unlock-flawless-jade-body", "flawlessJadeBodyUnlocked", () => Immortal.buyAbility("flawlessJadeBody"));
+    bindManualImmortalAbility("unlock-spirit-domain-world-transformation", "spiritDomainWorldTransformationUnlocked", () => Immortal.buyAbility("spiritDomainWorldTransformation"));
+    bindManualImmortalAbility("unlock-immortal-aperture-vi", "immortalApertureVIUnlocked", () => Immortal.buyAbility("immortalApertureVI"));
+    bindManualImmortalAbility("unlock-soul-qualitative-change", "soulQualitativeChangeUnlocked", () => Immortal.buyAbility("soulQualitativeChange"));
+    bindManualImmortalAbility("unlock-immortal-aperture-vii", "immortalApertureVIIUnlocked", () => Immortal.buyAbility("immortalApertureVII"));
+    bindManualImmortalAbility("unlock-trinity", "trinityUnlocked", () => Immortal.buyAbility("trinity"));
+    bindManualImmortalAbility("unlock-unity-with-dao", "unityWithDaoUnlocked", () => Immortal.buyAbility("unityWithDao"));
+    bindManualImmortalAbility("unlock-law-origin", "lawOriginUnlocked", () => Immortal.buyAbility("lawOrigin"));
+    bindManualImmortalAbility("unlock-law-crystal-filament", "lawCrystalFilamentUnlocked", () => Immortal.buyAbility("lawCrystalFilament"));
+    bindManualImmortalAbility("unlock-sever-three-corpses", "severThreeCorpsesUnlocked", () => Immortal.buyAbility("severThreeCorpses"));
+    bindManualImmortalAbility("unlock-ultimate-immortal-aperture", "ultimateImmortalApertureUnlocked", () => Immortal.buyAbility("ultimateImmortalAperture"));
+    bindManualImmortalAbility("unlock-dao-law-unity", "daoLawUnityUnlocked", () => Immortal.buyAbility("daoLawUnity"));
+    bindManualImmortalAbility("unlock-dao-domain", "daoDomainUnlocked", () => Immortal.buyAbility("daoDomain"));
+    bindManualImmortalAbility("unlock-dao-power", "daoPowerUnlocked", () => Immortal.buyAbility("daoPower"));
+    bindManualImmortalAbility("unlock-dao-time-law", "daoTimeLawUnlocked", () => Immortal.buyAbility("daoTimeLaw"));
+    bindManualImmortalAbility("unlock-dao-assimilation", "daoAssimilationUnlocked", () => Immortal.buyAbility("daoAssimilation"));
     byId("statistics-total-tab").addEventListener("click", () => switchStatisticsView("total"));
     byId("statistics-current-tab").addEventListener("click", () => switchStatisticsView("current"));
     byId("scatter-rebuild").addEventListener("click", scatterAndRebuild);
@@ -4217,7 +4309,7 @@
     cultivationControls.innerHTML='<h3>体系管理</h3><p>清空体系当前资源、境界、能力及自动化进度；保留J、战力、大数、宝物、成就、挑战奖励、历史统计与永久重修奖励、宝物资格。挑战或离线结算进行中不可操作。</p><button type="button" id="cultivation-reset">重置当前体系</button> <button type="button" id="cultivation-switch-immortal">切换到仙道</button> <button type="button" id="cultivation-switch-martial">切换到武道</button>';
     rawById('cultivation-choices').after(cultivationControls);
     for(const [id,target] of [['cultivation-reset',null],['cultivation-switch-immortal','immortal'],['cultivation-switch-martial','martial']])rawById(id).addEventListener('click',()=>{
-      const I=WIS.Meta.Infinity;if(getCatchUpStatus().locked||I.cultivationActionStatus(state,target)!=='ready')return;
+      const I=actionFacade('infinity',WIS.Meta.Infinity);if(getCatchUpStatus().locked||I.cultivationActionStatus(state,target)!=='ready')return;
       const name=target==='immortal'?'仙道':target==='martial'?'武道':'当前体系';
       if(!window.confirm((target?'重置体系进度并切换到'+name:'重置当前体系进度')+'？资源、境界、能力及自动化进度将清空；共享进度、历史、永久奖励及宝物资格保留。'))return;
       runtime.call('cancelDeferredAction','cultivation-reset');cancelExplorationHold();cancelExplorationPreviewWorks();
@@ -4230,18 +4322,19 @@
       button.addEventListener("click", () => switchCultivationPage(button.dataset.cultivationPage));
     });
     byId("exit-hidden-challenge").addEventListener("click", () => exitChallenge());
-    byId("toggle-challenge-filter").addEventListener("click", () => {
-      state.hideCompletedChallenges = !state.hideCompletedChallenges;
+    byId("toggle-challenge-filter").addEventListener("click", async () => {
+      await setPreference('hideCompletedChallenges',!state.hideCompletedChallenges);
       saveState();
       renderChallenges();
     });
-    byId("toggle-achievement-filter").addEventListener("click", () => {
-      state.hideUnlockedAchievements = !state.hideUnlockedAchievements;
+    byId("toggle-achievement-filter").addEventListener("click", async () => {
+      await setPreference('hideUnlockedAchievements',!state.hideUnlockedAchievements);
       saveState();
       markAchievementsDirty();
       renderAchievements();
     });
     const saveBeforeLeaving = () => {
+      if(session)return !WIS.Core.Save.status().unsaved&&!importTransaction;
       try { saveState({ closing: true }); }
       catch(error) { WIS.Core.Save.noteFailure(error); }
       return !WIS.Core.Save.status().unsaved && context.canPersistConfirmedState?.() !== false && WIS.Core.Save.sessionPolicy().persistenceAllowed !== false && !importTransaction;
@@ -4255,7 +4348,7 @@
         event.returnValue = "";
       }
     });
-    window.addEventListener("pagehide", saveBeforeLeaving);
+    window.addEventListener("pagehide", () => {if(session)void saveState({closing:true}).catch(error=>WIS.Core.Save.noteFailure(error));else saveBeforeLeaving();});
     let nativeBackup = null, nativeActive = true;
     const backupSection = byId("native-backup-settings");
     if (WIS.UI.NativePlatform?.isNative() && window.Capacitor.Plugins?.WisBackup) {
@@ -4301,7 +4394,12 @@
 
     if (WIS.UI.NativePlatform?.isNative()) {
       void WIS.UI.NativePlatform.install({
-        notice: safeOperationNotice, saveBeforeLeaving,
+        notice: safeOperationNotice, saveBeforeLeaving: async()=>{
+          if(!session)return saveBeforeLeaving();
+          if(importTransaction)return false;
+          try{const saved=await saveState({closing:true});return saved===true&&!WIS.Core.Save.status().unsaved;}
+          catch(error){WIS.Core.Save.noteFailure(error);return false;}
+        },
         onAppState: active => { if (!active) { cancelExplorationHold(); cancelExplorationPreviewWorks(); } context.onNativeAppState?.(active); nativeActive = active; if (active) void nativeBackup?.check(); },
         closeSurface: () => {
           const dialogs = Array.from(document.querySelectorAll("dialog[open]"));
@@ -4338,12 +4436,12 @@
     });
     byId("open-settings").addEventListener("click", openSettings);
     byId("offline-open-settings").addEventListener("click", openSettings);
-    byId("auto-close-offline-toggle").addEventListener("click", () => {
+    byId("auto-close-offline-toggle").addEventListener("click", async () => {
       if (!canChangePreferences()) { renderAutoCloseSetting(); return; }
       const previous = state.autoCloseOfflineDialogEnabled;
-      state.autoCloseOfflineDialogEnabled = previous === false;
+      await setPreference('autoCloseOfflineDialogEnabled',previous===false);
       try { saveState(); } catch (error) {
-        state.autoCloseOfflineDialogEnabled = previous;
+        await setPreference('autoCloseOfflineDialogEnabled',previous);
         showNotice("设置保存失败：" + (error?.message || error), 6000);
       }
       renderAutoCloseSetting();
@@ -4401,19 +4499,19 @@
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && offlineCompletedSummary) handleOfflineCatchUpStatus(getCatchUpStatus());
     });
-    byId("automation-groups").addEventListener("click", (event) => {
+    byId("automation-groups").addEventListener("click", async (event) => {
       const button = event.target.closest("button[data-automation-id]");
       const definition = button ? AUTOMATION_BY_ID.get(button.dataset.automationId) : null;
       if (!definition || !definition.isUnlocked() || definition.isDisabled?.()) return;
-      const enabled = definition.toggle();
+      const enabled = await definition.toggle();
       saveState();
       renderAutomationManager(true);
       showNotice(`${definition.name}已${enabled ? "开启" : "关闭"}`);
     });
     document.querySelectorAll('input[name="theme"]').forEach((input) => {
-      input.addEventListener("change", () => {
+      input.addEventListener("change", async () => {
         if (!canChangePreferences()) { applyTheme(); return; }
-        state.theme = input.value === "dark" ? "dark" : "light";
+        await setPreference('theme',input.value==='dark'?'dark':'light');
         applyTheme();
         saveState();
       });

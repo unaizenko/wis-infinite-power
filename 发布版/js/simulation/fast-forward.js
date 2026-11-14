@@ -17,7 +17,7 @@ function create(){
   const display=n=>String(WIS.Core.Amount?.isAmount(n)?WIS.Core.Amount.project(n):n);
   const inventoryKey=n=>WIS.Core.Amount?.isAmount(n)?JSON.stringify(WIS.Core.Amount.serialize(n)):String(n);
   const logDemand=(c,n)=>WIS.Core.Amount?.isAmount(n)?WIS.Core.AmountFormulas.productQuotient([c.k,n],[]):c.k.mul(n);
-  const capBatch=(cap,n,a)=>{if(!amountModel())return B.max(0,cap.sub(n).div(a).floor().add(1));const A=WIS.Core.Amount;if(A.compare(cap,n)<0)return A.from(0);return A.add(WIS.Meta.BigNumbers.rankQuantity(A.floor(A.divide(A.subtract(cap,n),a))),1);};
+  const capBatch=(cap,n,a)=>{if(!amountModel())return B.max(0,cap.sub(n).div(a).floor().add(1));const A=WIS.Core.Amount;if(A.compare(cap,n)<0)return A.from(0);return A.add(A.integerPart(A.divide(A.subtract(cap,n),a)),1);};
 
   const count=k=>global.__jointRevision?.count(k);
   const timed=(k,f)=>global.__jointRevision?global.__jointRevision.timed(k,f,null,[]):f();

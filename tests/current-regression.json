@@ -11,6 +11,8 @@
     "tools/build-math-worker.cjs"
   ],
   "node": [
+    "tests/xiuzhen-effects-demand.test.cjs",
+    "tests/ui-treasure-effects-demand.test.cjs",
     "tests/save-backup-protection.test.cjs",
     "tests/native-save-kind.test.cjs",
     "tests/offline-worker-preferences.test.cjs",
@@ -60,7 +62,19 @@
     "tests/nonzero-quantity-format.test.cjs",
     "tests/offline-calculation-progress.test.cjs",
     "tests/amount-tail-cap.test.cjs",
-    "tests/manual-mana-cooperative.test.cjs"
+    "tests/manual-mana-cooperative.test.cjs",
+    "tests/amount-integer-split.test.cjs",
+    "tests/exploration-integer-split.test.cjs",
+    "tests/continuous-final-gain.test.cjs",
+    "tests/economic-policy.test.cjs",
+    "tests/online-discard-ordering.test.cjs",
+    "tests/manual-mana-high-preparation.test.cjs",
+    "tests/manual-mana-segment-preparation.test.cjs",
+    "tests/exploration-reward-preparation.test.cjs",
+    "tests/online-cadence-wakeup.test.cjs",
+    "tests/resource-performance-probe.test.cjs",
+    "tests/online-action-admission.test.cjs",
+    "tests/closed-batch-save-boundary.test.cjs"
   ],
   "scripts": [
     "tests/frozen-offline-contract.test.cjs",
@@ -93,6 +107,7 @@
   },
   "legacyAudit": "../WIS-椤圭洰璧勬簮/audit-0214-20261111/wide-failures.json",
   "browserNode": [
+    "tests/ui-render-load-compatibility.test.cjs",
     "tests/lifecycle-settings-browser.test.cjs",
     "tests/math-worker-browser.test.cjs",
     "tests/main-thread-publication-browser.test.cjs",
@@ -100,6 +115,8 @@
     "tests/upgrade-layout-browser.test.cjs",
     "tests/pages-legacy-path.test.cjs",
     "tests/breathing-mobile-owner-browser.test.cjs",
-    "tests/settlement-hardening-browser.test.cjs"
+    "tests/settlement-hardening-browser.test.cjs",
+    "tests/bounded-numeric-browser.test.cjs",
+    "tests/online-action-admission-browser.test.cjs"
   ]
 }

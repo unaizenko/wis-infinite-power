@@ -185,7 +185,7 @@
     return gt(magnitude,0)&&!gte(magnitude,BN('1e-'+digits))
       ? scientificMultiplier(n) : formatNumber(n,digits);
   }
-  const formatCost = (value) => formatNumber(value, 0);
+  const formatCost = (value) => formatNumber(WIS.Core.Amount?.enabled()?WIS.Core.Amount.project(WIS.Core.Amount.price(value)):value, 0);
   WIS.UI.Format = Object.freeze({
     elapsedTime: formatElapsedTime, gameCalendar: formatGameCalendar, multiplierGroups: formatMultiplierGroups, progressPercentage,
     compact: formatCompact,

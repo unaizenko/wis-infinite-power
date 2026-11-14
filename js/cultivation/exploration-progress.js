@@ -172,7 +172,7 @@
     if(A.compare(price,available)<=0)return {count:hi,cost:price};
     for(let i=0;A.compare(A.subtract(hi,lo),one)>0;i++){
       if(i>=512)fail('天材地宝相邻批次超出认证容量');
-      const mid=WIS.Meta.BigNumbers.rankQuantity(A.floor(A.scale(A.add(lo,hi),.5))),next=cost(mid);
+      const mid=A.integerPart(A.scale(A.add(lo,hi),.5)),next=cost(mid);
       if(A.compare(next,available)<=0)lo=mid;else hi=mid;
     }
     return {count:lo,cost:cost(lo)};

@@ -1,7 +1,7 @@
 (function defineBigNumberPage(WIS) {
   "use strict";
   WIS.UI.BigNumbers = Object.freeze({ create(context) {
-    const M = WIS.Meta.BigNumbers, B = WIS.Core.BigNum;
+    const M = (context.session?context.session.facade('numbers',WIS.Meta.BigNumbers):WIS.Meta.BigNumbers), B = WIS.Core.BigNum;
     const state = WIS.Core.Runtime.state, $ = id => document.getElementById(id);
     let selected = false, lastGraham = false;
     const text = (id, value) => { const el = $(id); if (el.textContent !== value) el.textContent = value; };

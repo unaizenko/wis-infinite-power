@@ -42,11 +42,14 @@ fault=true;retry.emit({type:'checkpoint',jobId:retryStart.jobId,generation:retry
 assert.equal(controller.isCatchUpPaused(),true);assert.equal(String(host.getState().joules),'123');assert.equal(controller.getPendingCatchUpSeconds(),9);
 assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.tasks[0].gameSeconds,9);
 assert.ok(!retry.sent.some(m=>m.type==='ack'));fault=false;
+for(const numericCode of ['numeric-error','economic-policy-unresolved','amount-integer-unresolved']){
 controller.retryCatchUp();const broken=workers.at(-1),brokenStart=broken.sent[0];
-broken.emit({type:'error',jobId:brokenStart.jobId,generation:brokenStart.generation,message:'injected worker failure',code:'numeric-error'});
+broken.emit({type:'error',jobId:brokenStart.jobId,generation:brokenStart.generation,message:'injected worker failure',code:numericCode});
 assert.equal(controller.isCatchUpPaused(),true);assert.equal(controller.getPendingCatchUpSeconds(),9);
 assert.equal(String(host.getState().joules),'123');assert.equal(host.getState().core.runtime.timeLedger.discardedClock||0,0);
 assert.equal(W.Core.Save.prepare(JSON.parse(saved)).offlineRecovery.tasks[0].gameSeconds,9);
+assert.equal(controller.getPersistenceSnapshot().pauseReason.error.code,numericCode);
+}
 controller.retryCatchUp();const stalled=workers.at(-1),stalledStart=stalled.sent[0];
 for(let i=0;i<62;i++){healthClock+=1000;stalled.emit({...stalledStart,type:'heartbeat',calculation:{taskId:'segment-1',phase:'gains',revision:1}});healthClient.checkHealth();}
 assert.equal(controller.isCatchUpPaused(),true);assert.equal(controller.getPendingCatchUpSeconds(),9);assert.equal(String(host.getState().joules),'123');

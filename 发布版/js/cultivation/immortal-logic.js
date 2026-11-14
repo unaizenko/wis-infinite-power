@@ -1196,7 +1196,7 @@
   let cachedImmortalCrystalQuantityKey=null,cachedImmortalCrystalQuantityValue=ONE;
   function immortalCrystalMultiplier(count = WIS.Core.Amount?.enabled()?WIS.Meta.Treasures.quantity(state,'immortalCrystal'):immortalCrystalCount()) {
     if(quantityValue(count)){
-      const A=WIS.Core.Amount,target=WIS.Meta.BigNumbers.rankQuantity(A.floor(count));
+      const A=WIS.Core.Amount,target=A.integerPart(count);
       if(!target.tail.length)return immortalCrystalMultiplier(A.project(target));
       const key=JSON.stringify([A.serialize(target),WIS.Core.BigNum.coordinateArithmetic.active(),runtime.getMathPolicy()]);
       if(key===cachedImmortalCrystalQuantityKey)return cachedImmortalCrystalQuantityValue;
@@ -1582,8 +1582,8 @@
       if(state.advancedRealmLevel>=IMMORTAL_POWER_CONFIG.unlockAdvancedRealmLevel)return A.add(current,A.scale(max(current,IMMORTAL_POWER_CONFIG.manaScale),MANA_REALM_PROGRESS_STEP));
       const requirement=manaProgressReferenceCost();if(!isFiniteBN(requirement)||!gt(requirement,0))return null;
       const step=mul(requirement,MANA_REALM_PROGRESS_STEP);if(!isFiniteBN(step)||!gt(step,0))return null;
-      const R=WIS.Core.Rank,count=A.floor(A.add(A.divide(current,step),'1e-10'));
-      let boundary=A.multiply(WIS.Meta.BigNumbers.rankQuantity(R.add(count,1)),step);
+      const count=A.integerPart(A.add(A.divide(current,step),'1e-10'));
+      let boundary=A.multiply(A.add(count,1),step);
       const tolerance=max(A.scale(max(1,current),Number.EPSILON*8),A.scale(A.from(step),'1e-12'));
       if(A.compare(boundary,A.add(current,tolerance))<=0)boundary=A.add(boundary,step);
       return A.compare(boundary,current)>0?boundary:null;
@@ -1679,13 +1679,17 @@
     if(!checkpoint&&googolPenalty&&linearBudget){
       const initial=evaluate(A.from(budget),current).mana;
       if(A.compare(current,GOOGOL_PENALTY_THRESHOLD)>=0||A.compare(A.add(current,initial),GOOGOL_PENALTY_THRESHOLD)>0){
-        const integrate=()=>{
-          const rate=prepareRate?prepareRate():calculateGain;
-          return WIS.Power.ScaleLogic.applyResourceSoftcapDynamicRateOverTime(amount=>normalize(rate(1,amount)).mana,current,budget,
+        total=manualPreparationTask('manual-mana-integral',function*(){
+          // Keep the paid-state evaluation snapshot and the completed rate for
+          // this one integration. Resuming its proof must not rebuild sources.
+          const snapshot=prepareRate?WIS.Core.State.cloneForSimulation(runtime.getState()):null;
+          const rate=prepareRate?(yield ()=>runtime.withEvaluationState(snapshot,prepareRate)):calculateGain;
+          const integrate=()=>WIS.Power.ScaleLogic.applyResourceSoftcapDynamicRateOverTime(amount=>normalize(rate(1,amount)).mana,current,budget,
             (gain,amount)=>WIS.Core.Penalties.applyGoogolPenalty('mana',amount,gain,state),
             {memoizeSamples:!!prepareRate,googolResource:'mana',constantGoogolRawRate:rate.constantRawRate??null});
-        };
-        total=A.from(prepareRate?runtime.withEvaluationState(WIS.Core.State.cloneForSimulation(runtime.getState()),integrate):integrate());
+          const gain=yield ()=>snapshot?runtime.withEvaluationState(snapshot,integrate):integrate();
+          return yield ()=>A.boundContinuousGain(A.from(gain)).value;
+        });
         if(manualQuantityPreparation)manualQuantityPreparation.dirty=true;
         if(applyToState&&A.compare(total,0)>0)WIS.Core.Resources.creditExact('cultivation.immortal.mana',total,state);
         commitBudget(A.from(budget),total,{mana:total},current);remaining=A.from(0);segments=1;return result(false);
@@ -1694,19 +1698,35 @@
     const tolerance=Math.max(Number.EPSILON*budget*16,1e-12);
     const commit=(fraction,gain,evaluation,stock)=>{
       if(A.compare(fraction,0)<=0||A.compare(fraction,remaining)>0)throw Object.assign(Error('Manual action budget overrun'),{code:'amount-budget-unresolved'});
+      if(A.compare(fraction,remaining)===0){
+        const bounded=A.boundContinuousGain(A.add(total,gain));
+        // Earlier segments and their sampled feedback remain unchanged. Only
+        // the last credit can absorb the complete-action directed rounding.
+        if(bounded.compacted&&A.compare(bounded.value,total)>=0){gain=A.subtract(bounded.value,total);evaluation={...evaluation,detail:{...evaluation.detail,mana:gain},mana:gain};}
+      }
       if(manualQuantityPreparation)manualQuantityPreparation.dirty=true;
       if(applyToState&&A.compare(gain,0)>0)WIS.Core.Resources.creditExact('cultivation.immortal.mana',gain,state);
       commitBudget(fraction,gain,evaluation.detail,stock);total=A.add(total,gain);current=A.add(current,gain);remaining=A.subtract(remaining,fraction);segments++;
       if(manualQuantityPreparation){manualQuantityPreparation.checkpoint={remaining,total,current,segments,state:WIS.Core.State.cloneForSimulation(runtime.getState())};manualQuantityPreparation.dirty=false;manualQuantityPreparation.effects?.cancel();manualQuantityPreparation.effects=null;}
     };
     while(A.compare(remaining,0)>0&&segments<MANA_PROGRESSIVE_MAX_SEGMENTS){
-      const segment=manualPreparationTask('manual-mana-segment|'+segments,function*(){return yield ()=>{
-      const slots=Math.max(1,MANA_PROGRESSIVE_MAX_SEGMENTS-segments),requested=maximumBudgetForSegment(current,remaining,slots);
-      let fraction=A.from(requested);
-      if(A.compare(fraction,0)<=0)fraction=remaining;
-      else {if(A.compare(fraction,tolerance)<0)fraction=A.from(tolerance);if(A.compare(fraction,remaining)>0)fraction=remaining;}
-      const full=evaluate(fraction,current),evaluation=linearBudget&&A.compare(full.mana,0)>0?average(full,evaluate(fraction,A.add(current,full.mana))):full;
-      let boundary=nextManaProgressBoundary(current),needed=boundary?A.subtract(boundary,current):A.from(0);
+      const segment=manualPreparationTask('manual-mana-segment|'+segments,function*(){
+      // Cache only completed pure values in this segment's private iterator.
+      // Retain the original yield boundary so reuse adds no scheduling steps.
+      let fraction,full,evaluation,initialBoundary;
+      let fractionReady=false,fullReady=false,evaluationReady=false,boundaryReady=false;
+      const slots=Math.max(1,MANA_PROGRESSIVE_MAX_SEGMENTS-segments);
+      return yield ()=>{
+      if(!fractionReady){
+        const requested=maximumBudgetForSegment(current,remaining,slots);fraction=A.from(requested);
+        if(A.compare(fraction,0)<=0)fraction=remaining;
+        else {if(A.compare(fraction,tolerance)<0)fraction=A.from(tolerance);if(A.compare(fraction,remaining)>0)fraction=remaining;}
+        fractionReady=true;
+      }
+      if(!fullReady){full=evaluate(fraction,current);fullReady=true;}
+      if(!evaluationReady){evaluation=linearBudget&&A.compare(full.mana,0)>0?average(full,evaluate(fraction,A.add(current,full.mana))):full;evaluationReady=true;}
+      if(!boundaryReady){initialBoundary=nextManaProgressBoundary(current);boundaryReady=true;}
+      let boundary=initialBoundary,needed=boundary?A.subtract(boundary,current):A.from(0);
       let gainTolerance=boundary?A.scale(A.compare(boundary,1)>0?boundary:A.from(1),Number.EPSILON*16):A.from(0);
       if(boundary&&A.compare(gainTolerance,'1e-12')<0)gainTolerance=A.from('1e-12');
       if(linearBudget&&boundary&&A.compare(evaluation.mana,A.add(needed,gainTolerance))>0){
@@ -2952,33 +2972,34 @@
     return WIS.Cultivation.ExplorationProgress.seize(state, attempts);
   }
 
-  function processExplorationJudgements(attempts, effectiveAmount = attempts) {
-    WIS.Simulation?.FastForward?.exploration(attempts, effectiveAmount);
-    const count = maxBN(ZERO, BN(attempts)).floor();
-    const progressUnits = maxBN(ZERO, effectiveAmount);
-    if (!gt(count, ZERO) && !gt(progressUnits, ZERO)) return emptyExplorationRewards();
-    if (WIS.Core.Runtime.isProjection() && !WIS.Core.Runtime.isTreasurePrediction()) {
-      return { ...emptyExplorationRewards(), attempts: count };
-    }
-    return {
-      attempts: count,
-      tianNiPearl: rollTianNiPearlAttempts(progressUnits, true),
-      greenBottle: rollMysteriousGreenBottleAttempts(progressUnits),
-      fuBao: rollFuBaoAttempts(progressUnits),
-      naturalTreasure: rollNaturalTreasureAttempts(progressUnits),
-      xuTianDing: rollXuTianDingAttempts(progressUnits),
-      wanYaoFan: rollWanYaoFanAttempts(progressUnits),
-      phantomHeavenMirror: rollPhantomHeavenMirrorAttempts(progressUnits),
-      mysticHeavenSacredTree: rollMysticHeavenSacredTreeAttempts(progressUnits),
-      mysticHeavenSpiritSlayingSword: rollMysticHeavenSpiritSlayingSwordAttempts(progressUnits),
-      seizeFoundation: rollSeizeFoundationAttempts(progressUnits)
-    };
+  function* explorationJudgementSteps(attempts,effectiveAmount) {
+    WIS.Simulation?.FastForward?.exploration(attempts,effectiveAmount);
+    const count=yield ()=>maxBN(ZERO,BN(attempts)).floor();
+    const progressUnits=yield ()=>maxBN(ZERO,effectiveAmount);
+    if(!(yield ()=>gt(count,ZERO)||gt(progressUnits,ZERO)))return emptyExplorationRewards();
+    if(runtime.isProjection()&&!runtime.isTreasurePrediction())return {...emptyExplorationRewards(),attempts:count};
+    const rewards={attempts:count};
+    rewards.tianNiPearl=yield ()=>rollTianNiPearlAttempts(progressUnits, true);
+    rewards.greenBottle=yield ()=>rollMysteriousGreenBottleAttempts(progressUnits);
+    rewards.fuBao=yield ()=>rollFuBaoAttempts(progressUnits);
+    rewards.naturalTreasure=yield ()=>rollNaturalTreasureAttempts(progressUnits);
+    rewards.xuTianDing=yield ()=>rollXuTianDingAttempts(progressUnits);
+    rewards.wanYaoFan=yield ()=>rollWanYaoFanAttempts(progressUnits);
+    rewards.phantomHeavenMirror=yield ()=>rollPhantomHeavenMirrorAttempts(progressUnits);
+    rewards.mysticHeavenSacredTree=yield ()=>rollMysticHeavenSacredTreeAttempts(progressUnits);
+    rewards.mysticHeavenSpiritSlayingSword=yield ()=>rollMysticHeavenSpiritSlayingSwordAttempts(progressUnits);
+    rewards.seizeFoundation=yield ()=>rollSeizeFoundationAttempts(progressUnits);
+    return rewards;
+  }
+  function processExplorationJudgements(attempts,effectiveAmount=attempts) {
+    const iterator=explorationJudgementSteps(attempts,effectiveAmount);let next=iterator.next();
+    while(!next.done)next=iterator.next(next.value());return next.value;
   }
 
   function prepareExplorationQuantityProgress(explorationAmount){
       const A=WIS.Core.Amount,L=WIS.Core.AmountLedger,gain=A.from(explorationAmount);
-      const combined=A.add(A.fromParts(state.explorationProgress,state.explorationProgressResidual||[]),gain),whole=WIS.Meta.BigNumbers.rankQuantity(A.floor(combined)),fraction=A.subtract(combined,whole),fractionParts=A.serialize(fraction);
-      const attemptWords=L.add(A.words(whole),state.explorationAttemptResidual||[]),attempts=L.sign(attemptWords)>0?A.project(WIS.Meta.BigNumbers.rankQuantity(A.floor(A.fromParts(0,attemptWords)))):ZERO;
+      const combined=A.add(A.fromParts(state.explorationProgress,state.explorationProgressResidual||[]),gain),split=A.splitInteger(combined),whole=split.whole,fractionParts=A.serialize(split.fraction);
+      const attemptWords=L.add(A.words(whole),state.explorationAttemptResidual||[]),attempts=L.sign(attemptWords)>0?A.project(A.integerPart(A.fromParts(0,attemptWords))):ZERO;
       const compaction=A.compact(A.add(A.field(state.meta.statistics,'explorationTotal'),gain)),total=compaction.value,parts=A.serialize(total);
       return {attempts,fields:{explorationProgress:BN(fractionParts.main),explorationProgressResidual:fractionParts.tail.slice(),explorationAttemptResidual:L.subtract(attemptWords,[String(attempts)]),explorationTotal:BN(parts.main),explorationTotalResidual:parts.tail.slice(),explorationTotalApproximate:state.explorationTotalApproximate===true||compaction.compacted}};
   }
@@ -3462,6 +3483,7 @@
     WIS.Core.State.addStatistic(state,'currentRebirthTotalMana',gained);
     tryTianNiPearl();
     rollBaLingChiAttempts(1);
+    updateLifetimeStatistics();
     saveState();
     render();
     return true;
@@ -3906,11 +3928,49 @@
     }return true;};
   }
 
+  // Each completion stage owns a fresh draft of the last accepted private
+  // checkpoint. A suspended mutation is discarded, while its pure math work
+  // resumes. No presentation hooks run until the final installation.
+  // A small minimum keeps validation/draft setup from consuming every soft
+  // slice. Explicit smaller operation budgets still win (including one-op tests).
+  let manualRewardGainPreparation=null;
+  function createManualCompletionWork(prepared,isCurrent) {
+    const R=runtime,S=WIS.Core.State,C=WIS.Core.CertifiedRankMath;
+    const iterator=prepared.complete.prepareSteps();let next=iterator.next(),candidate=prepared.candidate,work=null,finished=null,cancelled=false;
+    const gainScopes=new Map();
+    const releaseGains=()=>{for(const entry of gainScopes.values())entry.scope.cancel();gainScopes.clear();};
+    const prepareGain=(calculate,start,key)=>{
+      let entry=gainScopes.get(key);
+      if(!entry){const snapshot=S.cloneForSimulation(start);entry={snapshot,scope:WIS.Core.Effects.createFrozenScope(snapshot)};gainScopes.set(key,entry);}
+      return C.task("manual-reward-gain|"+key,function*(){
+        return yield ()=>R.withEvaluationState(entry.snapshot,()=>entry.scope.run(()=>calculate(entry.snapshot)));
+      });
+    };
+    return {advance(deadline,options={}) {
+      if(cancelled||!isCurrent())throw Error('动作完成候选失效');
+      if(finished)return {done:true};
+      if(!work)work=C.createWork(()=>{
+        const draft=S.createDraft(candidate),power=WIS.Power.Scale.snapshotTreasureTransient(),cultivation=WIS.Cultivation.Immortal.snapshotTreasureTransient();
+        try{return R.withState(draft.state,()=>{
+          // Only the pre-award read uses an immutable scope. Reward writes and
+          // later rewards retain their original order and fresh stage inputs.
+          const previous=manualRewardGainPreparation;manualRewardGainPreparation=prepareGain;
+          try{const value=next.value();return {candidate:draft.finish(),value};}
+          finally{manualRewardGainPreparation=previous;}
+        });}
+        finally{WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);}
+      },{isCurrent});
+      const result=work.advance({deadline,maximumOperations:256,minimumOperations:Math.min(16,options.maximumOperations??256),...options});if(!result.done)return result;
+      const accepted=work.result();candidate=accepted.candidate;work.cancel();work=null;releaseGains();next=iterator.next(accepted.value);
+      if(next.done)finished={candidate,complete:next.value};return {done:!!finished};
+    },result(){return finished;},cancel(){cancelled=true;work?.cancel();work=null;releaseGains();candidate=null;finished=null;iterator.return();}};
+  }
+
   function createQuantityManualManaActionWork(original, perform, label) {
     const R=runtime,S=WIS.Core.State,C=WIS.Core.CertifiedRankMath;
     const scope=WIS.Power.ScaleLogic.createDeferredDynamicRateScope();
     const inputKey=s=>{const value=S.toSerializable(s);delete value.core.runtime.timeLedger;delete value.core.preferences;return JSON.stringify(value);};
-    const inputsCurrent=manualInputCheck(original,inputKey),preparation={id:String(++manualQuantitySequence),checkpoint:null,dirty:false,prefixPaid:false,effects:null};let status='pending',prepared=null,draft=S.createDraft(original);
+    const inputsCurrent=manualInputCheck(original,inputKey),preparation={id:String(++manualQuantitySequence),checkpoint:null,dirty:false,prefixPaid:false,effects:null};let status='pending',prepared=null,completion=null,draft=S.createDraft(original);
     const valid=()=>status!=='cancelled'&&status!=='failed'&&R.getState()===original;
     const check=()=>{if(!valid()||!inputsCurrent())throw Error(label+'候选输入改变，旧候选失效');};
     const math=C.createWork(()=>{
@@ -3924,10 +3984,16 @@
         return {candidate:draft.finish(),complete:attempt.value};
       } finally {WIS.Power.Scale.restoreTreasureTransient(power);WIS.Cultivation.Immortal.restoreTreasureTransient(cultivation);}
     },{isCurrent:valid});
-    const release=()=>{prepared=null;draft=null;preparation.checkpoint=null;preparation.effects?.cancel();preparation.effects=null;math.cancel();scope.cancel();};
+    const release=()=>{completion?.cancel();completion=null;prepared=null;draft=null;preparation.checkpoint=null;preparation.effects?.cancel();preparation.effects=null;math.cancel();scope.cancel();};
     return Object.freeze({advance(deadline=Infinity,options={}){
       if(status!=='pending')return {done:status==='ready'};
-      try{check();const next=math.advance({deadline,maximumOperations:256,...options});if(next.done){check();prepared=math.result();status='ready';}return next;}
+      try{
+        check();
+        if(!prepared){const next=math.advance({deadline,maximumOperations:256,minimumOperations:Math.min(16,options.maximumOperations??256),...options});if(!next.done)return next;check();prepared=math.result();
+          if(typeof prepared.complete?.prepareSteps==='function'){completion=createManualCompletionWork(prepared,valid);return {done:false};}}
+        if(completion){const next=completion.advance(deadline,options);if(!next.done)return next;prepared=completion.result();}
+        check();status='ready';return {done:true};
+      }
       catch(error){status='failed';release();throw error;}
     },commit(){
       if(status!=='ready')throw Error(label+'候选尚未完成或已提交/取消');
@@ -3941,17 +4007,17 @@
   }
 
   function createManualManaActionWork(original, perform, label) {
-    // High-stock scalar integration keeps its existing continuation. Its ready
-    // private settlement is retained so commit runs only the one-shot completion.
-    if(WIS.Core.Amount?.enabled()&&lt(original.mana,GOOGOL_PENALTY_THRESHOLD))return createQuantityManualManaActionWork(original,perform,label);
+    // Complete quantities retain preparation and scalar integration in the same
+    // private certified work, including stocks above the googol threshold.
+    if(WIS.Core.Amount?.enabled())return createQuantityManualManaActionWork(original,perform,label);
     const R=WIS.Core.Runtime,S=WIS.Core.State,scope=WIS.Power.ScaleLogic.createDeferredDynamicRateScope();
     let status='pending',prepared=null;
     // The owner may enqueue time while this action is private. Nothing else
     // may change gameplay inputs; the latest ledger is copied at final commit.
     const inputKey=s=>{const value=S.toSerializable(s);delete value.core.runtime.timeLedger;delete value.core.preferences;return JSON.stringify(value);};
-    const originalKey=inputKey(original);
+    const inputUnchanged=manualInputCheck(original,inputKey);
     function valid(){return status!=='cancelled'&&status!=='failed'&&R.getState()===original;}
-    const inputsCurrent=()=>valid()&&inputKey(original)===originalKey;
+    const inputsCurrent=()=>valid()&&inputUnchanged();
     const release=()=>{prepared=null;scope.cancel();};
     return Object.freeze({
       advance(deadline=Infinity,options={}){
@@ -3990,18 +4056,18 @@
   }
 
   function performExploration(prepareOnly = false) {
-    const prefix=manualPreparationTask('exploration-prefix',function*(){return yield ()=>{
-    if (!explorationEnabled()) return;
-    const powerCost = explorationPowerCostValue();
-    if (!state.goldenCoreUnlocked || (quantityValue(powerCost)?WIS.Core.Amount.compare(powerCost,EXPLORATION_MINIMUM_POWER_COST)<0:lt(powerCost,EXPLORATION_MINIMUM_POWER_COST))) return;
-    const explorationAmount = explorationAmountForCost(powerCost);
-    const tribulationPreview = minorTribulationPreviewForExploration(explorationAmount);
-    const previewGain = explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
-    if (lt(previewGain, ONE)) return;
-    const explorationAccounting = prepareExplorationProgress(explorationAmount);
-    const previousAchievements = achievementStates();
-    return {powerCost,explorationAmount,tribulationPreview,explorationAccounting,previousAchievements};
-    };});
+    const prefix=manualPreparationTask('exploration-prefix',function*(){
+      if (!(yield ()=>explorationEnabled())) return;
+      const powerCost = yield ()=>explorationPowerCostValue();
+      if (!state.goldenCoreUnlocked || (yield ()=>quantityValue(powerCost)?WIS.Core.Amount.compare(powerCost,EXPLORATION_MINIMUM_POWER_COST)<0:lt(powerCost,EXPLORATION_MINIMUM_POWER_COST))) return;
+      const explorationAmount = yield ()=>explorationAmountForCost(powerCost);
+      const tribulationPreview = yield ()=>minorTribulationPreviewForExploration(explorationAmount);
+      const previewGain = yield ()=>explorationPotentialManaGain(powerCost, state.mana, tribulationPreview.manaExponent, explorationAmount, true);
+      if (lt(previewGain, ONE)) return;
+      const explorationAccounting = yield ()=>prepareExplorationProgress(explorationAmount);
+      const previousAchievements = yield ()=>achievementStates();
+      return {powerCost,explorationAmount,tribulationPreview,explorationAccounting,previousAchievements};
+    });
     if(!prefix)return;
     const {powerCost,explorationAmount,tribulationPreview,explorationAccounting,previousAchievements}=prefix;
     if(!manualQuantityPreparation?.prefixPaid){
@@ -4022,13 +4088,15 @@
       { linearBudget: true, googolPenalty: true, prepareRate: () => prepareExplorationManaRate(explorationAmount, tribulationPreview.manaExponent) }
     );
     const gained=settlement.quantities?.mana??settlement.mana;
-    const complete = () => {
-    WIS.Core.State.addStatistic(state,'lifetimeTotalMana',gained);
-    WIS.Core.State.addStatistic(state,'currentRebirthTotalMana',gained);
-
-    const rewards = processExplorationJudgements(commitExplorationProgress(explorationAccounting), explorationAmount);
-    const tribulationTriggered = registerSuccessfulExploration(explorationAmount, tribulationPreview);
-    WIS.Meta.Achievements.recordCurrent();
+    const prepareSteps=function*(){
+      yield ()=>WIS.Core.State.addStatistic(state,'lifetimeTotalMana',gained);
+      yield ()=>WIS.Core.State.addStatistic(state,'currentRebirthTotalMana',gained);
+      const attempts=yield ()=>commitExplorationProgress(explorationAccounting);
+      const rewards=yield* explorationJudgementSteps(attempts,explorationAmount);
+      const tribulationTriggered=yield ()=>registerSuccessfulExploration(explorationAmount,tribulationPreview);
+      yield ()=>WIS.Meta.Achievements.recordCurrent();
+      yield ()=>updateLifetimeStatistics();
+      return ()=>{
     saveState();
     render();
     notifyNewAchievements(previousAchievements);
@@ -4044,13 +4112,17 @@
     if (gt(rewards.mysticHeavenSpiritSlayingSword, ZERO)) rewardParts.push(`仙道·玄天斩灵剑 +${rewards.mysticHeavenSpiritSlayingSword}`);
     if (tribulationTriggered) rewardParts.push("触发小天劫");
     if (rewardParts.length > 0) showNotice(`探寻判定：${rewardParts.join("、")}`, 2800);
+
+      };
     };
+    const complete=()=>{const iterator=prepareSteps();let next=iterator.next();while(!next.done)next=iterator.next(next.value());return next.value();};
+    complete.prepareSteps=prepareSteps;
     return prepareOnly ? complete : complete();
   }
 
   function rollDynamicAttempts(attempts, available, probability, award, options = {}) {
     if (options.treasureKey) {
-      const gained = WIS.Meta.TreasureProgress.advance(state, options.treasureKey, attempts, { available: available() });
+      const gained = WIS.Meta.TreasureProgress.advance(state, options.treasureKey, attempts, { available: available(), prepareGain: manualRewardGainPreparation });
       return gained.lte(Number.MAX_SAFE_INTEGER) ? gained.toNumber() : gained;
     }
     const awardMultiplier = options.treasureKey

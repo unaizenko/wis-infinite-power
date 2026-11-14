@@ -228,9 +228,9 @@
     WIS.Core.Effects?.invalidate?.();
     return true;
   }
-  function pricePacket(raw){const cost=validCost(raw);if(!exactEnabled()||cost===null)return {cost,terms:null};const A=WIS.Core.Amount,price=A.from(raw);return {cost:A.project(price),terms:A.words(price)};}
-  function canAfford(id, cost, explicit) {const p=pricePacket(cost);return eligibility(resolve(id),p.cost,state(explicit),p.terms);}
-  function spend(id, cost, explicit) {const p=pricePacket(cost);return pay(resolve(id),p.cost,state(explicit),p.terms);}
+  function pricePacket(raw,definition=null){const A=WIS.Core.Amount,cost=exactEnabled()&&A.isAmount(raw)?A.project(raw):validCost(raw);if(!exactEnabled()||cost===null)return {cost,terms:null};const price=definition?.kind==='meta'?A.from(raw):A.price(raw);return {cost:A.project(price),terms:A.words(price)};}
+  function canAfford(id, cost, explicit) {const d=resolve(id),p=pricePacket(cost,d);return eligibility(d,p.cost,state(explicit),p.terms);}
+  function spend(id, cost, explicit) {const d=resolve(id),p=pricePacket(cost,d);return pay(d,p.cost,state(explicit),p.terms);}
   function validTerms(costs) {
     // Signed compensation, counted words and pages are valid ledger inputs.
     // Validate leaves before normalization can cancel or silently drop them.
@@ -250,11 +250,11 @@
     }
   }
   function canAffordTerms(id, costs, explicit) {
-    const valid = validTerms(costs);
+    const raw = validTerms(costs),valid=raw&&exactEnabled()?pricePacket(WIS.Core.Amount.fromParts(0,raw.terms),resolve(id)):raw;
     return valid !== null && eligibility(resolve(id), valid.cost, state(explicit), valid.terms);
   }
   function spendTerms(id, costs, explicit) {
-    const valid = validTerms(costs);
+    const raw = validTerms(costs),valid=raw&&exactEnabled()?pricePacket(WIS.Core.Amount.fromParts(0,raw.terms),resolve(id)):raw;
     return valid !== null && pay(resolve(id), valid.cost, state(explicit), valid.terms);
   }
   function getSystem(system, resource, explicit) {

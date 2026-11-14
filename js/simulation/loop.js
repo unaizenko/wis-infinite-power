@@ -11,7 +11,8 @@
     let importHold=null,importHoldSequence=0;
     let continuationHandle=null,schedulerGeneration=0;
     let manualQi=null;
-    let deferredAction=null;
+    let deferredAction=null,queuedAction=null;
+    const actionAdmissionWaitMs=250;
     let onlineWork=null,onlineFailure=null,publishedSinceRender=false;
     let discardFailure=null,timeoutFailures=0;
     const limit=WIS.Simulation.SettlementLimit;
@@ -70,6 +71,7 @@
     }
     function cancelQiWork(){manualQi=null;context.invalidateDeferredQi?.();}
     function cancelDeferredAction(reason='cancelled'){
+      if(queuedAction){const pending=queuedAction;queuedAction=null;pending.resolve(false);return true;}
       const owner=deferredAction;if(!owner)return false;
       deferredAction=null;detachOnlineReady(owner);
       try{owner.job.cancel?.(reason);}finally{owner.resolve(false);}
@@ -129,6 +131,9 @@
     }
     function inspectOnlineTimeout(){
       if(!bounded||!onlineWork)return;
+      // A completed remote result may have waited behind a busy main thread.
+      // Its input is still validated at installation; it is not a stalled job.
+      if(onlineWork.job.waiting?.()===false)return;
       // Only persisted arithmetic cursors/phases count. A queued timer or empty
       // poll cannot extend this deadline. Remote workers own their silence watchdog.
       const owner=onlineWork,now=monotonicNow(),progress=owner.job.progress?.();
@@ -137,9 +142,10 @@
       if(now-(owner.lastProgressAt??owner.startedAt)>=limit.candidateTimeoutMs)
         stopFailedWork(Object.assign(Error('在线计算暂时无进展，将自动重试'),{code:'online-candidate-timeout'}));
     }
-    function beforePlayerAction(){
+    function beforePlayerAction({deferOnline=false}={}){
       // Rejected repeated input must not commit discard effects into this owner.
-      if(deferredAction)return false;
+      if(deferredAction||queuedAction)return false;
+      if(deferOnline)return !discardFailure;
       if(!bounded||!ledger().pendingDiscard)return !discardFailure;
       if(onlineBlocked())return false;
       cancelOnlineWork(true);limitOnlineQueue(0,'action-boundary');return flushDiscardEffects();
@@ -150,7 +156,16 @@
         status.awaitingStart===true&&status.presentation==='blocking';
     }
     function requestDeferredAction(factory){
-      if(deferredAction||manualQi||context.hasDeferredQi?.()||deferredActionBlocked())return Promise.resolve(false);
+      if(deferredAction||queuedAction||manualQi||context.hasDeferredQi?.()||deferredActionBlocked())return Promise.resolve(false);
+      if(bounded&&typeof factory==='function'&&onlineIntervals.some(part=>part.source==='offline'))return Promise.resolve(false);
+      // A factory has no candidate yet: let the already-owned online segment
+      // finish first, with one bounded request and no extra retained clock.
+      if(bounded&&typeof factory==='function'&&onlineWork&&!discardFailure){
+        return new Promise((resolve,reject)=>{
+          queuedAction={factory,resolve,reject,generation:schedulerGeneration,until:monotonicNow()+actionAdmissionWaitMs};
+          scheduleOnlineContinuation();
+        });
+      }
       if(!beforePlayerAction())return Promise.resolve(false);
       cancelOnlineWork();
       const original=getState(),generation=schedulerGeneration;
@@ -165,6 +180,19 @@
         // can show its pending state before any expensive candidate work starts.
         scheduleOnlineContinuation();
       });
+    }
+    function admitQueuedAction(){
+      const pending=queuedAction;if(!pending)return;
+      if(pending.generation!==schedulerGeneration||deferredActionBlocked()||onlineIntervals.some(part=>part.source==='offline')){cancelDeferredAction('admission-invalidated');return;}
+      if(onlineWork){
+        const ready=typeof onlineWork.job.isReady==='function'?onlineWork.job.isReady():onlineWork.job.waiting?.()===false;
+        if(monotonicNow()<pending.until||ready)return;
+        cancelOnlineWork(true);
+      }
+      queuedAction=null;
+      // Reuse the original action boundary; it applies pending discard and
+      // constructs the candidate from the latest accepted formal state.
+      requestDeferredAction(pending.factory).then(pending.resolve,pending.reject);
     }
     function advanceDeferredAction(){
       const owner=deferredAction;
@@ -188,7 +216,7 @@
     function requestQiBatch(shouldRender=true){
       // Manual and automatic work share the same owner; repeated clicks do not
       // queue purchases or steal another slice from a pending automatic step.
-      if(deferredAction||manualQi||context.hasDeferredQi?.()||importHold||isHidden()||!isInitialLoadComplete()||onlineBlocked())return 0;
+      if(deferredAction||queuedAction||manualQi||context.hasDeferredQi?.()||importHold||isHidden()||!isInitialLoadComplete()||onlineBlocked())return 0;
       const job={original:getState(),generation:schedulerGeneration,
         key:WIS.Cultivation.ImmortalLogic.qiBatchStateKey(getState()),shouldRender,value:0};
       cancelOnlineWork();manualQi=job;processOnline();return job.value;
@@ -258,6 +286,7 @@
       if(importHold||isHidden()||!isInitialLoadComplete())return false;
       if(onlineBlocked())return false;
       if(deferredAction)return deferredAction.job.waiting?.()!==true;
+      if(queuedAction&&(!onlineWork||monotonicNow()>=queuedAction.until))return true;
       if(manualQi)return true;
       if(discardFailure||failureStillCurrent())return false;
       if(onlineWork)return onlineWork.job.waiting?.()!==true;
@@ -271,11 +300,12 @@
       if(offlineIndex>=0&&availableGame>epsilon)return true;
       return (flush||(bounded&&ledger().pendingDiscard))&&availableGame>epsilon;
     }
-    function drainOnlineSlice(flush=false){
+    function drainOnlineSlice(flush=false,finishReadyOnly=false){
       limitOnlineQueue(failureStillCurrent()?0:limit?.waitingClock);inspectOnlineTimeout();flushDiscardEffects();
       const status=offline.getCatchUpStatus();
-      if(deferredAction&&deferredActionBlocked(status))cancelDeferredAction('action-blocked');
+      if((deferredAction||queuedAction)&&deferredActionBlocked(status))cancelDeferredAction('action-blocked');
       if(onlineBlocked(status)){cancelOnlineWork();cancelDeferredAction('online-blocked');return {progressed:false,blocked:true,needsContinuation:false,hitOfflineBarrier:false,steps:0};}
+      admitQueuedAction();
       if(deferredAction){
         let progressed=false;
         stepping=true;context.beginTransaction?.();
@@ -292,6 +322,7 @@
       try {
         if(manualQi)progressed=advanceManualQi();
         while(!manualQi&&!failureStillCurrent()&&steps<maxSteps&&onlineIntervals.length){
+          if(finishReadyOnly&&(!onlineWork||steps>0))break;
           dropEmptyOnlineHeads();
           if(!onlineIntervals.length)break;
           // Budget is checked only between complete atomic settlements. The first
@@ -362,6 +393,7 @@
           if(!getState().unlockedAchievements?.trainingUp&&getState().totalElapsedSeconds>=600)
             WIS.Meta.Achievements.recordCurrent();
           Object.assign(WIS.tmp.rates,rates);
+          if(queuedAction)break;
           if(monotonicNow()-sliceStartedAt>=onlineSliceBudgetMs)break;
         }
         // Only confirmed work can change the presented achievement set.
@@ -396,7 +428,7 @@
       const presentation=view.stopped?'stopped':!view.rates?'pending':view.stale?'stale':'ready';
       // One refresh at a status transition, even if the next candidate is still
       // pending. Repeated stale polls must not dirty costly page previews.
-      if((!onlineWork&&!deferredAction)||publishedSinceRender){requestRender();publishedSinceRender=false;}
+      if((!onlineWork&&!deferredAction&&!queuedAction)||publishedSinceRender){requestRender();publishedSinceRender=false;}
       else if(presentation!==lastRatePresentation)(context.requestGlobalRender||requestRender)();
       lastRatePresentation=presentation;
       (context.scheduleRender || flushRender)(now);
@@ -412,7 +444,10 @@
         if(importHold||isHidden()){cancelOnlineWork();cancelDeferredAction('inactive-host');closeContinuationChannel();return;}
         const result=drainOnlineSlice(false);
         flushOnlineRender(Date.now());
-        if(result.needsContinuation&&generation===schedulerGeneration)scheduleOnlineContinuation();else closeContinuationChannel();
+        if(result.needsContinuation&&generation===schedulerGeneration)scheduleOnlineContinuation();
+        // Admission can already have queued the next task inside this drain.
+        // An older callback must not close that newer MessageChannel owner.
+        else if(continuationHandle===null)closeContinuationChannel();
       });
       return true;
     }
@@ -493,12 +528,12 @@
       return {released:true,elapsedSeconds:elapsed};
     }
     function runMainTick(){
-      const now=Date.now();
+      let now=Date.now();
       if(!isInitialLoadComplete()){lastTickAt=now;return;}
       if(importHold){lastTickAt=now;return;}
       if(isHidden())return;
       inspectOnlineTimeout();
-      if(deferredAction&&deferredActionBlocked())cancelDeferredAction('action-blocked');
+      if((deferredAction||queuedAction)&&deferredActionBlocked())cancelDeferredAction('action-blocked');
       if(onlineBlocked()&&(manualQi||context.hasDeferredQi?.()))invalidateOnlineScheduler();
       // Recovery publishes its own small progress view. Re-rendering every
       // ability/ledger here repeatedly traverses the still-uncommitted backlog.
@@ -506,6 +541,14 @@
       if(ownedStatus.treasureRecovery?.active||ownedStatus.worker?.running){lastTickAt=now;return;}
       // The visibility event normally handles this. Recover a missed event
       // through the SAME watermark, without inferring offline from duration.
+      if(bounded&&ledger().awaySince===null&&!deferredAction&&!manualQi&&!onlineBlocked()&&
+         !onlineIntervals.some(part=>part.source==='offline')&&onlineWork?.job.waiting?.()===false){
+        // Admit the next elapsed interval only after a ready older owner and
+        // its discard boundary have been committed. Do not start another job.
+        drainOnlineSlice(false,true);
+        // A deferred save may itself capture time during transaction close.
+        now=Date.now();
+      }
       if(ledger().awaySince!==null)registerReturn(now);
       else {
         enqueueForegroundAt(now);flushDiscardEffects();
@@ -539,7 +582,7 @@
         if(options.closing===true||isHidden())markAway(Date.now());
         else if(!importHold) {
           enqueueForegroundAt(Date.now());
-          if(options.captureOnly!==true&&!deferredAction&&!onlineWork&&!onlineFailure)processOnline();
+          if(options.captureOnly!==true&&!deferredAction&&!queuedAction&&!onlineWork&&!onlineFailure)processOnline();
         }
       }finally{syncPendingLedger();preparingSave=false;}
       return true;
@@ -584,13 +627,27 @@
     }
     function start(){if(started)return;started=true;
       document.addEventListener('visibilitychange',handleVisibilityChange);
-      window.setInterval(runMainTick,context.logicIntervalMs);
+      // A timer may fire a millisecond before the next complete cadence. Register
+      // only real foreground elapsed time at that boundary, instead of waiting
+      // another full interval and clipping the useful short prefix. This is a
+      // clock tick, not a proof continuation or an enlarged waiting allowance.
+      let alignmentTimer=null;
+      const scheduledTick=()=>{if(alignmentTimer!==null){clearTimeout(alignmentTimer);alignmentTimer=null;}runMainTick();
+        if(!bounded||importHold||isHidden()||!ready()||onlineBlocked()||onlineWork||deferredAction||queuedAction||manualQi||ledger().pendingDiscard||onlineIntervals.some(p=>p.source==='offline'))return;
+        const available=onlineIntervals.reduce((n,p)=>n+p.clock*p.speed,0),missing=currentCadence()-available;
+        if(!(available>epsilon&&missing>epsilon))return;
+        const speed=effectiveDevSpeed();if(!(speed>0))return;const generation=schedulerGeneration;
+        alignmentTimer=setTimeout(()=>{alignmentTimer=null;if(generation===schedulerGeneration&&!isHidden()&&!importHold)scheduledTick();},Math.max(1,Math.ceil((missing-epsilon)/speed*1000)));
+      };window.setInterval(scheduledTick,context.logicIntervalMs);
     }
-    return Object.freeze({start,runMainTick,setLastTickAt,resetAccumulators,getCommittedRates,handleVisibilityChange,setNativeAppActive,
+    return Object.freeze({restoreSessionReservation(data){
+ if(onlineWork||deferredAction||queuedAction||!data||data.index!==0||!Number.isFinite(data.seconds)||data.seconds<=0||!onlineIntervals[0]||data.seconds>onlineIntervals[0].clock*onlineIntervals[0].speed+epsilon)throw Error('invalid saved reservation');
+ const part=onlineIntervals[0];onlineWork={part,generation:schedulerGeneration,seconds:data.seconds,startedAt:monotonicNow(),job:context.prepareOnlineWork(data.seconds,data.segment)};watchOnlineReady(onlineWork);scheduleOnlineContinuation();
+ },start,runMainTick,setLastTickAt,resetAccumulators,getCommittedRates,handleVisibilityChange,setNativeAppActive,
       prepareSave,restoreClosedTime,handoffImportRecovery,enqueueForegroundAt,captureForegroundTime,beginImportHold,finishImportHold,
       invalidateOnlineScheduler,requestQiBatch,requestDeferredAction,cancelDeferredAction,beforePlayerAction,flushDiscardEffects,
       settlementStatus:()=>({bounded,stopped:!!onlineFailure||!!discardFailure,reason:discardFailure?.message||onlineFailure?.code||null,pendingDiscard:ledger().pendingDiscard||null}),
-      isDeferredActionPending:()=>!!deferredAction,
+      isDeferredActionPending:()=>!!deferredAction||!!queuedAction,
       isImportHoldActive:()=>!!importHold,
       snapshot:()=>({lastTickAt,onlineAccumulator,tickRemaining,onlineIntervals:onlineIntervals.map(part=>({...part}))}),
       restore:snapshot=>{

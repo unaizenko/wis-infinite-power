@@ -16,15 +16,16 @@ test('retained failed breathing save loads, commits and survives policy2 roundtr
  try{finish(work);work.commit();}finally{work.cancel();}
  assert.equal(String(R.getState().joules),'0');assert(W.Core.Amount.compare(W.Core.Resources.readExact('cultivation.immortal.mana',R.getState()),mana)>0);
  S.updateLifetimeStatistics(R.getState(),W.Cultivation.ImmortalLogic.cultivationRealmLevel());
- const save=W.Core.Save.envelope(R.getState());assert.equal(save.numericTailPolicyVersion,2);const loaded=W.Core.Save.prepare(save).state;
+ const save=W.Core.Save.envelope(R.getState());assert.equal(save.numericTailPolicyVersion,3);const loaded=W.Core.Save.prepare(save).state;
  assert.deepEqual(JSON.parse(JSON.stringify(S.toSerializable(loaded))),JSON.parse(JSON.stringify(S.toSerializable(R.getState()))));
- const future={...save,numericTailPolicyVersion:3};assert.throws(()=>W.Core.Save.prepare(future));
+ const future={...save,numericTailPolicyVersion:4};assert.throws(()=>W.Core.Save.prepare(future));
 });
 
 test('repeated breathing/spending keeps coefficient complexity bounded across reloads',()=>{
  const {W}=loadProductionNumericRuntime(),A=W.Core.Amount,P=W.Core.AmountProducts,S=W.Core.State,R=W.Core.Runtime,Q=W.Core.Resources,I=W.Cultivation.ImmortalLogic;
  let h=W.Simulation.OfflineHeadless.create({domain:W.Core.Save.prepare(raw()).state},{checkpoint(){},yield:()=>Promise.resolve()}),compactions=0;
  W.Core.AmountProducts={...P,compact(...args){const result=P.compact(...args);if(result.compacted)compactions++;return result;}};
+ W.Core.Amount={...A,boundContinuousGain(...args){const result=A.boundContinuousGain(...args);if(result.compacted)compactions++;return result;}};
  for(let i=0;i<300;i++){
   Q.replaceExact('core.joules',i%2?31840:1000000,R.getState());const before=Q.readExact('cultivation.immortal.mana',R.getState()),clock=R.getState().totalElapsedSeconds,rng=R.getState().core.runtime.randomState;
   const work=I.createBreathingActionWork(R.getState());try{finish(work);work.commit();}finally{work.cancel();}

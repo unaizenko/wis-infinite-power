@@ -45,6 +45,7 @@
     for (const listener of statusListeners) try {listener({...saveStatus});} catch(error) {diagnose("save-status-ui",error);}
   }
   function resetStatus() { saveStatus={unsaved:false,message:"",revision:saveStatus.revision};publishStatus(); }
+  function confirmExternal() {saveStatus={unsaved:false,message:'',revision:saveStatus.revision+1};publishStatus();}
   function markPending() {saveStatus={...saveStatus,unsaved:true,message:"进度已生效，等待保存确认。"};publishStatus();}
   function noteFailure(error, message="存在未保存进度。请勿刷新或关闭页面。") {
     diagnose("save",error);saveStatus={...saveStatus,unsaved:true,message:error?.code === "SAVE_CONFLICT" ? error.message : message};publishStatus();
@@ -392,7 +393,7 @@
       encoding: "sparse-v1",
       schemaVersion: WIS.Core.Config.saveVersion,
       version: WIS.Core.Config.saveVersion,
-      ...(WIS.Core.Amount?.enabled()?{numericModelVersion:state.meta.closedBatchModel===2?2:1,numericTailPolicyVersion:WIS.Core.AmountProducts.tailPolicy.version,...(state.meta.closedBatchModel===2?{settlementRule:WIS.Core.Config.fixedSettlement.version}:{})}:{}),
+      ...(WIS.Core.Amount?.enabled()?{numericModelVersion:state.meta.closedBatchModel===2?2:1,numericTailPolicyVersion:WIS.Core.AmountProducts.tailPolicy.version,numericEconomyPolicyVersion:WIS.Core.AmountProducts.economyPolicy.version,...(state.meta.closedBatchModel===2?{settlementRule:WIS.Core.Config.fixedSettlement.version}:{})}:{}),
       ...(includeExportMetadata ? { exportedAt: new Date().toISOString() } : {}),
       ...(offlineRecovery ? { offlineRecovery } : {}),
       data: sparseData(state)
@@ -403,5 +404,5 @@
     return parsed?.data ?? parsed;
   }
 
-  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, prepareWork, readWork, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, sessionPolicy, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
+  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, confirmExternal, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, prepareWork, readWork, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, sessionPolicy, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
 }(window.WIS));

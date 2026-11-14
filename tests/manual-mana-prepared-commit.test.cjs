@@ -50,9 +50,9 @@ test('high-stock prepared actions are invalidated by payment or cancelled withou
     const before=wire(e.W);assert.throws(()=>work.commit());assert.equal(wire(e.W),before);work.cancel();}
 });
 for(const kind of ['breathing','exploration'])test('high-stock '+kind+' late completion failure rolls back every domain and transient',()=>{
-  const e=setup(),{W,S}=e,work=workFor(e,kind);try{finish(work);const before=wire(W);let calls=0;
+  const e=setup(),{W,S}=e,work=workFor(e,kind);try{if(kind==='breathing')finish(work);const before=wire(W);let calls=0;
     W.Core.State={...S,addStatistic(...args){const value=S.addStatistic(...args);if(++calls===2){W.Cultivation.Immortal.restoreTreasureTransient({passiveManaRollAccumulator:99,baLingChiRollAccumulator:99});throw Error('late completion failure');}return value;}};
-    assert.throws(()=>work.commit(),/late completion failure/);assert.equal(wire(W),before);assert.throws(()=>work.commit());
+    assert.throws(()=>kind==='exploration'?finish(work):work.commit(),/late completion failure/);assert.equal(wire(W),before);assert.throws(()=>work.commit());
   }finally{W.Core.State=S;work.cancel();}
 });
 

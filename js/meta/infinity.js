@@ -3,7 +3,7 @@
   const B=WIS.Core.BigNum,C=WIS.Meta.InfinityConfig;
   const amountModel=()=>WIS.Core.Amount?.enabled()===true;
   const amount=()=>WIS.Core.Amount;
-  const countQuantity=value=>{const A=amount(),v=A.from(value),integer=WIS.Meta.BigNumbers.rankQuantity(A.floor(v));if(A.compare(v,integer)!==0)throw Error('无限点数/支付记录必须为非负整数');return v;};
+  const countQuantity=value=>{const A=amount(),v=A.from(value),integer=A.integerPart(v);if(A.compare(v,integer)!==0)throw Error('无限点数/支付记录必须为非负整数');return v;};
   const quantity=(state,key='points')=>amountModel()?countQuantity(amount().field(get(state),key)):amount().from(get(state)[key]||0);
   const paidQuantity=row=>countQuantity(amount().field(row,'pricePaid'));
   const investedQuantity=state=>(get(state)?.purchaseLedger||[]).reduce((v,row)=>amount().add(v,paidQuantity(row)),amount().from(0));
@@ -217,7 +217,7 @@
     // The permanent curve uses this run's TREE rank. Infinity Power stays additive before multipliers.
     if(amountModel()){
       const A=amount(),Q=WIS.Core.RankBudget.Q,L=WIS.Core.AmountLedger,value=Q.fromRank(rank),base=WIS.Meta.Achievements.has(s,'seventhTree')?Q.add(Q.decimal(3),Q.divide(Q.multiply(Q.subtract(value,Q.decimal(3)),Q.subtract(value,Q.decimal(2))),Q.decimal(2))):value;
-      const fullBase=A.fromParts(0,L.fromQ(base)),points=challengeKey==='infinityRing'||ranks().rankCompare(rank,C.minimumTree)<0?A.from(0):WIS.Meta.BigNumbers.rankQuantity(A.floor(A.multiply(A.add(fullBase,WIS.Meta.Achievements.has(s,'infinityPower')?3:0),multiplier)));
+      const fullBase=A.fromParts(0,L.fromQ(base)),points=challengeKey==='infinityRing'||ranks().rankCompare(rank,C.minimumTree)<0?A.from(0):A.integerPart(A.multiply(A.add(fullBase,WIS.Meta.Achievements.has(s,'infinityPower')?3:0),multiplier));
       const earned=A.add(countQuantity(A.field(n,'totalPointsEarned')),points),candidateCap=has(s,'B1-1')?A.scale(earned,C.treasureCap):A.from(C.treasureCap),cap=A.compare(candidateCap,C.treasureCap)>=0?candidateCap:A.from(C.treasureCap),refund=respec?(n.purchaseLedger||[]).reduce((v,row)=>A.add(v,paidQuantity(row)),A.from(0)):A.from(0);
       return {allowed:challengeKey!=null?(!respec&&challengeEntryAllowed(s,challengeKey)):n.unlocked&&(respec?n.upgradesUnlocked:ranks().rankCompare(rank,C.minimumTree)>=0),points:A.project(points),cap:A.project(cap),refund:A.project(refund),quantities:{points,cap,refund},rebirthCount:n.rebirthCount};
     }
@@ -241,7 +241,7 @@
     WIS.Core.Runtime.assertMutable();
     if(amountModel()){
       const A=amount(),time=A.from(seconds),source=A.from(rate),gain=A.multiply(time,source);if(A.compare(gain,0)===0)return B.ZERO;
-      const n=get(s),total=A.add(fractionValue(n.silverSeaProgress),gain),whole=WIS.Meta.BigNumbers.rankQuantity(A.floor(total)),rest=A.subtract(total,whole),next={...n,...A.fieldParts(countQuantity(A.add(quantity(s),whole)),'points'),...A.fieldParts(countQuantity(A.add(quantity(s,'totalPointsEarned'),whole)),'totalPointsEarned'),silverSeaProgress:fractionRecord(rest)};
+      const n=get(s),total=A.add(fractionValue(n.silverSeaProgress),gain),whole=A.integerPart(total),rest=A.subtract(total,whole),next={...n,...A.fieldParts(countQuantity(A.add(quantity(s),whole)),'points'),...A.fieldParts(countQuantity(A.add(quantity(s,'totalPointsEarned'),whole)),'totalPointsEarned'),silverSeaProgress:fractionRecord(rest)};
       s.meta={...s.meta,infinity:next};return A.project(whole);
     }
     const dt=B.parseFinite(seconds),r=B.parseFinite(rate);

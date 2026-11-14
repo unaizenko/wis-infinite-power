@@ -66,6 +66,12 @@
   function buildEffects(state) {
     return WIS.Core.Effects.runFrozenSteps(state,immortalEffectsSteps,()=>buildEffectSteps(state));
   }
+  // Resolve treasure coefficients only when their target is queried. The existing
+  // Effects snapshot owns reuse; preserve the requested candidate and challenge mask.
+  function deferredTreasureMultiplier(current, name) {
+    const view = WIS.Cultivation.Xiuzhen?.qiPathSealed(current) ? WIS.Cultivation.Xiuzhen.abilityView(current) : current;
+    return WIS.Cultivation.ImmortalLogic.withImmortalState(view, WIS.Cultivation.ImmortalLogic[name]);
+  }
   function* buildEffectSteps(state) {
     if (state.cultivation?.active !== "immortal") return [];
     state=yield ()=>WIS.Cultivation.Xiuzhen?.qiPathSealed(state)?WIS.Cultivation.Xiuzhen.abilityView(state):state;
@@ -81,7 +87,7 @@
     list.push(yield ()=>({ id: "greatCultivator", name: "大修士", group: "仙道", target: "joules", layer: "regionMultiplier", value: state.greatCultivatorUnlocked ? levelMultiplier(realmLevel(state), 1.5) : 1 }));
     list.push(yield ()=>({ id: "immortalFitnessBase", name: "仙道健身能力", group: "仙道", target: "fitness", layer: "baseMultiplier", value: WIS.Cultivation.ImmortalLogic.immortalFitnessBaseMultiplier() }));
     list.push(yield ()=>({ id: "equalHeavenFitness", name: "寿与天齐", group: "仙道", target: "fitness", layer: "sourceMultiplier", value: WIS.Cultivation.ImmortalLogic.equalHeavenLongevityFitnessMultiplier() }));
-    list.push(yield ()=>({ id: "baLingChiFitness", name: "仙道·八灵尺", group: "宝物", target: "fitness", layer: "sourceMultiplier", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.baLingChiFitnessMultiplier() }));
+    list.push(yield ()=>({ id: "baLingChiFitness", name: "仙道·八灵尺", group: "宝物", target: "fitness", layer: "sourceMultiplier", celestialFiveDecline: true, value: current => deferredTreasureMultiplier(current, "baLingChiFitnessMultiplier") }));
     list.push(yield ()=>({ id: "immortalFitnessLevelCap", name: "仙道健身上限", group: "仙道", target: "fitnessLevelCap", layer: "sourceAdditive", value: WIS.Cultivation.ImmortalLogic.immortalFitnessLevelCapBonus() }));
     list.push(yield ()=>({ id: "minorTribulationPower", name: "小天劫", group: "仙道", target: "power", layer: "regionExponent", value: WIS.Cultivation.ImmortalLogic.minorTribulationPowerExponent() }));
     list.push(yield ()=>({ id: "materialControl", name: "御物", group: "仙道", target: "magicTreasure", layer: "sourceMultiplier", value: state.materialControlUnlocked ? 5 : 1 }));
@@ -105,8 +111,8 @@
     list.push(yield ()=>({ id: "manaLiquefactionMana", name: "法力液化", group: "仙道能力", target: "mana", layer: "regionMultiplier", value: state.manaLiquefactionUnlocked ? 0.8 : 1 }));
     list.push(yield ()=>({ id: "manaSolidificationMana", name: "法力固化", group: "仙道能力", target: "mana", layer: "regionMultiplier", value: state.manaSolidificationUnlocked ? 0.9 : 1 }));
     list.push(yield ()=>({ id: "techniqueMana", name: "功法", group: "仙道能力", target: "mana", layer: "regionMultiplier", value: state.techniqueUnlocked ? 1.5 : 1 }));
-    list.push(yield ()=>({ id: "naturalTreasureMana", name: "天材地宝", group: "宝物", target: "mana", layer: "regionMultiplier", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.naturalTreasureManaMultiplier() }));
-    list.push(yield ()=>({ id: "tianNiPearlMana", name: "仙道·天逆珠", group: "宝物", target: "mana", layer: "regionMultiplier", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.tianNiPearlManaMultiplier() }));
+    list.push(yield ()=>({ id: "naturalTreasureMana", name: "天材地宝", group: "宝物", target: "mana", layer: "regionMultiplier", celestialFiveDecline: true, value: current => deferredTreasureMultiplier(current, "naturalTreasureManaMultiplier") }));
+    list.push(yield ()=>({ id: "tianNiPearlMana", name: "仙道·天逆珠", group: "宝物", target: "mana", layer: "regionMultiplier", celestialFiveDecline: true, value: current => deferredTreasureMultiplier(current, "tianNiPearlManaMultiplier") }));
     list.push(yield ()=>({ id: "perfectedTechnique", name: "功法大成", group: "仙道", target: "circulation", layer: "sourceMultiplier", value: state.perfectedTechniqueUnlocked ? 1.5 : 1 }));
     list.push(yield ()=>({ id: "dualInfantUnity", name: "双婴合一", group: "仙道", target: "circulation", layer: "sourceExponent", value: state.dualInfantUnityUnlocked ? 1.08 : 1 }));
     list.push(yield ()=>({ id: "heavenEarthAura", name: "天地元气", group: "仙道", target: "breathingJCurve", layer: "sourceAdditive", value: state.heavenEarthAuraUnlocked ? 0.25 : 0 }));
@@ -129,8 +135,8 @@
     list.push(yield ()=>({ id: "xuanImmortalBody", name: "玄仙之躯", group: "真仙", target: "brahmaDemonArt", layer: "sourceExponent", value: state.xuanImmortalBodyUnlocked ? 1.4 : 1 }));
     list.push(yield ()=>({ id: "lawImmortalPower", name: "法则", group: "真仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, dynamicResources: ['mana'], value: (current) => WIS.Cultivation.ImmortalLogic.lawImmortalPowerMultiplier(fullDynamic(current,'mana')) }));
     list.push(yield ()=>({ id: "spiritCaptureReturn", name: "摄灵返源", group: "金仙", target: "immortalPower", layer: "regionMultiplier", dynamic: true, dynamicResources: ['immortalPower'], value: (current) => WIS.Cultivation.ImmortalLogic.spiritCaptureReturnMultiplier(fullDynamic(current,'immortalPower')) }));
-    list.push(yield ()=>({ id: "fiveElementsTreasurePower", name: "仙道·五行至宝", group: "宝物", target: "immortalPower", layer: "regionMultiplier", celestialFiveDecline: true, value: WIS.Cultivation.ImmortalLogic.fiveElementsTreasureMultiplierBeforeDecline() }));
-    list.push(yield ()=>({ id: "immortalCrystalPower", name: "仙晶", group: "宝物", target: "immortalPower", layer: "regionMultiplier", value: WIS.Cultivation.ImmortalLogic.immortalCrystalMultiplier() }));
+    list.push(yield ()=>({ id: "fiveElementsTreasurePower", name: "仙道·五行至宝", group: "宝物", target: "immortalPower", layer: "regionMultiplier", celestialFiveDecline: true, value: current => deferredTreasureMultiplier(current, "fiveElementsTreasureMultiplierBeforeDecline") }));
+    list.push(yield ()=>({ id: "immortalCrystalPower", name: "仙晶", group: "宝物", target: "immortalPower", layer: "regionMultiplier", value: current => deferredTreasureMultiplier(current, "immortalCrystalMultiplier") }));
     list.push(yield ()=>({ id: "indestructibleDharmaBody", name: "法体不灭", group: "金仙", target: "brahmaDemonArt", layer: "sourceExponent", value: state.indestructibleDharmaBodyUnlocked ? 1.55 : 1 }));
     list.push(yield ()=>({ id: "spiritDomainWorldTransformation", name: "灵域化界", group: "太乙", target: "spiritDomain", layer: "sourceMultiplier", value: state.spiritDomainWorldTransformationUnlocked ? WIS.Core.Config.immortalPower.spiritDomain.worldMultiplier : 1 }));
     list.push(yield ()=>({ id: "soulQualitativeChange", name: "神魂质变", group: "太乙", target: "breathing", layer: "sourceMultiplier", dynamic: true, dynamicResources: ['immortalPower'], value: (current) => WIS.Cultivation.ImmortalLogic.soulQualitativeChangeMultiplier(fullDynamic(current,'immortalPower')) }));
@@ -143,7 +149,7 @@
   }
 
   WIS.Core.Effects.register("immortal", effects, { highestPowerEffects: [] });
-  WIS.Core.Effects.register("xiuzhen", state => WIS.Cultivation.Xiuzhen?.effects(state) ?? [], { highestPowerEffects: [] });
+  WIS.Core.Effects.register("xiuzhen", state => WIS.Cultivation.Xiuzhen?.effects(state, { deferValues: true }) ?? [], { highestPowerEffects: [] });
 
   let passiveManaRollAccumulator = 0;
   let baLingChiRollAccumulator = 0;
@@ -272,3 +278,4 @@
   });
   WIS.Cultivation.Immortal = system;
 }(window.WIS));
+

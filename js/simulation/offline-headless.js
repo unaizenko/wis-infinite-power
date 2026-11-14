@@ -47,7 +47,7 @@
       setLastTickAt(now){const ledger=state.core.runtime.timeLedger;if(ledger.awaySince===null)state.core.runtime.timeLedger={...ledger,boundaryAt:Math.max(ledger.boundaryAt,now)};},
       ...Object.fromEntries(['fitnessMembershipCardCount','superLollipopCount','skyCrystalCount','fiveSpiritStoneCount','cosmicFiberCount','cosmicWillCount'].map(k=>[k,Scale[k]])),
       ...Object.fromEntries(['tianNiPearlCount','baLingChiCount','phantomHeavenMirrorCount','mysticHeavenSacredTreeCount','mysticHeavenSpiritSlayingSwordCount'].map(k=>[k,I[k]]))});
-    return Object.freeze({getState:()=>state,snapshot,offline,step});
+    return Object.freeze({getState:()=>state,installState:setState,snapshot,offline,step});
   }
   WIS.Simulation.OfflineHeadless=Object.freeze({create});
 }(window.WIS));

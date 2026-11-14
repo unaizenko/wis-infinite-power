@@ -1,10 +1,12 @@
 (function defineMathWorker(WIS) {
   'use strict';
   const P=WIS.Simulation.WorkerProtocol;
-  let serial=0;
+  let serial=0,cachedBundle=null,cachedScript=null;
   function spawn(){
     if(typeof Worker!=='function'||!WIS.Simulation.MathWorkerBundle)throw Error('Worker unavailable');
-    const url=URL.createObjectURL(new Blob([WIS.Simulation.MathWorkerBundle.source],{type:'text/javascript'}));
+    const bundle=WIS.Simulation.MathWorkerBundle;
+    if(cachedBundle!==bundle){cachedScript=new Blob([bundle.source],{type:'text/javascript'});cachedBundle=bundle;}
+    const url=URL.createObjectURL(cachedScript);
     try{return new Worker(url,{name:'wis-pure-math'});}finally{URL.revokeObjectURL(url);}
   }
   // Each job owns its worker and immutable input. No cross-candidate result cache.

@@ -4,7 +4,7 @@
     "scripts": "index.html",
     "buildId": "js/core/build-config.js:WIS_BUILD.id"
   },
-  "buildId": "dev-0.2.2.3-20261112-release-r1",
+  "buildId": "dev-0.2.3.0-20261114-release-r1",
   "scripts": [
     "js/core/build-config.js",
     "js/vendor/break_eternity.min.js",
@@ -105,6 +105,12 @@
     "js/ui/app-distribution.js",
     "js/ui/native-platform.js",
     "js/ui/action-view.js",
+    "js/simulation/session-delta.js",
+    "js/simulation/session-store.js",
+    "js/simulation/session-controller.js",
+    "js/simulation/session-actions.js",
+    "js/simulation/session-worker-bundle.js",
+    "js/simulation/session-client.js",
     "js/ui/app.js",
     "game.js"
   ]

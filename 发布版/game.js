@@ -64,15 +64,17 @@
   const previewOwners = new WeakMap();
   function previewOwner(value = state) { if (!previewOwners.has(value)) previewOwners.set(value, {}); return previewOwners.get(value); }
   let initialLoadComplete = false;
-  const canPerformSavedAction = () => initialLoadComplete;
+  const canPerformSavedAction = () => initialLoadComplete && (!session || session?.active());
   const canPersistConfirmedState = () => initialLoadComplete && WIS.Core.Save.sessionPolicy().persistenceAllowed;
   let automationSimulation;
   let stepSimulation;
   let offlineSimulation;
   let simulationLoop;
+  let session=null;
   abortStartup = () => {
     const hadConfirmedStartup=initialLoadComplete;
     initialLoadComplete=false;
+    session?.close();
     simulationLoop?.invalidateOnlineScheduler();
     offlineSimulation?.suspendForAway();
     if(!hadConfirmedStartup)setStateDirect(loadedState);
@@ -104,7 +106,7 @@
 
   WIS.Core.Runtime.bind({
     state: () => state,
-    setState: setStateDirect
+    setState: next=>{if(session?.active())throw Error("正式状态只能由会话命令提交");setStateDirect(next);}
   });
   WIS.Core.Resources.bind(() => state);
   reconcileMahayanaReincarnationEffects();
@@ -254,11 +256,13 @@
   }
 
   function persistStateNow(options = {}) {
+    if(session?.active()){const pending=session.save(options);pending.catch(error=>WIS.Core.Save.noteFailure(error));return pending;}
     if(!canPersistConfirmedState())return false;
     return WIS.Core.Save.persistLive(state,simulationLoop,offlineSimulation,options);
   }
 
   function saveState(options = {}) {
+    if(session?.active())return session.save(options);
     if (WIS.Core.Runtime.isProjection() || !canPerformSavedAction()) return false;
     // Import commit must be synchronous: the transaction cannot release the old
     // session until the newly installed state and its recovery debt are in storage.
@@ -298,6 +302,7 @@
   }
 
   function completePlayerAction() {
+    if(session?.active())return;
     previewOwners.set(state, {});
     recordCurrentAchievements();
     updateLifetimeStatistics();
@@ -313,21 +318,22 @@
   const formatGameCalendar = WIS.UI.Format.gameCalendar;
 
   const invalidateOnlineScheduler = () => simulationLoop?.invalidateOnlineScheduler?.();
-  const simulateOfflineProgress = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.simulateOfflineProgress(...args); };
-  const cancelCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.cancelCatchUp(...args); };
-  const abandonCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.abandonCatchUp(...args); };
+  const simulateOfflineProgress = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('simulateOfflineProgress',args):offlineSimulation.simulateOfflineProgress(...args); };
+  const cancelCatchUp = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('pauseCatchUpByPlayer',args):offlineSimulation.cancelCatchUp(...args); };
+  const abandonCatchUp = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('abandonCatchUp',args):offlineSimulation.abandonCatchUp(...args); };
   function convertOfflineToCompensation() {
+    if(session?.active())return session.recovery('convertOfflineToCompensation');
     simulationLoop.prepareSave();
     invalidateOnlineScheduler();
     offlineSimulation.sealOnlineTail();
     return offlineSimulation.convertOfflineToCompensation();
   }
-  const retryCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.retryCatchUp(...args); };
-  const startCatchUp = (...args) => { invalidateOnlineScheduler(); return offlineSimulation.startCatchUp(...args); };
-  const pauseCatchUpByPlayer = () => { invalidateOnlineScheduler(); return offlineSimulation.pauseCatchUpByPlayer(); };
-  const acknowledgeCatchUp = (...args) => offlineSimulation.acknowledgeCatchUp(...args);
-  const getCatchUpStatus = (...args) => offlineSimulation.getCatchUpStatus(...args);
-  const subscribeCatchUpStatus = (...args) => offlineSimulation.subscribeCatchUpStatus(...args);
+  const retryCatchUp = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('retryCatchUp',args):offlineSimulation.retryCatchUp(...args); };
+  const startCatchUp = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('startCatchUp',args):offlineSimulation.startCatchUp(...args); };
+  const pauseCatchUpByPlayer = () => { invalidateOnlineScheduler(); return session?.active()?session.recovery('pauseCatchUpByPlayer'):offlineSimulation.pauseCatchUpByPlayer(); };
+  const acknowledgeCatchUp = (...args) => session?.active()?session.recovery('acknowledgeCatchUp',args):offlineSimulation.acknowledgeCatchUp(...args);
+  const getCatchUpStatus = (...args) => session?.active()?session.status():offlineSimulation.getCatchUpStatus(...args);
+  const subscribeCatchUpStatus = (...args) => session?session.subscribe(...args):offlineSimulation.subscribeCatchUpStatus(...args);
   const claimPauseNotice = (...args) => offlineSimulation.claimPauseNotice(...args);
   const queueCatchUpNotice = (...args) => offlineSimulation.queueCatchUpNotice(...args);
   const setLastTickAt = (value) => simulationLoop?.setLastTickAt(value);
@@ -384,6 +390,7 @@
   }
 
   function infinityRebirth(options) {
+    if(session?.active())return session.rebirth(options);
     if(options?.challengeKey&&(simulationLoop.isDeferredActionPending()||offlineSimulation.getCatchUpStatus().locked))throw Error('当前结算尚未完成');
     let previous;
     const next=WIS.Meta.Infinity.commitRebirth(options,{
@@ -428,7 +435,11 @@
     return result;
   }
 
-  const UI = WIS.UI.App.create({
+  session=WIS.Core.Save.sessionPolicy().persistenceAllowed?WIS.Simulation.SessionClient.create({
+    install(snapshot,tick,rates,owner){const next=session.readonly(WIS.Core.State.cloneForSimulation(snapshot.domain));previewOwners.set(next,owner);setStateDirect(next);WIS.Power.Scale.restoreTreasureTransient(snapshot.powerTransient);WIS.Cultivation.Immortal.restoreTreasureTransient(snapshot.cultivationTransient);WIS.tmp.tick=tick;WIS.tmp.rates=rates;},
+    render(){requestRender();scheduleRender(Date.now());},notice:message=>showNotice(message,6000)
+  }):null;
+  const UI = WIS.UI.App.create({session,
     canPerformSavedAction, canPersistConfirmedState,
     saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, convertOfflineToCompensation, retryCatchUp, startCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
     captureImportState: captureImportStateSnapshot,
@@ -441,14 +452,14 @@
     formatMultiplierGroups, formatElapsedTime, formatGameCalendar, resourceSoftcapExponent,
     planetSuppressionSoftcapExponent, formatSoftcapExponent, activeSoftcapStages, removedSoftcapStages,
     achievementDefinitions, achievementsUnlocked, upgradesUnlocked, cultivationUnlocked, treasuresUnlocked,
-    challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: playerAction(startChallenge), exitChallenge: playerAction(exitChallenge), setLastTickAt,
+    challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: (...args)=>session?session.dispatch({type:'action',group:'challenges',method:'startChallenge',args}):playerAction(startChallenge)(...args), exitChallenge: (...args)=>session?session.dispatch({type:'action',group:'challenges',method:'exitChallenge',args}):playerAction(exitChallenge)(...args), setLastTickAt,
     previewOwner,
-    getCommittedRates:()=>simulationLoop?.getCommittedRates(),
-    onNativeAppState: active => simulationLoop?.setNativeAppActive(active),
+    getCommittedRates:()=>session?.active()?session.view().publishedRates:simulationLoop?.getCommittedRates(),
+    onNativeAppState: active => session?.active()?session.nativeActive(active):simulationLoop?.setNativeAppActive(active),
     captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0,
     requestDeferredAction:job=>simulationLoop?.requestDeferredAction(job),
-    isDeferredActionPending:()=>simulationLoop?.isDeferredActionPending?.()===true,
-    cancelDeferredAction:()=>simulationLoop?.cancelDeferredAction?.()
+    isDeferredActionPending:()=>session?.active()?session.busy():simulationLoop?.isDeferredActionPending?.()===true,
+    cancelDeferredAction:()=>session?.active()?session.cancel('ui-cancel'):simulationLoop?.cancelDeferredAction?.()
   });
   ({
     render, renderResourceDebugPanel, ensureAdvancedRealmAbilityGroups, applyTheme, switchPage, showNotice,
@@ -484,7 +495,7 @@
     onlineMetrics: stepSimulation.onlineMetrics,
     restoreOnlineMetrics: stepSimulation.restoreOnlineMetrics,
     getState: () => state,
-    advanceGameStep: stepSimulation.advanceGameStep,
+    advanceGameStep:(...args)=>{if(session)throw Error('正式会话禁止旁路推进');return stepSimulation.advanceGameStep(...args);},
     beginTransaction: stepSimulation.beginTransaction,
     endTransaction: stepSimulation.endTransaction,
     achievementStates,
@@ -583,18 +594,18 @@
     maxDiscreteEventsPerStep: MAX_DISCRETE_EVENTS_PER_STEP,
     logicIntervalMs: LOGIC_INTERVAL_MS
   });
-  WIS.Core.Save.bindOfflineRecovery((options) => offlineSimulation.getPersistenceSnapshot(options));
+  WIS.Core.Save.bindOfflineRecovery((options) => session?.active()?session.view().recovery:offlineSimulation.getPersistenceSnapshot(options));
 
   WIS.Core.Runtime.bind({
     state: () => state,
-    setState: setStateDirect,
+    setState: next=>{if(session?.active())throw Error("正式状态只能由会话命令提交");setStateDirect(next);},
     save: saveState,
     infinityRebirth,
     requestQiBatch:shouldRender=>simulationLoop.requestQiBatch(shouldRender),
     requestDeferredAction:job=>simulationLoop.requestDeferredAction(job),
-    isDeferredActionPending:()=>simulationLoop.isDeferredActionPending(),
-    cancelDeferredAction:()=>simulationLoop.cancelDeferredAction(),
-    beforePlayerAction:()=>simulationLoop.beforePlayerAction(),
+    isDeferredActionPending:()=>session?.active()?session.busy():simulationLoop.isDeferredActionPending(),
+    cancelDeferredAction:()=>session?.active()?session.cancel('ui-cancel'):simulationLoop.cancelDeferredAction(),
+    beforePlayerAction:options=>session?.active()?!session.busy():simulationLoop.beforePlayerAction(options),
     render: requestRender,
     renderAfterAction: (pageName) => {
       requestRender(pageName);
@@ -639,25 +650,25 @@
   UI.bindEvents();
   WIS.Game = Object.freeze({
     version: GAME_VERSION,
-    beforePlayerAction:()=>simulationLoop.beforePlayerAction(),
-    getSettlementStatus:()=>simulationLoop.settlementStatus(),
+    beforePlayerAction:options=>session?.active()?!session.busy():simulationLoop.beforePlayerAction(options),
+    getSettlementStatus:()=>session?.active()?session.view().settlement:simulationLoop.settlementStatus(),
     canPerformSavedAction, canPersistConfirmedState,
     getState: () => state,
     getDomainState: () => WIS.Core.State.domainView(state),
     getPowerSystem: () => WIS.Core.Registries.getActivePower(state),
     getCultivationSystem: () => WIS.Core.Registries.getActiveCultivation(state),
     actions: Object.freeze({
-      train: playerAction(train),
-      breathe: playerAction(breathe),
-      explore: playerAction(explore),
-      chooseCultivation: playerAction(chooseCultivation),
-      startChallenge: playerAction(startChallenge),
-      exitChallenge: playerAction(exitChallenge),
+      train: (...args)=>session?session.dispatch({type:'action',group:'scale',method:'train',args}):playerAction(train)(...args),
+      breathe: (...args)=>session?session.dispatch({type:'action',group:'immortal',method:'breathe',args}):playerAction(breathe)(...args),
+      explore: (...args)=>session?session.dispatch({type:'action',group:'immortal',method:'explore',args}):playerAction(explore)(...args),
+      chooseCultivation: (...args)=>session?session.dispatch({type:'action',group:'immortal',method:'chooseCultivation',args}):playerAction(chooseCultivation)(...args),
+      startChallenge: (...args)=>session?session.dispatch({type:'action',group:'challenges',method:'startChallenge',args}):playerAction(startChallenge)(...args),
+      exitChallenge: (...args)=>session?session.dispatch({type:'action',group:'challenges',method:'exitChallenge',args}):playerAction(exitChallenge)(...args),
       save: saveState
     }),
     simulation: Object.freeze({
       advanceGameStep: stepSimulation.advanceGameStep,
-      advanceGame: stepSimulation.advanceGame,
+      advanceGame:(...args)=>{if(session)throw Error('正式会话禁止旁路推进');return stepSimulation.advanceGame(...args);},
       simulateOfflineProgress,
       cancelCatchUp,
       abandonCatchUp,
@@ -679,17 +690,16 @@
   assertBootHealthy();
   BOOT.enter("register-recovery");
   // No save or action may advance the saved watermark before this succeeds.
-  if(WIS.Core.Save.sessionPolicy().durableRecoveryAllowed)restoreOfflineRecovery(savedOfflineRecovery);
-  else simulationLoop.restoreClosedTime(null);
+  if(session)await session.start(state,savedOfflineRecovery);else simulationLoop.restoreClosedTime(null);
   initialLoadComplete=true;
-  if(document.hidden)simulationLoop.prepareSave({closing:true});
+  if(document.hidden){if(session)await session.save({closing:true});else simulationLoop.prepareSave({closing:true});}
   ensureAdvancedRealmAbilityGroups();
   switchPage("actions", { deferRender: true });
   markCostGroupsDirty();
   requestRender();
   scheduleRender(Date.now(),{force:true});
   BOOT.ready({mode:WIS.Core.Save.sessionPolicy().mode});
-  simulationLoop.start();
+  if(!session)simulationLoop.start(); // Protected temporary sessions retain the existing in-memory owner.
 
   // Historical recovery owns its own gate. Base UI readiness never waits for
   // its potentially long promise, and Worker writes retain their durable ACK.
@@ -702,15 +712,14 @@
     showNotice("离线恢复已暂停，剩余时间仍保留："+(error.message||error),6000);
   }
   if(!initialLoadComplete)return;
-  simulationLoop.setLastTickAt(Date.now());
   markCostGroupsDirty();
   requestRender();
   scheduleRender(Date.now());
-  try {saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
+  try {await saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
   if(!offlineSimulation.isCatchUpPaused()&&!WIS.Core.Save.getLoadError())notifyNewAchievements();
   if(initialOfflineReport&&state.autoCloseOfflineDialogEnabled===false)showNotice(initialOfflineReport,6000);
   window.setInterval(()=>{
-    if(!document.hidden)try{persistStateNow({preserveSourceModels:true,captureOnly:true});}catch(_){}
+    if(!document.hidden)void Promise.resolve(persistStateNow({preserveSourceModels:true,captureOnly:true})).catch(()=>{});
   },5000);
   }
   window.setTimeout(()=>{

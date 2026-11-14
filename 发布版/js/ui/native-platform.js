@@ -60,7 +60,7 @@
         if (!manual && last && at >= last && at - last < settings.hours * 3600000) return false;
         if (!ready()) { message = '等待读档、导入或离线恢复完成后备份'; return false; }
         message = '正在保存本地备份…'; error = ''; emit();
-        const text = capture();
+        const text = await capture();
         settings = await bridge.writeBackup({text});
         retryAt = 0; error = ''; message = '备份成功';
         return true;
@@ -89,7 +89,7 @@
       }
       lastBack = null; exiting = true;
       try {
-        if (!saveBeforeLeaving()) { notice('存档尚未保存，已取消退出。请先导出备份。'); return; }
+        if (!await saveBeforeLeaving()) { notice('存档尚未保存，已取消退出。请先导出备份。'); return; }
         await app.exitApp();
       } catch (error) { notice('退出失败：' + error.message); }
       finally { exiting = false; }

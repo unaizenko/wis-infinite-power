@@ -1,7 +1,7 @@
 (function defineInfinityUI(WIS){
   'use strict';
   WIS.UI.Infinity=Object.freeze({create(context){
-    const I=WIS.Meta.Infinity,C=WIS.Meta.InfinityConfig,R=WIS.Core.Runtime,s=R.state,$=id=>document.getElementById(id);
+    const I=(context.session?context.session.facade('infinity',WIS.Meta.Infinity):WIS.Meta.Infinity),C=WIS.Meta.InfinityConfig,R=WIS.Core.Runtime,s=R.state,$=id=>document.getElementById(id);
     const f=value=>context.format(value,0),label={unimplemented:'尚未实装 / 后续开放',purchased:'已购买',exclusive:'互斥锁定',prerequisite:'未满足前置',available:'可购买',unaffordable:'点数不足'};
     let selected=false,upgrades=false,branch='regular',nodeId='B1-1',displayedRun=0;
     const nodeViews=new Map();
@@ -11,11 +11,11 @@
     const attribute=(el,name,value)=>{if(el.getAttribute(name)!==value)el.setAttribute(name,value);};
     const repaint=()=>R.call('renderImmediately');
     const element=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;};
-    function rebirth(respec){const v=I.previewRebirth(s,{respec});if(!v.allowed)return;
+    async function rebirth(respec){const v=I.previewRebirth(s,{respec});if(!v.allowed)return;
       const expectedRebirthCount=displayedRun;
       const retained=WIS.Meta.Achievements.has(s,'eternalWitness');
       if(!window.confirm(`${respec?'重置无限强化':'无限转生'}：获得 ${f(v.points)} 无限点数，${`每种宝物最多保留 ${f(v.cap)}${retained?'；一证永证保留体系挑战':''}`}${respec?`；清空无限强化，返还 ${f(v.refund)} 实际支付点数`:''}；高阶多元阶位和历史最高记录保留，当前库存清零。确定继续吗？`))return;
-      try{R.call('infinityRebirth',{respec,expectedRebirthCount});repaint();}catch(error){console.error(error);R.call('showNotice',`无限转生未完成：${error.message}`);}
+      try{await R.call('infinityRebirth',{respec,expectedRebirthCount});repaint();}catch(error){console.error(error);R.call('showNotice',`无限转生未完成：${error.message}`);}
     }
     function renderActions(){const n=I.get(s);$('infinity-tab').hidden=!n.unlocked;if(!n.unlocked)selected=false;
       if(n.unlocked)$('big-number-tabs').hidden=false;
@@ -142,7 +142,7 @@
       const panel=element('section','infinity-panel');panel.id='infinity-panel';panel.hidden=true;
       panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><section class="infinity-details" id="infinity-universe-resources" hidden><h3>宇宙数量</h3><p id="infinity-universeCoefficient-row" hidden>单体宇宙（N）：<strong id="infinity-universeCoefficient">0</strong></p><p id="infinity-multiverseCoefficient-row" hidden>多元宇宙（N²）：<strong id="infinity-multiverseCoefficient">0</strong></p><p id="infinity-high-multiverse-row" hidden><span id="infinity-high-multiverse-label">高阶多元</span>：<strong id="infinity-high-multiverse">0</strong></p><p id="infinity-high-multiverse-highest-row" hidden>历史最高高阶多元：<strong id="infinity-high-multiverse-highest">0</strong>（跨转生保留）</p></section><section class="infinity-details" id="high-multiverse-upgrade" hidden><h3>高阶多元</h3><p id="high-multiverse-condition"></p><p id="high-multiverse-cost"></p><p id="high-multiverse-preview"></p><button type="button" class="primary-button" id="high-multiverse-promote">高阶多元+</button></section><p id="infinity-silver-sea" hidden></p><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
       $('actions-page').append(panel);$('infinity-rebirth').addEventListener('click',()=>rebirth(false));
-      $('high-multiverse-promote').addEventListener('click',()=>context.performSavedAction(()=>WIS.Meta.HighMultiverse.promote(s),renderActions));
+      $('high-multiverse-promote').addEventListener('click',()=>context.performSavedAction(()=>context.session?context.session.dispatch({type:'action',group:'high',method:'promote',args:[]}):WIS.Meta.HighMultiverse.promote(s),renderActions));
       const page=$('upgrades-page'),ordinary=element('div');ordinary.id='ordinary-upgrades-panel';
       for(const child of [...page.children])if(!child.classList.contains('page-header'))ordinary.append(child);
       const tabs=element('div','big-number-tabs');tabs.id='infinity-upgrade-tabs';tabs.hidden=true;tabs.innerHTML='<button type="button" id="ordinary-upgrades-tab">普通强化</button><button type="button" id="infinity-upgrades-tab">无限强化</button>';
@@ -150,7 +150,7 @@
       up.innerHTML='<h2>无限强化</h2><p id="infinity-points"></p><div class="infinity-branches" id="infinity-branches" role="tablist"></div><div class="infinity-tree" id="infinity-tree"></div><p id="infinity-filter-empty" hidden>本分支强化已全部解锁。</p><section class="infinity-details" id="infinity-details"><h3 id="infinity-node-name"></h3><p id="infinity-node-price"></p><p id="infinity-node-prerequisites"></p><p id="infinity-node-effect"></p><button type="button" class="primary-button" id="infinity-buy">购买</button></section><p id="infinity-invested"></p><button type="button" id="infinity-respec">重置无限强化</button>';
       for(const [parent,id,key] of [[ordinary,'toggle-upgrade-filter','hideUnlockedUpgrades'],[up,'toggle-infinity-upgrade-filter','hideUnlockedInfinityUpgrades']]){
         const filter=element('button','secondary-button','隐藏已解锁强化');filter.id=id;filter.type='button';filter.setAttribute('aria-pressed','false');parent.prepend(filter);
-        filter.addEventListener('click',()=>{s[key]=!s[key];context.saveState();repaint();});
+        filter.addEventListener('click',async()=>{if(context.session)await context.session.preference(key,!s[key]);else s[key]=!s[key];context.saveState();repaint();});
       }
       if(compactLayout?.addEventListener)compactLayout.addEventListener('change',placeDetails);
       else compactLayout?.addListener?.(placeDetails);
@@ -166,7 +166,7 @@
         const info=element('div','item-content'),control=element('div','purchase-control'),button=element('button','primary-button','开启挑战');button.type='button';
         info.append(element('h2','',['trueG1','trueGraham','trueTree3','infinityRing'].includes(id)?def.name:`${I.isInfinityChallenge(id)?'无限挑战':'挑战'}·${def.name}`),element('p','',def.description));
         control.append(element('span','infinity-challenge-status'),element('small','',`目标：${def.targetG?`G${def.targetG}`:def.targetTree?`TREE(${def.targetTree})`:def.targetXiuzhenRealm?'抵达单体宇宙量级':'无限转生后5秒内抵达宇宙结构'}`),element('small','infinity-challenge-reward'),button);
-        button.addEventListener('click',()=>{if(I.isChallengeActive(s,id))WIS.Meta.Challenges.exitChallenge(id);else WIS.Meta.Challenges.startChallenge(id);});card.append(info,control);(I.isInfinityChallenge(id)?infinitePanel:challengePanel).append(card);}
+        button.addEventListener('click',()=>{if(I.isChallengeActive(s,id))context.exitChallenge(id);else context.startChallenge(id);});card.append(info,control);(I.isInfinityChallenge(id)?infinitePanel:challengePanel).append(card);}
     }
     return {bind,renderActions,renderUpgrades,renderChallenges};
   }});

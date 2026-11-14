@@ -2,7 +2,7 @@
  'use strict';
  const A=W.Core.Amount;
  const fail=()=>{throw Object.assign(Error('不支持的数值模型版本；原存档保持不变'),{code:'amount-model-version'});};
- function assertEnvelope(envelope,schema){if(schema>=75){if(schema>=76?envelope.numericModelVersion!==2:![1,2].includes(envelope.numericModelVersion))fail();if(envelope.numericTailPolicyVersion!=null&&![1,2].includes(envelope.numericTailPolicyVersion))throw Object.assign(Error('不支持的尾项精度策略；原存档保持不变'),{code:'amount-tail-policy-version'});}else if(envelope.numericModelVersion!=null)fail();}
+ function assertEnvelope(envelope,schema){if(envelope.numericEconomyPolicyVersion!=null&&envelope.numericEconomyPolicyVersion!==W.Core.AmountProducts.economyPolicy.version)throw Object.assign(Error("不支持的费用数值规则；原存档保持不变"),{code:"economic-policy-version"});if(schema>=75){if(schema>=76?envelope.numericModelVersion!==2:![1,2].includes(envelope.numericModelVersion))fail();if(envelope.numericTailPolicyVersion!=null&&![1,2,3].includes(envelope.numericTailPolicyVersion))throw Object.assign(Error('不支持的尾项精度策略；原存档保持不变'),{code:'amount-tail-policy-version'});}else if(envelope.numericModelVersion!=null)fail();}
  // Only an already interpreted private legacy candidate reaches this boundary.
  // Old clients never assigned authority to these optional future fields.
  function upgradeLegacy(interpreted){return W.Core.State.normalizationTask('amount-upgrade',[interpreted],()=>upgradeLegacySteps(interpreted));}

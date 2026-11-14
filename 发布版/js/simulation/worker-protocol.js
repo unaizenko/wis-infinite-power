@@ -32,5 +32,5 @@
     }
     return value;
   }
-  WIS.Simulation.WorkerProtocol=Object.freeze({version:1,encode:value=>JSON.stringify(pack(value)),decode:text=>unpack(JSON.parse(text))});
+  WIS.Simulation.WorkerProtocol=Object.freeze({version:1,encode:value=>JSON.stringify(pack(value)),decode:text=>unpack(JSON.parse(text)),decodeValue:unpack});
 }(window.WIS));

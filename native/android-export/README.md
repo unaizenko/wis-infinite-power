@@ -1,3 +1,7 @@
+## 0.2.3.0 同步
+
+Android versionName0.2.3.0 / versionCode20300；原生导出代码与兼容签名保持，WebView调试关闭。完整打包工程仍在同级WIS-App。
+
 ## 0.2.1.2 同步
 
 Android versionName 0.2.1.2 / versionCode 20102，原生导出插件与兼容签名保持。网页公式修复已同步APK。无鸿蒙真机验收。

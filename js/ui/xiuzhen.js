@@ -1,7 +1,7 @@
 (function defineXiuzhenUI(WIS) {
   "use strict";
   WIS.UI.Xiuzhen = Object.freeze({ create(context) {
-    const X = WIS.Cultivation.Xiuzhen, R = WIS.Core.Runtime, B = WIS.Core.BigNum;
+    const X = (context.session?context.session.facade('xiuzhen',WIS.Cultivation.Xiuzhen):WIS.Cultivation.Xiuzhen), R = WIS.Core.Runtime, B = WIS.Core.BigNum;
     const $ = id => document.getElementById(id), rows = [], groups = [];
     let mounted = false, lastRealm = -1;
     const f = value => context.format(value, 4);
@@ -18,7 +18,7 @@
     function perform(action) {
       if (context.getCatchUpStatus().locked) return;
       context.performSavedAction(() => action(R.getState()), () => {R.call("render");render();},
-        () => WIS.Meta.Challenges.checkActiveChallengeCompletion());
+        () => {if(!context.session)WIS.Meta.Challenges.checkActiveChallengeCompletion();});
     }
     function row(parent, name, description, cost, resource, action, key) {
       const item = el("article", "", "item-row"), content = el("div", "", "item-content");
@@ -53,8 +53,8 @@
       const abilitiesPanel = $("immortal-abilities-panel"), oldContent = abilitiesPanel.querySelector(".upgrade-groups");
       const filter = el("button", "隐藏已解锁能力", "secondary-button");
       filter.id = "toggle-immortal-ability-filter"; filter.type = "button";
-      filter.addEventListener("click", () => {
-        const current = R.getState(); current.hideUnlockedImmortalAbilities = !current.hideUnlockedImmortalAbilities;
+      filter.addEventListener("click", async () => {
+        const current = R.getState(); if(context.session)await context.session.preference('hideUnlockedImmortalAbilities',!current.hideUnlockedImmortalAbilities);else current.hideUnlockedImmortalAbilities=!current.hideUnlockedImmortalAbilities;
         context.saveState(); R.call("renderImmediately");
       });
       abilitiesPanel.prepend(filter);
@@ -96,7 +96,7 @@
         const control = el("div", "", "purchase-control"), status = el("span"); status.id = "xiuzhen-challenge-status-" + key;
         const button = el("button", "开启挑战", "primary-button"); button.type = "button"; button.id = "xiuzhen-challenge-button-" + key;
         button.addEventListener("click", () => { if (context.getCatchUpStatus().locked) return;
-          if (R.state.activeChallenge === key) WIS.Meta.Challenges.exitChallenge(); else WIS.Meta.Challenges.startChallenge(key); context.completePlayerAction(); renderChallenges(); });
+          if (R.state.activeChallenge === key) context.exitChallenge(); else context.startChallenge(key); context.completePlayerAction(); renderChallenges(); });
         control.append(status, button); card.append(content, control);
         $("challenge-list").querySelector('[data-catalog-system-group="仙道"] > .item-list').append(card);
       }

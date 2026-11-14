@@ -16,6 +16,9 @@
       // components before freezing, never freeze the process-wide constants.
       const B=WIS.Core.BigNum,decimal=B.isDecimal(value),copy=decimal?B.Decimal.fromComponents_noNormalize(value.sign,value.layer,value.mag):Array.isArray(value)?[]:{};
       copies.set(value,copy);
+      // Decimal components alone omit the closed-batch native JSON boundary.
+      // Preserve its own descriptor on the private copy before freezing it.
+      if(decimal&&Object.prototype.hasOwnProperty.call(value,'toJSON'))Object.defineProperty(copy,'toJSON',Object.getOwnPropertyDescriptor(value,'toJSON'));
       if(!decimal)for(const [key,child]of Object.entries(value))Object.defineProperty(copy,key,{value:seal(child,copies),enumerable:true,writable:true,configurable:true});
       Object.freeze(copy);scope.sealed.add(copy);return copy;
     }

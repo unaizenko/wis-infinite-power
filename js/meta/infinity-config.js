@@ -68,9 +68,9 @@
       offline:Object.freeze({floor:.10,amplitude:.45,halfLife:1800})}),
     fastSeconds:5,fastTargetScale:14,fastStockOffset:10,fastLogOffset:1,
     challenges:Object.freeze({
-      trueG1:Object.freeze({name:'真G1',maxCompletions:1,infinityUpgrade:'D3',targetG:1,resetBigNumbers:true,catalogSystem:'大数',description:'各低层分形累计削弱高层获取。',achievementKey:'trueG1',rewardDescription:'解锁成就·真 G1'}),
+      trueG1:Object.freeze({name:'真G1',maxCompletions:1,infinityUpgrade:'D3',targetG:1,resetBigNumbers:true,catalogSystem:'大数',description:'各低层分形累计削弱高层获取。',achievementKey:'trueG1',rewardDescription:'解锁成就·真G1'}),
       trueGraham:Object.freeze({name:'真葛立恒',maxCompletions:1,infinityUpgrade:'D3',targetG:64,resetBigNumbers:true,catalogSystem:'大数',description:'根据G阶位，增加提升G阶位需求。',achievementKey:'trueGraham',rewardDescription:'解锁成就·真葛立恒'}),
-      trueTree3:Object.freeze({name:'真TREE3',maxCompletions:1,infinityUpgrade:'D3',targetTree:3,resetBigNumbers:true,catalogSystem:'大数',description:'超构造阈值提高至原阈值^1.10。',achievementKey:'trueTree3',rewardDescription:'解锁成就·真 TREE3'}),
+      trueTree3:Object.freeze({name:'真TREE3',maxCompletions:1,infinityUpgrade:'D3',targetTree:3,resetBigNumbers:true,catalogSystem:'大数',description:'超构造阈值提高至原阈值^1.10。',achievementKey:'trueTree3',rewardDescription:'解锁成就·真TREE3'}),
       infinityRing:Object.freeze({name:'圆环之理',maxCompletions:1,infinityUpgrade:'C4',targetXiuzhenRealm:7,catalogSystem:'无限',resetLevel:'infinity',achievementKey:'eternalWitness',description:'保留累计游玩时间，重置无限、成就以外游戏进度，重新抵达单体宇宙。期间可进行普通、体系挑战及转生。',rewardDescription:'获得普通成就·一证永证：无限转生及以下等级转生不再重置体系挑战'}),
       infinityFast:Object.freeze({name:'快速',maxCompletions:1,infinityUpgrade:'E4',deadlineSeconds:5,requiredScaleIndex:14,catalogSystem:'无限',resetLevel:'infinity',rewardKey:'infinityFast',description:'开启时进行一次无限转生；5秒内抵达宇宙结构，超时失败。',rewardDescription:'宇宙意志的双对数永久提升无限点数获取'})
     })});

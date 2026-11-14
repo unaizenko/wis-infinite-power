@@ -23,7 +23,7 @@ try{for(const cpu of [1,4])for(let sample=1;sample<=5;sample++){
   // CPU throttling remains active during the FORMAL action.
   await page.waitForFunction(b=>WIS.Core.BigNum.lt(WIS.Game.getState().joules,WIS.Core.BigNum.mul(b.j,.25))&&WIS.Core.BigNum.gt(WIS.Game.getState().power,b.power),before,{timeout:45000});
   const actionMs=Math.round(performance.now()-actionStart),result=await page.evaluate(()=>{WIS.Game.actions.save();const raw=JSON.parse(localStorage.getItem('wis-infinite-power-save-v2')),loaded=WIS.Core.Save.prepare(raw).state,s=WIS.Game.getState();return {build:WIS_BUILD.id,first:measured.first,ready:measured.ready,feedbackMs:measured.busy,maxLongTaskMs:Math.max(0,...measured.long),power:String(s.power),savedPower:String(loaded.power),stopped:WIS.Game.getSettlementStatus().stopped,policy:raw.numericTailPolicyVersion};});
-  assert.equal(result.savedPower,result.power);assert.equal(result.stopped,false);assert.equal(result.policy,2);assert.deepEqual(pageErrors,[]);
+  assert.equal(result.savedPower,result.power);assert.equal(result.stopped,false);assert.equal(result.policy,3);assert.deepEqual(pageErrors,[]);
   const row={cpu,sample,previewMs,actionMs,...result};samples.push(row);console.log(JSON.stringify(row));
   const target=cpu===1?3000:5000;
   if(previewMs>target)violations.push({cpu,sample,metric:'preview',actual:previewMs,target});

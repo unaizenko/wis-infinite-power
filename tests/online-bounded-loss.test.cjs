@@ -50,3 +50,27 @@ test('discard flush waits for the manual owner even with no queued online interv
  assert.equal(x.state.core.runtime.timeLedger.pendingDiscard.clock,.2);
  done=true;x.tick();await pending;x.loop.beforePlayerAction();assert(x.counts().discarded>=.2);
 });
+
+// A ready previous settlement must reach its discard boundary before a new
+// tick's elapsed time is admitted. A 1ms tick jitter must not drop a full tick.
+for(const tickMs of [100,101,110])test('ready settlement drains before tick admission: '+tickMs,()=>{
+ const x=setup({duration:50});for(let i=0;i<300;i++)x.tick(tickMs);
+ const c=x.counts(),pending=x.loop.getUnprocessedOnlineClockSeconds(),drop=x.state.core.runtime.timeLedger.pendingDiscard?.clock||0;
+ assert(c.committed>=29.8,'ready work lost a full subsequent tick');
+ assert(c.discarded+drop<=300*(tickMs-100)/1000+1e-8);
+ assert(Math.abs(300*tickMs/1000-c.committed-c.discarded-pending-drop)<1e-8);
+});
+test('alternating near-cadence ticks keep useful throughput bounded',()=>{
+ const x=setup({duration:50});let total=0;
+ for(let i=0;i<300;i++){const ms=[99,100,101][i%3];total+=ms/1000;x.tick(ms);assert(x.loop.getUnprocessedOnlineClockSeconds()<=.200000001);}
+ const c=x.counts(),drop=x.state.core.runtime.timeLedger.pendingDiscard?.clock||0;
+ // With a strict 0.1s waiting cap, 99ms cannot start a full cadence; the
+ // following 100ms retains 1ms and clips 99ms. Preserve that policy, but
+ // never discard an extra full tick after its ready owner.
+ assert(c.committed>=19.8,'ready boundary discarded an additional whole tick');
+ assert(Math.abs(total-c.committed-c.discarded-x.loop.getUnprocessedOnlineClockSeconds()-drop)<1e-8);
+});
+
+test('already-ready result is not timed out merely because the main thread woke late',()=>{
+ const x=setup({duration:50});x.tick();x.tick(2500);assert(x.counts().committed>=.1,'ready result was cancelled as stalled');assert.equal(x.loop.settlementStatus().stopped,false);
+});

@@ -53,7 +53,10 @@
   function makeInWork(values,knownKey){
     const words=normalized(values,knownKey),key=WIS.Core.AmountProducts.inputKey(words),memo=key===null?null:WIS.Core.AmountProducts.workMemo('amount-canonical-nodes');
     if(memo?.has(key))return memo.get(key);
-    const sign=L.strict.sign(words);if(sign<0)fail('quantity balance is negative','amount-negative');
+    // normalized() has already validated and removed zero decimal words.
+    // A positive ordinary sum has a known sign; do not normalize it a second
+    // time. Mixed signs, pages and extended products keep the original proof.
+    const sign=words.length===0?0:words.every(w=>/^[1-9]\d*e-?\d+$/.test(w))?1:L.strict.sign(words);if(sign<0)fail('quantity balance is negative','amount-negative');
     if(sign===0&&words.length){const value=zeroAmount||make([]);if(memo)memo.set(key,value);return value;}
     let parts=null;
     const projection=()=>WIS.Core.CertifiedRankMath.withWork(()=>{
@@ -113,6 +116,11 @@
   }
   function multiply(a,b){a=from(a);b=from(b);const x=canonicalWords.get(a),y=canonicalWords.get(b),scalar=words=>words.length===1&&/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(words[0]);if(!x.length||!y.length)return from(0);if(scalar(y))return scale(a,y[0]);if(scalar(x))return scale(b,x[0]);if(!L.multiply)fail('quantity product needs rational adapter','amount-unresolved');return make(L.multiply(x,y));}
   function divide(a,b){a=from(a);b=from(b);if(compare(b,0)===0)fail('quantity division by zero');if(!L.divide)fail('quantity quotient needs rational adapter','amount-unresolved');return make(L.divide(words(a),words(b)));}
+  function splitInteger(value){return WIS.Core.CertifiedRankMath.withWork(()=>{
+    value=from(value);const proof=WIS.Core.AmountProducts.splitInteger(wordView(value)),fraction=make(proof.fractionWords);
+    return Object.freeze({whole:subtract(value,fraction),fraction});
+  });}
+  const integerPart=value=>splitInteger(value).whole;
   function floor(value){
     const values=wordView(value);
     if(L.hasProduct?.(values))fail('Product integer quotient needs a separate proof','amount-unresolved');
@@ -168,10 +176,26 @@
     const completed=Object.freeze({value:next,lossUpper:make(result.errorWords),compacted:result.compacted,sourceTerms:result.sourceTerms,resultTerms:result.resultTerms,policyId:result.policyId});
     results.set(value,completed);return completed;
   }
+  function price(value){return WIS.Core.CertifiedRankMath.withWork(()=>{
+    value=from(value);const P=WIS.Core.AmountProducts;
+    return make(P.finiteEconomic(wordView(value),P.economyPolicy.priceDigits,true).words);
+  });}
+  // Only FINAL continuous gains opt in here. Prices use their separate policy;
+  // integer progress and generic exact arithmetic retain all terms. The error bound
+  // covers the complete gain, including cancellation, and is checked before use.
+  function boundContinuousGain(value){return WIS.Core.CertifiedRankMath.withWork(()=>{
+    value=from(value);const P=WIS.Core.AmountProducts,unchanged=()=>Object.freeze({value,lossUpper:from(0),compacted:false,policyId:P.continuousPolicy.id});
+    if(!value.tail.length||!P.needsContinuousCompaction(wordView(value)))return unchanged();
+    try{
+      const result=P.finiteEconomic(wordView(value),P.economyPolicy.incomeDigits,false),next=make(result.words),lossUpper=make(result.errorWords);
+      if(compare(next,0)===0&&compare(value,0)>0||compare(lossUpper,scale(value,P.continuousPolicy.relativeErrorLimit))>0||P.needsContinuousCompaction(wordView(next)))return unchanged();
+      return Object.freeze({value:next,lossUpper,compacted:true,policyId:P.continuousPolicy.id});
+    }catch(error){if(['economic-policy-unresolved','amount-compaction-unresolved','amount-unresolved','rank-cost-unresolved'].includes(error.code))return unchanged();throw error;}
+  });}
   function boundedFieldParts(value,key='amount',tailKey=fieldTail(key)){return fieldParts(compact(value).value,key,tailKey);}
 
   let legacyDepth=0;
   const enabled=()=>WIS.Core.Config?.saveVersion>=75&&legacyDepth===0;
   function withLegacy(work){legacyDepth++;try{return work();}finally{legacyDepth--;}}
-  WIS.Core.Amount=Object.freeze({compact,boundedFieldParts,isCanonicalTail:tail=>storedPairs.has(tail),isCanonicalAmount:value=>known.has(value),enabled,withLegacy,field,fieldParts,from:(value=0)=>from(value),fromParts,read,serialize,wordView,words,add,addWords,subtract,compare,project,normalize,floor,scale,multiply,divide,isAmount:v=>known.has(v)||!!v&&typeof v==='object'&&v.kind==='wis-amount'});
+  WIS.Core.Amount=Object.freeze({price,boundContinuousGain,compact,boundedFieldParts,isCanonicalTail:tail=>storedPairs.has(tail),isCanonicalAmount:value=>known.has(value),enabled,withLegacy,field,fieldParts,from:(value=0)=>from(value),fromParts,read,serialize,wordView,words,add,addWords,subtract,compare,project,normalize,splitInteger,integerPart,floor,scale,multiply,divide,isAmount:v=>known.has(v)||!!v&&typeof v==='object'&&v.kind==='wis-amount'});
 }(window.WIS));
