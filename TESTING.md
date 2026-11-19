@@ -1,3 +1,11 @@
+## 2026-11-19 满命令日志启动恢复修复（仅开发版）
+
+当前 build `dev-0.2.3.0-20261119-journal-recovery-r1`，保留上一轮探寻精确比较修复。SessionController.start 就绪等待进入会话时已有命令前缀完成持久确认，随后才允许客户端启动 return/importRelease；关闭/替换拒绝旧启动等待，回放存储失败保留日志并报错。恢复前不安排边界时钟；普通5秒自动保存单飞，手动/关闭/导入确认独立。32条上限、单一提交者、持久ACK、数值/RNG、0.1秒限额及schema76保持。42项定向Node检查、Edge/Chrome各3项真实IDB满日志/导入暂停/保存确认测试、Edge既有7项协议验收（含schema74导入和schema76回读）通过；107脚本/四Worker检查通过。未重跑历史性能/全套/Android，未发布/APK/commit。缺少截图玩家原数据库，不声称重建其具体进度。详见 `../WIS-项目资源/session-journal-fix-20261119/REPORT.md`。以下为历史记录。
+
+## 2026-11-19 玩家探寻回滚修复（仅开发版）
+
+当前build `dev-0.2.3.0-20261119-exploration-compare-r1`。11月17日玩家档探寻在更新历史最高战力时，旧长十进制尾项触发可选产品区间比较2048位容量异常，整次回滚。Amount.compare仅对普通十进制digit-capacity异常回退原精确账本比较；不截断、不扩大容量，其他异常仍传播。8项相关回归＋1项原长系数边界通过，原档两预算与无加速精确参考完整状态一致；Edge真实Session/IDB法力4.952974774296478e12→5.063627258581013e12，保存成功。manifest/四Worker通过，原档未改，未发布/APK/commit。详见 `../WIS-项目资源/exploration-player-20261119/REPORT.md`。以下为历史记录。
+
 ## 2026-11-14 0.2.3.0 发布同步
 
 开发 `dev-0.2.3.0-20261114-release-r1`；网页 `release-0.2.3.0-20261114`；APK `release-0.2.3.0-apk-20261114`，versionCode20300。以当前未提交开发真源同步Session单一提交者、命令日志/持久确认、预览/显示生命周期、时钟唤醒及双层消息任务调度；正式网页/APK移除调速、公式详情与UI测试入口，原生/WebView调试关闭。schema76/model2/rule4、当前tailPolicy3与数值/RNG保持，沿用既有升级兼容签名。发布定向42项Node、两份正式网页各7项实际IDB/旧档恢复、Chrome手机宽度/file启动通过；未重跑全套历史性能矩阵，未做Android/鸿蒙真机升级。最终发布结果和APK哈希见 `../WIS-项目资源/release-0230-20261114/REPORT.md`。以下为历史记录。

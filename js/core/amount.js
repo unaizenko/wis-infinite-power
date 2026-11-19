@@ -100,7 +100,17 @@
     const length=Math.max(a[1].length,b[1].length),ac=a[1].padEnd(length,'0'),bc=b[1].padEnd(length,'0');
     return ac===bc?0:ac<bc?-1:1;
   }
-  const compare=(a,b)=>{a=from(a);b=from(b);if(a===b)return 0;const originalX=canonicalWords.get(a),originalY=canonicalWords.get(b);if(!originalX.length)return originalY.length?-1:0;if(!originalY.length)return 1;const [x,y]=differentWords(originalX,originalY);if(!x.length)return y.length?-L.strict.sign(y):0;if(!y.length)return L.strict.sign(x);const single=compareSingleWords(x,y);if(single!==null)return single;const P=WIS.Core.AmountProducts;if(x.length+y.length>2||x.some(word=>word.length>256)||y.some(word=>word.length>256)||P.extended(x)===true||P.extended(y)===true){const order=P.compareRanges(x,y);if(order!==null)return order;}return L.strict.compare(x,y);};
+  // Range comparison is only an accelerator. Legal long signed decimal tails
+  // can exceed a product-row quota during merging; the ledger can still prove
+  // their exact order without truncating coefficients or raising that quota.
+  function compareRangesOrLedger(P,x,y){
+    try{return P.compareRanges(x,y);}catch(error){
+      if(error.code!=="amount-unresolved"||error.message!=="Quantity product digit capacity"||
+        !x.every(w=>/^-?\d+e-?\d+$/.test(w))||!y.every(w=>/^-?\d+e-?\d+$/.test(w)))throw error;
+      return null;
+    }
+  }
+  const compare=(a,b)=>{a=from(a);b=from(b);if(a===b)return 0;const originalX=canonicalWords.get(a),originalY=canonicalWords.get(b);if(!originalX.length)return originalY.length?-1:0;if(!originalY.length)return 1;const [x,y]=differentWords(originalX,originalY);if(!x.length)return y.length?-L.strict.sign(y):0;if(!y.length)return L.strict.sign(x);const single=compareSingleWords(x,y);if(single!==null)return single;const P=WIS.Core.AmountProducts;if(x.length+y.length>2||x.some(word=>word.length>256)||y.some(word=>word.length>256)||P.extended(x)===true||P.extended(y)===true){const order=compareRangesOrLedger(P,x,y);if(order!==null)return order;}return L.strict.compare(x,y);};
   function combineWords(x,y,inverse=false){return WIS.Core.AmountProducts.extended(x)===true||WIS.Core.AmountProducts.extended(y)===true?WIS.Core.AmountProducts.sumView(x,y,inverse):[...x,...(inverse?L.negate(y):y)];}
   const add=(a,b)=>{a=from(a);b=from(b);if(!canonicalWords.get(a).length)return b;if(!canonicalWords.get(b).length)return a;return make(combineWords(canonicalWords.get(a),canonicalWords.get(b)));};
   const addWords=(value,change)=>{value=from(value);const incoming=normalized(change);return incoming.length?make(canonicalWords.get(value).length?combineWords(canonicalWords.get(value),incoming):incoming):value;};

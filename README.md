@@ -1,3 +1,9 @@
+## 0.2.3.1
+
+修复旧档探寻回滚和命令日志满时的启动恢复。正式网页和 Android 安装包均已同步。
+
+[GitHub Release 与 APK](https://github.com/unaizenko/wis-infinite-power/releases/tag/v0.2.3.1)
+
 ## 0.2.3.0
 
 当前开发版本 0.2.3.0。正式网页与 APK 已同步公共在线 Session、保存恢复、预览刷新和任务调度优化，发布产物移除调试入口。发布记录见 `../WIS-项目资源/release-0230-20261114/REPORT.md`。

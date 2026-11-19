@@ -718,8 +718,15 @@
   try {await saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
   if(!offlineSimulation.isCatchUpPaused()&&!WIS.Core.Save.getLoadError())notifyNewAchievements();
   if(initialOfflineReport&&state.autoCloseOfflineDialogEnabled===false)showNotice(initialOfflineReport,6000);
-  window.setInterval(()=>{
-    if(!document.hidden)void Promise.resolve(persistStateNow({preserveSourceModels:true,captureOnly:true})).catch(()=>{});
+  // Periodic saves must not accumulate while an earlier save awaits durable
+  // confirmation. Manual, closing and import saves retain independent receipts.
+  let periodicSavePending=false;
+  window.setInterval(async()=>{
+    if(document.hidden||periodicSavePending)return;
+    periodicSavePending=true;
+    try {await persistStateNow({preserveSourceModels:true,captureOnly:true});}
+    catch {} // persistStateNow reports the storage failure through Save.
+    finally {periodicSavePending=false;}
   },5000);
   }
   window.setTimeout(()=>{

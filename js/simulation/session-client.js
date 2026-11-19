@@ -2,7 +2,7 @@
  'use strict';
  const P=()=>W.Simulation.WorkerProtocol;
  function create({install,render,notice}){
-  let controller=null,store=null,view=null,active=false,busy=0,held=false,timer=null,clockBusy=false,closed=false,mirrorError=null;
+  let controller=null,store=null,view=null,active=false,starting=true,busy=0,held=false,timer=null,clockBusy=false,closed=false,mirrorError=null;
   let manual=null,releaseLock=null,watchdog=null,inflight=0,resumeAfterFailedClose=false;
   const failures=new Set(),subscribers=new Set(),slotPrefix='main-';
   let previewKey=null,previewOwner=null;
@@ -11,7 +11,7 @@
   function cancelBoundary(){boundaryGeneration++;if(boundaryTimer!==null)window.clearTimeout(boundaryTimer);boundaryTimer=null;}
   function scheduleBoundary(){
    cancelBoundary();
-   if(!controller||!active||closed||held||busy||inflight||clockBusy||wakePaused||nativeInactive||document.hidden||controller.error()||displayKey===null)return;
+   if(!controller||!active||starting||closed||held||busy||inflight||clockBusy||wakePaused||nativeInactive||document.hidden||controller.error()||displayKey===null)return;
    const v=view,t=v?.loop,status=v?.status,settlement=v?.settlement,ledger=v?.snapshot.domain.core.runtime.timeLedger;
    if(!t||!status||!settlement||v.reservation||v.pendingAction||v.frozen||v.importHeld||settlement.stopped||settlement.pendingDiscard||ledger?.pendingDiscard)return;
    if(status.clockSuspended||status.treasureRecovery?.active||status.worker?.running||status.phase==='running'||status.phase==='paused'||status.pendingGameSeconds>1e-10)return;
@@ -108,7 +108,7 @@
     if(view.importHeld)await command({type:'importRelease',at:Date.now(),reason:'reload'});
     await command({type:'return',at:Date.now()});
    }
-   timer=window.setInterval(tick,100);scheduleBoundary();
+   starting=false;timer=window.setInterval(tick,100);scheduleBoundary();
    watchdog=window.setInterval(()=>{if(!closed&&!controller.error()&&(inflight||busy))controller.query();},1000);
    document.addEventListener('visibilitychange',()=>{
     if(closed||held||!active)return;
