@@ -218,7 +218,15 @@
         const tiny=difference.lo>BigInt(places+2)*c.scale;
         const correction=tiny?{lo:0n,hi:1n}:yield ()=>c.pow10(neg(difference)),end=c.mul(p,sign>0?endLog:startLog);
         if(!tiny){const adjustment=yield ()=>c.log10(c.sub(c.fraction(1n),correction));return yield* fromLog(c.add(end,adjustment),c,sign);}
-        return yield* fromLog({lo:end.lo-2n*correction.hi,hi:end.hi},c,sign);
+        const bound={lo:end.lo-2n*correction.hi,hi:end.hi};
+        if(input.q.n>input.q.d){
+          // For b,d>0 and p>1, d^p < (b+d)^p-b^p < (b+d)^p.
+          // Preserve the strict side when p*log10(d) is a rounding midpoint.
+          const deltaPowerLog=c.times(deltaLog,input.q.n,input.q.d);
+          if(deltaPowerLog.lo>=bound.lo){bound.lo=deltaPowerLog.lo;bound.openLo=true;}
+          bound.openHi=true;
+        }
+        return yield* fromLog(bound,c,sign);
       }
       const v=yield ()=>c.pow10(difference),incrementLog=yield ()=>c.log10(c.sub(v,c.fraction(1n)));return yield* fromLog(c.add(c.mul(p,sign>0?startLog:endLog),incrementLog),c,sign);
     }

@@ -3,7 +3,7 @@
 
   global.WIS_BUILD = Object.freeze({
     mode: "release",
-    id: "release-0.2.3.1-20261119",
+    id: "release-0.2.3.2-20261120",
     appUpdateManifestUrl: "https://wispower-3td729n.maozi.io/latest.json",
     enableSpeedControls: false,
     enableFormulaDetails: false

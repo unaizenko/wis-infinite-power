@@ -4,6 +4,15 @@ const {loadProductionNumericRuntime}=require('./helpers/production-numeric-runti
 function setup(){const r=loadProductionNumericRuntime();vm.runInContext(fs.readFileSync('js/core/amount-formulas.js','utf8'),r.context);return {...r,F:r.W.Core.AmountFormulas};}
 const rows=require('./fixtures/scaled-increment-oracle.json').rows;
 for(const [i,row]of rows.entries())test('scaled increment oracle '+i+' '+row.args[2].slice(0,20),()=>{const {F}=setup(),v=F.powerIncrement(...row.args);assert.equal(v.sign,row.expected.sign);assert.equal(v.layer,row.expected.layer);assert.equal(v.mag,row.expected.mag);});
+test('large superlinear increment rounds above the exact delta-power midpoint',()=>{
+  const {F}=setup();
+  // 921934835519435 * 11/4 is 2535320797678446.25. The true
+  // increment exceeds delta^p, so its exponent rounds to the upper neighbor.
+  const rounded=F.powerIncrement(1000,'1e921934835519435',2.75);
+  assert.equal(rounded.layer,1);
+  assert.equal(rounded.mag,2535320797678446.5);
+  assert.equal(F.powerIncrement(1000,'1e921934835519436',2.75).mag,2535320797678449);
+});
 test('scaled increment resumes without restarting and respects stale or cancelled work',()=>{const {F}=setup();for(const p of ['1e600','-1e600']){const job=F.prepareWork('powerIncrement',[1,'1e-600',p]);let slices=0;while(!job.advance({maximumOperations:1}).done)assert.ok(++slices<15000);assert.ok(slices>1);assert.equal(job.result().toNumber(),p[0]==='-'?-0.6321205588285577:1.7182818284590453);assert.equal(job.diagnostics().pending.length,0);assert.equal(job.advance({maximumOperations:1}).operations,0);}
 let current=true;const stale=F.prepareWork('powerIncrement',[1,'1e-600','1e600'],{isCurrent:()=>current});assert.equal(stale.advance({maximumOperations:1}).done,false);current=false;assert.throws(()=>stale.advance(),{code:'rank-work-stale'});const cancelled=F.prepareWork('powerIncrement',[1,'1e-600','1e600']);cancelled.advance({maximumOperations:1});cancelled.cancel();assert.throws(()=>cancelled.advance(),{code:'rank-work-cancelled'});});
 

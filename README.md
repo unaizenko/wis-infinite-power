@@ -1,8 +1,8 @@
-## 0.2.3.1
+## 0.2.3.2
 
-修复旧档探寻回滚和命令日志满时的启动恢复。正式网页和 Android 安装包均已同步。
+修复武道高进度存档导入后报错。同步满命令日志启动恢复、自动保存去重和旧档探寻修复。正式网页与 Android 安装包均已同步。
 
-[GitHub Release 与 APK](https://github.com/unaizenko/wis-infinite-power/releases/tag/v0.2.3.1)
+[GitHub Release 与 APK](https://github.com/unaizenko/wis-infinite-power/releases/tag/v0.2.3.2)
 
 ## 0.2.3.0
 
