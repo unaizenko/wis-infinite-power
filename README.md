@@ -1,3 +1,9 @@
+## 0.2.3.3
+
+修复武道高进度存档在线运行后报错暂停，以及极大数值下武道转化失败。正式网页与 Android 安装包均已同步。
+
+[GitHub Release 与 APK](https://github.com/unaizenko/wis-infinite-power/releases/tag/v0.2.3.3)
+
 ## 0.2.3.2
 
 修复武道高进度存档导入后报错。同步满命令日志启动恢复、自动保存去重和旧档探寻修复。正式网页与 Android 安装包均已同步。

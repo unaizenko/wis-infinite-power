@@ -21,6 +21,41 @@
  }
  function previous(value){const v=A.project(value),buffer=new DataView(new ArrayBuffer(8));buffer.setFloat64(0,v.mag);buffer.setBigUint64(0,buffer.getBigUint64(0)+(v.mag>0?-1n:1n));return q(B.Decimal.fromComponents(v.sign,v.layer,buffer.getFloat64(0)));}
  function publish(value){let out=q(A.project(value));if(A.compare(out,value)>0)out=previous(value);if(!positive(out)&&positive(value))throw Object.assign(Error('Positive martial gain has no confirmed representation'),{code:'amount-formula-unresolved'});return out;}
+ function* findAffordableGain(s,budget,high){
+  const cap=yield ()=>A.project(high);
+  if(cap.layer===0||cap.mag===0)return zero();
+  const bits=new DataView(new ArrayBuffer(8));
+  const signBit=1n<<63n;
+  // Represent signed binary64 magnitudes by a single ordered integer index.
+  bits.setFloat64(0,Number.MAX_VALUE);
+  const zeroIndex=bits.getBigUint64(0);
+  bits.setFloat64(0,Math.abs(cap.mag));
+  const magnitude=bits.getBigUint64(0);
+  let upper=zeroIndex+(cap.mag<0?-magnitude:magnitude);
+  let stride=1n,lower,gain;
+  const at=index=>{
+   const signed=index-zeroIndex;
+   bits.setBigUint64(0,signed<0?signBit-signed:signed);
+   return q(B.Decimal.fromComponents(1,cap.layer,bits.getFloat64(0)));
+  };
+  const affordable=probe=>A.compare(probe,high)<=0&&A.compare(s.cost(probe),budget)<=0;
+  // Large magnitudes can have a grid too coarse for quantity-space halving.
+  // Bracket using representable magnitudes, then check the original cost at
+  // each probe before accepting any gain.
+  for(;;stride*=2n){
+   const index=upper>stride?upper-stride:0n;
+   const probe=yield ()=>at(index);
+   if(yield ()=>affordable(probe)){lower=index;gain=probe;break;}
+   if(index===0n)return zero();
+   upper=index;
+  }
+  while(upper-lower>1n){
+   const index=(lower+upper)/2n,probe=yield ()=>at(index);
+   if(yield ()=>affordable(probe)){lower=index;gain=probe;}
+   else upper=index;
+  }
+  return gain;
+ }
  function solve(s,budget,limit=null){return C.task('martial-root|'+JSON.stringify([s.start,s.p,s.r,s.a,s.b,budget,limit]),function*(){
   // Inverse each positive monomial separately. Concave powers need the shifted
   // inverse; the old unshifted bound/tangent is valid only for convex powers.
@@ -40,7 +75,11 @@
    const price=yield ()=>s.cost(next);if(yield ()=>A.compare(price,budget)<=0)low=next;else high=next;
    if(yield ()=>B.eq(A.project(low),A.project(high))){const out=yield ()=>publish(low);if(yield ()=>positive(out))return out;}
   }
-  if(yield ()=>!positive(low)&&positive(budget))throw Object.assign(Error('Martial root did not certify a positive increment'),{code:'amount-formula-unresolved'});return yield ()=>publish(low);
+  if(yield ()=>!positive(low)&&positive(budget)){
+   low=yield* findAffordableGain(s,budget,high);
+   if(yield ()=>!positive(low))throw Object.assign(Error('Martial root did not certify a positive increment'),{code:'amount-formula-unresolved'});
+  }
+  return yield ()=>publish(low);
  });}
  function absoluteInvestment(key,value){const c=config.balance.absolute[key],threshold=q(c.threshold);if(A.compare(value,threshold)<=0)return potential(value);
   return A.add(potential(threshold),segment(threshold,1,c.power,q(B.pow(c.threshold,-c.power))).cost(A.subtract(value,threshold)));

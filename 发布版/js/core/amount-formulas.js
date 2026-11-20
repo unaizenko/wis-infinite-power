@@ -129,6 +129,10 @@
   if(!base)return null;
   const powered=c.times(base,input.q.n,input.q.d);
   if(powered.lo<=BigInt(c.places+2)*c.scale)return null;
+  // For x>0 and p>1, x^p < (1+x)^p-1 < (1+x)^p.
+  // The lower endpoint of base already bounds log10(x). Preserve the
+  // strict upper-side rounding when p*log10(x) is an exact midpoint.
+  if(input.q.n>input.q.d)return yield* fromLog({...powered,openLo:true,openHi:true},c);
   // Here 0 < 10^-powered < 10^-(places+2), and
   // -2*10^-powered < log10(1-10^-powered) < 0.
   // Keep the enclosing two fixed-point units until final Decimal rounding.

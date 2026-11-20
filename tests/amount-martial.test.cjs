@@ -17,3 +17,34 @@ test('martial cooperative preparation evaluates unchanged input multipliers once
 
 
 test('inactive martial previews do not traverse unrelated economic state',()=>{const {W,A,s,M}=setup();s.cultivation.active='immortal';const S=W.Core.State;W.Core.State={...S,toSerializable(){throw Error('unrelated economy traversal');}};const preview=M.preview(s,'qi');assert.equal(preview.allowed,false);assert.equal(A.compare(preview.gainQuantity,0),0);assert.equal(Object.keys(preview.costs).length,0);});
+
+test('martial conversion finds an affordable gain on a coarse exponent grid',()=>{
+  const cases=[
+    {
+      joules:'ee16.008439846800563',qi:'1e6470102952599032',
+      qiTail:['5e4666176583237603','158113883008418975e2592320324020874','1849999999999998625e-14'],
+      heart:'5.623413251903491e2073856259216712',
+      heartTail:['53348382301167684e1587350095122315','4000564296489972e849047725297976','773500e-2'],
+      efficiency:'17312.58762876525',exponent:'1.1499999999999992',gain:'3.1622776601683795e2894496312637935',
+    },
+    {
+      joules:'ee16.296130279084586',qi:'ee16.098601623537082',qiTail:[1000],
+      heart:0,heartTail:[],efficiency:'21031.733162072247',exponent:'1',gain:'3.1622776601683795e-2184743190683554',
+    },
+  ];
+  for(const row of cases){
+    const {W,A,Q,M,s}=setup(),B=W.Core.BigNum;
+    W.Cultivation.Martial={...M,efficiency:()=>B.BN(row.efficiency),conversionExponent:()=>B.BN(row.exponent)};
+    Q.replaceExact('core.joules',A.divide(A.from(row.joules),10),s);
+    Q.replaceExact('cultivation.martial.qi',A.fromParts(row.qi,row.qiTail),s);
+    Q.replaceExact('cultivation.martial.heart',A.fromParts(row.heart,row.heartTail),s);
+    const before=JSON.stringify(W.Core.State.toSerializable(s)),prior=Q.readExact('cultivation.martial.qi',s);
+    const quote=M.preview(s,'qi');
+    assert(quote.allowed);
+    assert.equal(String(quote.gain),row.gain);
+    assert.equal(JSON.stringify(W.Core.State.toSerializable(s)),before);
+    assert(M.convert(s,'qi'));
+    assert.equal(A.compare(Q.readExact('core.joules',s),0),0);
+    assert.equal(A.compare(Q.readExact('cultivation.martial.qi',s),A.add(prior,quote.gainQuantity)),0);
+  }
+});

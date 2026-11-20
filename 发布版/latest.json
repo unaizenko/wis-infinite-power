@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.3.2",
-  "versionCode": 20302,
+  "version": "0.2.3.3",
+  "versionCode": 20303,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.3.2/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.3.3/wis.apk",
     "mirror": null,
-    "sha256": "36a6b83d60877e5372de34a4805de10c34eee5c1269e7aeebb0d5f89073d3f78",
+    "sha256": "9f473bf53135681126a095b5b469b84b9b488b83d9eb2b2e5949094e00b9ffed",
     "sizeBytes": 6577169
   },
-  "notes": "修复武道高进度存档导入后的数值舍入错误，同步启动恢复、自动保存和旧档探寻修复。",
-  "publishedAt": "2026-11-20T04:38:35Z"
+  "notes": "修复武道高进度存档运行一段时间后暂停，以及极大数值下武道转化预览和结算失败。",
+  "publishedAt": "2026-11-20T05:12:15.169Z"
 }

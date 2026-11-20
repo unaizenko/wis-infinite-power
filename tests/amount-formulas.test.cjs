@@ -22,6 +22,17 @@ test('log ratio keeps the signed subprecision offset at an exact unit boundary',
 
 test('power of one plus a tiny quantity retains the positive difference from one',()=>{const {A,F}=setup();assert.equal(typeof F.powerOnePlusMinusOne,'function');const r=F.powerOnePlusMinusOne(A.from('1e-120'),.5);assert.equal(r.sign,1);assert.equal(r.layer,1);assert.equal(r.mag,-120.30102999566398);});
 
+test('superlinear power minus one proves the upper side of a large exponent midpoint',()=>{
+  const {A,F}=setup();
+  const value=A.fromParts('1e2466309171146907',['5e1555272653984958']);
+  // (1+x)^p-1 > x^p for x>0 and p>1. The dominant exponent
+  // multiplied by 5/4 lies exactly at 3082886463933633.75.
+  const result=F.powerOnePlusMinusOne(value,1.25);
+  assert.equal(result.layer,1);
+  assert.equal(result.mag,3082886463933634);
+  assert.equal(F.powerOnePlusMinusOne('1e2466309171146905',1.25).mag,3082886463933631.5);
+});
+
 test('power-minus-one projects a layer-two result without expanding its digits',()=>{const {A,F}=setup(),r=F.powerOnePlusMinusOne(A.fromParts('ee30.12345',[37]),.5);assert.equal(r.layer,2);assert.equal(r.mag,29.822420004336017);});
 
 
