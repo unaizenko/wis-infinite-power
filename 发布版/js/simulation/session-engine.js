@@ -38,12 +38,13 @@
   if(initial.loop)loop.restore(initial.loop);else if(initial.fromSave){loop.setLastTickAt(h.getState().lastUpdateAt);loop.restoreClosedTime(initial.recovery);if(initial.imported)h.offline.holdCatchUpUntilUserStart('import');}else loop.setLastTickAt(initial.now);
   if(initial.importHeld)importHold=loop.beginImportHold(initial.now);
   if(initial.reservation)loop.restoreSessionReservation(initial.reservation);
-  function completeAction(){
-   previewActionRevision++;
+  function updateActionProgress(state){
    W.Meta.Achievements.recordCurrent();
-   S.updateLifetimeStatistics(h.getState(),W.Cultivation.ImmortalLogic.cultivationRealmLevel());
-   W.Meta.BigNumbers.syncUnlock(h.getState());publish();
+   S.updateLifetimeStatistics(state,W.Cultivation.ImmortalLogic.cultivationRealmLevel());
+   W.Meta.BigNumbers.syncUnlock(state);
   }
+  function publishCompletedAction(){previewActionRevision++;publish();}
+  function completeAction(){updateActionProgress(h.getState());publishCompletedAction();}
   function rebirth(options){
    const before=h.snapshot(),recovery=h.offline.getPersistenceSnapshot(),online=loop.snapshot();
    return W.Meta.Infinity.commitRebirth(options,{
@@ -63,7 +64,11 @@
    isDeferredActionPending:()=>loop.isDeferredActionPending(),
    cancelDeferredAction:reason=>loop.cancelDeferredAction(reason)
   });
-  function at(value){if(!Number.isSafeInteger(value)||value<host.now())throw Error('non-monotonic clock');host.setNow(value);}
+  function at(value){
+   if(!Number.isSafeInteger(value)||value<0)throw Error('invalid clock');
+   if(value<host.now())loop.rebaseClock(value);
+   host.setNow(value);
+  }
   function exportSave(){
    h.offline.invalidateSourceModels();const state=S.cloneForSimulation(h.getState());state.lastUpdateAt=host.now();
    saveText=JSON.stringify(W.Core.Save.envelope(state,false,{offlineRecoveryOverride:h.offline.getPersistenceSnapshot()}));return saveText;
@@ -88,8 +93,30 @@
     const raw=m.group==='scale'&&m.method==='train'?W.Power.ScaleLogic.createTrainingActionWork(state,m.args?.[0]!==false,{worker:false})
      :m.group==='immortal'&&m.method==='breathe'?I.createBreathingActionWork(state)
      :m.group==='immortal'&&m.method==='explore'?I.createExplorationActionWork(state):null;
-    if(raw)return {...raw,commit(){const result=raw.commit();completeAction();return result;},cancel(reason){raw.cancel(reason);W.tmp.tick=committed.tick;W.tmp.rates=copy(committed.rates);}};
-    throw Error('missing cooperative action');
+    if(!raw)throw Error('missing cooperative action');
+    return {...raw,commit(){
+     const {powerTransient,cultivationTransient}=h.snapshot({borrow:true});
+     const before=committed,revision=previewActionRevision;
+     try{
+      const result=R.atomic(()=>{
+       const value=raw.commit();
+       // The installed candidate can still share unchanged branches with the
+       // previous owner. Keep completion writes in their own private draft.
+       const completion=S.createDraft(h.getState());
+       R.withState(completion.state,()=>updateActionProgress(completion.state));
+       R.setState(completion.finish());
+       return value;
+      });
+      publishCompletedAction();
+      return result;
+     }catch(error){
+      R.setState(state);
+      W.Power.Scale.restoreTreasureTransient(powerTransient);
+      W.Cultivation.Immortal.restoreTreasureTransient(cultivationTransient);
+      committed=before;previewActionRevision=revision;
+      throw error;
+     }
+    },cancel(reason){raw.cancel(reason);W.tmp.tick=committed.tick;W.tmp.rates=copy(committed.rates);}};
    });
    promise.then(value=>finish(id,value===false?'cancelled':'done',value),error=>finish(id,'failed',String(error.message||error)));
    host.changed();return {status:'pending'};

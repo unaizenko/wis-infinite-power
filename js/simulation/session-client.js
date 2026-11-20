@@ -84,15 +84,19 @@
   function initial(state,recovery,imported=false){
    return P().encode({snapshot:{domain:W.Core.State.toSerializable(state)},now:Date.now(),recovery,fromSave:true,imported,tick:0,rates:{}});
   }
-  async function start(state,recovery){
-   if(!window.indexedDB||!crypto.subtle||!navigator.locks)throw Error('当前浏览器不支持可靠会话存储，请使用受支持的浏览器');
+  const supportsStorage=()=>!!(window.indexedDB&&window.crypto?.subtle&&navigator.locks);
+  async function connect(){
+   if(controller)return;
+   if(!supportsStorage())throw Error('当前浏览器不支持可靠会话存储，请使用受支持的浏览器');
    await new Promise((resolve,reject)=>{
     navigator.locks.request(W.Core.Config.saveKey+'-session-owner',{ifAvailable:true},async lock=>{
      if(!lock){reject(Error('另一页面正在运行此存档，请先关闭另一页面'));return;}
+     if(closed){reject(Error('会话已关闭'));return;}
      await new Promise(release=>{releaseLock=release;resolve();});
     }).catch(reject);
    });
    store=await window.SessionStore.open({name:W.Core.Config.saveKey+'-session-v2'});
+   if(closed){store.close();throw Error('会话已关闭');}
    controller=window.AsyncSessionController.create({
     store,build:W.Core.Build.buildId,onView:changed,onError:error,
     factory(){
@@ -102,7 +106,16 @@
      try{return new Worker(url);}finally{URL.revokeObjectURL(url);}
     }
    });
-   await controller.ready();const record=controller.record(),slot=record.active||slotPrefix+'0';
+   await controller.ready();
+  }
+  async function hasCheckpoint(){
+   if(!supportsStorage())return false;
+   await connect();
+   return !!controller.record().active;
+  }
+  async function start(state,recovery){
+   await connect();
+   const record=controller.record(),slot=record.active||slotPrefix+'0';
    await controller.start(slot,record.active?undefined:initial(state,recovery));
    if(record.active){
     if(view.importHeld)await command({type:'importRelease',at:Date.now(),reason:'reload'});
@@ -164,6 +177,7 @@
   function recoveryCommand(method,args=[]){return command({type:'recovery',method,args});}
   return Object.freeze({
    displayOwner:()=>displayOwner,
+   hasCheckpoint,
    start,active:()=>active,readonly,dispatch,
    nativeActive(value){nativeInactive=!value;if(!active||held||closed)return;void (value?resumeForeground():save({closing:true})).catch(error);},facade:(group,original)=>W.Simulation.SessionActions.facade(group,original,dispatch),
    withManual(meta,fn){const old=manual;manual=meta;try{return fn();}finally{manual=old;}},

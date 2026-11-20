@@ -1,3 +1,9 @@
+## 0.2.3.4
+
+修复时钟回拨和兼容副本损坏造成的读档故障、取消导入后的结算停滞，以及连续探寻和异常回滚问题。
+
+[GitHub Release 与 APK](https://github.com/unaizenko/wis-infinite-power/releases/tag/v0.2.3.4)
+
 ## 0.2.3.3
 
 修复武道高进度存档在线运行后报错暂停，以及极大数值下武道转化失败。正式网页与 Android 安装包均已同步。

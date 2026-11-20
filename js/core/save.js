@@ -194,6 +194,8 @@
   }
   function readWork() {
     const text=localStorage.getItem(storageKey());let work=null,value=null,done=false,cancelled=false,failure=null;
+    // A malformed mirror still has an observed value for conflict checks.
+    acknowledgedText=text;
     const current=()=>!cancelled&&localStorage.getItem(storageKey())===text;
     return {advance(options){if(cancelled)throw Object.assign(Error('load cancelled'),{code:'rank-work-cancelled'});if(failure)throw failure;
       try {if(!current())throw Object.assign(Error('storage changed during load'),{code:'rank-work-stale'});
@@ -216,6 +218,10 @@
       noteFailure(error, "原存档读取失败；当前使用临时未保存会话，原存档仍保留且自动保存已停用。请导入有效存档、恢复备份，或确认不需要旧存档后重置游戏。");
       throw error;
     }
+  }
+  function confirmSessionLoad() {
+    loadError = null;
+    confirmExternal();
   }
   function storageSnapshot({ transaction = false } = {}) {
     return { text: localStorage.getItem(storageKey()), acknowledgedText, loadError, saveStatus:{...saveStatus},
@@ -404,5 +410,5 @@
     return parsed?.data ?? parsed;
   }
 
-  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, confirmExternal, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, prepareWork, readWork, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, sessionPolicy, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
+  WIS.Core.Save = Object.freeze({ status:()=>({...saveStatus}), subscribeStatus, markPending, confirmExternal, noteFailure, diagnose, diagnostics:()=>diagnostics.map(d=>({...d})), prepare, prepareWork, readWork, validateRecovery, migrateRecovery, backup, backupKey, storageSnapshot, finishStorageTransaction, restoreStorage, persistLive, sessionPolicy, confirmSessionLoad, getLoadError: () => loadError, acceptLoaded, read, readRaw, write, writePrepared, remove, envelope, unwrap, bindOfflineRecovery });
 }(window.WIS));

@@ -38,3 +38,16 @@ test('signed final-form collapse measures precision against the net balance afte
  assert(A.compare(actual,expected)<=0);assert(A.compare(A.subtract(expected,actual),A.scale(expected,'1e-30'))<=0,'net balance lost precision through cancellation');
  assert(A.compare(A.fromParts(0,packed.errorWords),A.scale(expected,'1e-30'))<=0,'error certificate must use net balance scale');
 });
+
+
+test('overlapping long decimal coefficients retain their exact value across a product-row carry',()=>{
+ const {W}=setup75(),P=W.Core.AmountProducts,limit=10n**2048n;
+ for(const sign of [1n,-1n]){
+  const input=[String(sign*(limit-1n))+'e0',String(sign*2n)+'e0','3e2048'];
+  const result=P.wordView(input);
+  const sum=words=>words.reduce((value,text)=>add(value,word(text)),q(0n));
+  assert(result.every(text=>text.split('e')[0].replace('-','').length<=2048));
+  assert.equal(cmp(sum(result),sum(input)),0);
+  assert.deepEqual(P.wordView([...result]),result);
+ }
+});

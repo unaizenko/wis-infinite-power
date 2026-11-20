@@ -307,6 +307,7 @@
         const tailEstimate=B.lt(densitySlope,0)?B.div(half2.end.inverse,B.mul(densitySlope.neg(),LN10)):null;
         if(tailEstimate && B.lt(tailEstimate,B.mul(remaining,.01)) && previousTail && B.lt(tailEstimate,previousTail))shrinkingTime++;
         else shrinkingTime=0;
+        const stableTail=tailEstimate===null||previousTail!==null&&B.eq(tailEstimate,previousTail);
         previousTail=tailEstimate;
         if(shrinkingTime>=6)diagnosis={code:'singularity-suspected',remainingTailEstimate:String(tailEstimate),
           certified:false,message:'连续速率显示收敛的剩余时间；局部采样不是全局发散证明，保留数值检查点继续验证'};
@@ -331,11 +332,12 @@
         arc=B.mul(arc,B.lt(error,.05)?2:1.25);
         // A reject/accept pair can return to exactly the same representable
         // solver state. Observe two identical pairs, including every sample,
-        // before omitting further quadrature. Never batch initial smallGains.
+        // before omitting further quadrature. An unchanged tail estimate cannot
+        // advance the shrinking-tail diagnostic. Never batch initial smallGains.
         const repeatable=cycleCurrent && options.cycleContextCurrent() && failedTrial &&
           trialY===vector(y) && failedTrial.y===trialY && failedTrial.arc===exact(arc) &&
           sampleKey(a)===sampleKey(last) && !B.eq(y[0],initialLog[0]) &&
-          !diagnosis && shrinkingTime===0 && previousTail===null && B.gt(time,0);
+          !diagnosis && shrinkingTime===0 && stableTail && B.gt(time,0);
         const cycleKey=repeatable?JSON.stringify([failedTrial.key,trialKey,classification]):null;
         if(cycleKey && cycleKey===previousCycle){
           // Keep two complete cycles plus the endpoint with the original solver.

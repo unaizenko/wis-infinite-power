@@ -91,10 +91,16 @@
   const m=/^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(text);
   if(!m||m[2].length+(m[3]?.length||0)<=2048)return null;
   if(m[2].length+(m[3]?.length||0)>8192||String(m[4]||0).length>4097)fail('Quantity decimal product capacity','amount-unresolved');
-  const coefficient=BigInt(m[2]+(m[3]||''))*count,digits=String(coefficient),exponent=BigInt(m[4]||0)-BigInt((m[3]||'').length),out=[];
-  for(let end=digits.length;end>0;end-=2048){
+  const coefficient=BigInt(m[1]+m[2]+(m[3]||''))*count,exponent=BigInt(m[4]||0)-BigInt((m[3]||'').length);
+  return splitDecimalCoefficient(coefficient,exponent);
+ }
+ function splitDecimalCoefficient(coefficient,exponent){
+  const digits=String(abs(coefficient)),out=[];
+  const endOfCoefficient=digits.replace(/0+$/,'').length;
+  const origin=exponent+BigInt(digits.length-endOfCoefficient);
+  for(let end=endOfCoefficient;end>0;end-=2048){
    const chunk=BigInt(digits.slice(Math.max(0,end-2048),end));
-   if(chunk)out.push(canonical({n:m[1]?-chunk:chunk,d:1n,e:exponent+BigInt(digits.length-end),f:emptyFactors}));
+   if(chunk)out.push(canonical({n:coefficient<0n?-chunk:chunk,d:1n,e:origin+BigInt(endOfCoefficient-end),f:emptyFactors}));
   }
   return out;
  }
@@ -144,14 +150,24 @@
   if(input.length===1){const row=canonical(input[0]);return row.n?[row]:[];}
   const table=new Map();for(const raw of input){const r=canonical(raw);if(!r.n)continue;const key=rowKey(r),old=table.get(key);
    if(old){let n=old.d===r.d?old.n+r.n:old.n*r.d+r.n*old.d,d=old.d===r.d?old.d:old.d*r.d;const g=gcd(n,d);n/=g;d/=g;const merged={...old,n,d};
-    // A coefficient can cross its digit quota and then carry into the exact
-    // decimal exponent. Prove the canonical form before rejecting that carry.
-    if(String(abs(n)).length>2048||String(d).length>2048){digits(n,8192);digits(d,8192);canonical(merged);}table.set(key,merged);
+    // Keep the existing arithmetic limits for rational and factored rows.
+    // A decimal coefficient can be split exactly after all equal exponents net out.
+    if(abs(n)>=coefficientLimit||d>=coefficientLimit){
+     digits(n,8192);digits(d,8192);
+     if(d!==1n||r.f.size)canonical(merged);
+    }
+    table.set(key,merged);
    }else table.set(key,r); // validated rows and their private factor maps are immutable
   }
   // A carry can create another existing exponent (e.g. 9*x+x). Re-key until
   // no structural carry remains; every pass reduces or canonicalizes a term.
-  let result=[...table.values()].filter(r=>r.n).map(canonical);const compacted=compactCoefficients(result);if(compacted.length<result.length)return collect(compacted);if(result.some(r=>table.get(rowKey(r))!==undefined&&table.get(rowKey(r)).e!==r.e)||new Set(result.map(rowKey)).size!==result.length)return collect(result);return result.sort((a,b)=>rowKey(a)<rowKey(b)?-1:rowKey(a)>rowKey(b)?1:0);
+  const result=[];
+  for(const row of table.values()){
+   if(!row.n)continue;
+   if(row.d===1n&&!row.f.size&&abs(row.n)>=coefficientLimit)result.push(...splitDecimalCoefficient(row.n,row.e));
+   else result.push(canonical(row));
+  }
+  const compacted=compactCoefficients(result);if(compacted.length<result.length)return collect(compacted);if(result.some(r=>table.get(rowKey(r))!==undefined&&table.get(rowKey(r)).e!==r.e)||new Set(result.map(rowKey)).size!==result.length)return collect(result);return result.sort((a,b)=>rowKey(a)<rowKey(b)?-1:rowKey(a)>rowKey(b)?1:0);
  }
  function pack(r){r=canonical(r);if(packedRows.has(r))return packedRows.get(r);const result=packRow(r);packedRows.set(r,result);return result;}
  function packRow(r){r=canonical(r);if(!r.n)return null;const sign=r.n<0n?'-':'',n=abs(r.n);

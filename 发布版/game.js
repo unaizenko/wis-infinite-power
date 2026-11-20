@@ -55,7 +55,7 @@
     mysticHeavenSacredTreeCount, mysticHeavenSpiritSlayingSwordCount
   } = Immortal;
 
-  let savedOfflineRecovery = null;
+  let savedOfflineRecovery = null, saveReadError = null;
   const loadedState = await loadState();
   BOOT.enter("initialize");
   await paintOpportunity();
@@ -137,7 +137,7 @@
       savedOfflineRecovery = saved?.offlineRecovery ?? null;
       return saved ? saved.state : freshDefaultState();
     } catch (error) {
-      console.error("WIS save load failed; original storage is protected. Running a temporary in-memory fallback with autosave disabled.", error);
+      saveReadError=error;
       return freshDefaultState();
     }
   }
@@ -245,7 +245,7 @@
 
   function flushRender(now = Date.now(), { force = false } = {}) {
     if (!renderPending && !force) return false;
-    if (!force && now - lastRenderAt < RENDER_INTERVAL_MS) return false;
+    if (!force && now >= lastRenderAt && now - lastRenderAt < RENDER_INTERVAL_MS) return false;
     if (queuedRender !== null) window.clearTimeout(queuedRender);
     queuedRender = null;
     queuedRenderForce = false;
@@ -435,10 +435,17 @@
     return result;
   }
 
-  session=WIS.Core.Save.sessionPolicy().persistenceAllowed?WIS.Simulation.SessionClient.create({
+  session=WIS.Simulation.SessionClient.create({
     install(snapshot,tick,rates,owner){const next=session.readonly(WIS.Core.State.cloneForSimulation(snapshot.domain));previewOwners.set(next,owner);setStateDirect(next);WIS.Power.Scale.restoreTreasureTransient(snapshot.powerTransient);WIS.Cultivation.Immortal.restoreTreasureTransient(snapshot.cultivationTransient);WIS.tmp.tick=tick;WIS.tmp.rates=rates;},
     render(){requestRender();scheduleRender(Date.now());},notice:message=>showNotice(message,6000)
-  }):null;
+  });
+  const protectedMirror=!WIS.Core.Save.sessionPolicy().persistenceAllowed;
+  if(protectedMirror&&!(await session.hasCheckpoint())){
+    session.close();
+    session=null;
+    console.error("WIS save load failed; original storage is protected. Running a temporary in-memory fallback with autosave disabled.",saveReadError);
+  }
+  assertBootHealthy();
   const UI = WIS.UI.App.create({session,
     canPerformSavedAction, canPersistConfirmedState,
     saveState, simulateOfflineProgress, cancelCatchUp, abandonCatchUp, convertOfflineToCompensation, retryCatchUp, startCatchUp, pauseCatchUpByPlayer, acknowledgeCatchUp,
@@ -690,7 +697,11 @@
   assertBootHealthy();
   BOOT.enter("register-recovery");
   // No save or action may advance the saved watermark before this succeeds.
-  if(session)await session.start(state,savedOfflineRecovery);else simulationLoop.restoreClosedTime(null);
+  if(session){
+    await session.start(state,savedOfflineRecovery);
+    if(protectedMirror)WIS.Core.Save.confirmSessionLoad();
+    applyTheme();
+  }else simulationLoop.restoreClosedTime(null);
   initialLoadComplete=true;
   if(document.hidden){if(session)await session.save({closing:true});else simulationLoop.prepareSave({closing:true});}
   ensureAdvancedRealmAbilityGroups();

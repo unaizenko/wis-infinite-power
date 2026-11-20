@@ -323,6 +323,7 @@
     // Presentation survives the next online task; it never blocks simulation.
     let offlineCompletedSummary = null;
     let offlineAbandonPending = false;
+    let offlineAcknowledgement = null;
 
     const AUTOMATION_GROUPS = Object.freeze([
       Object.freeze({ key: "general", label: "通用" }),
@@ -585,7 +586,7 @@
         return;
       }
       offlineCompletedSummary = null;
-      if (latest.phase === "completed") acknowledgeCatchUp();
+      void acknowledgeCompletedRecovery(latest);
       closeOfflineProgressDialog();
       showNotice("已保留已结算收益并放弃剩余离线时间，可在设置中导出存档。", 6000);
     } catch (error) {
@@ -744,6 +745,29 @@
   function clearOfflineSummaryPresentation() {
     window.cancelAnimationFrame(offlineSummaryFrame); offlineSummaryFrame = null;
   }
+  function recoveryOwnerAvailable(status) {
+    const view = session?.view?.();
+    return !importTransaction && !importSave.pending && !document.hidden &&
+      status?.awaySuspended !== true && !view?.importHeld && !view?.frozen;
+  }
+
+  function completionAcknowledgementOwner() {
+    return session?.displayOwner?.() ?? runtime.getState();
+  }
+
+  async function acknowledgeCompletedRecovery(status) {
+    if (status?.phase !== "completed" || !recoveryOwnerAvailable(status)) return;
+    const owner = completionAcknowledgementOwner(), id = offlineSessionId(status);
+    if (offlineAcknowledgement?.owner === owner && offlineAcknowledgement.id === id) return;
+    const acknowledgement = offlineAcknowledgement = { owner, id };
+    try {
+      await acknowledgeCatchUp();
+    } catch (error) {
+      if (offlineAcknowledgement === acknowledgement && owner === completionAcknowledgementOwner())
+        WIS.Core.Save.diagnose("catch-up-acknowledgement", error);
+    }
+  }
+
   function dismissOfflineSummary() {
     clearOfflineSummaryPresentation();
     const summary = offlineCompletedSummary;
@@ -751,7 +775,7 @@
     offlineCompletedSummary = null;
     const latest = getCatchUpStatus();
     if (latest.phase === 'completed' && (!summary || offlineSessionId(latest) === offlineSessionId(summary) || latest.sessionSource === 'online'))
-      acknowledgeCatchUp();
+      void acknowledgeCompletedRecovery(latest);
     handleOfflineCatchUpStatus(getCatchUpStatus());
   }
   function presentOfflineSummary() {
@@ -788,12 +812,15 @@
 
   function scheduleRecoveryAfterPaint(status) {
     if (status?.awaitingStart !== true || status.phase === "paused" ||
-        importTransaction || importSave.pending || deferredRecoveryStart) return;
+        !recoveryOwnerAvailable(status) || deferredRecoveryStart) return;
     const pending = { state: runtime.getState(), session: offlineSessionId(status), frame: null, timer: null };
     deferredRecoveryStart = pending;
-    const current = () => deferredRecoveryStart === pending && runtime.getState() === pending.state &&
-      !importTransaction && !importSave.pending && getCatchUpStatus().awaitingStart === true &&
-      getCatchUpStatus().phase !== "paused" && offlineSessionId(getCatchUpStatus()) === pending.session;
+    const current = () => {
+      const latest = getCatchUpStatus();
+      return deferredRecoveryStart === pending && runtime.getState() === pending.state &&
+        recoveryOwnerAvailable(latest) && latest.awaitingStart === true &&
+        latest.phase !== "paused" && offlineSessionId(latest) === pending.session;
+    };
     // The first callback precedes paint. A second frame and a later host task
     // give the committed running window a real paint before entering Offline.
     pending.frame = window.requestAnimationFrame(() => {
@@ -857,6 +884,9 @@
 
   function handleOfflineCatchUpStatus(status, force=true) {
     offlineCatchUpStatus = status || Object.freeze({ phase: "idle", locked: false });
+    if (offlineAcknowledgement && (status?.phase !== "completed" ||
+        offlineAcknowledgement.owner !== completionAcknowledgementOwner() ||
+        offlineAcknowledgement.id !== offlineSessionId(status))) offlineAcknowledgement = null;
     if (status?.awaitingStart !== true || status.phase === "paused" ||
         (deferredRecoveryStart && (runtime.getState() !== deferredRecoveryStart.state ||
           offlineSessionId(status) !== deferredRecoveryStart.session))) cancelDeferredRecoveryStart();
@@ -903,12 +933,12 @@
     if (offlineCompletedSummary && !settlementLocked) {
       presentOfflineSummary();
       // Small online steps still finish/acknowledge normally beneath the report.
-      if (completedOnline) acknowledgeCatchUp();
+      if (completedOnline) void acknowledgeCompletedRecovery(offlineCatchUpStatus);
       return;
     }
     if (quiet || completedOnline || (autoCloseCompleted && offlineCatchUpStatus.phase==='completed')) {
       closeOfflineProgressDialog();
-      if (offlineCatchUpStatus.phase === "completed") acknowledgeCatchUp();
+      void acknowledgeCompletedRecovery(offlineCatchUpStatus);
       return;
     }
 
@@ -1126,8 +1156,9 @@
       if(importTransaction)return importTransaction;
       cancelDeferredRecoveryStart();cancelExplorationPreviewWorks();
       const transaction={token:Date.now(),startedAt:Date.now(),phase,committed:false};
+      importTransaction=transaction;
       transaction.ready=session.beginImport().then(previous=>{transaction.previous=previous;return previous;});
-      importTransaction=transaction;return transaction;
+      return transaction;
     }
     if (importTransaction) return importTransaction;
     const transaction = beginImportTransaction?.();
@@ -1151,9 +1182,15 @@
 
   function rollbackUIImportTransaction(transaction = importTransaction, reason = "import-cancel") {
     if(session){
-      if(!transaction||transaction!==importTransaction||transaction.committed)return false;
-      importTransaction=null;
-      void transaction.ready.then(()=>session.rollbackImport(reason)).then(()=>{applyTheme();markGlobalDirty();markPagesDirty();render({forceGlobal:true,forcePage:true});}).catch(error=>showNotice(error.message,6000));
+      if(!transaction||transaction!==importTransaction||transaction.committed||transaction.phase==="releasing")return false;
+      transaction.phase="releasing";
+      void transaction.ready.then(()=>session.rollbackImport(reason)).finally(()=>{
+        if(importTransaction!==transaction)return;
+        importTransaction=null;
+        handleOfflineCatchUpStatus(getCatchUpStatus());
+      }).then(()=>{
+        applyTheme();markGlobalDirty();markPagesDirty();render({forceGlobal:true,forcePage:true});
+      }).catch(error=>showNotice(error.message,6000));
       return true;
     }
     if (!transaction || transaction !== importTransaction || transaction.committed) return false;
@@ -3976,7 +4013,7 @@
         event.returnValue = "";
       }
     });
-    window.addEventListener("pagehide", () => {if(session)void saveState({closing:true}).catch(error=>WIS.Core.Save.noteFailure(error));else saveBeforeLeaving();});
+    window.addEventListener("pagehide", () => {if(session)void Promise.resolve(saveState({closing:true})).catch(error=>WIS.Core.Save.noteFailure(error));else saveBeforeLeaving();});
     let nativeBackup = null, nativeActive = true;
     const backupSection = byId("native-backup-settings");
     if (WIS.UI.NativePlatform?.isNative() && window.Capacitor.Plugins?.WisBackup) {

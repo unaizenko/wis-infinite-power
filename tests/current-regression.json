@@ -8,7 +8,8 @@
     "tools/update-script-manifest.cjs",
     "tools/build-offline-worker.cjs",
     "tools/build-online-candidate-worker.cjs",
-    "tools/build-math-worker.cjs"
+    "tools/build-math-worker.cjs",
+    "tools/build-session-worker.cjs"
   ],
   "node": [
     "tests/xiuzhen-effects-demand.test.cjs",
@@ -71,6 +72,9 @@
     "tests/manual-mana-high-preparation.test.cjs",
     "tests/manual-mana-segment-preparation.test.cjs",
     "tests/exploration-reward-preparation.test.cjs",
+    "tests/exploration-precision.test.cjs",
+    "tests/session-action-rollback.test.cjs",
+    "tests/session-import-recovery-ownership.test.cjs",
     "tests/online-cadence-wakeup.test.cjs",
     "tests/resource-performance-probe.test.cjs",
     "tests/online-action-admission.test.cjs",
@@ -107,6 +111,8 @@
   },
   "legacyAudit": "../WIS-椤圭洰璧勬簮/audit-0214-20261111/wide-failures.json",
   "browserNode": [
+    "tests/session-startup-repair-browser.test.cjs",
+    "tests/session-import-acknowledgement-browser.test.cjs",
     "tests/ui-render-load-compatibility.test.cjs",
     "tests/lifecycle-settings-browser.test.cjs",
     "tests/math-worker-browser.test.cjs",

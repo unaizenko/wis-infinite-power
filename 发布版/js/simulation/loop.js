@@ -117,6 +117,8 @@
       // A manual candidate owns gameplay inputs; keep only ledger metadata pending.
       if(!bounded||deferredAction||onlineWork||onlineIntervals.length||discardFailure)return !discardFailure;
       const pending=ledger().pendingDiscard;if(!pending)return true;
+      // Recovery commits this metadata at its FIFO barrier, after the online prefix.
+      if(offline.getPendingCatchUpSeconds?.()>epsilon||offline.isCatchUpInProgress?.())return true;
       try{
         if(context.commitDiscard([{source:'online',clock:pending.clock,speed:pending.game/pending.clock,compensationEligible:false}],pending.reason)===false)throw Error('舍弃时间未提交');
         writeLedger({pendingDiscard:null});publishedSinceRender=true;return true;
@@ -227,6 +229,14 @@
       // origin. Otherwise a completed recovery checkpoint replays that wait.
       // A hidden interval still belongs to registerReturn and stays untouched.
       if(ledger().awaySince===null)writeLedger({boundaryAt:Math.max(ledger().boundaryAt||0,lastTickAt)});
+    }
+    function rebaseClock(now){
+      const p=ledger();
+      lastTickAt=now;
+      if(importHold)importHold.startedAt=now;
+      // Only timestamps move. Registered intervals and discard debt still
+      // belong to the same simulation and must be settled in their old order.
+      writeLedger({awaySince:p.awaySince===null?null:now,registeredUntil:now,boundaryAt:now});
     }
     function resetAccumulators({preservePending=false}={}){
       committedRates=null;
@@ -485,7 +495,7 @@
       // A saved online prefix must not hide the offline barrier behind it.
       // Recovery owns the entire FIFO; online entries retain ONLINE_EXACT.
       if(onlineIntervals.some(part=>part.source==='offline'))handoffPendingRecovery();
-      writeLedger({awaySince:null,registeredUntil:Math.max(from,now),boundaryAt:now});lastTickAt=now;
+      writeLedger({awaySince:null,registeredUntil:now,boundaryAt:now});lastTickAt=now;
       if(isHidden()){writeLedger({awaySince:now});offline.suspendForAway();}
       else offline.returnFromAway(start);
       return seconds;
@@ -518,13 +528,19 @@
         handoffImportRecovery();
         writeLedger({awaySince:null,registeredUntil:Math.max(Number(ledger().registeredUntil)||0,now),boundaryAt:now});
       }
-      if(!backgroundAllowed()&&isHidden()){
-        // visibilitychange was held during file IO, and temporary saves never
-        // call prepareSave. Keep the remaining hidden interval out of ONLINE_EXACT.
-        const p=ledger();
-        writeLedger({awaySince:p.awaySince??now,registeredUntil:Math.max(p.registeredUntil||0,now),boundaryAt:now});
-      }
       importHold=null;
+      if(isHidden()){
+        // Visibility changes during file IO are deferred. Open a new away
+        // interval at release if there is no existing watermark.
+        const p=ledger();
+        if(p.awaySince===null)
+          writeLedger({awaySince:now,registeredUntil:Math.max(p.registeredUntil||0,now),boundaryAt:now});
+        offline.suspendForAway();
+      }else if(ledger().awaySince===null){
+        // The old save can settle again. The recovery paint/start gate remains
+        // the only entry point for the newly registered blocking debt.
+        offline.returnFromAway(false);
+      }
       return {released:true,elapsedSeconds:elapsed};
     }
     function runMainTick(){
@@ -643,7 +659,7 @@
     return Object.freeze({restoreSessionReservation(data){
  if(onlineWork||deferredAction||queuedAction||!data||data.index!==0||!Number.isFinite(data.seconds)||data.seconds<=0||!onlineIntervals[0]||data.seconds>onlineIntervals[0].clock*onlineIntervals[0].speed+epsilon)throw Error('invalid saved reservation');
  const part=onlineIntervals[0];onlineWork={part,generation:schedulerGeneration,seconds:data.seconds,startedAt:monotonicNow(),job:context.prepareOnlineWork(data.seconds,data.segment)};watchOnlineReady(onlineWork);scheduleOnlineContinuation();
- },start,runMainTick,setLastTickAt,resetAccumulators,getCommittedRates,handleVisibilityChange,setNativeAppActive,
+ },start,runMainTick,setLastTickAt,rebaseClock,resetAccumulators,getCommittedRates,handleVisibilityChange,setNativeAppActive,
       prepareSave,restoreClosedTime,handoffImportRecovery,enqueueForegroundAt,captureForegroundTime,beginImportHold,finishImportHold,
       invalidateOnlineScheduler,requestQiBatch,requestDeferredAction,cancelDeferredAction,beforePlayerAction,flushDiscardEffects,
       settlementStatus:()=>({bounded,stopped:!!onlineFailure||!!discardFailure,reason:discardFailure?.message||onlineFailure?.code||null,pendingDiscard:ledger().pendingDiscard||null}),
