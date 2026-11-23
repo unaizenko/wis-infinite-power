@@ -36,11 +36,54 @@
     return n;
   }
   const get = s => s?.cultivation?.systems?.martial || fresh();
+  // Run ledgers survive a system switch. Only a rebirth closes the run.
+  function resourceRecord(state, key, lifetime = false) {
+    const run = get(state).resources[key], past = lifetime && state.meta.statistics.martialHistory?.[key];
+    const A = WIS.Core.Amount;
+    if (A?.enabled()) {
+      const max = (a, b) => A.compare(a, b) >= 0 ? a : b;
+      const peak = max(A.field(run, "peak"), A.field(run));
+      const total = max(A.field(run, "total"), peak);
+      return past ? {peak:max(A.field(past,"peak"),peak), total:A.add(A.field(past,"total"),total)} : {peak,total};
+    }
+    const peak = B.max(run.peak, run.amount), total = B.max(run.total, peak);
+    return {peak:B.max(past?.peak || 0,peak), total:B.add(past?.total || 0,total)};
+  }
+
+  function normalizeHistory(raw) {
+    if (!record(raw)) throw Error("武道统计格式无效");
+    const history = {}, A = WIS.Core.Amount;
+    for (const key of resourceKeys) {
+      if (raw[key] === undefined) continue;
+      if (!record(raw[key])) throw Error("武道资源统计格式无效");
+      const row = {};
+      for (const field of ["peak","total"]) {
+        if (A?.enabled()) {
+          const value = A.field(raw[key],field);
+          if (A.compare(value,0) < 0) throw Error("武道资源统计不能为负");
+          Object.assign(row,A.boundedFieldParts(value,field));
+        } else row[field] = nonnegative(raw[key][field]);
+      }
+      history[key] = row;
+    }
+    return history;
+  }
+
+  function archiveStatistics(state) {
+    const A = WIS.Core.Amount, history = {};
+    for (const key of resourceKeys) {
+      const {peak,total} = resourceRecord(state,key,true);
+      if (A?.enabled() ? A.compare(total,0) > 0 : B.gt(total,0))
+        history[key] = A?.enabled() ? {...A.boundedFieldParts(peak,"peak"), ...A.boundedFieldParts(total,"total")} : {peak,total};
+    }
+    return active(state) || state.meta.statistics.martialHistory || Object.keys(history).length ? history : null;
+  }
+
   const amount = (s,key) => resourceKeys.includes(key) ? B.BN(get(s).resources[key].amount) : B.ZERO;
   const active = s => s?.cultivation?.active === "martial";
   const challenge = s => s?.meta?.challenges?.activeChallenge ?? s?.activeChallenge;
   const completed = (s,key) => B.gt(s?.meta?.challenges?.challengeCompletions?.[key] ?? s?.challengeCompletions?.[key] ?? 0,0);
-  const achievement = (s,key) => s?.meta?.achievements?.unlockedAchievements?.[key] === true || s?.unlockedAchievements?.[key] === true;
+  const achievement = (s,key) => s?.meta?.achievements?.[key] === true || s?.unlockedAchievements?.[key] === true;
   const abilityEnabled=(s,key)=>active(s)&&(challenge(s)!=='martialDragon'||byKey.get(key)?.branch==='shroud');
   const lv = (s,key) => abilityEnabled(s,key) ? get(s).abilities[key] || 0 : 0;
   const coreAmount = (s,key) => nonnegative(s?.core?.resources?.[key] ?? s?.[key]);
@@ -165,14 +208,21 @@
     const base = B.mul(kinds*kinds,acquisitionMultiplier(s,"qi")), current = amount(s,"qi"), thresholds = conversionThresholds(s,"qi");
     let attenuation = B.ONE;
     for (const t of thresholds) attenuation = B.mul(attenuation,B.pow(B.max(1,B.div(current,t.value)),t.power));
-    return {kinds,base,rate:B.div(base,attenuation),current,thresholds};
+    return {emperor:emperorActive(s),kinds,base,rate:B.div(base,attenuation),current,thresholds};
   }
   function naturalSegment(start,power,coefficient) {
     const p = power+1, a = B.div(coefficient,2*p);
     return {p,q:p,a,b:a,cost:delta => B.mul(B.mul(a,2),powerIncrement(start,delta,p)),
       slope:value => B.mul(coefficient,B.pow(value,power))};
   }
-  function changShengGain(profile,seconds,{frozen=false}={}) {
+  function changShengGain(profile,seconds,options={}) {
+    if(profile?.emperor && B.gt(seconds,0)) {
+      const gain=ordinaryChangShengGain(profile,seconds,options),A=WIS.Core.Amount;
+      return A?.isAmount(gain)?A.multiply(emperorGain(A.divide(gain,seconds)),seconds):B.mul(emperorGain(B.div(gain,seconds)),seconds);
+    }
+    return ordinaryChangShengGain(profile,seconds,options);
+  }
+  function ordinaryChangShengGain(profile,seconds,{frozen=false}={}) {
     if(WIS.Core.Amount?.enabled())return WIS.Cultivation.MartialAmount.naturalGain(profile,seconds,{frozen});
     const dt = nonnegative(seconds);
     if (!profile || !profile.kinds || !B.gt(dt,0)) return B.ZERO;
@@ -204,7 +254,7 @@
   const gainReceipts=new WeakMap();
   const clearGainReceipts=n=>gainReceipts.delete(n);
   function rememberGain(n,key,gain){
-    if(!['qi','body'].includes(key))return;const A=WIS.Core.Amount;
+    if(!['qi','body','heart'].includes(key))return;const A=WIS.Core.Amount;
     if(A?.enabled()?A.compare(gain,0)<=0:!B.gt(gain,0))return;
     const rows=gainReceipts.get(n)||{};rows[key]=A?.enabled()?A.add(rows[key]||0,gain):B.add(rows[key]||0,gain);gainReceipts.set(n,rows);
   }
@@ -218,12 +268,29 @@
   }
   function prepareGainRewards(s,n,credit=null) {
     const A=WIS.Core.Amount,plus=(a,b)=>A?.enabled()?A.add(a,b):B.add(a,b),rows={...gainReceipts.get(n)};
-    if(credit&&['qi','body'].includes(credit.key))rows[credit.key]=plus(rows[credit.key]||0,credit.value);
-    return prepareTreasureCredits(s,{lawImprint:plus(rows.qi||0,rows.body||0),sacredBodyImprint:rows.body||0,godBodyImprint:rows.body||0});
+    if(credit&&['qi','body','heart'].includes(credit.key))rows[credit.key]=plus(rows[credit.key]||0,credit.value);
+    return prepareTreasureCredits(s,{willImprint:rows.heart||0,lawImprint:plus(rows.qi||0,rows.body||0),sacredBodyImprint:rows.body||0,godBodyImprint:rows.body||0});
   }
+  function prepareHeartLoss(s) {
+    if (!active(s) || !achievement(s,'martialSoul')) return null;
+    const lost = WIS.Core.Amount?.enabled() ? quantity(s,'heart') : amount(s,'heart');
+    return prepareTreasureCredits(s,{willImprint:lost});
+  }
+  const willMultiplier = s => imprintMultiplier(s,'willImprint',.25);
   function hasCoreGainRewards(s){return active(s)&&achievement(s,'martialFourPoles');}
   function prepareCoreGainRewards(s,key,gain){return hasCoreGainRewards(s)?prepareTreasureCredits(s,{[key==='power'?'emperorImprint':'sourceStoneImprint']:gain}):null;}
   function imprintMultiplier(s,key,power){return WIS.Core.Amount?.enabled()?WIS.Core.AmountFormulas.power(WIS.Meta.Treasures.affineQuantity(s,key,1,1),power):B.pow(B.add(1,WIS.Meta.Treasures?.count(s,key)??s.meta?.treasures?.[key]??s.treasureImprints?.[key]??0),power);}
+  const emperorActive = s => active(s) && challenge(s)==='martialEmperor';
+  function emperorGain(value) {
+    const A=WIS.Core.Amount;
+    return A?.isAmount(value) ? A.from(WIS.Core.AmountFormulas.power(value,.75)) : B.pow(value,.75);
+  }
+  function fiveRealmsRate(s) {
+    if(!lv(s,'fiveRealms'))return B.ZERO;
+    const base = B.div(resourceKeys.reduce((product,key)=>B.mul(product,logOnePlus(complete(s,key))),B.ONE),10000);
+    const achievements = WIS.Meta.Achievements;
+    return achievements.applyInfiniteBoxReward(base, achievements.infiniteBoxExponent(s));
+  }
   function soulExponent(s,level=lv(s,'immortalPlatform')){return level?B.add(1,B.mul(completed(s,'martialSeverDao')?.04:.025,logOnePlus(complete(s,'heart')))):B.ONE;}
   function limitPositiveRate(s,value){if(!active(s)||challenge(s)!=='martialSeverDao')return value;const A=WIS.Core.Amount;if(A?.isAmount(value))return A.from(WIS.Core.AmountFormulas.powerOnePlusMinusOne(value,.5));const v=B.BN(value),root=B.sqrt(B.add(1,v));return B.gt(v,1)&&B.eq(root,v)?B.sub(root,1):B.div(v,B.add(1,root));}
   const capturePassive=s=>WIS.Cultivation.MartialAmount.capturePassive(s);
@@ -233,8 +300,15 @@
     for(const key of resourceKeys){const value=gains[key];if(value!=null&&(WIS.Core.Amount?.enabled()?WIS.Core.Amount.compare(value,0)>0:B.gt(value,0))){grant(n,key,value);changed=true;}}
     if(changed)commit(s,n);return changed;
   }
-  function commit(s,n,core=null) {
-    const validated = normalize(n),rewardMeta=prepareGainRewards(s,n);
+  function commit(s,n,core=null,conversionKey=null) {
+    const validated = normalize(n);
+    const milestone = conversionKey === 'heart' ? 'martialHeart' : conversionKey === 'soul' ? 'martialSoul' : null;
+    let rewardState = s;
+    if (milestone && !achievement(s,milestone)) {
+      rewardState = Object.assign(Object.create(s),s);
+      rewardState.meta = {...s.meta,achievements:{...s.meta.achievements,[milestone]:true}};
+    }
+    const rewardMeta = grandHarmonyMeta(s,validated,prepareGainRewards(rewardState,n) || rewardState.meta);
     s.cultivation = {...s.cultivation,systems:{...s.cultivation?.systems,martial:validated}};
     if(rewardMeta)s.meta=rewardMeta;
     if (core) {
@@ -259,9 +333,21 @@
     if(WIS.Core.Amount?.enabled()){const A=WIS.Core.Amount;if(A.compare(A.field(e),cost)<0)throw Error('武道候选余额不足');Object.assign(e,A.boundedFieldParts(A.subtract(A.field(e),cost)),A.fieldParts(A.add(A.field(e,'spent'),cost),'spent'));}
     else {if (B.lt(e.amount,cost)) throw Error("武道候选余额不足");e.amount = B.sub(e.amount,cost); e.spent = B.add(e.spent,cost);}
     if (key === "heart") {
+      rememberGain(n,key,cost);
       if(WIS.Core.Amount?.enabled()){const A=WIS.Core.Amount,v=B.eq(n.heartLedgerExponent,1)?A.field(e):A.from(WIS.Core.AmountFormulas.power(A.field(e),B.div(1,n.heartLedgerExponent)));Object.assign(n,A.fieldParts(WIS.Cultivation.MartialAmount.potential(v),'heartPotential'));}
       else n.heartPotential = F(B.pow(e.amount,B.div(1,n.heartLedgerExponent)));
     }
+  }
+  const grandHarmony = s => achievement(s,'martialGrandHarmony');
+  const grandHarmonyRequirements = Object.freeze({qi:10000,body:10000,heart:1000,soul:100});
+  function grandHarmonyMeta(s,martial,meta) {
+    if (!active(s) || meta.achievements.martialGrandHarmony) return meta;
+    const A=WIS.Core.Amount;
+    for (const key of resourceKeys) {
+      const entry=martial.resources[key], needed=grandHarmonyRequirements[key];
+      if (A?.enabled() ? A.compare(A.field(entry),needed)<0 : B.lt(entry.amount,needed)) return meta;
+    }
+    return {...meta,achievements:{...meta.achievements,martialGrandHarmony:true}};
   }
   const harmony = s => ["martialIntentQi","martialHeartIntent","martialQiPower"].every(k => completed(s,k)) || achievement(s,"martialHarmony");
   function conversionExponent(s) {
@@ -320,13 +406,35 @@
     const candidate={...s,cultivation:{...s.cultivation,systems:{...s.cultivation.systems,martial:n}}};
     for (const [key,ability] of [["qi","tianMo"],["body","ciHang"]]) if (lv(candidate,ability)) {
       const base=B.mul(B.mul(spent,10),acquisitionMultiplier(candidate,key));
-      const gain=changShengGain({kinds:1,base,current:amount(candidate,key),thresholds:conversionThresholds(candidate,key)},1);
+      const gain=changShengGain({emperor:emperorActive(s),kinds:1,base,current:amount(candidate,key),thresholds:conversionThresholds(candidate,key)},1);
       grant(n,key,gain); rewards[key]=gain;
     }
     return rewards;
   }
+  function qiPowerLead(s,key) {
+    const A = WIS.Core.Amount;
+    if (!A?.enabled()) {
+      const d = B.sub(B.log10(B.add(B.div(coreAmount(s,"joules"),10),1)),logOnePlus(coreAmount(s,"power")));
+      return key === "qi" ? d : B.mul(d,-1);
+    }
+    const j = A.add(completeCore(s,"joules"),10), p = A.scale(A.add(completeCore(s,"power"),1),10);
+    let [ahead,behind] = key === "qi" ? [j,p] : [p,j];
+    // The penalty starts at sqrt(10) and reaches its floor before 10^10.
+    if (A.compare(ahead,A.scale(behind,3)) <= 0) return B.ZERO;
+    if (A.compare(ahead,A.scale(behind,"1e10")) >= 0) return B.BN(10);
+    // Scale both complete stocks by one common monomial. Even above the
+    // logarithm coordinate capacity, the remaining ratio is of ordinary size.
+    const anchor = A.project(behind);
+    if (anchor.layer >= 2) {
+      ahead = A.divide(ahead,anchor);
+      behind = A.divide(behind,anchor);
+    }
+    return WIS.Core.AmountFormulas.logRatio(ahead,behind);
+  }
   function efficiency(s,key) {
     let e = acquisitionMultiplier(s,key);
+    if ((key === 'qi' || key === 'body') && achievement(s,'martialHeart')) e = B.mul(e,1.25);
+    if ((key === 'heart' || key === 'soul') && achievement(s,'martialSoul')) e = B.mul(e,willMultiplier(s));
     if (lv(s,"jiaYi") && ["qi","body"].includes(key)) e = B.mul(e,abilityMultiplier(s,"jiaYi"));
     if (key === "qi" && lv(s,"taiXuan")) e = B.mul(e,abilityMultiplier(s,"taiXuan"));
     if (key === "qi" && achievement(s,"martialInnate")) e = B.mul(e,2);
@@ -345,31 +453,43 @@
       else if (completed(s,"martialHeartIntent")) e = B.mul(e,2);
     }
     if (challenge(s) === "martialQiPower" && ["qi","body"].includes(key)) {
-      const d = B.sub((WIS.Core.Amount?.enabled()?WIS.Core.AmountFormulas.logOnePlusRatio(completeCore(s,'joules'),10):B.log10(B.add(B.div(coreAmount(s,'joules'),10),1))),logOnePlus(completeCore(s,"power")));
-      const lead = key === "qi" ? d : B.mul(d,-1);
+      const lead = qiPowerLead(s,key);
       if (B.gt(lead,.5)) e = B.mul(e,B.max(.1,B.div(1,B.add(1,B.sub(lead,.5)))));
     }
     return e;
   }
   function preview(s,key) {
     if(WIS.Core.Amount?.enabled()||key==='soul'&&lv(s,'immortalPlatform')){
-      const p={...WIS.Cultivation.MartialAmount.preview(s,key)},A=WIS.Core.Amount;
-      if(p.allowed&&A.compare(p.costQuantities.heart??0,0)>0&&(lv(s,'tianMo')||lv(s,'ciHang'))){const n=normalize(get(s));for(const [k,cost]of Object.entries(p.costQuantities))if(resourceKeys.includes(k))debit(n,k,cost);grant(n,key,p.gainQuantity);p.heartRewards=applyHeartSpendRewards(s,n,p.costQuantities.heart);}return p;
+      const amounts=WIS.Cultivation.MartialAmount, A=WIS.Core.Amount;
+      try {
+        const p={...amounts.preview(s,key)};
+        if(p.allowed&&A.compare(p.costQuantities.heart??0,0)>0&&(lv(s,'tianMo')||lv(s,'ciHang'))){
+          const n=normalize(get(s));
+          for(const [k,cost] of Object.entries(p.costQuantities))if(resourceKeys.includes(k))debit(n,k,cost);
+          grant(n,key,p.gainQuantity);
+          p.heartRewards=applyHeartSpendRewards(s,n,p.costQuantities.heart);
+        }
+        return p;
+      } catch(error) {
+        if(error.code!=='amount-unresolved'&&error.code!=='amount-formula-unresolved')throw error;
+        return {...amounts.emptyPreview(key,'当前数值精度不足，无法确认本次收益'),precisionLimited:true};
+      }
     }
     const result = {key,gain:B.ZERO,costs:{},allowed:false,reason:"当前未选择武道",efficiency:B.ONE,heartExponent:B.ONE};
     result.consumed = result.costs;
     if (!active(s) || !resourceKeys.includes(key)) return result;
-    const n = get(s), costs = result.costs;
+    const n = get(s), free = grandHarmony(s), inputs = free ? {} : result.costs;
+    const costs = result.costs;
     let input = B.ZERO;
     if (key === "qi" || key === "body") {
       const coreKey = key === "qi" ? "joules" : "power";
-      costs[coreKey] = coreAmount(s,coreKey); input = B.div(costs[coreKey],key === "qi" ? 10000 : 1000);
+      inputs[coreKey] = coreAmount(s,coreKey); input = B.div(inputs[coreKey],key === "qi" ? 10000 : 1000);
     } else if (key === "heart") {
-      for (const k of ["qi","body"]) costs[k] = harmony(s) ? B.sub(amount(s,k),B.min(amount(s,k),amount(s,"heart"))) : amount(s,k);
-      input = B.div(B.min(costs.qi,costs.body),5);
+      for (const k of ["qi","body"]) inputs[k] = !free && harmony(s) ? B.sub(amount(s,k),B.min(amount(s,k),amount(s,"heart"))) : amount(s,k);
+      input = B.div(B.min(inputs.qi,inputs.body),5);
     } else {
-      for (const k of ["qi","body","heart"]) costs[k] = amount(s,k);
-      input = B.min(B.div(costs.qi,10),B.min(B.div(costs.body,10),costs.heart));
+      for (const k of ["qi","body","heart"]) inputs[k] = amount(s,k);
+      input = B.min(B.div(inputs.qi,10),B.min(B.div(inputs.body,10),inputs.heart));
     }
     result.efficiency = efficiency(s,key);
     const exponent = ["qi","body"].includes(key) ? conversionExponent(s) : key==='soul'?soulExponent(s):B.ONE;
@@ -388,6 +508,7 @@
       : null;
     if (result.gain === null) result.gain = B.max(0,B.sub(B.pow(inverseF(potential),exponent),current));
     result.gain = balancedGain(s,key,current,result.investment,exponent,result.gain);
+    if(emperorActive(s))result.gain=emperorGain(result.gain);
     if (!B.gt(B.add(current,result.gain),current)) result.gain = B.ZERO;
     result.allowed = B.gt(input,0) && B.gt(result.gain,0);
     result.reason = result.allowed ? "" : "投入不足或没有可表示的收益";
@@ -410,7 +531,7 @@
   function convert(s,key) {
     WIS.Core.Runtime?.assertMutable?.();
     const p = preview(s,key); if (!p.allowed) return false;
-    if(WIS.Core.Amount?.enabled()){const n=normalize(get(s)),core=applyConversion(s,n,key,p);commit(s,n,core);return true;}
+    if(WIS.Core.Amount?.enabled()){const n=normalize(get(s)),core=applyConversion(s,n,key,p);commit(s,n,core,key);return true;}
     const n = normalize(get(s)), core = {};
     for (const [k,cost] of Object.entries(p.costs)) {
       if (resourceKeys.includes(k)) debit(n,k,cost);
@@ -419,7 +540,7 @@
     grant(n,key,p.gain);
     applyHeartSpendRewards(s,n,p.costs.heart);
     if (key === "heart") { n.heartPotential = p.potential; n.heartInvestment = B.add(n.heartInvestment,p.investment); n.heartLedgerExponent = p.heartExponent; }
-    commit(s,n,Object.keys(core).length ? core : null); return true;
+    commit(s,n,Object.keys(core).length ? core : null,key); return true;
   }
   function slots(s) { return challenge(s) === "martialMeridians" ? 1 : 1 + (lv(s,"reverseArt") ? 1 : 0) + (completed(s,"martialMeridians") ? 2 : 0); }
   const slotUsed = s => C.abilities.filter(a => a.slot && lv(s,a.key)).length;
@@ -447,6 +568,7 @@
     if (a.branch === "inner" && lv(s,"changSheng")) cost = B.mul(cost,10*(innerCount(s)+1));
     let reason = !active(s) ? "当前未选择武道" : level >= a.maxLevel ? "已达上限" : key === "longXiang" && level ? "龙象通过修炼进度升级" : "";
     if(!reason&&!abilityEnabled(s,key))reason='化龙挑战仅允许秘境流能力';
+    if(!reason&&key==='fiveRealms'&&!completed(s,'martialEmperor'))reason='需完成大帝劫';
     if(!reason&&key==='immortalPlatform'&&lv(s,'dragonTransform')<9)reason='需化龙九变9级';
     if(!reason&&key==='shenJin'&&!harmony(s))reason='需内三合成就';
     if(!reason&&key==='lifeCore'&&lv(s,'geneEnergy')<3)reason='需基因源能3级';
@@ -467,7 +589,7 @@
       n.longxiangProgress = B.ZERO;if(WIS.Core.Amount?.enabled())n.longxiangProgressResidual=[];
     }
     commit(s,n);
-    if (["stealHeaven","innerHarmony","innate"].includes(key)) s.meta = {...s.meta,martialQualifications:{...s.meta?.martialQualifications,[key]:true}};
+    if (["stealHeaven","innerHarmony","innate","emperorTribulation"].includes(key)) s.meta = {...s.meta,martialQualifications:{...s.meta?.martialQualifications,[key]:true}};
     return true;
   }
   const curve = (value,coefficient,exponent=1.25) => WIS.Core.Amount?.isAmount(value)?B.mul(coefficient,B.div(WIS.Core.AmountFormulas.powerOnePlusMinusOne(value,exponent),B.sub(B.pow(2,exponent),1))):B.mul(coefficient,B.div(B.sub(B.pow(B.add(value,1),exponent),1),B.sub(B.pow(2,exponent),1)));
@@ -578,13 +700,13 @@
     // Consume one real cadence opportunity, even when no conversion is ready.
     const n = normalize(get(s)); n.automationTime = B.ZERO;if(WIS.Core.Amount?.enabled())n.automationTimeResidual=[]; n.automationCursor = (start+1)%4;
     for (let i=0;i<4;i++) { const key = resourceKeys[(start+i)%4]; if (n.automation[key] && automaticUnlocked(s,key) && preview(s,key).allowed) {
-      const p = preview(s,key);if(WIS.Core.Amount?.enabled()){const core=applyConversion(s,n,key,p);n.automationCursor=((start+i)%4+1)%4;commit(s,n,core);return true;}
+      const p = preview(s,key);if(WIS.Core.Amount?.enabled()){const core=applyConversion(s,n,key,p);n.automationCursor=((start+i)%4+1)%4;commit(s,n,core,key);return true;}
       const core = {};
       for (const [k,cost] of Object.entries(p.costs)) if (resourceKeys.includes(k)) debit(n,k,cost); else {core[k] = B.sub(coreAmount(s,k),cost); core[k+"GainResidual"] = B.ZERO; core[k+"GainResidualTail"] = [];}
       grant(n,key,p.gain); applyHeartSpendRewards(s,n,p.costs.heart); if (key === "heart") {n.heartPotential=p.potential;n.heartInvestment=B.add(n.heartInvestment,p.investment);n.heartLedgerExponent=p.heartExponent;}
-      n.automationCursor=((start+i)%4+1)%4; commit(s,n,Object.keys(core).length?core:null); return true;
+      n.automationCursor=((start+i)%4+1)%4; commit(s,n,Object.keys(core).length?core:null,key); return true;
     }}
     commit(s,n); return false;
   }
-  WIS.Cultivation.Martial = Object.freeze({abilityEnabled,level:lv,soulExponent,limitPositiveRate,imprintMultiplier,hasCoreGainRewards,prepareCoreGainRewards,clearGainReceipts,attenuationFactor,prepareGainRewards,capturePassive,passiveGains,awardPassive,lawMultiplier,quantity,harmony,acquisitionMultiplier,applyHeartSpendRewards,innerCount,captureChangSheng,changShengGain,awardChangSheng,resourceKeys,fresh,normalize,get,amount,active,F,abilityMultiplier,qiPowerSource,preview,convert,abilityView,canBuy,buy,slots,slotUsed,sources,effects,heartRequirement,heartExponent,advance,automate,automaticUnlocked,setAutomation,conversionExponent,efficiency});
+  WIS.Cultivation.Martial = Object.freeze({emperorActive,emperorGain,fiveRealmsRate,resourceRecord,normalizeHistory,archiveStatistics,abilityEnabled,level:lv,soulExponent,limitPositiveRate,imprintMultiplier,willMultiplier,prepareHeartLoss,hasCoreGainRewards,prepareCoreGainRewards,clearGainReceipts,attenuationFactor,prepareGainRewards,capturePassive,passiveGains,awardPassive,lawMultiplier,quantity,harmony,grandHarmony,grandHarmonyMeta,acquisitionMultiplier,applyHeartSpendRewards,innerCount,captureChangSheng,changShengGain,awardChangSheng,resourceKeys,fresh,normalize,get,amount,active,F,abilityMultiplier,qiPowerSource,preview,convert,abilityView,canBuy,buy,slots,slotUsed,sources,effects,heartRequirement,heartExponent,advance,automate,automaticUnlocked,setAutomation,conversionExponent,efficiency});
 }(window.WIS));

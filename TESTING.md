@@ -1,3 +1,91 @@
+## 2026-11-23 旧档迁移与武道收益
+
+运行 `node --test tests/emperor-universe.test.cjs tests/martial-will.test.cjs`。r16、r18 合成夹具分别由对应历史版本正式导出，用于验证跨版本导入、再次保存回读、收支尾项与被动神魂收入。五境合一用在线一步和离线一秒检查无限盒子奖励。长生诀实际卡片由 `tests/martial-range-browser.test.cjs` 覆盖。
+
+## 2026-11-23 大帝劫与共享宇宙系数
+
+运行 `node --test tests/emperor-universe.test.cjs tests/xiuzhen-tenth.test.cjs` 验证挑战、旧档迁移、体系切换和实际的在线及离线产出。
+
+## 2026-11-23 武道成就·大三合
+
+运行 `node --test tests/martial-grand-harmony.test.cjs` 检查同时持有门槛、精确尾项、旧档、挑战重置、手动与自动兑换、完整库存炼心、实际心支出和能力付费。
+
+## 2026-11-22 武道成就与意志
+
+运行 `node --test tests/martial-will.test.cjs` 检查手动与自动转换、双向收支、挑战重置和旧档补发。宝物卡显示由 `tests/responsive-progress-browser.test.cjs` 覆盖。
+
+## 2026-11-22 体系统计
+
+运行 `node --test tests/martial-statistics-history.test.cjs tests/xiuzhen-statistics.test.cjs` 检查转生、大数尾项与体系切换。响应式浏览器套件覆盖统计范围、两种体系和三种屏宽。
+
+## 2026-11-22 手机资源摘要与桌面布局
+
+按下文设置 E 盘的 TEMP、TMP 和 WIS_PLAYWRIGHT。分别以 msedge、chrome 运行 `node --test --test-concurrency=1 tests/responsive-progress-browser.test.cjs tests/mobile-layout-browser.test.cjs tests/upgrade-layout-browser.test.cjs tests/infinity-expansion-browser.test.cjs tests/martial-range-browser.test.cjs`。可选的 WIS_UI_OUTPUT 指向已有 E 盘目录时，响应式测试保存桌面开局、竖屏开局与仙道页截图。核心门禁仍使用 `node tools/test-current-regression.cjs --phase core`。
+
+## 2026-11-22 大数门槛与旧档续算
+
+核心入口为 `node tools/test-current-regression.cjs --phase core`。单独复核本轮门槛时运行 `node --test tests/tree-rank-settlement-audit.test.cjs tests/legacy-closed-treasure.test.cjs tests/literal-price-challenge-ratio.test.cjs tests/high-multiverse.test.cjs`。样本涵盖历史已发奖励、负补偿续付、TREE 手动与自动切换、冻结后升阶、结构化阶位、古戈尔解锁两侧、字面价格实扣、武道共同量级和连续多元突破。超出单个账本词项的阶数另含整数塔与非整数塔坐标样本。
+
+历史入口为 `tests/martial-integration.test.cjs`（武道格式 71）、`tests/finite-economy.test.cjs`（有限经济格式 74）和 `tests/infinity-reset-automation.test.cjs`（当前格式 76）。三项均在核心门禁内执行。
+
+浏览器验收按下文使用 E 盘 TEMP 和 TMP，设置 WIS_PLAYWRIGHT 及 WIS_BROWSER_CHANNEL，运行 `node --test --test-concurrency=1 tests/infinity-expansion-browser.test.cjs tests/martial-range-browser.test.cjs`。高阶多元另用初始系数 `1000 + 1e-60` 和三阶系数 `10000 − 1e-60` 点击升阶，核对读档后资格、按钮状态与第二次提交。
+
+## 2026-11-22 宝物奖励与跨模型存档
+
+运行 `node --test tests/amount-rewards.test.cjs`。九项历史用例显式使用模型 1，新版金额与奖励用例加载开发版生成的 Worker。跨模型用例从旧状态生成真实存档，导入当前模型后支付并重读，覆盖 `100 + 1` 和 `1e100 + 1` 两种库存。该套件也由 `node tools/test-current-regression.cjs --phase core` 执行。
+
+## 2026-11-22 G 阶门槛、多元突破与历史付款
+
+运行 `node tools/test-current-regression.cjs --phase core`。核心回归包含 G 阶两侧的相邻资金、当前批次的正负补偿、旧格式 72 和 75 的带符号余额、旧版已发阶位续算、百万阶余款、多元突破少一点和恰好达标的实际支付、付款记录校验以及黑洞候选状态的独立求值。另可运行 `node --test tests/high-multiverse-retention.test.cjs` 检查突破款在洗点和转生时的归属。
+
+设置 E 盘 TEMP、TMP 和 WIS_PLAYWRIGHT，以 msedge、chrome 分别运行 `node tests/infinity-expansion-browser.test.cjs`。脚本使用 HTTP 实际会话，在 320、390 和 1280 像素下分别购买四项无限强化，核对显示价格、实扣余额和回读结果。独立运行 `node tests/infinity-expansion-worker.test.cjs` 可核对四个 G 阶样本在本地与生成版 Worker 的完整结算状态。
+
+## 2026-11-22 无限扩展测试
+
+运行 `node tests/infinity-expansion.test.cjs`，可单独核对黑洞门槛、无限强化退款与挑战保留、TREE 解锁、D6 的逐阶费用与百万阶结算。脚本还覆盖当前格式保存待办任务及格式 70 存档迁移。正式核心门禁会执行同一脚本。
+
+## 2026-11-22 后台、武道精度与量级回归
+
+运行 `node tools/test-current-regression.cjs --phase core`。新增的 `tests/martial-passive-range.test.cjs` 检查“识海星球”和“体内世界”单独及同时触发时的连续在线步、冻结速率、RNG、存档续算，以及超大数完整比较。`tests/scale-milestone-tail.test.cjs` 覆盖三种挑战门槛两侧、历史下界与黑洞条件。`tests/session-clock-wakeup.test.cjs` 检查离开和返回在写入失败、重试及交错通知下的顺序。
+
+按下文配置 E 盘 TEMP、TMP、WIS_PLAYWRIGHT，分别以 msedge、chrome 运行 `node --test --test-concurrency=1 tests/session-lifecycle-browser.test.cjs tests/martial-range-browser.test.cjs tests/preference-save-browser.test.cjs`。浏览器样本从正式按钮、会话 Worker 和 IndexedDB 验证后台补偿余额、武道报价与连续被动收益、筛选和自动化设置的兼容副本失败及重试。
+
+## 2026-11-22 第五轮审计回归
+
+使用 `node --test tests/martial-range-challenge-tail.test.cjs` 检查四种转换的收益单调性、报价失败原子性、挑战门槛两侧及离线截止判定。按下文设置 E 盘 TEMP、TMP 和 WIS_PLAYWRIGHT，分别用 msedge、chrome 运行 `node --test tests/martial-range-browser.test.cjs`，确认无法报价时显示精度提示，锻体按钮仍能实际入账。核心入口为 `node tools/test-current-regression.cjs --phase core`。
+
+## 2026-11-22 第四轮审计回归
+
+使用 E 盘临时目录及 WIS_PLAYWRIGHT，分别设置 WIS_BROWSER_CHANNEL 为 msedge、chrome，运行 `node --test tests/session-lifecycle-browser.test.cjs`。新增三项验证覆盖后台冻结期间兼容副本失败与重试、只读故障下从最近确认状态导出及其队列和时间水位、导入取消与成功切档的报告归属、导入与主题设置的部分成功反馈。核心回归入口为 `node tools/test-current-regression.cjs --phase core`。
+
+## 2026-11-22 第三轮审计回归
+
+分别以 Edge、Chrome 运行 `node --test tests/session-lifecycle-browser.test.cjs`，按下节设置 E 盘临时目录和浏览器依赖。新增用例覆盖文件选择器持有期间隐藏、在后台取消、可兑换时间与导出余额、原生启动已非活动、设置写入拒绝与重试、兼容副本写入失败、启动提示以及重置弹窗。运行 `node --test tests/statistics-reload-invariant.test.cjs` 检查历史 Worker 快照迁移时只补入预期字段，并在随后完整保存回读时保持一致。
+
+## 2026-11-22 第二轮审计回归
+
+在 E 盘设置 TEMP/TMP 及 WIS_PLAYWRIGHT，分别使用 WIS_BROWSER_CHANNEL=msedge 和 chrome 运行 `node --test tests/session-lifecycle-browser.test.cjs`。覆盖三缺两种重修的奖励与存档回读、导入后的统计页资格、连续点击离线转换只入账一次、当前槽和旧槽各自损坏，以及零债务和有债务两种后台启动。核心门禁运行 `node tools/test-current-regression.cjs --phase core`。
+
+## 2026-11-22 审计修复回归
+
+运行 `node tools/test-current-regression.cjs --phase core`。转生收尾注入异常后，应比对完整 snapshot/recovery/loop，保存重读后再次转生与正常单次转生一致。开发调速边界分别保留旧、新区间，页面重开取 ×1，已登记时间仍使用原倍率。
+
+设置 E 盘 TEMP/TMP 和 WIS_PLAYWRIGHT 后，以 WIS_BROWSER_CHANNEL=msedge、chrome 分别运行 `node --test tests/session-lifecycle-browser.test.cjs`。该测试使用真实 Session/IndexedDB、模拟 Capacitor 和新版清单，验证版本弹窗只触发一次、原生退出拒绝时恢复计时、导入取消写入失败后在页面点击重试保存可以解冻。
+
+武道旧档当前验收遵循 Schema76 的旧积压清理规则。非武道测试用同一时钟迁移旧原件和独立记录的完整准备态，并比较二者在当前规则下的在线与冻结离线结果。旧版数值参照仍保存在夹具中。
+
+## 2026-11-21 无限盒子成就
+
+`node --test tests/xiuzhen-tenth.test.cjs` 覆盖历史量级解锁、零库存、中高阶 N^k 小于 1 的产出、60 秒实际冻结离线、保存回读及无限转生。使用 `WIS_PLAYWRIGHT` 运行 `node tests/xiuzhen-tenth-browser.test.cjs`，验证实际会话在第十步后记录成就，成就页显示当前产出指数。
+
+## 2026-11-21 旧会话无限盒子升级与导出
+
+`node --test tests/session-ledger-checkpoint.test.cjs` 验证缺少 N^N 的旧快照在恢复已登记在线时间之后，与正常快照的完整状态一致。设置 `WIS_PLAYWRIGHT` 后运行 `node --test tests/session-infinite-box-upgrade-browser.test.cjs tests/session-startup-repair-browser.test.cjs`。升级用例通过在隔离 Edge 同源切换真实旧版、缺少迁移的构建与修复版，验证产生故障后的 IndexedDB 会话能继续结算、导出及重新读取。可用 `WIS_CHECKPOINT_SAVE` 指向实际玩家只读样本。
+
+## 2026-11-21 无限盒子与修真道第十步（开发版）
+
+`node --test tests/xiuzhen-tenth.test.cjs tests/xiuzhen-fifth-ninth.test.cjs tests/xiuzhen-statistics.test.cjs tests/amount-xiuzhen-formulas.test.cjs tests/xiuzhen-effects-demand.test.cjs tests/worker-loop-render.test.cjs` 覆盖 C8 门槛、手动/自动突破、煌天精确扣费、大数边界、在线与冻结离线、存档与转生。设置 `WIS_PLAYWRIGHT` 后运行 `node tests/xiuzhen-tenth-browser.test.cjs`。浏览器通过实际本地网页、Worker、IndexedDB 验证三种宽度。只控制时间源以避开初始化离线任务，再推进实时时钟命令，验证新资源在线产出。
+
 ## 2026-11-19 满命令日志启动恢复修复（仅开发版）
 
 当前 build `dev-0.2.3.0-20261119-journal-recovery-r1`，保留上一轮探寻精确比较修复。SessionController.start 就绪等待进入会话时已有命令前缀完成持久确认，随后才允许客户端启动 return/importRelease；关闭/替换拒绝旧启动等待，回放存储失败保留日志并报错。恢复前不安排边界时钟；普通5秒自动保存单飞，手动/关闭/导入确认独立。32条上限、单一提交者、持久ACK、数值/RNG、0.1秒限额及schema76保持。42项定向Node检查、Edge/Chrome各3项真实IDB满日志/导入暂停/保存确认测试、Edge既有7项协议验收（含schema74导入和schema76回读）通过；107脚本/四Worker检查通过。未重跑历史性能/全套/Android，未发布/APK/commit。缺少截图玩家原数据库，不声称重建其具体进度。详见 `../WIS-项目资源/session-journal-fix-20261119/REPORT.md`。以下为历史记录。

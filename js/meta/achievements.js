@@ -43,7 +43,7 @@
 
   function challengesUnlocked() {
     return hasAchievement("scale4") || state.cultivation.active === "martial" &&
-      ["stealHeaven", "innerHarmony", "innate", "shenJin", "dragonTransform", "immortalPlatform"].some(key=>state.meta.martialQualifications?.[key] === true ||
+      ["stealHeaven", "innerHarmony", "innate", "shenJin", "dragonTransform", "immortalPlatform", "emperorTribulation"].some(key=>state.meta.martialQualifications?.[key] === true ||
         (WIS.Cultivation.Martial.get(state).abilities[key] || 0)>0);
   }
 
@@ -89,13 +89,43 @@
   }
   function multiverseAchievementMultiplier(current,key) {
     return WIS.Meta.Achievements.has(current,key)
-      ? WIS.Core.BigNum.max(1,WIS.Meta.HighMultiverse.currentOrder(current)) : WIS.Core.BigNum.ONE;
+      ? WIS.Core.BigNum.max(1,WIS.Meta.HighMultiverse.orderValue(WIS.Meta.HighMultiverse.currentOrder(current))) : WIS.Core.BigNum.ONE;
   }
+  function infiniteBoxExponent(current) {
+    const B = WIS.Core.BigNum, X = WIS.Cultivation.Xiuzhen;
+    // An existing tenth-step save qualifies before its first achievement commit.
+    if (!WIS.Meta.Achievements.has(current, "infiniteBox") && !X.reachedInfiniteBox(current)) return B.ONE;
+    const key = "infiniteBoxCoefficient";
+    const logStock = WIS.Core.Amount?.enabled()
+      ? WIS.Core.AmountFormulas.logOnePlusRatio(X.quantity(current, key))
+      : B.log10(B.add(1, X.amount(current, key)));
+    return B.add(1, B.div(logStock, B.add(2, logStock)));
+  }
+
+  function applyInfiniteBoxReward(rate, exponent) {
+    const B = WIS.Core.BigNum;
+    return B.eq(exponent, 1) || B.eq(rate, 0)
+      ? rate : WIS.Core.AmountFormulas.powerOnePlusMinusOne(rate, exponent);
+  }
+
   function achievementDefinitions() {
+    const A = WIS.Core.Amount;
+    const full = A?.enabled();
+    const totalPower = full ? WIS.Core.State.readStatistic(state,"totalPower") : state.totalPower;
+    const singleGain = full ? WIS.Core.State.readStatistic(state,"maxSinglePowerGain") : state.maxSinglePowerGain;
+    const coefficient = full ? WIS.Meta.UniverseCoefficients.quantity(state,"universeCoefficient")
+      : WIS.Meta.UniverseCoefficients.amount(state,"universeCoefficient");
+    const reached = (amount, threshold) => full ? A.compare(amount, threshold) >= 0 : gte(amount, threshold);
     const definitions = [
       { key:"infiniteMultiverse", name:"无限多元", description:"抵达N³。", reward:'无限点数获取×当前N的阶位；当前 ×'+format(multiverseAchievementMultiplier(state,"infiniteMultiverse"),2), completed:completedAchievement("infiniteMultiverse",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=3n) },
       { key:"silverSea", name:"银海", description:"抵达N^99。", reward:"当前达到单体宇宙且TREE≥3时，每秒自动获得当前无限转生收益的1%。", completed:completedAchievement("silverSea",BigInt(WIS.Meta.HighMultiverse.highest(state).order)>=99n) },
+      { key:"infiniteBox", name:"无限盒子", description:"抵达无限盒子量级。",
+        reward:`根据当前 N^N 库存提升 N、N²、N^k 获取指数。当前 ^${format(infiniteBoxExponent(state),4)}`,
+        completed:completedAchievement("infiniteBox",WIS.Cultivation.Xiuzhen.reachedInfiniteBox(state)) },
       { key:"thickEarth", system:"仙道", name:"厚土", description:"抵达仙道·修真道·第九步。", reward:'本源自然奖励数量×当前N的阶位，与道源叠加；当前 ×'+format(multiverseAchievementMultiplier(state,"thickEarth"),2), completed:completedAchievement("thickEarth",(WIS.Cultivation.Xiuzhen.get(state).highestRealm||0)>=16) },
+      {key:'martialGrandHarmony',system:'武道',name:'大三合',description:'同时持有至少 10,000 气、10,000 体、1,000 心和 100 神魂。',reward:'凝气、锻体、炼心、神魂免消耗；炼心按完整气、体库存计算',completed:completedAchievement('martialGrandHarmony',false)},
+      {key:'martialHeart',system:'武道',name:'心',description:'首次成功炼心。',reward:'凝气、锻体兑换效率 ×1.25',completed:completedAchievement('martialHeart',false)},
+      {key:'martialSoul',system:'武道',name:'魂',description:'首次成功凝练神魂。',reward:'解锁武道烙印·意志',completed:completedAchievement('martialSoul',false)},
       {key:'martialGodBody',system:'武道',name:'打破虚空，见神不坏',description:'解锁神劲。',reward:'解锁武道挑战·秋风未动蝉先觉',completed:completedAchievement('martialGodBody',(WIS.Cultivation.Martial.get(state).abilities.shenJin||0)>0)},
       {key:'martialFourPoles',system:'武道',name:'四极',description:'解锁四极。',reward:'解锁烙印·帝经、圣体、神王体、源石',completed:completedAchievement('martialFourPoles',(WIS.Cultivation.Martial.get(state).abilities.fourPoles||0)>0)},
       {key:'martialDragon',system:'武道',name:'化龙',description:'解锁化龙九变。',reward:'解锁挑战·化龙',completed:completedAchievement('martialDragon',(WIS.Cultivation.Martial.get(state).abilities.dragonTransform||0)>0)},
@@ -106,13 +136,13 @@
       { key:"yuan", system:"仙道", name:"元", description:"突破仙道境界·第二步·碎涅。", reward:"解锁仙道宝物烙印·元晶", completed:completedAchievement("yuan",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=6) },
       { key:"greatHeavenlyVenerable", system:"仙道", name:"大天尊", description:"突破第三步·空劫。", reward:`根据本源数量提升法力、仙灵力、仙力、元力、涅力获取；当前 ×${format(greatHeavenlyVenerableMultiplier(state),4)}`, completed:completedAchievement("greatHeavenlyVenerable",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=10) },
       { key:"universe", name:"宇宙", description:"抵达单体宇宙量级。", reward:`根据宇宙意志数量降低普通宝物进度需求；当前 ÷${format(ordinaryTreasureRequirementDivisor(state),4)}`, completed:completedAchievement("universe",(WIS.Cultivation.Xiuzhen.get(state).highestRealm || 0)>=7) },
-      { key:"infinityPower", name:"无限之力", description:"拥有至少1000单体宇宙系数N。", reward:"无限点数获取基础值+3（参与获取倍率计算）", completed:completedAchievement("infinityPower",gte(WIS.Cultivation.Xiuzhen.amount(state,"universeCoefficient"),1000)) },
+      { key:"infinityPower", name:"无限之力", description:"拥有至少1000单体宇宙系数N。", reward:"无限点数获取基础值+3（参与获取倍率计算）", completed:completedAchievement("infinityPower",reached(coefficient,1000)) },
       { key:"eternalWitness", name:"一证永证", description:"完成无限挑战·圆环之理。", reward:"无限转生及以下等级转生，不再重置体系挑战", completed:completedAchievement("eternalWitness",challengeCompletionCount("infinityRing")>0) },
       { key: "infantTransformationImmortal", system: "仙道", name: "婴变为仙", description: "解锁仙道·修真道·婴变。", reward: "解锁仙道挑战·阴虚阳实", completed: completedAchievement("infantTransformationImmortal", (WIS.Cultivation.Xiuzhen?.get(state).highestRealm || 0) >= 2) },
-      { key: "powerOne", name: "战力 1", description: "获得至少 1 战力。", reward: "解锁强化界面", completed: completedAchievement("powerOne", gte(state.totalPower, 1)) },
-      { key: "five", name: "战五渣", description: "累计获得 5 战力。", reward: "战力获取 ×1.05", completed: completedAchievement("five", gte(state.totalPower, 5)) },
+      { key: "powerOne", name: "战力 1", description: "获得至少 1 战力。", reward: "解锁强化界面", completed: completedAchievement("powerOne", reached(totalPower, 1)) },
+      { key: "five", name: "战五渣", description: "累计获得 5 战力。", reward: "战力获取 ×1.05", completed: completedAchievement("five", reached(totalPower, 5)) },
       { key: "brick", name: "爆砖", description: "拥有 200 战力。", reward: "每个已达成成就提供 +0.1 J/秒", completed: completedAchievement("brick", state.brickUnlocked) },
-      { key: "trueBrick", name: "真爆砖", description: "一次锻炼获得 200 战力。", reward: "健身等级上限 +20", completed: completedAchievement("trueBrick", gte(state.maxSinglePowerGain, 200)) },
+      { key: "trueBrick", name: "真爆砖", description: "一次锻炼获得 200 战力。", reward: "健身等级上限 +20", completed: completedAchievement("trueBrick", reached(singleGain, 200)) },
       { key: "lightningFiveWhip", name: "闪电五连鞭", description: "2 秒内连续点击 5 次锻炼。", reward: "可以通过长按代替点击", completed: completedAchievement("lightningFiveWhip", false) },
       { key: "trainingUp", name: "练起来", description: "游戏时间达到10 分钟。", reward: "解锁统计界面", completed: completedAchievement("trainingUp", state.totalElapsedSeconds >= 600) },
       { key: "aspireImmortality", system: "仙道", name: "我欲成仙", description: "解锁炼气。", reward: "每个已解锁仙道境界使法力获取 ×1.2", completed: completedAchievement("aspireImmortality", state.qiRefiningUnlocked) },
@@ -201,7 +231,7 @@
                 : scaleIndex === 14
                   ? "抵达宇宙结构后解锁行动·大数"
                   : "奖励：后续加入",
-          completed: completedAchievement(`trueScale${scaleIndex}`, gte(state.maxSinglePowerGain, scale.power))
+          completed: completedAchievement(`trueScale${scaleIndex}`, reached(singleGain, full ? scale.powerLiteral : scale.power))
         }
       );
     });
@@ -210,8 +240,8 @@
       { key: "beyondFractal", name: "超越分形", description: "完成分形-5，进入 G1。", reward: beyondFractalReward(), completed: completedAchievement("beyondFractal", state.meta.bigNumbers?.fractalLevel === 5) },
       { key: "googol", name: "古戈尔", description: "战力达到 1e100。", reward: "纪念性成就", completed: completedAchievement("googol", reachedPowerMilestone("googol")) },
       { key: "graham64", name: "葛立恒", description: "战力达到 G64。", reward: "纪念性成就", completed: completedAchievement("graham64", reachedPowerMilestone("graham64")) },
-      { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", WIS.Core.BigNum.gte(state.meta.bigNumbers?.tree?.rank??0,3)) },
-      { key: "seventhTree", name: "第七颗树？", description: "抵达 TREE(10)。", reward: "无限点数基础获取增速改为等差数列", completed: completedAchievement("seventhTree", WIS.Core.BigNum.gte(state.meta.bigNumbers?.tree?.rank??0,10)) },
+      { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", WIS.Meta.BigNumbers.rankCompare(state.meta.bigNumbers?.tree?.rank??0,3)>=0) },
+      { key: "seventhTree", name: "第七颗树？", description: "抵达 TREE(10)。", reward: "无限点数基础获取增速改为等差数列", completed: completedAchievement("seventhTree", WIS.Meta.BigNumbers.rankCompare(state.meta.bigNumbers?.tree?.rank??0,10)>=0) },
       { key: "trueG1", name: "真G1", description: "首次完成大数挑战·真G1。", reward: "所有分形获取 ×10", completed: hasAchievement("trueG1") },
       { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G进度需求大于1时取^0.95；小于或等于1时不变", completed: hasAchievement("trueGraham") },
       { key: "trueTree3", name: "真TREE3", description: "首次完成大数挑战·真TREE3。", reward: "树构造点获取 ×3", completed: hasAchievement("trueTree3") }
@@ -222,7 +252,7 @@
       "powerOne","five","brick","trueBrick","lightningFiveWhip","trainingUp",
       ...SCALE_THRESHOLDS.slice(2).flatMap((_scale,i)=>[`scale${i+2}`,`trueScale${i+2}`]),
       "threeDeficiencies","fiveMisfortunesThreeDeficiencies","beyondFractal","googol","trueG1","graham64","trueGraham","tree3","trueTree3","seventhTree",
-      "universe","infinityPower","infiniteMultiverse","silverSea","eternalWitness",
+      "universe","infinityPower","infiniteMultiverse","silverSea","infiniteBox","eternalWitness",
       "aspireImmortality","daoFoundation","seizeFoundation","goldenCore","infantSpirit","humanRealmDominance","refineTheVoid","bodyIntegration","mahayana",
       "ascendImmortal","goldenNature","utmostPurity","greatLuo","selfSeveringSlash","qiPathComplete","infantTransformationImmortal","yuan","greatHeavenlyVenerable","thickEarth"
     ];
@@ -283,7 +313,7 @@
   }
 
   WIS.Meta.Achievements = Object.freeze({
-    greatHeavenlyVenerableMultiplier, ordinaryTreasureRequirementDivisor, multiverseAchievementMultiplier,
+    greatHeavenlyVenerableMultiplier, ordinaryTreasureRequirementDivisor, multiverseAchievementMultiplier, infiniteBoxExponent, applyInfiniteBoxReward,
     has(state, key) {
       return state.meta.achievements?.[key] === true;
     },

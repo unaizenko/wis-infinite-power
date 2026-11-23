@@ -15,10 +15,10 @@
   // Shared final X/Y source query: no treasure enumeration, income or clocks.
   function xiuzhenRates(snapshot, factor = WIS.Simulation.Compensation.factor()) {
     if (snapshot === R.state) snapshot = R.getState();
-    if (snapshot.cultivation.active !== "immortal" || !snapshot.cultivation.systems.immortal.xiuzhen)
+    if (!["martial","immortal"].includes(snapshot.cultivation.active) || !snapshot.cultivation.systems.immortal.xiuzhen)
       return Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(k=>[k,B.ZERO]));
     return R.withState(snapshot, () => E.withFrozenState(snapshot, () => {
-      const raw = WIS.Cultivation.Xiuzhen.rates(snapshot);
+      const raw = WIS.Meta.UniverseCoefficients.rates(snapshot);
       return Object.fromEntries(WIS.Cultivation.Xiuzhen.resourceKeys.map(key => [key,finite(B.mul(raw[key],factor),key)]));
     }));
   }
@@ -147,7 +147,7 @@
     evaluation.core={...base.core,resources:{...base.core.resources}};
     evaluation.powerSystem={...base.powerSystem,systems:{...base.powerSystem.systems,
       scale:{...base.powerSystem.systems.scale,progress:{...base.powerSystem.systems.scale.progress}}}};
-    evaluation.meta={...base.meta,statistics:{...base.meta.statistics}};
+    evaluation.meta={...base.meta,statistics:{...base.meta.statistics},universeCoefficients:Object.fromEntries(Object.entries(base.meta.universeCoefficients).map(([k,v])=>[k,{...v}]))};
     const immortal=base.cultivation.systems.immortal;
     evaluation.cultivation={...base.cultivation,systems:{...base.cultivation.systems,
       immortal:{...immortal,resources:{...immortal.resources},xiuzhen:{...immortal.xiuzhen,
@@ -156,12 +156,12 @@
     const factor=WIS.Simulation.Compensation.factor();
     const rateAt=values=>{
       for(const k of ['joules','power','mana','immortalPower'])evaluation[k]=values[k];
-      for(const k of WIS.Cultivation.Xiuzhen.resourceKeys)evaluation.cultivation.systems.immortal.xiuzhen.resources[k].amount=values[k];
+      for(const k of WIS.Cultivation.Xiuzhen.resourceKeys)WIS.Cultivation.Xiuzhen.resourceEntry(evaluation,k).amount=values[k];
       evaluation.highestPower=B.max(base.highestPower,values.power);
       return R.withState(evaluation,()=>E.withIsolatedState(evaluation,()=>{
         const P=WIS.Power.ScaleLogic,I=WIS.Cultivation.ImmortalLogic,X=WIS.Cultivation.Xiuzhen;
         const scale=evaluation.powerSystem.active==='scale',imm=evaluation.cultivation.active==='immortal';
-        const cultivation=imm?I.fixedAutomaticSources(factor):{},xiuzhen=imm?X.rates(evaluation):{};
+        const cultivation=imm?I.fixedAutomaticSources(factor):{},xiuzhen=WIS.Meta.UniverseCoefficients.rates(evaluation);
         return {
           joules:scale?B.mul(P.automaticJSettledPerSecondAt(values.joules),factor):B.ZERO,
           power:scale?B.mul(P.automaticPowerSettledPerSecondAt(values.power),factor):B.ZERO,
@@ -174,8 +174,7 @@
     // numerical subdivisions never create new samples or discrete opportunities.
     const boundaries=[];
     const numbers=base.meta.bigNumbers;
-    const requirement=WIS.Meta.BigNumbers.requirements(base);
-    if(numbers?.unlocked||(requirement.cosmic&&requirement.achievement)){
+    if(WIS.Meta.BigNumbers.isUnlocked(base)){
       let boundary=numbers.ySample?.remaining;
       if(!(boundary>1e-10)){
         const fraction=numbers.ySample?0:numbers.elapsedSeconds-Math.floor(numbers.elapsedSeconds);

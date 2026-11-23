@@ -71,6 +71,12 @@
       }
       container.appendChild(group);
     });
+    if(contentName==="成就"||contentName==="宝物"){
+      const message=document.createElement("p");
+      message.className="catalog-no-results";
+      message.textContent=contentName==="成就"?"当前筛选下没有成就。":"当前没有可显示的宝物。";
+      container.appendChild(message);
+    }
   }
 
   function updateCatalogGroupCounts(container, contentName) {
@@ -81,21 +87,26 @@
       if (!system || !summary) return;
       const unlockedCount = [...group.querySelectorAll(":scope > .item-list > article")]
         .filter((item) => !item.hidden).length;
-      summary.textContent = `${system.description} · ${unlockedCount}项`;
+      const text=`${system.description} · ${unlockedCount}项`;
+      if(summary.textContent!==text)summary.textContent=text;
+      if(contentName==="成就"||contentName==="宝物")group.hidden=unlockedCount===0;
     });
   }
 
   function renderUpgradeCards(container, definitions) {
-    container.innerHTML = definitions.map((upgrade) => `
+    container.innerHTML = definitions.map((upgrade) => {
+      const preview = `<span id="${upgrade.previewId}">${upgrade.preview}</span>`;
+      return `
       <article class="item-row" id="${upgrade.id}-upgrade" data-sort-cost="${upgrade.cost}">
-        <div class="item-content"><h2>${upgrade.name}</h2><p>${upgrade.description}</p></div>
+        <div class="item-content"><h2>${upgrade.name}</h2>${upgrade.primaryPreview ? preview : `<p>${upgrade.description}</p>`}</div>
         <div class="purchase-control">
-          <span id="${upgrade.previewId}">${upgrade.preview}</span>
+          ${upgrade.primaryPreview ? "" : preview}
           <small>消耗 ${formatCost(upgrade.cost)} ${upgrade.resource || "战力"}</small>
           <button id="buy-${upgrade.id}" class="primary-button" type="button">升级</button>
         </div>
       </article>
-    `).join("");
+    `;
+    }).join("");
   }
 
   const scaleUpgradeGroups = Object.freeze({
@@ -106,13 +117,13 @@
     brick: Object.freeze([
       { id: "focus", name: "集中", description: "每秒获得相当于锻炼基础战力2%的战力。", previewId: "focus-preview", preview: "当前实际：+0 战力/秒", cost: powerCosts.focus },
       { id: "transcendent", name: "超凡之力", description: "根据当前战力提升战力获取。", previewId: "transcendent-preview", preview: "解锁后：战力获取随战力变动", cost: powerCosts.transcendent },
-      { id: "breathing-method", name: "呼吸法", description: "跑步基础倍率×1.5，可受苦海进一步提升。", previewId: "breathing-method-preview", preview: "解锁后：跑步倍率 ×1.5", cost: powerCosts.breathingMethod },
-      { id: "extreme-exercise", name: "极限运动", description: "运动基础倍率×1.5，可受命泉进一步提升。", previewId: "extreme-exercise-preview", preview: "解锁后：运动倍率 ×1.5", cost: powerCosts.extremeExercise }
+      { id: "breathing-method", name: "呼吸法", description: "跑步基础倍率×1.5。", previewId: "breathing-method-preview", preview: "解锁后：跑步倍率 ×1.5", cost: powerCosts.breathingMethod },
+      { id: "extreme-exercise", name: "极限运动", description: "运动基础倍率×1.5。", previewId: "extreme-exercise-preview", preview: "解锁后：运动倍率 ×1.5", cost: powerCosts.extremeExercise }
     ]),
     house: Object.freeze([
       { id: "my-style", name: "我流", description: "根据当前J，增加健身倍率（加法）。", previewId: "my-style-preview", preview: "解锁后：健身倍率 ×1.00", cost: powerCosts.myStyle },
       { id: "intuition", name: "直感", description: "根据当前战力，提升集中倍率。", previewId: "intuition-preview", preview: "解锁后：集中倍率 ×1.00", cost: powerCosts.intuition },
-      { id: "ghost-back", name: "鬼背", description: "激活时J获取×0.75、战力获取×1.75；神桥可取消J惩罚并提升战力倍率。", previewId: "ghost-back-preview", preview: "解锁后：可在行动界面开启鬼背", cost: powerCosts.ghostBack },
+      { id: "ghost-back", name: "鬼背", description: "激活时，J 获取的基础倍率为 0.75，战力获取的基础倍率为 1.75。", previewId: "ghost-back-preview", preview: "解锁后：可在行动界面开启鬼背", cost: powerCosts.ghostBack },
       { id: "sonic-movement", name: "音速移动", description: "使跑步倍率×3.8。", previewId: "sonic-movement-preview", preview: "解锁后：跑步倍率 ×3.80", cost: powerCosts.sonicMovement },
       { id: "carbon-limit", name: "碳基界限", description: "根据当前J，增加健身倍率（加法）。", previewId: "carbon-limit-preview", preview: "解锁后：健身倍率加法 +0", cost: powerCosts.carbonLimit },
       { id: "killing-intent", name: "杀气", description: "根据当前战力，每秒获得J。", previewId: "killing-intent-preview", preview: "解锁后实际：+0 J/秒", cost: powerCosts.killingIntent }
@@ -143,37 +154,37 @@
       { id: "flow-state", name: "心流", description: "根据集中来源层动态提高极意来源倍率，最高 ×1e7。", previewId: "flow-state-preview", preview: "解锁后：集中来源层联动极意，最高 ×1e7", cost: powerCosts.flowState },
       { id: "selfhood", name: "自我", description: "使极意来源额外 ^1.04。", previewId: "selfhood-preview", preview: "解锁后：极意来源 ^1.04", cost: powerCosts.selfhood },
       { id: "freedom", name: "自在", description: "使极意来源再额外 ^1.03。", previewId: "freedom-preview", preview: "解锁后：极意来源 ^1.03", cost: powerCosts.freedom },
-      { id: "chicxulub-meteorite", name: "希克苏鲁伯陨石", description: "使战力区域获取 ×10。", previewId: "chicxulub-meteorite-preview", preview: "解锁后：战力区域 ×10", cost: powerCosts.chicxulubMeteorite }
+      { id: "chicxulub-meteorite", primaryPreview: true, name: "希克苏鲁伯陨石", description: "使战力区域获取 ×10。", previewId: "chicxulub-meteorite-preview", preview: "解锁后：战力区域 ×10", cost: powerCosts.chicxulubMeteorite }
     ]),
     star: Object.freeze([
       { id: "planet-will", name: "星球意志", description: "根据当前 J 强化元素化独立 J 来源，倍率最高 ×1e8。", previewId: "planet-will-preview", preview: "解锁后：元素化来源获得动态倍率", cost: powerCosts.planetWill, resource: "战力" },
       { id: "star-spirit", name: "星灵", description: "每个已完成挑战层数使全部宝物进度获取 ×1.06。", previewId: "star-spirit-preview", preview: "解锁后：宝物进度获取随挑战总层数提高", cost: powerCosts.starSpirit, resource: "战力" },
       { id: "star-shatter", name: "碎星", description: "根据打岩生效等级提高打岩独立来源倍率，渐近 ×1e5。", previewId: "star-shatter-preview", preview: "解锁后：打岩来源获得等级倍率", cost: powerCosts.starShatter, resource: "战力" },
       { id: "space-quake", name: "空间震", description: "仅使爆星阶段的动态软上限损失降低3%。", previewId: "space-quake-preview", preview: "解锁后：爆星软上限损失 ×0.97", cost: powerCosts.spaceQuake, resource: "战力" },
-      { id: "selfless", name: "无我", description: "使极意独立战力来源 ×1e5。", previewId: "selfless-preview", preview: "解锁后：极意来源 ×1e5", cost: powerCosts.selfless, resource: "战力" },
+      { id: "selfless", primaryPreview: true, name: "无我", description: "使极意独立战力来源 ×1e5。", previewId: "selfless-preview", preview: "解锁后：极意来源 ×1e5", cost: powerCosts.selfless, resource: "战力" },
       { id: "supernatural-fire", name: "超自然发火", description: "根据排除本效果自身倍率后的集中最终实际收益，一次计算战力区域倍率，无硬上限。", previewId: "supernatural-fire-preview", preview: "解锁后：按不含自身的集中最终实际收益计算倍率", cost: powerCosts.supernaturalFire, resource: "战力" },
       { id: "five-spirit-stone", name: "五灵石", description: "解锁永久宝物烙印·五灵石的获取资格。", previewId: "five-spirit-stone-preview", preview: "解锁后：极意有效时每秒判定五灵石", cost: powerCosts.fiveSpiritStone, resource: "战力" },
       { id: "self-suppression", name: "自我抑制", description: "将空间震修正前的正常J量级软上限损失的30%转化为额外J区域指数；未触发软上限时无效果。", previewId: "self-suppression-preview", preview: "解锁后：根据基础J软上限指数提高J区域指数", cost: powerCosts.selfSuppression, resource: "战力" }
     ]),
     stellar: Object.freeze([
-      { id: "stellar-furnace", name: "恒星熔炉", description: "使公共 J 区域倍率 ×1e12。", previewId: "stellar-furnace-preview", preview: "解锁后：J 区域 ×1e12", cost: powerCosts.stellarFurnace },
+      { id: "stellar-furnace", primaryPreview: true, name: "恒星熔炉", description: "使公共 J 区域倍率 ×1e12。", previewId: "stellar-furnace-preview", preview: "解锁后：J 区域 ×1e12", cost: powerCosts.stellarFurnace },
       { id: "stellar-treasure-seeking", name: "星核寻珍", description: "使所有宝物进度获取 ×1.5；每个来源单位仍最多提供一次奖励所需进度。", previewId: "stellar-treasure-seeking-preview", preview: "解锁后：所有宝物进度获取 ×1.5", cost: powerCosts.stellarTreasureSeeking },
-      { id: "gravitational-collapse", name: "引力坍缩", description: "使公共战力区域倍率 ×1e12。", previewId: "gravitational-collapse-preview", preview: "解锁后：战力区域 ×1e12", cost: powerCosts.gravitationalCollapse }
+      { id: "gravitational-collapse", primaryPreview: true, name: "引力坍缩", description: "使公共战力区域倍率 ×1e12。", previewId: "gravitational-collapse-preview", preview: "解锁后：战力区域 ×1e12", cost: powerCosts.gravitationalCollapse }
     ]),
     galaxy: Object.freeze([
-      { id: "galactic-return", name: "银河回流", description: "使公共 J 区域倍率 ×1e12。", previewId: "galactic-return-preview", preview: "解锁后：J 区域 ×1e12", cost: powerCosts.galacticReturn },
+      { id: "galactic-return", primaryPreview: true, name: "银河回流", description: "使公共 J 区域倍率 ×1e12。", previewId: "galactic-return-preview", preview: "解锁后：J 区域 ×1e12", cost: powerCosts.galacticReturn },
       { id: "stellar-sea-gift", name: "星海馈赠", description: "成功获得可堆叠宝物时，获得数量 ×2；不增加判定次数。", previewId: "stellar-sea-gift-preview", preview: "解锁后：可堆叠宝物获得数量 ×2", cost: powerCosts.stellarSeaGift },
-      { id: "stellar-resonance", name: "群星共振", description: "使公共战力区域倍率 ×1e4。", previewId: "stellar-resonance-preview", preview: "解锁后：战力区域 ×1e4", cost: powerCosts.stellarResonance }
+      { id: "stellar-resonance", primaryPreview: true, name: "群星共振", description: "使公共战力区域倍率 ×1e4。", previewId: "stellar-resonance-preview", preview: "解锁后：战力区域 ×1e4", cost: powerCosts.stellarResonance }
     ]),
     supercluster: Object.freeze([
-      { id: "great-attractor", name: "巨引源", description: "使公共 J 区域指数 ^1.02。", previewId: "great-attractor-preview", preview: "解锁后：J 区域 ^1.02", cost: powerCosts.greatAttractor },
-      { id: "large-scale-adaptation", name: "大尺度适应", description: "使统一古戈尔惩罚强度 ×0.95。", previewId: "large-scale-adaptation-preview", preview: "解锁后：古戈尔惩罚强度 ×0.95", cost: powerCosts.largeScaleAdaptation },
-      { id: "supercluster-collapse", name: "超团坍缩", description: "使公共战力区域指数 ^1.02。", previewId: "supercluster-collapse-preview", preview: "解锁后：战力区域 ^1.02", cost: powerCosts.superclusterCollapse }
+      { id: "great-attractor", primaryPreview: true, name: "巨引源", description: "使公共 J 区域指数 ^1.02。", previewId: "great-attractor-preview", preview: "解锁后：J 区域 ^1.02", cost: powerCosts.greatAttractor },
+      { id: "large-scale-adaptation", primaryPreview: true, name: "大尺度适应", description: "使统一古戈尔惩罚强度 ×0.95。", previewId: "large-scale-adaptation-preview", preview: "解锁后：古戈尔惩罚强度 ×0.95", cost: powerCosts.largeScaleAdaptation },
+      { id: "supercluster-collapse", primaryPreview: true, name: "超团坍缩", description: "使公共战力区域指数 ^1.02。", previewId: "supercluster-collapse-preview", preview: "解锁后：战力区域 ^1.02", cost: powerCosts.superclusterCollapse }
     ]),
     cosmic: Object.freeze([
-      { id: "cosmic-web", name: "宇宙网", description: "使公共 J 区域指数 ^1.03。", previewId: "cosmic-web-preview", preview: "解锁后：J 区域 ^1.03", cost: powerCosts.cosmicWeb },
+      { id: "cosmic-web", primaryPreview: true, name: "宇宙网", description: "使公共 J 区域指数 ^1.03。", previewId: "cosmic-web-preview", preview: "解锁后：J 区域 ^1.03", cost: powerCosts.cosmicWeb },
       { id: "scale-unification", name: "尺度统一", description: "使统一古戈尔惩罚强度 ×0.85，并与其他强度修正乘算。", previewId: "scale-unification-preview", preview: "解锁后：古戈尔惩罚强度 ×0.85", cost: powerCosts.scaleUnification },
-      { id: "spacetime-framework", name: "时空骨架", description: "使公共战力区域指数 ^1.03。", previewId: "spacetime-framework-preview", preview: "解锁后：战力区域 ^1.03", cost: powerCosts.spacetimeFramework }
+      { id: "spacetime-framework", primaryPreview: true, name: "时空骨架", description: "使公共战力区域指数 ^1.03。", previewId: "spacetime-framework-preview", preview: "解锁后：战力区域 ^1.03", cost: powerCosts.spacetimeFramework }
     ])
   });
 

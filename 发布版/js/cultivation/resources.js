@@ -22,14 +22,14 @@
       });
     } else registry.register(base);
   }
-  for (const shortName of ["xianForce", "yuanForce", "nieForce", "universeCoefficient", "multiverseCoefficient"]) {
-    const entry = s => s.cultivation?.systems?.immortal?.xiuzhen?.resources?.[shortName];
+  for (const shortName of WIS.Cultivation.Xiuzhen.resourceKeys) {
+    const entry = s => WIS.Cultivation.Xiuzhen.resourceEntry(s,shortName);
     const requireEntry = s => {
       const e = entry(s);
       if (!e) throw Error(`修真资源不存在：${shortName}`);
       return e;
     };
-    registry.register({ id: `cultivation.immortal.${shortName}`, owner: "immortal", shortName, kind: "cultivation",
+    const definition={ id: `cultivation.immortal.${shortName}`, owner: "immortal", shortName, kind: "cultivation",
       // These resources have never been fields in the public Resources snapshot.
       // Preserve that shape; their logical identity does not relocate save data.
       snapshot: false,
@@ -55,7 +55,9 @@
       specialSpendExact:(s,cost)=>WIS.Cultivation.Xiuzhen.spendResource(s,shortName,cost),
       specialCanAfford: (s, cost) => !!entry(s) && WIS.Cultivation.Xiuzhen.canSpend(s, shortName, cost),
       specialSpend: (s, cost) => WIS.Cultivation.Xiuzhen.spendResource(s, shortName, cost)
-    });
+    };
+    registry.register(definition);
+    if(WIS.Meta.UniverseCoefficients.shared(shortName))registry.register({...definition,id:"meta.universe."+shortName,owner:"universe",kind:"meta"});
   }
   WIS.Meta.HighMultiverse.registerResource();
 }(window.WIS));

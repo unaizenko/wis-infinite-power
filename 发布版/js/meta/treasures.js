@@ -26,7 +26,7 @@
     ["baLingChi", "八灵尺"], ["wanYaoFan", "万妖幡"], ["phantomHeavenMirror", "幻天镜"],
     ["mysticHeavenSacredTree", "玄天圣树"], ["mysticHeavenSpiritSlayingSword", "玄天斩灵剑"],
     ["fiveElementsTreasure", "五行至宝"], ["immortalCrystal", "仙晶"], ["yuanCrystal", "烙印·元晶"],
-    ["cosmicFiber", "宇宙纤维"], ["cosmicWill", "宇宙意志"], ["originImprint", "烙印·本源"], ["lawImprint", "烙印·法则"], ["emperorImprint","烙印·帝经"], ["sacredBodyImprint","烙印·圣体"], ["godBodyImprint","烙印·神王体"], ["sourceStoneImprint","烙印·源石"]
+    ["cosmicFiber", "宇宙纤维"], ["cosmicWill", "宇宙意志"], ["originImprint", "烙印·本源"], ["willImprint", "烙印·意志"], ["lawImprint", "烙印·法则"], ["emperorImprint","烙印·帝经"], ["sacredBodyImprint","烙印·圣体"], ["godBodyImprint","烙印·神王体"], ["sourceStoneImprint","烙印·源石"]
   ].map(([key, name]) => [key, Object.freeze({ key, name, stackable: true })])));
 
   WIS.Meta.Treasures = Object.freeze({
@@ -223,13 +223,13 @@
       (code,message)=>new PrecisionError(code,message));
   }
   function requirementDivisor(state,key) {
-    return ["lawImprint","emperorImprint","sacredBodyImprint","godBodyImprint","sourceStoneImprint"].includes(key) || rules[key].immortal ? ONE : WIS.Meta.Achievements.ordinaryTreasureRequirementDivisor(state);
+    return ["willImprint","lawImprint","emperorImprint","sacredBodyImprint","godBodyImprint","sourceStoneImprint"].includes(key) || rules[key].immortal ? ONE : WIS.Meta.Achievements.ordinaryTreasureRequirementDivisor(state);
   }
   function effectiveRequirement(state,key,count=held(state,key)) {
     return requirement(key,count,state).div(requirementDivisor(state,key));
   }
   function unitGain(state, key) {
-    if(["lawImprint","emperorImprint","sacredBodyImprint","godBodyImprint","sourceStoneImprint"].includes(key))return ONE;
+    if(["willImprint","lawImprint","emperorImprint","sacredBodyImprint","godBodyImprint","sourceStoneImprint"].includes(key))return ONE;
     if (key === "originImprint") return WIS.Cultivation.Xiuzhen.originProgressGain(state);
     const r = rules[key];
     let multiplier = r.immortal ? WIS.Cultivation.ImmortalLogic.immortalTreasureChanceMultiplier()
@@ -260,7 +260,10 @@
     for(const key of T.keys) if(!meta.treasureProgressFinite[key]) {
       const old=meta.treasureCredits?.[key];
       const words=old?[L.Credit.value(L.Credit.actual(old))]:L.progress(state,key);
+      const hadTail=Object.hasOwn(meta.treasureProgressResidualTail||{},key);
       L.write(state,key,words);
+      // Migrating a previously unknown treasure must match reloading its sparse ledger.
+      if(!hadTail && !meta.treasureProgressResidualTail[key]?.length)delete meta.treasureProgressResidualTail[key];
     }
     for(const key of T.keys)if(meta.treasureStockResidual?.[key]?.length)L.write(state,key,L.stock(state,key),true);
     ensured.add(meta);
@@ -283,6 +286,10 @@
   }
   function qualification(state, key) {
     if(['emperorImprint','sacredBodyImprint','godBodyImprint','sourceStoneImprint'].includes(key)){if(state.cultivation?.active!=='martial')return '当前未选择武道';if(!WIS.Meta.Achievements.has(state,'martialFourPoles'))return '尚未取得四极成就';return null;}
+    if(key==='willImprint'){
+      if(state.cultivation?.active!=='martial')return '当前未选择武道';
+      return WIS.Meta.Achievements.has(state,'martialSoul') ? null : '尚未取得魂成就';
+    }
     if(key==='lawImprint'){if(state.cultivation?.active!=='martial')return '当前未选择武道';if(!WIS.Meta.Achievements.has(state,'martialEnergyLaw'))return '尚未取得源能法则成就';return null;}
     if (key === "originImprint" && !WIS.Cultivation.Xiuzhen.has(state,"virtualOrigin")) return "尚未取得虚本源";
     const has = k => state.unlockedAchievements?.[k] === true;
@@ -639,6 +646,7 @@
       sources.push(name); rate = rate.add(nonnegative(units).mul(B.min(unitGain(state, key), requirement(key, held(state, key), state))));
     };
     if (!reason) {
+      if(key==="willImprint")sources.push("获得或失去心");
       if(key==="lawImprint")sources.push("实际获得气、体（转换与自动产出）");
       if (key === "yuanCrystal") addSource("实际产生仙力", WIS.Cultivation.Xiuzhen.rates(state).xianForce.gt(0) ? 1 : 0);
       if (key === "originImprint") addSource("涅力获取", WIS.Cultivation.Xiuzhen.rates(state).nieForce);

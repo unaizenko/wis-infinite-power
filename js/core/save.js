@@ -146,6 +146,25 @@
       // defaults must not fabricate metadata before legacy validation/migration.
       if(schemaVersion<74&&defaults.meta?.bigNumbers)delete defaults.meta.bigNumbers.rankBasis;
       if(WIS.Core.Config.saveVersion>=75&&parsed.numericModelVersion!==2){defaults.meta.closedBatchModel=1;delete defaults.meta.treasureBatch;}
+      // Missing shared rows may still live under the old producer. Let state
+      // normalization choose the owner per row before it supplies zero fields.
+      delete defaults.meta.universeCoefficients;
+      // r17–r19 omitted the conversion marker when it equalled the default.
+      // Either conversion flag or a shared ledger proves this save already
+      // used event-based achievements. Older exports only have resource history.
+      const flags = data.meta.achievements;
+      const hasConversionRules = flags?.martialHeart || flags?.martialSoul ||
+        flags?.martialGrandHarmony || data.meta.universeCoefficients !== undefined;
+      const martial = data.cultivation.systems?.martial;
+      const history = data.meta.statistics?.martialHistory;
+      // Shared schema 76 also contains passive-only saves. Sparse exports
+      // omit zero fields. A paid conversion leaves investment or heart spent;
+      // rebirth retains only the archived resource history.
+      const hasConversionHistory = martial?.heartInvestment || martial?.resources?.heart?.spent ||
+        history?.heart || history?.soul;
+      if (!hasConversionRules && (schemaVersion < 76 || hasConversionHistory)) {
+        defaults.meta.statistics.martialConversionAchievementsVersion = 0;
+      }
       const expand=(value,base)=>{
         if(value===undefined)return base;
         if(!isRecord(value)||WIS.Core.BigNum.isDecimal(value))return value;
@@ -369,6 +388,7 @@
     meta.treasureProgressStatus=strip(meta.treasureProgressStatus);
     function prune(value,defaults,key='') {
       // Required numerical context must not be reconstructed from fresh defaults.
+      if(key==='martialConversionAchievementsVersion')return value;
       if(key==='rankBasis'&&WIS.Core.Config.saveVersion>=74)return value;
       // This version discriminates legacy ledger arrays from finite records.
       // Keep the union intact: shape validation runs before sparse expansion.

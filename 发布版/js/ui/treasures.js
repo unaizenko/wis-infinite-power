@@ -53,18 +53,36 @@
       return reason.replace("获取资格", "");
     return "当前无法获取";
   }
-  function acquisition(key, info, format) {
-    if(['emperorImprint','sacredBodyImprint','godBodyImprint','sourceStoneImprint'].includes(key)){const source={emperorImprint:'战力',sacredBodyImprint:'体',godBodyImprint:'体',sourceStoneImprint:'J'}[key];return '来源：实际获得'+source+'（独立累计）\n进度：'+format(info.progress,4)+' / '+format(info.demand,4)+'\n'+(info.pausedReason==='当前未选择武道'||info.pausedReason==='尚未取得四极成就'?info.pausedReason:'实际正向入账累计；预览、扣款与读取存档不计入');}
-    if(key==='lawImprint')return '来源：实际获得气、体（合计入账量）\n进度：'+format(info.progress,4)+' / '+format(info.demand,4)+'\n'+(info.pausedReason==='当前未选择武道'||info.pausedReason==='尚未取得源能法则成就'?info.pausedReason:'转换、自动产出与实际资源奖励均可积累；预览不计入');
+  const imprintSources = Object.freeze({willImprint:"心", emperorImprint:"战力", sacredBodyImprint:"体", godBodyImprint:"体", sourceStoneImprint:"J", lawImprint:"气、体"});
+  function progressView(key, info, format) {
+    if (imprintSources[key]) {
+      const source = key === "willImprint" ? "来源：获得或失去心" : "来源：实际获得" + imprintSources[key];
+      const progress = "进度：" + format(info.progress,4) + " / " + format(info.demand,4);
+      const requirement = key === "willImprint" ? "尚未取得魂成就" : key === "lawImprint" ? "尚未取得源能法则成就" : "尚未取得四极成就";
+      const paused = info.pausedReason === "当前未选择武道" || info.pausedReason === requirement;
+      const rule = key === "willImprint" ? "每获得或失去 1 心，积累 1 进度" : key === "lawImprint" ? "转换、自动产出与实际资源奖励均可积累；预览不计入" : "实际正向入账累计；预览、扣款与读取存档不计入";
+      return {summary:paused ? info.pausedReason : progress, details:paused ? [source,progress] : [source,rule],
+        lines:[source,progress,paused ? info.pausedReason : rule]};
+    }
     const sources = (info.sources || []).map(s => sourceNames[s]).filter(Boolean).join("、") || sourcesByKey[key] || "暂无来源";
     const direct = B.gt(info.shengRate || 0, 0);
     const lines = ["来源：" + sources];
     if (direct) lines.push(`空玄·生：每秒 +${format(info.shengRate, 4)} 件`);
-    if(info.closedHigh){lines.push(`进度收入：每秒 ${format(info.rate,4)}`);const reason=pauseReason(key,info);if(reason)lines.push(reason);return lines.join('<br>');}
+    const details = [lines[0]], summary = lines.slice(1);
+    const pause = pauseReason(key, info);
     const blocked = info.remainderCertainty === 'blocked' || info.precision?.state === "blocked";
+    if (info.closedHigh && !blocked) {
+      const income = "进度收入：每秒 " + format(info.rate,4);
+      lines.push(income);
+      if (pause) lines.push(pause);
+      if (pause || direct) details.push(income);
+      if (pause || !direct) summary.push(pause || income);
+      return {lines,details,summary:summary.join(" · ")};
+    }
     if (blocked) {
       const failed = /ledger|invalid|failed|capacity/.test(info.precision?.code || "");
       lines.push(failed ? "结算异常，请重试" : "结算中");
+      summary.push(lines[lines.length - 1]);
       if (failed) {
         const signature = `${info.precision?.code}|${info.precision?.message}`;
         if (reported.get(key) !== signature) {
@@ -84,12 +102,38 @@
       const validDemand = B.parseFinite(info.demand);
       const demand = validDemand && validDemand.gt(0) ? format(validDemand, 4) : "暂无法计算";
       lines.push(`${known ? '已知进度' : '进度'}：${format(info.progress, 4)} / ${demand}`);
+      details.push(lines[lines.length - 1]);
+      const next = [percent, pause ? null : eta].filter(Boolean);
+      if (next.length) summary.push((direct ? "自然获取" : "下一件") + " " + next.join(" · "));
       lines.push(`${direct ? "自然获取预计" : "预计"}：${eta}`);
       if (percent !== null) lines.push(`下次获得：${percent}`);
     }
-    const pause = pauseReason(key, info);
-    if (pause) lines.push((direct ? "自然获取暂停：" : "暂停：") + pause);
-    return lines.join("\n");
+    if (pause) {
+      const status = (direct ? "自然获取暂停：" : "暂停：") + pause;
+      lines.push(status);
+      summary.push(status);
+    }
+    return {lines, details, summary:summary.join(" · ")};
+  }
+
+  function acquisition(key, info, format) {
+    return progressView(key,info,format).lines.join("\n");
+  }
+
+  function mountProgress(content, progress) {
+    const details = content.ownerDocument.createElement("details");
+    details.className = "card-details treasure-details";
+    details.append(content.ownerDocument.createElement("summary"), progress);
+    content.append(details);
+  }
+
+  function renderProgress(progress, key, info, format) {
+    if (!progress) return;
+    const view = progressView(key, info, format);
+    const summary = progress.previousElementSibling?.tagName === "SUMMARY" ? progress.previousElementSibling : null;
+    const text = (summary ? view.details : view.lines).join("\n");
+    if (progress.textContent !== text) progress.textContent = text;
+    if (summary && summary.textContent !== view.summary) summary.textContent = view.summary;
   }
   function mount(root) {
     root.querySelectorAll("#treasure-list .item-row").forEach(card => {
@@ -97,16 +141,20 @@
       const content = card.querySelector(".item-content"), title = content.querySelector("h2");
       const count = card.querySelector('[id$="-count"]'), effect = card.querySelector('[id$="-effect"]');
       const progress = card.querySelector('[id$="-final-chance"]') || card.querySelector('[id$="-chance"]');
-      if (!count || !effect || !progress) return;
+      if (!count || !progress) return;
       content.querySelectorAll("p").forEach(p => p.remove());
       title.append(" ", count); count.textContent = "×0";
-      effect.classList.add("treasure-effect"); progress.classList.add("treasure-acquisition");
-      content.append(effect, progress);
+      if (effect) {
+        effect.classList.add("treasure-effect");
+        content.append(effect);
+      }
+      progress.classList.add("treasure-acquisition");
+      mountProgress(content, progress);
       // Keep legacy IDs available to existing render bindings; no visible details.
       card.querySelector(".purchase-control").hidden = true;
       card.classList.add("treasure-card");
     });
   }
-  WIS.UI.Treasures = Object.freeze({ time, percentage, acquisition, mount });
+  WIS.UI.Treasures = Object.freeze({ time, percentage, acquisition, mountProgress, renderProgress, mount });
   mount(document);
 }(window.WIS));

@@ -28,9 +28,9 @@
   WIS.Core.Effects.register("martial",effects,{highestPowerEffects:[]});
   function install(state,martial,{reward=false,credit=null}={}) {
     WIS.Core.Runtime.assertMutable();
-    const rewardMeta=reward?M.prepareGainRewards(state,martial,credit):null;
+    const rewardMeta=M.grandHarmonyMeta(state,martial,(reward && M.prepareGainRewards(state,martial,credit)) || state.meta);
     state.cultivation={...state.cultivation,systems:{...state.cultivation.systems,martial}};
-    if(rewardMeta)state.meta=rewardMeta;
+    if(rewardMeta!==state.meta)state.meta=rewardMeta;
     M.clearGainReceipts(martial);
     WIS.Core.Effects.invalidate();
   }
@@ -44,21 +44,23 @@
       add(s,delta,terms) {
         WIS.Core.Runtime.assertMutable();
         if(WIS.Core.Amount?.enabled()){
-          const A=WIS.Core.Amount,L=WIS.Core.AmountLedger,income=L.safeNormalize(terms||[delta]),sign=L.strict.sign(income);if(!sign)return entry(s).amount;
+          const A=WIS.Core.Amount,L=WIS.Core.AmountLedger,original=L.safeNormalize(terms||[delta]),sign=L.strict.sign(original);
+          const income=sign>0&&M.emperorActive(s)?A.words(M.emperorGain(A.fromParts(0,original))):original;if(!sign)return entry(s).amount;
           const m=M.normalize(M.get(s)),e=m.resources[shortName],change=A.fromParts(0,sign>0?income:L.negate(income)),value=A.fromParts(0,[...A.words(A.field(e)),...income]);
           Object.assign(e,A.boundedFieldParts(value),A[sign>0?'boundedFieldParts':'fieldParts'](A.add(A.field(e,sign>0?'total':'spent'),change),sign>0?'total':'spent'));
           if(A.compare(value,A.field(e,'peak'))>0)Object.assign(e,A.boundedFieldParts(value,'peak'));
           if(shortName==='heart'&&sign<0)M.applyHeartSpendRewards(s,m,change);
-          install(s,m,{reward:true,credit:sign>0?{key:shortName,value:change}:null});return e.amount;
+          install(s,m,{reward:true,credit:sign>0||shortName==='heart'?{key:shortName,value:change}:null});return e.amount;
         }
         if (!terms && !B.parseFinite(delta)) throw Error("武道新增资源非法");
         if (!terms && B.eq(delta,0)) return entry(s).amount;
         const m=M.normalize(M.get(s)),e=m.resources[shortName];
+        if(M.emperorActive(s)&&B.gt(delta,0)){delta=M.emperorGain(delta);terms=null;}
         const next=WIS.Core.Resources.prepareTerms({amount:e.amount},"amount",terms||[delta]).amount;
         const total=B.sub(next,e.amount);
         e.amount=next;e.total=B.add(e.total,B.max(0,total));e.spent=B.add(e.spent,B.max(0,B.mul(total,-1)));e.peak=B.max(e.peak,next);
         if (shortName === "heart" && B.lt(total,0)) M.applyHeartSpendRewards(s,m,B.mul(total,-1));
-        install(s,m,{reward:true,credit:B.gt(total,0)?{key:shortName,value:total}:null});return next;
+        install(s,m,{reward:true,credit:B.gt(total,0)||shortName==='heart'?{key:shortName,value:B.max(total,B.mul(total,-1))}:null});return next;
       }
     });
   }
@@ -66,7 +68,14 @@
     id:"martial",name:"武道",resource:"qi",realms:[],realmLevel:()=>0,realmName:()=>"武道",
     getState:M.get,getResources:state=>Object.fromEntries(["qi","body","heart","soul"].map(key=>[key,M.amount(state,key)])),
     getActions:()=>["qi","body","heart","soul"],getAbilities:()=>WIS.Cultivation.MartialConfig.abilities.map(a=>a.key),getEffects:effects,
-    planAutomaticGain:()=>({}),commitAutomaticGain:()=>({mana:B.ZERO,immortalPower:B.ZERO}),
+    planAutomaticGain:()=>({}),commitAutomaticGain(state,plan){
+      const n=plan?.xiuzhen, Q=WIS.Core.Resources,A=WIS.Core.Amount;
+      if(n && B.gt(n.universeCoefficient||0,0)){
+        if(A?.enabled())Q.creditExact('meta.universe.universeCoefficient',n.quantities?.universeCoefficient??n.universeCoefficient,state);
+        else Q.add('meta.universe.universeCoefficient',n.universeCoefficient,state);
+      }
+      return {mana:B.ZERO,immortalPower:B.ZERO};
+    },
     getManaPerSecond:()=>B.ZERO,performAction:(id,...args)=>M.convert(WIS.Core.Runtime.getState(),id,...args),
     buyAbility:id=>M.buy(WIS.Core.Runtime.getState(),id),autoUpgrade:()=>0,autoBreakthrough:()=>0,
     update:()=>false,reset:type=>WIS.Core.Reset.describe(type),resetTransient:()=>{},

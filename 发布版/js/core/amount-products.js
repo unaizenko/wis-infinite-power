@@ -284,17 +284,29 @@
   while(hi-lo>1n){const mid=(lo+hi)/2n;if(mid**16n<=target)lo=mid;else hi=mid;}
   return Object.freeze({lo,hi:lo**16n===target?lo:lo+1n});
  }));
- function roughTowerLog(value){
+ function roughTowerLog(value,tight=false){
   const m=/^(\d+)(?:\.(\d*))?$/.exec(String(Math.abs(value.mag)));if(!m)return null;
   const denominator=10n**BigInt((m[2]||'').length),n=BigInt(m[1]+(m[2]||'')),k=n/denominator,remaining=n-k*denominator,factor=10n**k;
   let lo,hi;if(!remaining)lo=hi=factor;else{const bin=Number(remaining*16n/denominator),lower=roughTowerGrid[bin],upper=roughTowerGrid[bin+1];lo=factor*lower.lo/roughTowerScale;hi=(factor*upper.hi+roughTowerScale-1n)/roughTowerScale;}
+  if(tight&&remaining){
+   // Convexity puts 10^r below the chord 1+9r and above both endpoint
+   // tangents. 2 < ln(10) < 3 makes these rational lower bounds outward.
+   const chord=(factor*(denominator+9n*remaining)+denominator-1n)/denominator;
+   const nearLow=factor*(denominator+2n*remaining)/denominator;
+   const nearHigh=10n*factor*(denominator-3n*(denominator-remaining))/denominator;
+   if(chord<hi)hi=chord;
+   if(nearLow>lo)lo=nearLow;
+   if(nearHigh>lo)lo=nearHigh;
+  }
   return value.mag<0?{lo:-hi,hi:-lo}:{lo,hi};
  }
- function roughAtomLog(text){const m=/^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(text);if(m){const n=BigInt(m[2]+(m[3]||''));if(!n)return null;const e=BigInt(m[4]||0)-BigInt((m[3]||'').length),digits=String(n).length;return {lo:e+BigInt(digits-1),hi:e+BigInt(digits)};}
+ const decimalAtomPattern=/^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i;
+ function roughAtomLog(text){return boundedAtomLog(text,false);}
+ function boundedAtomLog(text,tight){const m=decimalAtomPattern.exec(text);if(m){const n=BigInt(m[2]+(m[3]||''));if(!n)return null;const e=BigInt(m[4]||0)-BigInt((m[3]||'').length),digits=String(n).length;return {lo:e+BigInt(digits-1),hi:e+BigInt(digits)};}
   // Coarse integer bounds need at most4097 digits here; even the512-place
   // cutoff product stays below the8192-digit proof capacity. Fine logarithms
   // retain their existing2048 coordinate limit.
-  const value=B.BN(text);if(value.layer!==2||Math.abs(value.mag)>4096)return null;return roughTowerLog(value);
+  const value=B.BN(text);if(value.layer!==2||Math.abs(value.mag)>4096)return null;return roughTowerLog(value,tight);
  }
  function roughFactorLog(factors){if(roughFactors.has(factors))return roughFactors.get(factors);let lo=0n,hi=0n;for(const [text,count]of factors){const b=roughAtomLog(text);if(!b){roughFactors.set(factors,null);return null;}lo+=count>=0n?count*b.lo:count*b.hi;hi+=count>=0n?count*b.hi:count*b.lo;}const result=Object.freeze({lo,hi});roughFactors.set(factors,result);return result;}
  function roughRowLog(row){if(roughRows.has(row))return roughRows.get(row);const factors=roughFactorLog(row.f);if(!factors)return null;const digits=String(abs(row.n)).length-String(row.d).length,result=Object.freeze({lo:row.e+BigInt(digits-1)+factors.lo,hi:row.e+BigInt(digits+1)+factors.hi});roughRows.set(row,result);return result;}
@@ -373,10 +385,10 @@
  // not projected comparisons; null means an unbounded endpoint. Opposing
  // unbounded factors deliberately remain unresolved.
  const remoteLogFloor=10n**4096n;
- function remoteRowBounds(row){
+ function remoteRowBounds(row,tight=false){
   const digits=String(abs(row.n)).length-String(row.d).length;let lo=row.e+BigInt(digits-1),hi=row.e+BigInt(digits+1),remote=false;
   for(const [text,count]of row.f){
-   let b=roughAtomLog(text);
+   let b=tight?boundedAtomLog(text,true):roughAtomLog(text);
    if(!b){const v=B.BN(text);if(v.sign<=0||v.layer<2)return null;
     if(v.layer===2&&Math.abs(v.mag)<=4096)return null;
     b=v.mag>0?{lo:remoteLogFloor,hi:null}:{lo:null,hi:-remoteLogFloor};remote=true;
@@ -385,13 +397,70 @@
    lo=lo===null||low===null?null:lo+count*low;hi=hi===null||high===null?null:hi+count*high;
   }return {lo,hi,remote};
  }
- function remoteSeparatedSign(rows){
-  const bounds=rows.map(remoteRowBounds);if(bounds.some(x=>!x)||!bounds.some(x=>x.remote))return null;
+ function remoteSeparatedSign(rows,tight=false){
+  const bounds=rows.map(row=>remoteRowBounds(row,tight));if(bounds.some(x=>!x)||!tight&&!bounds.some(x=>x.remote))return null;
   for(const sign of [1,-1]){let lower=null,upper=null,count=0,unbounded=false;
    for(let i=0;i<rows.length;i++){const b=bounds[i];if((rows[i].n>0n?1:-1)===sign){if(b.lo!==null&&(lower===null||b.lo>lower))lower=b.lo;}
     else {count++;if(b.hi===null)unbounded=true;else if(upper===null||b.hi>upper)upper=b.hi;}}
    if(!unbounded&&lower!==null&&upper!==null&&lower>upper+BigInt(String(count).length))return sign;
   }return null;
+ }
+ // Division by a common positive factor preserves the sign of the full sum.
+ // Remove only powers held by every row in the same direction, so exponent
+ // sizes cannot grow. Keep the original rows and their stored words intact.
+ function withoutCommonFactors(rows){
+  if(!rows[0].f.size||rows.some(row=>!row.f.size))return null;
+  const factors=new Map();
+  for(const [word,count] of rows[0].f){
+   let common=count;
+   for(const row of rows){
+    const other=row.f.get(word)||0n;
+    if(common>0n&&other>0n)common=other<common?other:common;
+    else if(common<0n&&other<0n)common=other>common?other:common;
+    else {common=0n;break;}
+   }
+   if(common)factors.set(word,common);
+  }
+  if(!factors.size)return null;
+  return rows.map(row=>{const reduced=new Map(row.f);for(const [word,count]of factors)reduced.set(word,reduced.get(word)-count);return canonical({...row,f:reduced});});
+ }
+ // On capacity refusal, a single tower row can sometimes prove the sign of
+ // the entire sum. It must exceed EACH opposing row by more than the count
+ // of rows. No comparison between projected balances is sufficient here.
+ function towerSeparatedSign(rows){
+  const atoms=rows.map(row=>{
+   if(row.f.size!==1)return null;
+   const [[word,count]]=row.f;
+   if(decimalAtomPattern.test(word))return null;
+   const v=B.BN(word);
+   return count===1n&&v.sign===1&&v.layer>=2&&Math.abs(v.mag)>=16?v:null;
+  });
+  let index=-1;
+  for(let i=0;i<atoms.length;i++){
+   if(atoms[i]&&(index<0||atoms[i].gt(atoms[index])))index=i;
+  }
+  if(index<0)return null;
+  const top=atoms[index],anchor=rows[index],polarity=anchor.n>0n?1:-1;
+  const order=row=>row.e+BigInt(String(abs(row.n)).length-String(row.d).length);
+  const countMargin=BigInt(String(rows.length).length),topOrder=order(anchor);
+  const left=remoteRowBounds(anchor);
+  for(let i=0;i<rows.length;i++){
+   const other=rows[i];
+   if((other.n>0n?1:-1)===polarity)continue;
+   const right=remoteRowBounds(other);
+   if(left&&right&&left.lo!==null&&right.hi!==null&&left.lo>right.hi+countMargin)continue;
+   const rival=atoms[i];
+   if(!rival||top.layer!==rival.layer||Math.sign(top.mag)!==Math.sign(rival.mag)||top.mag<=rival.mag)return null;
+   // The derivative of the layer-2 base-ten log sign(x)*10^abs(x) exceeds
+   // 10^floor(abs(x)). At layer >=3 with |x|>=16 it exceeds 10^4096. Apply this
+   // lower bound to the exact decimal coordinate difference, then account
+   // for both rational coefficients (order-1 .. order+1) and the row count.
+   const scale=top.layer===2?Math.min(4096,Math.floor(Math.min(Math.abs(rival.mag),Math.abs(top.mag)))):4096;
+   const a=atom(String(top.mag)),b=atom(String(rival.mag)),base=a.e<b.e?a.e:b.e;
+   const delta=a.n*10n**(a.e-base)-b.n*10n**(b.e-base),exponent=BigInt(scale)+base;
+   if(exponent<0n||delta*10n**exponent<=order(other)-topOrder+2n+countMargin)return null;
+  }
+  return polarity;
  }
  function sign(values){const r=prepare(values);if(!r.length)return 0;const signs=rowSigns.get(r);if(signs===1)return 1;if(signs===2)return -1;
   const bounds=r.map(roughRowLog);if(bounds.every(Boolean)){
@@ -400,7 +469,14 @@
    if(maximum(negative,'lo')>maximum(positive,'hi')+BigInt(String(positive.length).length))return -1;
   }
   if(bounds.some(b=>!b)){const remote=remoteSeparatedSign(r);if(remote!==null)return remote;}
-  if(r.every(t=>!t.f.size)){let denominator=1n;for(const row of r){denominator=denominator/gcd(denominator,row.d)*row.d;digits(denominator);}return L.strict.sign(r.map(row=>String(row.n*(denominator/row.d))+'e'+String(row.e)));}for(const p of (W.Core.Amount?.enabled()?[32,80,160,320,512]:[80,160,320,512]))try{return proof(r,C.context(p),false).sign;}catch(e){if(e.code!=='rank-cost-unresolved')throw e;}fail('Product comparison unresolved','amount-unresolved');
+  if(r.every(t=>!t.f.size)){let denominator=1n;for(const row of r){denominator=denominator/gcd(denominator,row.d)*row.d;digits(denominator);}return L.strict.sign(r.map(row=>String(row.n*(denominator/row.d))+'e'+String(row.e)));}for(const p of (W.Core.Amount?.enabled()?[32,80,160,320,512]:[80,160,320,512]))try{return proof(r,C.context(p),false).sign;}catch(e){
+   if(e.capacity===true){
+    const reduced=withoutCommonFactors(r)||r;
+    const separated=remoteSeparatedSign(reduced,true);if(separated!==null)return separated;
+    const tower=towerSeparatedSign(reduced);if(tower!==null)return tower;
+   }
+   if(e.code!=='rank-cost-unresolved')throw e;
+  }fail('Product comparison unresolved','amount-unresolved');
  }
  const logarithm=(values,c)=>{const result=proof(prepare(values),c,true);if(result.sign!==1)fail('Product logarithm requires a positive quantity','amount-formula-domain');return result.log;};
  // A decoded monomial is immutable numeric data. Retain only its vendor

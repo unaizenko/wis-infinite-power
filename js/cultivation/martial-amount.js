@@ -88,7 +88,12 @@
   if(relative)rows.push({value:A.add(relative.floor,A.scale(absoluteInvestment(relative.support,stock(s,relative.support)),relative.factor)),power:relative.power*M().attenuationFactor(s)});return rows.sort((a,b)=>A.compare(a.value,b.value));
  }
  function unattenuated(current,investment,exponent){
-  if(!positive(investment))return zero();const unpowered=power(current,B.div(1,exponent)),anchor=A.add(unpowered,1.5),scaled=A.scale(investment,4),root=power(A.add(power(anchor,2),scaled),.5),delta=product([scaled],[A.add(root,anchor)]);
+  if(!positive(investment))return zero();const unpowered=power(current,B.div(1,exponent)),anchor=A.add(unpowered,1.5),scaled=A.scale(investment,4),root=power(A.add(power(anchor,2),scaled),.5);
+  // At tower precision the radical and numerator can occupy the same
+  // coordinate. Use the equivalent difference only when its operands are
+  // well separated; otherwise keep the stock-dominated rationalized form.
+  const delta=B.eq(A.project(root),A.project(scaled))&&B.gt(A.project(root),B.mul(A.project(anchor),2))
+   ? A.subtract(root,anchor) : product([scaled],[A.add(root,anchor)]);
   if(B.eq(exponent,1))return delta;
   return increment(unpowered,delta,exponent);
  }
@@ -105,22 +110,24 @@
   });
  }
  const stateIds=new WeakMap();let nextStateId=0;
- function emptyPreview(key){const result={key,gain:B.ZERO,gainQuantity:zero(),costs:{},costQuantities:{},allowed:false,reason:'当前未选择武道',efficiency:B.ONE,heartExponent:B.ONE};result.consumed=result.costs;return result;}
+ function emptyPreview(key,reason='当前未选择武道'){const result={key,gain:B.ZERO,gainQuantity:zero(),costs:{},costQuantities:{},allowed:false,reason,efficiency:B.ONE,heartExponent:B.ONE};result.consumed=result.costs;return result;}
  function preview(s,key){if(!M().active(s)||!M().resourceKeys.includes(key))return emptyPreview(key);return C.withWork(()=>{if(!stateIds.has(s))stateIds.set(s,++nextStateId);const signature=stateIds.get(s)+'|'+JSON.stringify(W.Core.State.toSerializable(s));
   return C.task('martial-preview|'+key+'|'+signature,()=>previewSteps(s,key));
  });}
  function* previewSteps(s,key){
   const m=M(),initial=()=>{const result=emptyPreview(key);
-   if(!m.active(s)||!m.resourceKeys.includes(key))return {result};const costs=result.costQuantities;let input=zero();
-   if(['qi','body'].includes(key)){const k=key==='qi'?'joules':'power';costs[k]=core(s,k);input=A.divide(costs[k],key==='qi'?10000:1000);}
-   else if(key==='heart'){for(const k of ['qi','body']){const value=stock(s,k);costs[k]=m.harmony(s)?A.subtract(value,min(value,stock(s,'heart'))):value;}input=A.divide(min(costs.qi,costs.body),5);}
-   else {for(const k of ['qi','body','heart'])costs[k]=stock(s,k);input=min(A.divide(costs.qi,10),min(A.divide(costs.body,10),costs.heart));}
+   if(!m.active(s)||!m.resourceKeys.includes(key))return {result};
+   const free=m.grandHarmony(s), inputs=free ? {} : result.costQuantities;
+   let input=zero();
+   if(['qi','body'].includes(key)){const k=key==='qi'?'joules':'power';inputs[k]=core(s,k);input=A.divide(inputs[k],key==='qi'?10000:1000);}
+   else if(key==='heart'){for(const k of ['qi','body']){const value=stock(s,k);inputs[k]= !free && m.harmony(s)?A.subtract(value,min(value,stock(s,'heart'))):value;}input=A.divide(min(inputs.qi,inputs.body),5);}
+   else {for(const k of ['qi','body','heart'])inputs[k]=stock(s,k);input=min(A.divide(inputs.qi,10),min(A.divide(inputs.body,10),inputs.heart));}
    const exponent=['qi','body'].includes(key)?m.conversionExponent(s):key==='soul'?m.soulExponent(s):B.ONE,efficiency=m.efficiency(s,key),investment=A.multiply(input,efficiency),current=stock(s,key);
    return {result,input,exponent,efficiency,investment,current};
   };
   const prepared=yield initial,{result,input,exponent,efficiency,investment,current}=prepared;if(input===undefined)return result;
   result.efficiency=efficiency;result.heartExponent=exponent;result.investmentQuantity=investment;result.investment=yield ()=>A.project(investment);result.potentialQuantity=yield ()=>A.add(potential(power(current,B.div(1,exponent))),investment);result.potential=yield ()=>A.project(result.potentialQuantity);
-  result.gainQuantity=(yield ()=>positive(input))?yield ()=>balanced(s,key,current,investment,exponent):zero();return yield ()=>{result.gain=A.project(result.gainQuantity);result.costs=Object.fromEntries(Object.entries(result.costQuantities).map(([k,v])=>[k,A.project(v)]));result.consumed=result.costs;
+  result.gainQuantity=(yield ()=>positive(input))?yield ()=>balanced(s,key,current,investment,exponent):zero();return yield ()=>{if(m.emperorActive(s))result.gainQuantity=m.emperorGain(result.gainQuantity);result.gain=A.project(result.gainQuantity);result.costs=Object.fromEntries(Object.entries(result.costQuantities).map(([k,v])=>[k,A.project(v)]));result.consumed=result.costs;
   result.allowed=positive(input)&&positive(result.gainQuantity);result.reason=result.allowed?'':'投入不足或没有可表示的收益';result.heartRewards={qi:B.ZERO,body:B.ZERO};return result;};
  }
  function naturalGain(profile,seconds,{frozen=false}={}){
@@ -136,10 +143,10 @@
  function capture(s){const m=M(),kinds=m.level(s,'changSheng')?m.innerCount(s):0;if(!kinds)return {kinds:0,base:B.ZERO,rate:B.ZERO,current:B.ZERO,thresholds:[]};
   const base=A.scale(m.acquisitionMultiplier(s,'qi'),kinds*kinds),current=stock(s,'qi'),rows=thresholds(s,'qi');let attenuation=q(1);
   for(const t of rows)if(A.compare(current,t.value)>0)attenuation=product([attenuation,power(product([current],[t.value]),t.power)]);
-  const rate=product([base],[attenuation]);return {kinds,base:A.project(base),rate:A.project(rate),current:A.project(current),thresholds:rows.map(t=>({...t,value:A.project(t.value)})),quantities:{base,rate,current,thresholds:rows}};
+  const rate=product([base],[attenuation]);return {emperor:m.emperorActive(s),kinds,base:A.project(base),rate:A.project(rate),current:A.project(current),thresholds:rows.map(t=>({...t,value:A.project(t.value)})),quantities:{base,rate,current,thresholds:rows}};
  }
  function heartRewards(s,n,spent){const rewards={qi:zero(),body:zero()},m=M();if(!m.active(s)||!positive(spent??0))return rewards;const candidate={...s,cultivation:{...s.cultivation,systems:{...s.cultivation.systems,martial:n}}};
-  for(const [key,ability]of [['qi','tianMo'],['body','ciHang']])if(m.level(candidate,ability)){const base=A.multiply(A.scale(spent,10),m.acquisitionMultiplier(candidate,key));rewards[key]=W.Cultivation.MartialAmount.naturalGain({kinds:1,base,current:stock(candidate,key),thresholds:thresholds(candidate,key)},1);}return rewards;
+  for(const [key,ability]of [['qi','tianMo'],['body','ciHang']])if(m.level(candidate,ability)){const base=A.multiply(A.scale(spent,10),m.acquisitionMultiplier(candidate,key));rewards[key]=m.changShengGain({emperor:m.emperorActive(s),kinds:1,base,current:stock(candidate,key),thresholds:thresholds(candidate,key)},1);}return rewards;
  }
  function capturePassive(s){
   const m=M(),owned={mindPlanet:m.level(s,'mindPlanet'),innerWorld:m.level(s,'innerWorld')};if(!m.active(s)||(!owned.mindPlanet&&!owned.innerWorld))return {};
@@ -149,11 +156,13 @@
    const base=A.multiply(input,m.acquisitionMultiplier(s,key)),current=stock(s,key),exponent=['qi','body'].includes(key)?m.conversionExponent(s):key==='soul'?m.soulExponent(s):B.ONE,rows=thresholds(s,key);
    let attenuation=0,coefficient=q(1);for(const t of rows)if(A.compare(current,t.value)>0){attenuation+=t.power;coefficient=product([coefficient],[power(t.value,t.power)]);}
    const rate=!positive(current)&&B.gt(exponent,1)?zero():product([base],[segment(current,exponent,attenuation,coefficient).slope(current)]);
-   result[key]={base,current,exponent,thresholds:rows,rate};
+   result[key]={emperor:m.emperorActive(s),base,current,exponent,thresholds:rows,rate};
   }return result;
  }
  function passiveGains(profile,seconds,{frozen=false}={}){
-  const result={};for(const key of M().resourceKeys){const p=profile?.[key];result[key]=!p?zero():frozen?A.multiply(p.rate,seconds):balanced(null,key,p.current,A.multiply(p.base,seconds),p.exponent,p.thresholds);}return result;
+  const result={};for(const key of M().resourceKeys){const p=profile?.[key];result[key]=!p?zero():frozen?A.multiply(p.rate,seconds):balanced(null,key,p.current,A.multiply(p.base,seconds),p.exponent,p.thresholds);
+   if(p?.emperor && B.gt(seconds,0))result[key]=A.multiply(M().emperorGain(A.divide(result[key],seconds)),seconds);
+  }return result;
  }
- W.Cultivation.MartialAmount=Object.freeze({capturePassive,passiveGains,stock,core,potential,thresholds,preview,naturalGain,capture,heartRewards});
+ W.Cultivation.MartialAmount=Object.freeze({capturePassive,passiveGains,stock,core,potential,thresholds,emptyPreview,preview,naturalGain,capture,heartRewards});
 }(window.WIS));

@@ -1,0 +1,90 @@
+{
+  "game": "WIS-无限战力系统",
+  "encoding": "sparse-v1",
+  "schemaVersion": 76,
+  "version": 76,
+  "numericModelVersion": 2,
+  "numericTailPolicyVersion": 3,
+  "numericEconomyPolicyVersion": 1,
+  "settlementRule": 4,
+  "data": {
+    "core": {
+      "resources": {
+        "joules": "0",
+        "power": "0"
+      },
+      "runtime": {
+        "lastUpdateAt": 1795408923689,
+        "randomState": 228983328
+      }
+    },
+    "powerSystem": {},
+    "cultivation": {
+      "active": "martial",
+      "systems": {
+        "immortal": {
+          "progress": {
+            "explorationRewards": {
+              "version": 2,
+              "natural": {
+                "version": 1,
+                "requirement": "10",
+                "remaining": "10",
+                "carry": "0",
+                "residual": []
+              },
+              "seize": "0",
+              "levelResidual": []
+            }
+          }
+        },
+        "martial": {
+          "heartInvestment": "200",
+          "resources": {
+            "body": {
+              "peak": "1000",
+              "spent": "2000"
+            },
+            "heart": {
+              "peak": "23.767653459756225",
+              "spent": "23.767653459756225",
+              "total": "23.767653459756225"
+            },
+            "qi": {
+              "peak": "1000",
+              "spent": "2000"
+            },
+            "soul": {
+              "amount": "8.365121075740781",
+              "peak": "8.365121075740781",
+              "total": "8.365121075740781"
+            }
+          }
+        }
+      }
+    },
+    "meta": {
+      "bigNumbers": {
+        "rankBasis": {
+          "version": 1,
+          "g": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 0
+          },
+          "tree": {
+            "version": 1,
+            "rule": "schema73",
+            "originRank": 0,
+            "targetRank": 3,
+            "projectedTargetRequirement": "28800",
+            "projection": {
+              "version": 1,
+              "producer": "schema73-log14-a"
+            }
+          }
+        }
+      }
+    }
+  }
+}

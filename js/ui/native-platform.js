@@ -75,7 +75,7 @@
       choose: () => mutate('chooseDirectory')});
   }
 
-  async function install({closeSurface, saveBeforeLeaving, onAppState, notice}) {
+  async function install({closeSurface, saveBeforeLeaving, onAppState, onExitFailed, notice}) {
     if (!isNative()) return;
     const app = plugins()?.App;
     if (!app?.addListener || !app?.exitApp) throw Error('App 生命周期组件不可用');
@@ -88,11 +88,19 @@
         lastBack = now; notice('再按一次退出'); return;
       }
       lastBack = null; exiting = true;
+      let exitCompleted = false;
       try {
-        if (!await saveBeforeLeaving()) { notice('存档尚未保存，已取消退出。请先导出备份。'); return; }
-        await app.exitApp();
-      } catch (error) { notice('退出失败：' + error.message); }
-      finally { exiting = false; }
+        if (await saveBeforeLeaving()) {
+          await app.exitApp();
+          exitCompleted = true;
+        } else notice('存档尚未保存，已取消退出。请先导出备份。');
+      } catch (error) {
+        notice('退出失败：' + error.message);
+      } finally {
+        try { if (!exitCompleted) await onExitFailed?.(); }
+        catch (error) { notice('恢复游戏失败：' + error.message); }
+        finally { exiting = false; }
+      }
     });
     await app.addListener('appStateChange', ({isActive}) => { lastBack = null; onAppState(isActive === true); });
     if (app.getState) { const state = await app.getState(); onAppState(state.isActive === true); }

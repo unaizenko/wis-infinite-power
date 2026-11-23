@@ -215,7 +215,7 @@
         superLollipop: ZERO, skyCrystal: ZERO, xuTianDing: ZERO, baLingChi: ZERO, wanYaoFan: ZERO,
         phantomHeavenMirror: ZERO, mysticHeavenSacredTree: ZERO, mysticHeavenSpiritSlayingSword: ZERO,
         fiveElementsTreasure: ZERO, immortalCrystal: ZERO, yuanCrystal: ZERO, fiveSpiritStone: ZERO,
-        cosmicFiber: ZERO, cosmicWill: ZERO, originImprint: ZERO, lawImprint: ZERO, emperorImprint: ZERO, sacredBodyImprint: ZERO, godBodyImprint: ZERO, sourceStoneImprint: ZERO
+        cosmicFiber: ZERO, cosmicWill: ZERO, originImprint: ZERO, willImprint: ZERO, lawImprint: ZERO, emperorImprint: ZERO, sacredBodyImprint: ZERO, godBodyImprint: ZERO, sourceStoneImprint: ZERO
       },
       randomState: (Math.floor(Math.random() * 0x100000000) >>> 0) || 0x6d2b79f5,
       lastUpdateAt: Date.now()
@@ -226,9 +226,11 @@
 
   function scaleIndexForPower(power) {
     let index = 0;
-    config.scales.forEach((scale, candidate) => {
-      if (gte(power, scale.power)) index = candidate;
-    });
+    const A = WIS.Core.Amount;
+    for (const scale of config.scales.slice(1)) {
+      if (A?.enabled() ? A.compare(power,scale.powerLiteral) < 0 : !gte(power,scale.power)) break;
+      index++;
+    }
     return index;
   }
 
@@ -260,6 +262,13 @@
       ? Number(source.runningLevel)
       : source.runningPurchased ? 1 : 0;
     const power = maxBN(ZERO, BN(source.power));
+    const A = WIS.Core.Amount;
+    const full = A?.enabled();
+    const powerBalance = full ? A.fromParts(source.power ?? 0,
+      [source.powerGainResidual ?? 0, ...(source.powerGainResidualTail ?? [])]) : power;
+    const statistic = (key, legacy) => full
+      ? A.fromParts(source[key] ?? 0,source.statisticAmountTails?.[key] ?? []) : legacy;
+    const reached = (value, threshold) => full ? A.compare(value,threshold) >= 0 : gte(value,threshold);
     const savedScaleIndex = Number.isFinite(Number(source.highestScaleIndex))
       ? Math.floor(Number(source.highestScaleIndex))
       : source.wallUnlocked ? 2 : source.brickUnlocked ? 1 : 0;
@@ -267,7 +276,7 @@
       config.scales.length - 1,
       source.activeChallenge === "blackHole"
         ? savedScaleIndex
-        : Math.max(savedScaleIndex, scaleIndexForPower(power))
+        : Math.max(savedScaleIndex, scaleIndexForPower(powerBalance))
     ));
     const cultivationSystem = ["仙道", "immortal"].includes(source.cultivationSystem) ? "仙道" : ["武道", "martial"].includes(source.cultivationSystem) ? "武道" : null;
     const qiRefiningUnlocked = cultivationSystem === "仙道" && source.qiRefiningUnlocked === true;
@@ -304,10 +313,12 @@
         unlockedAchievements[challenge.achievementKey] = true;
       }
     }
-    if (gte(totalPower, 1)) unlockedAchievements.powerOne = true;
-    if (gte(totalPower, 5)) unlockedAchievements.five = true;
+    const totalBalance = statistic("totalPower", totalPower);
+    const singleGain = statistic("maxSinglePowerGain", maxSinglePowerGain);
+    if (reached(totalBalance, 1) || reached(powerBalance, 1)) unlockedAchievements.powerOne = true;
+    if (reached(totalBalance, 5) || reached(powerBalance, 5)) unlockedAchievements.five = true;
     if (highestScaleIndex >= 1) unlockedAchievements.brick = true;
-    if (gte(maxSinglePowerGain, 200)) unlockedAchievements.trueBrick = true;
+    if (reached(singleGain, 200)) unlockedAchievements.trueBrick = true;
     if (qiRefiningUnlocked) unlockedAchievements.aspireImmortality = true;
     if (foundationUnlocked) unlockedAchievements.daoFoundation = true;
     if (goldenCoreUnlocked) unlockedAchievements.goldenCore = true;
@@ -320,11 +331,12 @@
     if (advancedRealmLevel >= 10 || Number(source.lifetimeHighestCultivationRealmLevel) >= 13) unlockedAchievements.selfSeveringSlash = true;
     if (advancedRealmLevel >= 10 || Number(source.lifetimeHighestCultivationRealmLevel) >= 13 || unlockedAchievements.selfSeveringSlash) unlockedAchievements.qiPathComplete = true;
     if (totalElapsedSeconds >= 600) unlockedAchievements.trainingUp = true;
-    if (gte(greatest(power, source.highestPower, source.lifetimeHighestPower), "1e100")) unlockedAchievements.googol = true;
+    if ([powerBalance, statistic("highestPower", source.highestPower ?? 0),
+        statistic("lifetimeHighestPower", source.lifetimeHighestPower ?? 0)].some(value=>reached(value, "1e100"))) unlockedAchievements.googol = true;
     config.scales.slice(2).forEach((scale, offset) => {
       const scaleIndex = offset + 2;
       if (highestScaleIndex >= scaleIndex) unlockedAchievements[`scale${scaleIndex}`] = true;
-      if (gte(maxSinglePowerGain, scale.power)) unlockedAchievements[`trueScale${scaleIndex}`] = true;
+      if (reached(singleGain, full ? scale.powerLiteral : scale.power)) unlockedAchievements[`trueScale${scaleIndex}`] = true;
     });
     const achievementScaleIndex = config.scales.reduce((maximum, _scale, index) => (
       index >= 2 && unlockedAchievements[`scale${index}`] ? index : maximum
@@ -368,6 +380,7 @@
       cosmicFiber: treasureCount(source.treasureImprints?.cosmicFiber),
       cosmicWill: treasureCount(source.treasureImprints?.cosmicWill),
       ...Object.fromEntries(['emperorImprint','sacredBodyImprint','godBodyImprint','sourceStoneImprint'].map(k=>[k,treasureCount(source.treasureImprints?.[k])])),
+      willImprint: treasureCount(source.treasureImprints?.willImprint),
       lawImprint: treasureCount(source.treasureImprints?.lawImprint),
       originImprint: treasureCount(source.treasureImprints?.originImprint)
     };
@@ -842,14 +855,23 @@
     if(raw?.core)tails=raw.meta?.statistics?.amountTails;
     if(tails!=null&&(!isRecord(tails)||Object.keys(tails).some(k=>!statisticKeySet.has(k))))throw Error('Statistic amount tails invalid');
     const entries=new Map(),source=k=>raw?.core?fieldPaths.get(k).split('.').reduce((v,k)=>v?.[k],raw):raw?.[k];
-    for(const key of statisticKeys){const head=source(key),tail=tails?.[key]??[];let value=yield ()=>A.fromParts(head??state[key],tail);
-      // Preserve a genuinely larger historical clamp, without replacing a full
-      // amount by an equal projected head and erasing its negative tail.
-      if(head!=null&&WIS.Core.BigNum.gt(state[key],head))value=yield ()=>A.compare(value,state[key])<0?A.from(state[key]):value;
+    for(const key of statisticKeys){const head=source(key),tail=tails?.[key]??[];const value=yield ()=>A.fromParts(head??0,tail);
       entries.set(key,value);
     }
     const greater=(key,value)=>{if(A.compare(value,entries.get(key))>0)entries.set(key,value);};
     const stock=(key)=>{const c=['joules','power'].includes(key)?state.core.resources:state.cultivation.systems.immortal.resources;return A.fromParts(c[key],[c[key+'GainResidual']??0,...(c[key+'GainResidualTail']??[])]);};
+    // Rebuild historical lower bounds from the complete source amounts.
+    // A rounded stock or statistic must never promote a negative tail to zero.
+    const achievedScale = config.scales.reduce((highest,_scale,index)=>
+      (index === 1 ? state.unlockedAchievements.brick : index >= 2 && state.unlockedAchievements['scale'+index])
+        ? index : highest,0);
+    if (achievedScale) {
+      const threshold = config.scales[achievedScale];
+      const lowerBound = state.challengeCompletions?.blackHole
+        ? WIS.Meta.Challenges.blackHoleRewardRequirement(state,achievedScale,threshold.power)
+        : threshold.powerLiteral;
+      yield ()=>greater('lifetimeHighestPower',lowerBound);
+    }
     yield ()=>greater('highestPower',stock('power'));yield ()=>greater('totalPower',stock('power'));
     for(const [suffix,key]of [['J','joules'],['Power','power'],['Mana','mana'],['ImmortalPower','immortalPower']]){
       for(const prefix of ['lifetime','currentRebirth']){
@@ -1087,9 +1109,19 @@
 
   function fromFlat(flatInput) {return normalizationTask('fromFlat',[flatInput],()=>fromFlatSteps(flatInput));}
   function* fromFlatSteps(flatInput) {
+    const domain = yield ()=>buildFlatDomain(flatInput);
+    yield* reconcileLoadedDomain(domain,flatInput);
+    return domain;
+  }
+
+  function buildFlatDomain(flatInput) {
+    return normalizationTask('buildFlatDomain',[flatInput],()=>buildFlatDomainSteps(flatInput));
+  }
+  function* buildFlatDomainSteps(flatInput) {
     const flat = { ...freshFlat(), ...flatInput };
     const domain = emptyDomain();
     domain.cultivation.systems.martial = WIS.Cultivation.Martial.fresh();
+    domain.meta.statistics.martialConversionAchievementsVersion = 1;
     domain.meta.martialQualifications = {};
     domain.meta.bigNumbers = (yield ()=>(WIS.Meta.BigNumbers?.normalize(flatInput?.bigNumbers) ?? {}));
     domain.cultivation.systems.immortal.xiuzhen = (yield ()=>(WIS.Cultivation.Xiuzhen?.normalize(flatInput?.xiuzhen) ?? {}));
@@ -1120,11 +1152,18 @@
       currentRealmLevel,
       Math.floor(Number(flat.lifetimeHighestCultivationRealmLevel) || 0)
     );
-    attachLegacyAliases(domain);
-    yield ()=>normalizeStatisticAmounts(domain,flatInput);
+    WIS.Meta.UniverseCoefficients.install(domain,domain.cultivation.systems.immortal.xiuzhen);
+    return WIS.Meta.UniverseCoefficients.bindLegacyView(attachLegacyAliases(domain));
+  }
+
+  function* reconcileLoadedDomain(domain,source) {
+    // Legacy field normalization computes projected defaults. Only the original
+    // saved statistics and the restored resource words can establish a peak.
+    yield ()=>normalizeStatisticAmounts(domain,source);
+    const martial=WIS.Cultivation.Martial;
+    domain.meta=yield ()=>martial.grandHarmonyMeta(domain,martial.get(domain),domain.meta);
     yield ()=>WIS.Meta.BigNumbers?.reconcileGCapacity(domain);
     yield ()=>WIS.Meta.BigNumbers?.continueUnlockedTree(domain);
-    return domain;
   }
 
   function toFlat(state) {
@@ -1145,7 +1184,7 @@
   function cloneForSimulation(state) {
     // This is a domain clone, not an import: do not normalize fields, rebuild
     // manual histories, or construct defaults that would immediately be replaced.
-    return attachLegacyAliases(cloneDomain(state,WIS.Core.Amount?.enabled()===true));
+    return WIS.Meta.UniverseCoefficients.bindLegacyView(attachLegacyAliases(cloneDomain(state,WIS.Core.Amount?.enabled()===true)));
   }
 
   function flatFromDomain(domain) {
@@ -1190,10 +1229,10 @@
   function normalizeLegacy(input) {return normalizationTask('legacy',[input],()=>normalizeLegacySteps(input));}
   function* normalizeLegacySteps(input) {
     validateMainResourceWords(input);
-    const flat=yield ()=>normalizeFlat(input),domain=yield ()=>fromFlat(flat);
+    const flat=yield ()=>normalizeFlat(input),domain=yield ()=>buildFlatDomain(flat);
     yield ()=>preserveResourceWords(input,domain.core.resources,["joules","power"]);
     yield ()=>preserveResourceWords(input,domain.cultivation.systems.immortal.resources,["mana","immortalPower"]);
-    yield ()=>normalizeStatisticAmounts(domain,input);
+    yield* reconcileLoadedDomain(domain,input);
     return domain;
   }
 
@@ -1213,7 +1252,7 @@
     // 仙道子树可能在武道等其他体系激活时仍保留；归一化子树不能依赖当前 active。
     if (isRecord(source.cultivation?.systems?.immortal)) knownFlat.cultivationSystem = "仙道";
     const normalizedFlat=yield ()=>normalizeFlat(knownFlat);
-    const flatDomain=yield ()=>fromFlat(normalizedFlat);
+    const flatDomain=yield ()=>buildFlatDomain(normalizedFlat);
     const normalizedKnown=yield ()=>toSerializable(flatDomain);
     normalizedKnown.meta.statistics.immortalSelectionCount = Math.max(
       source.cultivation?.active === "immortal" ? 1 : 0,
@@ -1268,14 +1307,26 @@
     delete domain.meta.achievements.martialFlow;
     delete domain.meta.achievements.martialFlowCity;
     domain.meta.bigNumbers = (yield ()=>(WIS.Meta.BigNumbers?.normalize(source.meta?.bigNumbers) ?? source.meta?.bigNumbers ?? {}));
-    domain.cultivation.systems.immortal.xiuzhen = yield ()=>(WIS.Cultivation.Xiuzhen?.normalize(source.cultivation?.systems?.immortal?.xiuzhen)
-      ?? source.cultivation?.systems?.immortal?.xiuzhen ?? {});
+    const oldXiuzhen=source.cultivation?.systems?.immortal?.xiuzhen || {};
+    const normalizedXiuzhen=yield ()=>WIS.Cultivation.Xiuzhen.normalize({...oldXiuzhen,
+      resources:{...oldXiuzhen.resources,...source.meta?.universeCoefficients}});
+    WIS.Meta.UniverseCoefficients.install(domain,normalizedXiuzhen);
+    WIS.Meta.UniverseCoefficients.bindLegacyView(domain);
     domain.cultivation.systems.martial = (yield ()=>(WIS.Cultivation.Martial.normalize(source.cultivation?.systems?.martial)));
-    domain.meta.martialQualifications = Object.fromEntries(["stealHeaven", "innerHarmony", "innate", "shenJin", "dragonTransform", "immortalPlatform"].filter(key => source.meta?.martialQualifications?.[key] === true).map(key => [key, true]));
+    if (source.meta?.statistics?.martialHistory !== undefined)
+      domain.meta.statistics.martialHistory = yield () => WIS.Cultivation.Martial.normalizeHistory(source.meta.statistics.martialHistory);
+    if (!source.meta?.statistics?.martialConversionAchievementsVersion) {
+      const martial = WIS.Cultivation.Martial;
+      for (const [resource,flag] of [['heart','martialHeart'],['soul','martialSoul']]) {
+        const {total} = martial.resourceRecord(domain,resource,true);
+        if (WIS.Core.Amount?.enabled() ? WIS.Core.Amount.compare(total,0)>0 : gt(total,ZERO))
+          domain.meta.achievements[flag] = true;
+      }
+    }
+    domain.meta.statistics.martialConversionAchievementsVersion = 1;
+    domain.meta.martialQualifications = Object.fromEntries(["stealHeaven", "innerHarmony", "innate", "shenJin", "dragonTransform", "immortalPlatform", "emperorTribulation"].filter(key => source.meta?.martialQualifications?.[key] === true).map(key => [key, true]));
     attachLegacyAliases(domain);
-    yield ()=>normalizeStatisticAmounts(domain,source);
-    yield ()=>WIS.Meta.BigNumbers?.reconcileGCapacity(domain);
-    yield ()=>WIS.Meta.BigNumbers?.continueUnlockedTree(domain);
+    yield* reconcileLoadedDomain(domain,source);
     return domain;
   }
 

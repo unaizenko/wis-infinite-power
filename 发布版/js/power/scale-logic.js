@@ -1091,7 +1091,7 @@
       ? Challenges.blackHoleRewardRequirement(source, scaleIndex, baseRequirement)
       : baseRequirement;
     const lossDetails = source.activeChallenge === "blackHole"
-      ? blackHoleGainLossDetails()
+      ? runtime.withEvaluationState(source, blackHoleGainLossDetails)
       : {
           joulesBefore: ZERO, joulesAfter: ZERO, powerBefore: ZERO, powerAfter: ZERO,
           joulesLossOrders: ZERO, powerLossOrders: ZERO, lossOrders: ZERO,
@@ -1100,13 +1100,16 @@
     const blackHoleMultiplier = source.activeChallenge === "blackHole"
       ? lossDetails.requirementMultiplier
       : ONE;
+    const actualRequirement = mul(rewardRequirement, blackHoleMultiplier);
     return {
       scaleIndex,
       baseRequirement,
       rewardRequirement,
       rewardMultiplier: div(rewardRequirement, baseRequirement),
       blackHoleMultiplier,
-      actualRequirement: mul(rewardRequirement, blackHoleMultiplier),
+      actualRequirement,
+      exactRequirement: eq(rewardRequirement, baseRequirement) && eq(blackHoleMultiplier, ONE)
+        ? scale.powerLiteral : actualRequirement,
       lossDetails
     };
   }
@@ -1121,9 +1124,10 @@
     // must not revive the previous lifecycle's peak after that replacement.
     const peak = powerPeak?.owner === state.powerSystem.systems.scale.progress
       ? maxBN(state.power, powerPeak.value) : state.power;
-    WIS.Core.State.maxStatistic(state,"highestPower",WIS.Core.Amount?.enabled()?WIS.Core.Resources.readExact("core.power",state):peak);
+    const currentPower = WIS.Core.Amount?.enabled() ? WIS.Core.Resources.readExact("core.power",state) : state.power;
+    WIS.Core.State.maxStatistic(state,"highestPower",WIS.Core.Amount?.enabled() ? currentPower : peak);
     if(WIS.Core.Amount?.enabled()&&powerPeak?.owner===state.powerSystem.systems.scale.progress)WIS.Core.State.maxStatistic(state,"highestPower",powerPeak.exactValue||powerPeak.value);
-    state.highestScaleIndex = Math.max(state.highestScaleIndex, scaleIndexForPower(state.power));
+    state.highestScaleIndex = Math.max(state.highestScaleIndex, scaleIndexForPower(currentPower));
     if (state.highestScaleIndex > previousScaleIndex) state.currentScaleElapsedSeconds = 0;
     state.brickUnlocked = state.highestScaleIndex >= 1;
     state.wallUnlocked = state.highestScaleIndex >= 2;
@@ -1413,9 +1417,11 @@
   }
 
   function currentPowerMilestone() {
-    if (state.meta.bigNumbers?.tree?.rank >= 3) return "tree3";
+    if (WIS.Meta.BigNumbers.rankCompare(state.meta.bigNumbers?.tree?.rank ?? 0, 3) >= 0) return "tree3";
     if (state.symbolicPowerMilestones?.graham64) return "graham64";
-    if (gte(snapshotMemo("lifetimeHighestPower",()=>state.lifetimeHighestPower), "1e100")) return "googol";
+    if (snapshotMemo("reachedGoogol",()=>WIS.Core.Amount?.enabled()
+      ? WIS.Core.Amount.compare(WIS.Core.State.readStatistic(state,"lifetimeHighestPower"),"1e100") >= 0
+      : gte(state.lifetimeHighestPower, "1e100"))) return "googol";
     return "number";
   }
 

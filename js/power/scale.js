@@ -8,8 +8,15 @@
   function tierIndexForPower(power) {
     const state = WIS.Core.Runtime.getState();
     let index = Math.max(0, Math.min(thresholds.length - 1, Number(state.highestScaleIndex) || 0));
-    while (index + 1 < thresholds.length &&
-      gte(power, WIS.Power.ScaleLogic.scaleRequirement(index + 1, state))) index += 1;
+    const A = WIS.Core.Amount;
+    while (index + 1 < thresholds.length) {
+      const details = WIS.Power.ScaleLogic.scaleRequirementDetails(index + 1, state);
+      // A base threshold has an exact decimal spelling. Challenge modifiers
+      // retain the requirement calculated by the existing gameplay formula.
+      const threshold = details.exactRequirement;
+      if (A?.enabled() ? A.compare(power, threshold) < 0 : !gte(power, details.actualRequirement)) break;
+      index += 1;
+    }
     return index;
   }
 

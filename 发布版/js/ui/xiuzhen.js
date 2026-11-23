@@ -6,7 +6,7 @@
     let mounted = false, lastRealm = -1;
     const f = value => context.format(value, 4);
     const effectLabels = Object.freeze({ body: "J获取", materialSpirit: "仙力获取",
-      crystal: "元力获取", worldAura: "元力获取", rules: "仙灵力、仙力获取", divineArt: "战力获取", innerWorld:"N获取", virtualOrigin:"N获取", spiritualGod:"涅力获取", spokenLaw:"J与战力获取", mergeHeaven:"涅力获取", followLaw:"J与战力获取指数", zunYang:"N获取", originBody:"本源进度", kongNieZhang:"仙道宝物进度", kongLingYuan:"自动探寻量与法力", kongXuanSheng:"每种已解锁仙道宝物", kongJieMie:"仙道宝物进度需求", daoWuYa:"五种仙道资源获取指数", daoYuan:"本源每次自然奖励数量", originMultiverse:"高阶多元获取", eternalMultiverse:"涅力获取", tierNie:"涅力获取", tierTranscendence:"J与战力获取指数" });
+      crystal: "元力获取", worldAura: "元力获取", rules: "仙灵力、仙力获取", divineArt: "战力获取", innerWorld:"N获取", virtualOrigin:"N获取", spiritualGod:"涅力获取", spokenLaw:"J与战力获取", mergeHeaven:"涅力获取", followLaw:"J与战力获取指数", zunYang:"N获取", originBody:"本源进度", kongNieZhang:"仙道宝物进度", kongLingYuan:"自动探寻量与法力", kongXuanSheng:"每种已解锁仙道宝物", kongJieMie:"仙道宝物进度需求", daoWuYa:"五种仙道资源获取指数", daoYuan:"本源每次自然奖励数量", originMultiverse:"高阶多元获取", eternalMultiverse:"涅力获取", tierNie:"涅力获取", tierTranscendence:"J与战力获取指数", huangTian:"涅力获取" });
     function el(tag, text, className) {
       const n = document.createElement(tag); if (text) n.textContent = text; if (className) n.className = className; return n;
     }
@@ -48,7 +48,7 @@
       const note = el("p", "", "big-number-note"); note.id = "xiuzhen-unlock-note"; realms.append(note);
       X.realms.forEach(r => rows.push({ type: "realm", definition: r, ...row(realms, r.name,
         r.level < 4 ? r.level === 2 ? "开放仙力。" : r.level === 3 ? "开放元力体系。" : "完成挑战·化凡后解锁；开放意境、元神。"
-          : r.level < 7 ? `取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。` : r.level === 7 ? "完成天人五衰并购买无限强化·体系无限后突破；自动获得能力·涅力，按当前元力生成涅力，不持续扣除元力。" : r.level === 11 ? "需要无限强化·体系多元；突破后自动获得踏天，按当前单体宇宙系数N持续产生多元宇宙系数N²，不消耗N。" : r.level === 12 ? "需要无限强化·体系高阶多元；突破后免费获得高阶多元产出能力，在行动·无限支付无限点数首次进入N³后开始产出。" : "解锁本境界的付费能力。", r.cost, r.resource,
+          : r.level < 7 ? `取消${["星系", "超星系团", "宇宙结构"][r.level - 4]}软上限。` : r.level === 7 ? "完成天人五衰并购买无限强化·体系无限后突破；自动获得能力·涅力，按当前元力生成涅力，不持续扣除元力。" : r.level === 11 ? "需要无限强化·体系多元；突破后自动获得踏天，按当前单体宇宙系数N持续产生多元宇宙系数N²，不消耗N。" : r.level === 12 ? "需要无限强化·体系高阶多元；突破后免费获得高阶多元产出能力，在行动·无限支付无限点数首次进入N³后开始产出。" : r.upgrade === "C8" ? "需要无限强化·无限盒子。突破后自动获得「十」，开始产出 N^N，并解锁「煌天」。" : "解锁本境界的付费能力。", r.cost, r.resource,
         state => X.get(state).realm === r.level - 1 && X.breakthrough(state), "realm-" + r.level) }));
       const abilitiesPanel = $("immortal-abilities-panel"), oldContent = abilitiesPanel.querySelector(".upgrade-groups");
       const filter = el("button", "隐藏已解锁能力", "secondary-button");
@@ -70,7 +70,8 @@
       innate.id="xiuzhen-innate-nie"; $("xiuzhen-ability-group-7").prepend(innate);
       for (const [level,key,name,description] of [
         [11,"taTian","踏天","根据N产出N²。"],
-        [12,"highMultiverse","五","根据涅力获取高阶多元倍数。"]
+        [12,"highMultiverse","五","根据涅力获取高阶多元倍数。"],
+        [17,"infiniteBoxCoefficient","十","根据当前涅力与 N 持续生成 N^N。"]
       ]) {
         const group=$("xiuzhen-ability-group-"+level);
         const card=row(group,name,description,0,"nieForce",()=>false,"innate-status-"+key);
@@ -83,16 +84,21 @@
       originTitle.append(" ",originCount);
       const originEffect=el("div","","treasure-effect");originEffect.id="xiuzhen-origin-effect";
       const originStatus=el("div","","treasure-acquisition");originStatus.id="xiuzhen-origin-status";
-      originContent.append(originTitle,originEffect,originStatus);origin.append(originContent);
+      originContent.append(originTitle,originEffect); WIS.UI.Treasures.mountProgress(originContent,originStatus);origin.append(originContent);
       $("treasure-list").querySelector('[data-catalog-system-group="仙道"] > .item-list').append(origin);
-      for (const [key, description, reward] of [
+      for (const [key, description, reward, rule] of [
         ["mortalTransformation", "禁用探寻及已获得的仙道能力、倍率、指数和特殊效果，保留吐纳、其他法力来源及炼气道基础突破，重新抵达炼气道·化神。", "可突破修真道·化神"],
         ["yinVoidYangReal", "使J、战力获取变为^0.85；同时受到福、禄、寿最高档挑战限制，重新抵达第一步·问鼎。", "可突破第二步·窥涅。"],
-        ["heavenlyFiveDeclines", "当前达到碎涅可开启。J、战力已解除的量级软上限逐段保留50%原始削弱，并可继续被量级软上限弱化效果降低；未解除的部分按原规则生效。通关需同时持有1e20元力、3e68 J、3e68战力。", "解锁第三步·空涅的突破资格。"]
+        ["heavenlyFiveDeclines", "碎涅可开启，已解除的 J、战力软上限恢复一半削弱。目标：元力 ≥1e20，J 和战力均 ≥3e68。", "解锁第三步·空涅的突破资格。", "每个已解除的软上限保留原削弱的 50%，仍可被软上限弱化效果降低。未解除的部分按原规则生效。"]
       ]) {
         const card = el("article", "", "item-row"); card.id = "xiuzhen-challenge-" + key;
         card.dataset.challengeKey = key; card.dataset.catalogSystem = "仙道";
         const content = el("div", "", "item-content"); content.append(el("h2", "挑战·" + WIS.Core.Config.challenges[key].name), el("p", description), el("p", "奖励：" + reward));
+        if (rule) {
+          const details = el("details", "", "card-details");
+          details.append(el("summary", "软上限规则"), el("p", rule));
+          content.append(details);
+        }
         const control = el("div", "", "purchase-control"), status = el("span"); status.id = "xiuzhen-challenge-status-" + key;
         const button = el("button", "开启挑战", "primary-button"); button.type = "button"; button.id = "xiuzhen-challenge-button-" + key;
         button.addEventListener("click", () => { if (context.getCatchUpStatus().locked) return;
@@ -141,13 +147,13 @@
         r.item.classList.toggle("purchased", done); r.price.hidden = done;
         r.item.classList.toggle("xiuzhen-locked", !unlocked || (r.type === "ability" && n.realm < d.realm));
         r.button.textContent = innate ? "自动解锁" : done ? r.type === "ability" ? "已强化" : "已突破"
-          : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : d.level === 7 && !s.challengeCompletions.heavenlyFiveDeclines ? "需要完成天人五衰" : d.level === 7 && !WIS.Meta.Infinity.has(s, "C1") ? "需要体系无限" : d.level === 11 && !WIS.Meta.Infinity.has(s,"C5") ? "需要体系多元" : d.level === 12 && !WIS.Meta.Infinity.has(s,"C6") ? "需要体系高阶多元" : "突破") : "强化";
+          : r.type === "realm" ? (d.level === 4 && !s.challengeCompletions.yinVoidYangReal ? "需要完成阴虚阳实" : d.level === 7 && !s.challengeCompletions.heavenlyFiveDeclines ? "需要完成天人五衰" : d.level === 7 && !WIS.Meta.Infinity.has(s, "C1") ? "需要体系无限" : d.level === 11 && !WIS.Meta.Infinity.has(s,"C5") ? "需要体系多元" : d.level === 12 && !WIS.Meta.Infinity.has(s,"C6") ? "需要体系高阶多元" : d.upgrade === "C8" && !WIS.Meta.Infinity.has(s,d.upgrade) ? "需要无限盒子" : "突破") : "强化";
         r.button.disabled = innate || locked || done || !available;
         if (innate) r.price.hidden = true;
         if (r.effectPreview) {
           const text = d.key === "kongXuanSheng" ? `当前：每种已解锁的其他仙道宝物 +${f(X.has(s,d.key) ? WIS.Meta.Treasures.count(s,"originImprint") : 0)}／秒`
             : d.key === "kongJieMie" ? `当前：仙道宝物进度需求 ^${X.has(s,d.key) ? "0.5" : "1"}`
-            : `当前：${effectLabels[d.key]} ${["followLaw","daoWuYa","tierTranscendence"].includes(d.key) ? "^" : "×"}${f(X.abilityMultiplier(s, d.key))}`;
+            : `当前：${effectLabels[d.key]} ${["followLaw","daoWuYa","tierTranscendence","huangTian"].includes(d.key) ? "^" : "×"}${f(X.abilityMultiplier(s, d.key))}`;
           if (r.effectPreview.textContent !== text) r.effectPreview.textContent = text;
         }
         if (r.preview) {
@@ -174,7 +180,7 @@
         const info=WIS.Meta.TreasureProgress.view(s,"originImprint");
         $("xiuzhen-origin-count").textContent=`×${f(count)}`;
         $("xiuzhen-origin-effect").textContent=`N获取 ×${f(X.abilityMultiplier(s,"virtualOrigin"))}`;
-        $("xiuzhen-origin-status").textContent=WIS.UI.Treasures.acquisition("originImprint",info,context.format);
+        WIS.UI.Treasures.renderProgress($("xiuzhen-origin-status"),"originImprint",info,context.format);
       }
     }
     return { bind, render, renderChallenges, renderTreasures };

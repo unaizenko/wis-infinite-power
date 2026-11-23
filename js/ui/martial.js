@@ -52,7 +52,7 @@
     function mount() {
       if (mounted) return; mounted = true;
       const actions = el("div", "", "upgrade-groups martial-section"); actions.id = "martial-actions"; actions.hidden = true;
-      const actionGroup = group(actions, "武道行动", "手动转换消耗全部可用输入；自动化在设置中管理。", true);
+      const actionGroup = group(actions, "武道行动", "自动转换可在设置中开启。", true);
       actionGroup.list.append(el("p", "气、体、心、神魂越高，后续获取逐渐减慢；气、体过度领先心，或心过度领先神魂时进一步减慢。预计收益已包含本次增长产生的减速。", "martial-note"));
       const descriptions = { qi: "将J凝练为气。", body: "将战力转为体。", heart: "以气、体炼心。", soul: "以气、体、心凝练神魂。" };
       for (const key of M.resourceKeys) {
@@ -98,11 +98,11 @@
         const categories = key === "golden"
           ? [["inner", "内功", "首次解锁占用名额，升级不再占用；太玄经不占名额。"], ["moves", "招式", "提升武道来源与转换效率。"], ["jueji", "绝技", "各项能力按自身效果生效。"], ["shengong", "神功", "长生诀、天魔策、慈航剑典、战神图录"], ["special", "特殊能力", "挑战资格与内功名额。"]]
           : key === "devour" ? [["devour", "宇宙流", "基因与精神修炼，提升武道资源获取。"]]
-          : key === "shroud" ? [["shroud", "秘境流", "根据气、体、心增强已有强化。"]]
+          : key === "shroud" ? [["shroud", "秘境流", "根据气、体、心增强已有强化。"],["special","特殊","挑战资格与五境修行。"]]
           : [["strength", "劲力", "明劲、暗劲、化劲、罡劲、丹劲"], ["body", "肉身", "易筋、易骨、易髓"], ["boxing", "国术", "拳法与武道修行"], ["special", "特殊能力", "挑战资格与特殊功法"]];
         const categoryLists = new Map(categories.map(([category, name, description], index) => [category, group(groups, name, description, index === 0).list]));
         for (const a of C.abilities.filter(a => (a.family || a.group || a.branch) === key)) {
-          const category = key !== "human" ? a.branch : ["mingJin", "anJin", "huaJin", "gangJin", "danJin"].includes(a.key) ? "strength" : ["yiJin", "yiGu", "yiSui"].includes(a.key) ? "body" : ["stealHeaven", "innerHarmony", "reverseArt", "innate"].includes(a.key) ? "special" : "boxing";
+          const category = a.key==="emperorTribulation" ? "special" : key !== "human" ? a.branch : ["mingJin", "anJin", "huaJin", "gangJin", "danJin"].includes(a.key) ? "strength" : ["yiJin", "yiGu", "yiSui"].includes(a.key) ? "body" : ["stealHeaven", "innerHarmony", "reverseArt", "innate"].includes(a.key) ? "special" : "boxing";
           const row = item(categoryLists.get(category), a.name, a.description);
           const prerequisites = (a.prerequisites || []).map(key => C.abilities.find(other => other.key === key)?.name || key);
           if (prerequisites.length) row.content.append(el("p", "能力前置：" + prerequisites.join("、")));
@@ -134,6 +134,7 @@
       const list = challenges.querySelector(".item-list") || el("div", "", "item-list"); challenges.append(list);
       for (const [key, name, description, reward] of [
         ['martialDragon','化龙','仅秘境流能力生效且可购买；基础资源转换保留。目标：挑战内解锁化龙九变1级。','化龙九变倍率提升至1+0.03log10(1+体)次方。'],
+        ['martialEmperor','大帝劫','气、体、心、神魂获取指数为0.75。目标：战力达到宇宙结构。','解锁秘境流·5境合一。'],
         ['martialSeverDao','仙三斩道','J、战力正向获取速率削弱为sqrt(1+g)-1。目标：战力达到地表（'+f(WIS.Core.Config.challenges.martialSeverDao.targetMartialPower)+'）。','登仙台指数系数由0.025提高至0.04。'],
         ['martialAutumn','秋风未动蝉先觉','心不再弱化或解除普通J/战力软上限。目标：体≥20000、心≥2000、J≥3.033e16、战力≥3.033e15。','心获取×50。'],
         ["martialStealHeaven", "盗天机", "挑战中关闭心对正常量级软上限的解除与弱化。目标：当前心达到30。", "按当前心提升气、体获取指数，解锁自动炼心。"],
@@ -168,14 +169,14 @@
       const busy = locked();
       for (const row of rows) {
         row.amount.textContent = "当前" + labels[row.key] + "：" + f(M.amount(s, row.key));
-        if (busy) {
+        const p = busy ? null : M.preview(s, row.key);
+        if (busy || p.precisionLimited) {
           row.costs.textContent = "";
-          row.gain.textContent = "结算期间暂停收益预览。";
+          row.gain.textContent = busy ? "结算期间暂停收益预览。" : p.reason;
           row.convert.disabled = true;
           continue;
         }
-        const p = M.preview(s, row.key);
-        row.costs.textContent = "消耗全部可用：" + Object.entries(p.costs || p.consumed || {}).map(([key, value]) => `${f(value)} ${labels[key] || key}`).join("、");
+        row.costs.textContent = M.grandHarmony(s) ? "大三合 · 免消耗" : "本次消耗：" + Object.entries(p.costs || p.consumed || {}).map(([key, value]) => `${f(value)} ${labels[key] || key}`).join("、");
         row.gain.textContent = `预计 +${f(p.gain)} ${labels[row.key]}` + (p.reason ? ` · ${p.reason}` : "");
         const rewards = Object.entries(p.heartRewards || {}).filter(([,value]) => B.gt(value,0));
         if (rewards.length) row.gain.textContent += "；消耗心额外获得：" + rewards.map(([key,value]) => `+${f(value)} ${labels[key]}`).join("、");
@@ -190,6 +191,7 @@
       if (!level) return "未解锁";
       if(!M.abilityEnabled(s,key))return "化龙挑战期间禁用";
       if(key==='dragonTransform')return "打岩来源倍率 ×"+f(M.abilityMultiplier(s,key,level));
+      if(key==='fiveRealms')return "四资源各取 log10(1+库存)，乘积除以 10,000。当前 N/秒："+f(M.fiveRealmsRate(s));
       if(key==='immortalPlatform')return "神魂累计转换指数 "+f(M.abilityMultiplier(s,key,level))+"（作用于累计需求与边际成本，保留衰减）";
       if(key==='warGod')return '四资源绝对/相对衰减幂×0.5（累计成本生效）';
       if(key==='shenJin')return '体独立战力来源基础增长指数1.50；解锁见神不坏成就';
@@ -203,7 +205,9 @@
       if (key === "changSheng") {
         if (!M.get(s).abilities.changSheng) return "清空所有内功与龙象进度；初始自然气为0，内功价格 ×10";
         const p = M.captureChangSheng(s);
-        return `内功 ${p.kinds} 种；自然气 +${f(p.rate)}/秒（基础 ${f(p.base)}/秒）；内功价格 ×${10*(M.innerCount(s)+1)}`;
+        const gain = M.changShengGain(p, 1, {frozen:true});
+        const rate = WIS.Core.Amount?.isAmount(gain) ? WIS.Core.Amount.project(gain) : gain;
+        return `内功 ${p.kinds} 种；自然气 +${f(rate)}/秒（基础 ${f(p.base)}/秒）；内功价格 ×${10*(M.innerCount(s)+1)}`;
       }
       if (["tianMo","ciHang"].includes(key)) return `每消耗1心基础获得10${key === "tianMo" ? "气" : "体"}；实际收益按扣费后的资源计算减速`;
       if (["kuHai","mingQuan","shenQiao"].includes(key)) return `${{kuHai:"呼吸法",mingQuan:"极限运动",shenQiao:"鬼背战力"}[key]}倍率 ×${f(M.abilityMultiplier(s,key,level))}` + (key === "shenQiao" ? "；取消鬼背J惩罚（激活时生效）" : "（需解锁原强化）");
@@ -272,7 +276,7 @@
       mount(); const s = R.getState(), enabled = active(s); $("martial-summary").hidden = !enabled;
       for (const row of summaryValues) row.value.textContent = f(M.amount(s, row.key));
       if (enabled) {
-        for (const id of ["mana-resource", "immortal-power-resource", "xianForce-resource", "yuanForce-resource", "nieForce-resource", "universeCoefficient-resource", "multiverseCoefficient-resource"]) if ($(id)) $(id).hidden = true;
+        for (const id of ["mana-resource", "immortal-power-resource", "xianForce-resource", "yuanForce-resource", "nieForce-resource"]) if ($(id)) $(id).hidden = true;
         $("special-resources").hidden = false;
       }
      

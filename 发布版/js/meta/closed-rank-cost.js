@@ -13,14 +13,28 @@
   let boundary=B.ZERO;for(let k=0;k<16;k++){const z=x.add(k);boundary=boundary.sub(z.pow(p).mul(C.expm1(C.log1p(n.div(z)).mul(p))));}
   return powerSumCore(x.add(16),n,p).add(boundary);
  }
- function rawFee(g,rules){const challenge=rules.challenge==='trueGraham',base=challenge?B.BN(100).pow(B.ONE.add(g.mul(CHALLENGE))):B.BN(100),capacity=g.lt(64)?B.ONE:g.sub(56).div(8).pow(2);let v=base.mul(capacity);if(rules.d6)v=B.max(42,v.sub(g));return v;}
+ // Earlier anchored debits must be evaluated with the original rounded powers.
+ const currentArithmetic=rules=>rules.costModel==null||rules.costModel==='anchored-v4';
+ function rawFee(g,rules){
+  const challenge=rules.challenge==='trueGraham',base=challenge?B.BN(100).pow(B.ONE.add(g.mul(CHALLENGE))):B.BN(100);
+  const factor=g.lt(64)?B.ONE:g.sub(56).div(8);
+  const capacity=!challenge&&currentArithmetic(rules)?factor.mul(factor):factor.pow(2);
+  let v=base.mul(capacity);if(rules.d6)v=B.max(42,v.sub(g));return v;
+ }
  function legacyFee(g,rules){g=B.BN(g);const p=rules.reward?.95:1,divisor=B.pow10(rules.treeDelta??0),raw=rawFee(g,rules).div(divisor).pow(p);return rules.pricing==='base'?raw.div(multiplier(g)):raw;}
  function multiplier(g){let k=1;for(const cut of [2,4,8,16,32])if(g.gte(cut))k*=2;return B.BN(k);}
  function ordinary(g,n,rules){if(n.eq(0))return B.ZERO;const p=rules.reward?.95:1;
-  if(g.lt(64)){if(!rules.d6)return B.BN(100).pow(p).mul(n);if(g.gte(58))return B.BN(42).pow(p).mul(n);return powerSum(B.BN(101).sub(g).sub(n),n,p);}
+  if(g.lt(64)){
+   if(!rules.d6)return B.BN(100).pow(p).mul(n);
+   if(g.gte(58))return B.BN(42).pow(p).mul(n);
+   // Between cuts the prices are 100-g, 99-g, ... . Their integer sum
+   // precedes TREE and milestone division. Old anchors retain their old debit.
+   if(p===1&&currentArithmetic(rules))return n.mul(B.BN(201).sub(g.mul(2)).sub(n)).div(2);
+   return powerSum(B.BN(101).sub(g).sub(n),n,p);
+  }
   if(g.eq(64)&&rules.d6)return B.BN(42).pow(p).add(n.gt(1)?ordinary(B.BN(65),n.sub(1),rules):0);
   const a=25/16,x=g.sub(56);
-  if(p===1){const pairs=n.mul(n.sub(1)),sum1=pairs.div(2),sum2=pairs.mul(n.mul(2).sub(1)).div(6);let v=n.mul(x.pow(2)).add(x.mul(pairs)).add(sum2).mul(a);if(rules.d6)v=v.sub(n.mul(g).add(sum1));return v;}
+  if(p===1){const pairs=n.mul(n.sub(1)),sum1=pairs.div(2),sum2=pairs.mul(n.mul(2).sub(1)).div(6);const square=currentArithmetic(rules)?x.mul(x):x.pow(2);let v=n.mul(square).add(x.mul(pairs)).add(sum2).mul(a);if(rules.d6)v=v.sub(n.mul(g).add(sum1));return v;}
   const shift=rules.d6?1/(2*a):0,offset=rules.d6?56/a+1/(4*a*a):0,z=x.sub(shift);let sum=B.ZERO,coefficient=1;
   for(let j=0;j<(rules.d6?32:1);j++){sum=sum.add(powerSum(z,n,2*p-2*j).mul(coefficient));coefficient*=((p-j)/(j+1))*(-offset);}
   return sum.mul(Math.pow(a,p));

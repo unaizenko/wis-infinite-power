@@ -98,7 +98,8 @@
     const sourceMs=clock()-started;statistics.sourceMs+=sourceMs;recordCost("sourcePreparation",sourceMs);
     return { snapshot, seconds, sources, groups, plan, cultivation, bigNumbers, changShengGain, martialPassiveGains, options, started,
       frozenStart:options.frozenOffline ? {activeChallenge:snapshot.activeChallenge,
-        activeChallengeElapsedSeconds:snapshot.activeChallengeElapsedSeconds,discardedElapsedSeconds:snapshot.meta.challenges.discardedElapsedSeconds||0,power:B.BN(snapshot.power)} : null };
+        activeChallengeElapsedSeconds:snapshot.activeChallengeElapsedSeconds,discardedElapsedSeconds:snapshot.meta.challenges.discardedElapsedSeconds||0,power:snapshot.activeChallenge==='infinityFast'&&WIS.Core.Amount?.enabled()
+          ? WIS.Core.Resources.readExact('core.power',snapshot) : B.BN(snapshot.power)} : null };
     };
     if(scopes||options.deferRankMath===true)return {finish,createMathWork};
     const bigNumbers=yield ()=>options.frozenOffline?WIS.Meta.BigNumbers.prepareFrozen(snapshot,seconds,WIS.Meta.BigNumbers.captureFrozen(snapshot)):bigNumbersUnlocked?R.withState(bigNumbersState,()=>E.withFrozenState(bigNumbersState,()=>WIS.Meta.BigNumbers.prepare(bigNumbersState,seconds,bigOptions))):null;
@@ -198,8 +199,8 @@
           else if (candidate.run) {purchased=Number(candidate.run())||0;operations=purchased?1:0;}
           else if (candidate.buyMax) {purchased=Number(candidate.buyMax())||0;operations=purchased?1:0;}
           else while (operations<opportunities && candidate.available()) {
-            const key=candidate.resourceKey || group.defaultResource, cost=B.BN(candidate.cost());
-            if(!cost.isFinite() || !cost.gt(0)) throw Error("自动购买成本无效；本段未提交");
+            const key=candidate.resourceKey || group.defaultResource, cost=candidate.cost();
+            if(!B.isFiniteBN(cost) || !B.gt(cost,0)) throw Error("自动购买成本无效；本段未提交");
             const paid=["joules","power"].includes(key) ? WIS.Core.Resources.spend(key,cost)
               : WIS.Core.Resources.spendSystem("immortal",key,cost);
             if(!paid) break;

@@ -9,11 +9,17 @@
  const project=x=>W.Core.Amount?.isAmount(x)?W.Core.Amount.project(x):B.BN(x);
  function downQ(q){let v=Q.project(q);const d=new DataView(new ArrayBuffer(8));for(let j=0;j<=64;j++){if(Q.compare(Q.decimal(String(v)),q)<=0)return B.max(0,v);if(j===64)break;d.setFloat64(0,v.mag);d.setBigUint64(0,d.getBigUint64(0)+(v.mag<0?1n:-1n));v=B.Decimal.fromComponents(v.sign,v.layer,d.getFloat64(0));}throw Error('Cannot safely migrate rank funding');}
  function gRecord(n,s,pricing){const spec={...W.Meta.RankSettlement.rules(s,pricing),award:1,costModel:'anchored-v3',rewardAboveOne:true};spec.treeDelta=String(rank(spec.treeDelta));let r=n.gBatch&&C.read(n.gBatch);
+  // Preserve already-published ranks by closing old anchors at their original debit.
+  if(!spec.challenge)spec.costModel='anchored-v4';
   const same=r&&['pricing','d6','reward','challenge','costModel','rewardAboveOne'].every(k=>(r.context[k]??null)===(spec[k]??null))&&B.eq(r.context.treeDelta??0,spec.treeDelta);
   if(!same){
    let money=B.BN(n.superProgress||0),acc=r?.acc||B.ZERO;
-   if(r){const previousRules={...r.context,rewardAboveOne:r.context.rewardAboveOne===true};const paid=['anchored-v2','anchored-v3'].includes(r.context.costModel)?G.model(r.n0,previousRules).cost(rank(n.gIndex).sub(r.n0)):G.cost(r.n0,rank(n.gIndex).sub(r.n0),previousRules);money=B.max(0,r.funding.sub(paid));if(r.context.pricing==='base')money=money.mul(M.milestoneMultiplier(n.gIndex));}
+   if(r){const previousRules={...r.context,costModel:r.context.costModel??'legacy',rewardAboveOne:r.context.rewardAboveOne===true};const paid=['anchored-v2','anchored-v3','anchored-v4'].includes(r.context.costModel)?G.model(r.n0,previousRules).cost(rank(n.gIndex).sub(r.n0)):G.cost(r.n0,rank(n.gIndex).sub(r.n0),previousRules);money=B.max(0,r.funding.sub(paid));if(r.context.pricing==='base')money=money.mul(M.milestoneMultiplier(n.gIndex));}
    if(n.gBudget){money=downQ(Budget.available(n.gBudget));if(n.gBudget.gRules.pricing==='base')money=money.mul(M.milestoneMultiplier(n.gIndex));}
+   else if(!r&&n.superResidual?.length){
+    const progress=Q.read({terms:[String(n.superProgress),...n.superResidual],denominator:'1'});
+    money=downQ(progress);
+   }
    if(pricing==='base')money=money.div(M.milestoneMultiplier(n.gIndex));
    if(r&&r.context.pricing!==pricing)acc=pricing==='base'?acc.div(M.milestoneMultiplier(n.gIndex)):acc.mul(M.milestoneMultiplier(n.gIndex));
    r=C.create({n0:rank(n.gIndex),context:spec,funding:money,acc});
@@ -28,18 +34,73 @@
  function frozenG(n,seconds,profile){if(!profile.active)return;let r=gRecord(n,profile.requirementState,'raw'),earned=profile.quantityRate?project(W.Core.Amount.scale(profile.quantityRate,seconds)):B.mul(profile.rate,seconds);r=C.credit(r,earned).record;writeG(n,r,C.solve(r,G.model(r.n0,r.context),{previous:rank(n.gIndex),limit:maxCount(n.gIndex,profile.maximum)}));}
  function treePrice(n,boosted){const target=n.lt(3)?B.BN(3):n.add(1),raw=B.BN(28800).mul(B.BN(1.4).pow(target.sub(3)));return boosted?raw.div(B.BN(1.2).pow(n)):raw;}
  function treeModel(r){return C.geometric(treePrice(r.n0,r.context.boosted),B.BN(r.context.boosted?7/6:1.4).ln());}
- function treeRecord(t,boosted){let r=t.batch&&C.read(t.batch);if(!r||r.context.boosted!==boosted){let p=B.BN(t.superProgress||0);if(t.rankBudget)p=downQ(Budget.view(t.rankBudget).progress);r=C.create({n0:rank(t.rank),context:{boosted,award:rank(t.rank).lt(3)?3:1},funding:p.mul(treePrice(rank(t.rank),boosted)),acc:r?.acc||0});}return r;}
- function treeIncome(state,seconds){const t=M.get(state).tree,exposure=M.treeTimeExposure(t.superElapsedSeconds,seconds,I.has(state,'D11-1'));return B.mul(t.superEntryMultiplier,B.mul(I.has(state,'D11-2')?M.treeEffect(state,'amplify'):1,exposure));}
- function writeTree(n,r,result,maximum,stop){const t=n.tree;t.rank=packed(result.count);t.batch=r;t.superProgress=result.balance.div(treePrice(result.count,r.context.boosted));delete t.rankBudget;delete t.elapsedBudget;if(n.rankBasis)n.rankBasis.tree.targetRank=W.Core.RankBasis.target(t.rank);
-  if(maximum!=null&&result.count.gte(rank(maximum))){t.phase='complete';t.superProgress=B.ONE;return;}
-  if(stop&&result.gained.gt(0)){t.phase='explicit';t.superEntryMultiplier=1;t.superElapsedSeconds=B.ZERO;if(r.context.boosted){t.batch=C.create({n0:result.count,context:{boosted:false,award:1},funding:t.superProgress.mul(treePrice(result.count,false)),acc:r.acc});}}
+ function treeRecord(t,boosted){
+  const current=rank(t.rank);
+  let r=t.batch&&C.read(t.batch);
+  // Prior manual completions kept the three-rank award on the ledger.
+  // Close exactly the batches already published, using their historical prices.
+  if(r&&r.n0.lt(3)&&current.gte(3)){
+   const paid=C.solve(r,treeModel(r),{previous:current,limit:0});
+   r=C.create({n0:current,context:{boosted:r.context.boosted,award:1},funding:paid.balance,acc:r.acc});
+  }
+  if(r&&r.context.boosted===boosted)return r;
+  const price=treePrice(current,boosted);
+  let p=B.BN(t.superProgress||0);
+  if(t.rankBudget)p=downQ(Budget.view(t.rankBudget).progress);
+  if(r){
+   const paid=C.solve(r,treeModel(r),{previous:current,limit:0});
+   const factor=B.BN(1.2).pow(current);
+   const convert=value=>boosted?value.div(factor):value.mul(factor);
+   return C.create({n0:current,context:{boosted,award:current.lt(3)?3:1},funding:convert(paid.balance),acc:convert(r.acc)});
+  }
+  return C.create({n0:current,context:{boosted,award:current.lt(3)?3:1},funding:p.mul(price)});
  }
- function advanceTree(state,seconds,maximum,stop=false,boosted=false,frozenIncome=null){const n=M.get(state),t=n.tree,old=rank(t.rank);let r=treeRecord(t,boosted);if(seconds>0){r=C.credit(r,frozenIncome===null?treeIncome(state,seconds):frozenIncome).record;}
-  let limit=maxCount(old,maximum);if(stop)limit=limit==null?B.ONE:B.min(limit,1);if(r.n0.lt(3))limit=B.ONE;
-  let x=C.solve(r,treeModel(r),{previous:old,limit});
-  if(r.n0.lt(3)&&x.gained.gt(0)&&!stop&&(maximum==null||rank(maximum).gt(3))){r=C.reanchor(r,x,{boosted,award:1});x=C.solve(r,treeModel(r),{previous:B.BN(3),limit:maxCount(3,maximum)});x={...x,gained:x.count.sub(old)};}
-  if(seconds>0)t.superElapsedSeconds=B.add(t.superElapsedSeconds,seconds);
-  writeTree(n,r,x,maximum,stop);return x;
+ function treeIncome(state,seconds){const t=M.get(state).tree,exposure=M.treeTimeExposure(t.superElapsedSeconds,seconds,I.has(state,'D11-1'));return B.mul(t.superEntryMultiplier,B.mul(I.has(state,'D11-2')?M.treeEffect(state,'amplify'):1,exposure));}
+ function writeTree(n,r,result,maximum,stop){
+  const t=n.tree,old=rank(t.rank);
+  if(result.gained.gt(0))t.rank=packed(result.count);
+  if(r.n0.lt(3)&&result.gained.gt(0)){
+   r=C.reanchor(r,result,{boosted:r.context.boosted,award:1});
+  }
+  t.batch=r;t.superProgress=result.balance.div(treePrice(result.count,r.context.boosted));
+  delete t.rankBudget;delete t.elapsedBudget;
+  if(n.rankBasis)n.rankBasis.tree.targetRank=W.Core.RankBasis.target(t.rank);
+  if(maximum!=null&&result.count.gte(rank(maximum))){t.phase='complete';t.superProgress=B.ONE;return;}
+  if(stop&&result.gained.gt(0)){
+   t.phase='explicit';t.superEntryMultiplier=1;t.superElapsedSeconds=B.ZERO;
+   if(r.context.boosted){
+    // This stopped interval earned the boost of the rank at its start.
+    const factor=B.BN(1.2).pow(old),funding=result.balance.mul(factor);
+    t.batch=C.create({n0:result.count,context:{boosted:false,award:1},funding,acc:r.acc.mul(factor)});
+    t.superProgress=funding.div(treePrice(result.count,false));
+   }
+  }
+ }
+ function settleTree(n,r,maximum,stop,batchLimit=null,seconds=0){
+  const old=rank(n.tree.rank);
+  let limit=maxCount(old,maximum);
+  if(batchLimit!=null)limit=limit==null?B.BN(batchLimit):B.min(limit,batchLimit);
+  if(stop)limit=limit==null?B.ONE:B.min(limit,1);
+  const first=r.n0.lt(3);
+  let x=C.solve(r,treeModel(r),{previous:old,limit:first?B.min(limit??1,1):limit});
+  if(first&&x.gained.gt(0)&&!stop&&(maximum==null||rank(maximum).gt(3))&&(batchLimit==null||B.gt(batchLimit,1))){
+   r=C.reanchor(r,x,{boosted:r.context.boosted,award:1});
+   let rest=maxCount(x.count,maximum);
+   if(batchLimit!=null){const remaining=B.sub(batchLimit,1);rest=rest==null?remaining:B.min(rest,remaining);}
+   x=C.solve(r,treeModel(r),{previous:x.count,limit:rest});
+   x={...x,gained:x.count.sub(old)};
+  }
+  if(seconds>0)n.tree.superElapsedSeconds=B.add(n.tree.superElapsedSeconds,seconds);
+  writeTree(n,r,x,maximum,stop);
+  return x;
+ }
+ function advanceTree(state,seconds,maximum,stop=false,boosted=false,frozenIncome=null){
+  const n=M.get(state),t=n.tree;
+  let r=treeRecord(t,boosted);
+  if(seconds>0){
+   r=C.credit(r,frozenIncome===null?treeIncome(state,seconds):frozenIncome).record;
+  }
+  return settleTree(n,r,maximum,stop,null,seconds);
  }
  function advanceTreeSingle(state,seconds,maximum){const n=M.get(state),t=n.tree,r=treeRecord(t,false),old=rank(t.rank);let used=0;
   let x=C.solve(r,treeModel(r),{previous:old,limit:1});
@@ -69,7 +130,8 @@
    x=C.solve(r,G.model(r.n0,r.context),{previous:rank(n.gIndex),limit});writeG(n,r,x);
   }else if(kind==='tree-raw'){
    if(n.tree.phase!=='super'||!M.treeUnlocked(copy))throw Error('TREE work is not active');
-   r=treeRecord(n.tree,false);r=C.credit(r,input.mul(treePrice(rank(n.tree.rank),false))).record;limit=maxCount(n.tree.rank,M.maximumTree(copy));const stop=!I.has(copy,'D10')||!copy.treeSuperAutomationEnabled;if(stop)limit=limit==null?B.ONE:B.min(limit,1);if(operation.limit!=null)limit=limit==null?B.BN(operation.limit):B.min(limit,operation.limit);x=C.solve(r,treeModel(r),{previous:rank(n.tree.rank),limit});writeTree(n,r,x,M.maximumTree(copy),stop);
+   r=C.credit(treeRecord(n.tree,false),input.mul(treePrice(rank(n.tree.rank),false))).record;
+   x=settleTree(n,r,M.maximumTree(copy),!I.has(copy,'D10')||!copy.treeSuperAutomationEnabled,operation.limit);
   }else throw Error('Unknown closed rank operation');
   return {state:copy,result:x};
  }

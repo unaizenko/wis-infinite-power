@@ -5,7 +5,12 @@
   const amount=()=>WIS.Core.Amount;
   const countQuantity=value=>{const A=amount(),v=A.from(value),integer=A.integerPart(v);if(A.compare(v,integer)!==0)throw Error('无限点数/支付记录必须为非负整数');return v;};
   const quantity=(state,key='points')=>amountModel()?countQuantity(amount().field(get(state),key)):amount().from(get(state)[key]||0);
-  const paidQuantity=row=>countQuantity(amount().field(row,'pricePaid'));
+  function paidRecord(row){
+    if(!row||!Object.prototype.hasOwnProperty.call(row,'pricePaid')||row.pricePaid==null)
+      throw Error('无限付款记录缺少实付金额');
+    return row;
+  }
+  const paidQuantity=row=>countQuantity(amount().field(paidRecord(row),'pricePaid'));
   const investedQuantity=state=>(get(state)?.purchaseLedger||[]).reduce((v,row)=>amount().add(v,paidQuantity(row)),amount().from(0));
   function fractionRecord(value){const A=amount(),v=A.from(value);if(A.compare(v,1)>=0)throw Error('银海小数进度越界');const parts=A.serialize(v);return {version:2,amount:parts.main,residual:parts.tail.slice()};}
   function fractionValue(raw){
@@ -47,7 +52,7 @@
       if(!raw.upgrades||typeof raw.upgrades!=='object'||Array.isArray(raw.upgrades)||!Array.isArray(raw.purchaseLedger))throw Error('无限强化记录无效');
       for(const [id,v] of Object.entries(raw.upgrades)){if(!C.nodes[id]||v!==true)throw Error('未知无限强化');n.upgrades[id]=true;}
       const paid=new Set();n.purchaseLedger=raw.purchaseLedger.map(e=>{
-        if(!e||!n.upgrades[e.nodeId]||paid.has(e.nodeId))throw Error('无限付款记录不匹配');paid.add(e.nodeId);return amountModel()?{nodeId:e.nodeId,...amount().fieldParts(paidQuantity(e),'pricePaid')}:{nodeId:e.nodeId,pricePaid:money(e.pricePaid)};
+        if(!e||!n.upgrades[e.nodeId]||paid.has(e.nodeId))throw Error('无限付款记录不匹配');paid.add(e.nodeId);return amountModel()?{nodeId:e.nodeId,...amount().fieldParts(paidQuantity(e),'pricePaid')}:{nodeId:e.nodeId,pricePaid:money(paidRecord(e).pricePaid)};
       });
       if(paid.size!==Object.keys(n.upgrades).length)throw Error('无限强化缺少实际付款记录');
       for(const id of paid){const node=C.nodes[id];if(!prerequisites(n,node))throw Error('无限强化前置不满足');
@@ -102,7 +107,8 @@
     if(target==='immortal')WIS.Cultivation.ImmortalLogic.grantMahayanaReincarnationEffects(copy);
     // Retained treasures confer permanent qualifications; match load immediately.
     const cultivation=S.normalizeDomain(S.toSerializable(copy)).cultivation;
-    const meta=target==='immortal'?{...s.meta,statistics:{...s.meta.statistics,immortalSelectionCount:s.immortalSelectionCount+1}}:s.meta;
+    const carriedMeta=WIS.Cultivation.Martial.prepareHeartLoss(s) || s.meta;
+    const meta=target==='immortal'?{...carriedMeta,statistics:{...carriedMeta.statistics,immortalSelectionCount:s.immortalSelectionCount+1}}:carriedMeta;
     return {cultivation,preferences:copy.core.preferences,meta};
   }
   function changeCultivation(s,target=null){
@@ -110,9 +116,10 @@
     const prepared=prepareCultivationAction(s,target);if(!prepared)return false;
     // All potentially failing work finishes before either domain root is installed.
     s.cultivation=prepared.cultivation;s.core={...s.core,preferences:prepared.preferences};s.meta=prepared.meta;
+    WIS.Meta.UniverseCoefficients.bindLegacyView(s);
     WIS.Core.Effects.invalidate();return true;
   }
-  const ledgerTotal=n=>(n?.purchaseLedger||[]).reduce((v,e)=>B.add(v,e.pricePaid),B.BN(0));
+  const ledgerTotal=n=>(n?.purchaseLedger||[]).reduce((v,e)=>B.add(v,paidRecord(e).pricePaid),B.BN(0));
   const invested=s=>amountModel()?amount().project(investedQuantity(s)):ledgerTotal(get(s));
   const completed=(s,id)=>(s.challengeCompletions?.[id]||0)>0;
   const rewardUnlocked=(s,id)=>C.challenges[id]?.rewardKey?get(s).challengeRewards?.[C.challenges[id].rewardKey]===true:WIS.Meta.Achievements.has(s,C.challenges[id]?.achievementKey);
@@ -131,7 +138,7 @@
     const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas,whole=A?.enabled();
     const factor=i=>B.add(1,B.pow(whole?F.logOnePlusRatio(N.quantity(s,i)):B.log10(B.add(N.amount(s,i),C.fractalLogOffset)),C.fractalPower));
     let m=B.BN(rewardUnlocked(s,'trueG1')?C.fractalReward:1);
-    if(order===0&&has(s,'C3'))m=B.mul(m,whole?F.power(A.add(1,WIS.Cultivation.Xiuzhen.quantity(s,'universeCoefficient')),4):B.pow(B.add(1,WIS.Cultivation.Xiuzhen.amount(s,'universeCoefficient')),4));
+    if(order===0&&has(s,'C3'))m=B.mul(m,whole?F.power(A.add(1,WIS.Meta.UniverseCoefficients.quantity(s,'universeCoefficient')),4):B.pow(B.add(1,WIS.Meta.UniverseCoefficients.amount(s,'universeCoefficient')),4));
     if(order>0&&has(s,'D2-1'))m=B.mul(m,factor(order-1));
     if(s.activeChallenge==='trueG1')for(let i=0;i<order;i++)m=B.div(m,factor(i));return m;}
   const safeRank = value => typeof value==='number' && Number.isSafeInteger(value);
@@ -148,7 +155,8 @@
   // Modifiers then run in order: D6 subtraction/floor, D4 division, reward power.
   function gRequirementBeforeRank(s,g){
     const base=B.pow(C.gRequirement,s.activeChallenge==='trueGraham'?challengeGExponent(g):1);
-    const capacity=B.pow(B.add(1,B.div(rankOffset(g,C.gCapacityStart),C.gCapacityDivisor)),C.gCapacityPower);
+    const factor=B.add(1,B.div(rankOffset(g,C.gCapacityStart),C.gCapacityDivisor));
+    const capacity=s.activeChallenge!=='trueGraham'&&C.gCapacityPower===2?B.mul(factor,factor):B.pow(factor,C.gCapacityPower);
     return B.mul(base,capacity);
   }
   function gDivisorFactor(s){
@@ -283,7 +291,12 @@
       return WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(next));
     }
     const challengeEntry=options.challengeKey!=null;
-    const next=WIS.Core.Reset.apply('infinity',s,()=>WIS.Core.State.fresh(),{context:{infinityChallenge:challengeEntry}});
+    const settledMeta=WIS.Cultivation.Martial.prepareHeartLoss(s);
+    if(settledMeta) {
+      s=WIS.Core.State.cloneForSimulation(s);
+      s.meta=settledMeta;
+    }
+    const next=WIS.Core.Reset.apply('infinity',s,()=>WIS.Core.State.fresh(),{context:{infinityChallenge:challengeEntry,heartLossSettled:true}});
     const retained=!challengeEntry&&WIS.Core.Reset.preservesContent('infinity',s);
     if(!retained)for(const key of WIS.Meta.Treasures.keys){
       if(amountModel()){const A=amount(),stock=A.fromParts(0,WIS.Meta.TreasureLedger.stock(s,key)),kept=A.compare(stock,v.quantities.cap)<=0?stock:v.quantities.cap;WIS.Meta.TreasureLedger.write(next,key,A.words(kept),true);}

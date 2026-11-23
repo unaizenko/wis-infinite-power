@@ -25,12 +25,16 @@
       for(const id of ['ordinary-actions-tab','big-number-tab','tree-tab'])$(id).setAttribute('aria-selected','false');
       const X=WIS.Cultivation.Xiuzhen,H=WIS.Meta.HighMultiverse,third=X.thirdStepActive(s),fourth=X.fourthStepActive(s);
       const record=H.highest(s),hasHistory=record.order!=='0',retainedTier=H.unlocked(s);
-      $('infinity-universe-resources').hidden=!third&&!retainedTier&&!hasHistory;
+      const U=WIS.Meta.UniverseCoefficients,stocks=[
+        ['universeCoefficient',third||WIS.Cultivation.Martial.level(s,'fiveRealms')>0],
+        ['multiverseCoefficient',fourth],['infiniteBoxCoefficient',X.tenthStepActive(s)]
+      ].map(([key,enabled])=>[key,enabled||WIS.Core.BigNum.gt(U.amount(s,key),0)]);
+      $('infinity-universe-resources').hidden=!stocks.some(([,visible])=>visible)&&!retainedTier&&!hasHistory;
       $('infinity-high-multiverse-highest-row').hidden=!hasHistory;
       if(hasHistory)text($('infinity-high-multiverse-highest'),context.format(record.coefficient,2)+' '+H.symbol(record.order));
-      for(const [key,visible] of [['universeCoefficient',third],['multiverseCoefficient',fourth]]){
+      for(const [key,visible] of stocks){
         $('infinity-'+key+'-row').hidden=!visible;
-        if(visible)text($('infinity-'+key),context.format(X.amount(s,key),2));
+        if(visible)text($('infinity-'+key),context.format(U.amount(s,key),2));
       }
       $('infinity-high-multiverse-row').hidden=!retainedTier;
       if(retainedTier){text($('infinity-high-multiverse-label'),'高阶多元（'+H.symbol(H.get(s).order)+'）'+(H.active(s)?'':' · 阶位已保留，产出未恢复'));text($('infinity-high-multiverse'),context.format(H.amount(s),2));}
@@ -140,7 +144,7 @@
       const tab=element('button','','无限');tab.id='infinity-tab';tab.type='button';tab.setAttribute('role','tab');$('big-number-tabs').append(tab);
       tab.addEventListener('click',()=>{selected=true;repaint();});for(const id of ['ordinary-actions-tab','big-number-tab','tree-tab'])$(id).addEventListener('click',()=>{selected=false;repaint();});
       const panel=element('section','infinity-panel');panel.id='infinity-panel';panel.hidden=true;
-      panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><section class="infinity-details" id="infinity-universe-resources" hidden><h3>宇宙数量</h3><p id="infinity-universeCoefficient-row" hidden>单体宇宙（N）：<strong id="infinity-universeCoefficient">0</strong></p><p id="infinity-multiverseCoefficient-row" hidden>多元宇宙（N²）：<strong id="infinity-multiverseCoefficient">0</strong></p><p id="infinity-high-multiverse-row" hidden><span id="infinity-high-multiverse-label">高阶多元</span>：<strong id="infinity-high-multiverse">0</strong></p><p id="infinity-high-multiverse-highest-row" hidden>历史最高高阶多元：<strong id="infinity-high-multiverse-highest">0</strong>（跨转生保留）</p></section><section class="infinity-details" id="high-multiverse-upgrade" hidden><h3>高阶多元</h3><p id="high-multiverse-condition"></p><p id="high-multiverse-cost"></p><p id="high-multiverse-preview"></p><button type="button" class="primary-button" id="high-multiverse-promote">高阶多元+</button></section><p id="infinity-silver-sea" hidden></p><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
+      panel.innerHTML='<h2>无限转生</h2><p id="infinity-balance"></p><section class="infinity-details" id="infinity-universe-resources" hidden><h3>宇宙数量</h3><p id="infinity-universeCoefficient-row" hidden>单体宇宙（N）：<strong id="infinity-universeCoefficient">0</strong></p><p id="infinity-multiverseCoefficient-row" hidden>多元宇宙（N²）：<strong id="infinity-multiverseCoefficient">0</strong></p><p id="infinity-infiniteBoxCoefficient-row" hidden>无限盒子（N^N）：<strong id="infinity-infiniteBoxCoefficient">0</strong></p><p id="infinity-high-multiverse-row" hidden><span id="infinity-high-multiverse-label">高阶多元</span>：<strong id="infinity-high-multiverse">0</strong></p><p id="infinity-high-multiverse-highest-row" hidden>历史最高高阶多元：<strong id="infinity-high-multiverse-highest">0</strong>（跨转生保留）</p></section><section class="infinity-details" id="high-multiverse-upgrade" hidden><h3>高阶多元</h3><p id="high-multiverse-condition"></p><p id="high-multiverse-cost"></p><p id="high-multiverse-preview"></p><button type="button" class="primary-button" id="high-multiverse-promote">高阶多元+</button></section><p id="infinity-silver-sea" hidden></p><p id="infinity-preview"></p><p id="infinity-requirement"></p><button type="button" class="primary-button" id="infinity-rebirth">无限转生</button>';
       $('actions-page').append(panel);$('infinity-rebirth').addEventListener('click',()=>rebirth(false));
       $('high-multiverse-promote').addEventListener('click',()=>context.performSavedAction(()=>context.session?context.session.dispatch({type:'action',group:'high',method:'promote',args:[]}):WIS.Meta.HighMultiverse.promote(s),renderActions));
       const page=$('upgrades-page'),ordinary=element('div');ordinary.id='ordinary-upgrades-panel';

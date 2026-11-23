@@ -204,7 +204,7 @@
     );
     if (!options.skipTreasureRolls) yield ()=>WIS.Cultivation.Xiuzhen?.awardOrigin(state,plan.xiuzhen);
     if (xiuzhen && xiuzhen !== state.cultivation.systems.immortal.xiuzhen) {
-      state.cultivation.systems.immortal.xiuzhen = xiuzhen; WIS.Core.Effects.invalidate();
+      WIS.Cultivation.Xiuzhen.installPrepared(state,xiuzhen); WIS.Core.Effects.invalidate();
     }
     if (!options.skipTreasureRolls && plan.sheng)
       yield ()=>WIS.Cultivation.Xiuzhen.awardSheng(state,result.processedSeconds,plan.sheng);

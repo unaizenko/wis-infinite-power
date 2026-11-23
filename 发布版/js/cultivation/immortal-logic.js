@@ -659,8 +659,7 @@
 
   function immortalPowerRealmCost(index) {
     const key = ADVANCED_REALMS[index]?.key;
-    const cost = BN(IMMORTAL_POWER_CONFIG.realmCosts[key]);
-    return isFiniteBN(cost) && gt(cost, ZERO) ? cost : ZERO;
+    return IMMORTAL_POWER_CONFIG.realmCosts[key] ?? ZERO;
   }
 
   function advancedRealmManaCost(index) {
@@ -4144,7 +4143,7 @@
       .filter((candidate) => gt(candidate.currentCost, ZERO) && (isCultivationResource
         ? WIS.Core.Resources.canAffordSystem("immortal", resourceKey, candidate.currentCost)
         : WIS.Core.Resources.canAfford(resourceKey, candidate.currentCost)))
-      .sort((left, right) => left.currentCost.cmp(right.currentCost) || left.candidateIndex - right.candidateIndex);
+      .sort((left, right) => BN(left.currentCost).cmp(right.currentCost) || left.candidateIndex - right.candidateIndex);
     const affordable = affordableCandidates[0];
     if (!affordable) return false;
     if (typeof affordable.buyMax === "function") {

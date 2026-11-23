@@ -342,6 +342,11 @@
     showNotice(`已退出挑战：${challengeName}`);
   }
 
+  function resourceReached(current,id,target) {
+    const {Amount,Resources}=WIS.Core;
+    return Amount?.enabled() ? Amount.compare(Resources.readExact(id,current),target)>=0 : gte(Resources.get(id,current),target);
+  }
+
   function checkActiveChallengeCompletion({ offlineIncome } = {}) {
     let ringCompleted=false;
     if (WIS.Meta.Infinity.isChallengeActive(state,'infinityRing') && WIS.Cultivation.Xiuzhen.get(state).realm >= 7) {
@@ -357,18 +362,18 @@
     if (!challenge || !systemActive(state, challengeKey) || challenge.manualCompletion) return ringCompleted;
     let targetReached = challenge.system === "martial" ? martialGoalReached(state, challenge)
       : challenge.targetYuanForce ?
-      gte(WIS.Cultivation.Xiuzhen.amount(state,"yuanForce"),challenge.targetYuanForce) && gte(state.joules,challenge.targetJAndPower) && gte(state.power,challenge.targetJAndPower)
+      resourceReached(state,"cultivation.immortal.yuanForce",challenge.targetYuanForce) && resourceReached(state,"core.joules",challenge.targetJAndPower) && resourceReached(state,"core.power",challenge.targetJAndPower)
       : challenge.targetG ? WIS.Meta.BigNumbers.rankCompare(WIS.Meta.BigNumbers.get(state).gIndex,challenge.targetG)>=0
       : challenge.targetTree ? WIS.Meta.BigNumbers.rankCompare(WIS.Meta.BigNumbers.get(state).tree.rank,challenge.targetTree)>=0
       : challenge.targetXiuzhenRealm
       ? WIS.Cultivation.Xiuzhen.get(state).realm >= challenge.targetXiuzhenRealm
       : challenge.requiresJAndPower
-      ? gte(state.joules, scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power) &&
-        gte(state.power, scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power)
+      ? resourceReached(state,"core.joules", scaleThresholds[challengeRequiredScaleIndex(challengeKey)].powerLiteral) &&
+        resourceReached(state,"core.power", scaleThresholds[challengeRequiredScaleIndex(challengeKey)].powerLiteral)
       : Number.isFinite(challenge.targetAdvancedRealmLevel)
         ? state.advancedRealmLevel >= challenge.targetAdvancedRealmLevel
         : challenge.resetLevel==='infinity'
-        ? gte(state.power,scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power)
+        ? resourceReached(state,"core.power",scaleThresholds[challengeRequiredScaleIndex(challengeKey)].powerLiteral)
         : state.highestScaleIndex >= challengeRequiredScaleIndex(challengeKey);
     let observedElapsed=state.activeChallengeElapsedSeconds+(state.meta.challenges.discardedElapsedSeconds||0);
     if(offlineIncome && challenge.deadlineSeconds) {
@@ -381,8 +386,10 @@
       const remaining=Math.max(0,challenge.deadlineSeconds-start.activeChallengeElapsedSeconds-(start.discardedElapsedSeconds||0));
       const elapsed=Math.min(offlineIncome.seconds,remaining);
       observedElapsed=start.activeChallengeElapsedSeconds+(start.discardedElapsedSeconds||0)+elapsed;
-      const deadlinePower=add(start.power,mul(offlineIncome.sources.rates.power,elapsed));
-      targetReached=gte(deadlinePower,scaleThresholds[challengeRequiredScaleIndex(challengeKey)].power);
+      const A=WIS.Core.Amount, target=scaleThresholds[challengeRequiredScaleIndex(challengeKey)].powerLiteral;
+      targetReached=A?.enabled()
+        ? A.compare(A.add(start.power,A.scale(offlineIncome.sources.quantities.power,elapsed)),target)>=0
+        : gte(add(start.power,mul(offlineIncome.sources.rates.power,elapsed)),target);
     }
     if (challenge.deadlineSeconds && (observedElapsed > challenge.deadlineSeconds + 1e-9 ||
         (!targetReached && observedElapsed >= challenge.deadlineSeconds - 1e-9))) {
@@ -408,9 +415,9 @@
     const M=WIS.Cultivation.Martial, B=WIS.Core.BigNum;
     if(definition.targetMartialAbility && (M.get(current).abilities[definition.targetMartialAbility]||0)<definition.targetMartialAbilityLevel)return false;
     for (const [field,key] of [["targetMartialQi","qi"],["targetMartialBody","body"],["targetMartialHeart","heart"]])
-      if (definition[field] !== undefined && !B.gte(M.amount(current,key),definition[field])) return false;
-    if (definition.targetMartialJ !== undefined && !B.gte(current.joules,definition.targetMartialJ)) return false;
-    if (definition.targetMartialPower !== undefined && !B.gte(current.power,definition.targetMartialPower)) return false;
+      if (definition[field] !== undefined && !resourceReached(current,"cultivation.martial."+key,definition[field])) return false;
+    if (definition.targetMartialJ !== undefined && !resourceReached(current,"core.joules",definition.targetMartialJ)) return false;
+    if (definition.targetMartialPower !== undefined && !resourceReached(current,"core.power",definition.targetMartialPower)) return false;
     if (definition.martialRatioTolerance !== undefined) {
       const d=B.sub(B.log10(B.add(1,B.div(current.joules,10))),B.log10(B.add(1,current.power)));
       if (B.gt(B.BN(d).abs(),definition.martialRatioTolerance)) return false;

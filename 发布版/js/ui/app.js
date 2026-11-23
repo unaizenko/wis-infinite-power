@@ -76,7 +76,31 @@
     const runtime = WIS.Core.Runtime;
     const state = runtime.state;
     const session=context.session;
-    const setPreference=(key,value)=>session?session.preference(key,value).catch(error=>{showNotice(error.message,6000);return false;}):(state[key]=value);
+    async function savePreferenceChange(apply, restore) {
+      try {
+        if (!await apply()) return false;
+      } catch (error) {
+        showNotice(error.message, 6000);
+        return false;
+      }
+      try {
+        if (await saveState() === false) throw Error("保存尚未确认");
+        return true;
+      } catch (error) {
+        if (!session) restore();
+        const message = session ? "设置已生效，但存档副本尚未确认：" : "设置保存失败：";
+        showNotice(message + (error?.message || error), 6000);
+        return false;
+      }
+    }
+    function savePreference(key, value) {
+      const previous = state[key];
+      return savePreferenceChange(async () => {
+        if (session) await session.preference(key, value);
+        else state[key] = value;
+        return true;
+      }, () => { state[key] = previous; });
+    }
     const actionFacade=(group,value)=>session?session.facade(group,value):value;
     const {
       BN, ZERO, ONE, add: addBN, sub: subBN, mul: mulBN, div: divBN, pow: powBN, log10: log10BN,
@@ -293,6 +317,8 @@
 
     const PAGE_NAMES = ["actions", "upgrades", "cultivation", "treasures", "challenges", "achievements", "statistics"];
     let activePage = "actions";
+    const portraitResources=window.matchMedia?.("(max-width: 600px) and (orientation: portrait)");
+    let phoneExpanded=false, desktopExpanded=true, focusedRows=[];
     let explorationHoldActive = false;
     let cancelExplorationHold = () => {};
     let activeCultivationPage = "realms";
@@ -343,9 +369,7 @@
         description,
         isUnlocked: () => hasAchievement(unlockAchievement),
         isEnabled: () => state[stateKey] !== false,
-        toggle: () => {
-          return setPreference(stateKey,state[stateKey]===false);
-        }
+        setEnabled: value => savePreference(stateKey, value)
       });
 
     const AUTOMATION_DEFINITIONS = Object.freeze([
@@ -399,7 +423,7 @@
         ['numbers-tree-super','自动进入超构造','D7-3','treeSuperAutomationEnabled','在线时满足超构造解锁条件，且当前进入倍率达到设定值时自动进入。拥有D8后超构造期间也产出树构造点。拥有D10时，此开关同时控制连续推进；关闭后完成当前TREE目标便停止，保留剩余进度。']
       ].map(([id,name,node,key,description])=>Object.freeze({id,name,group:'numbers',description,
         isUnlocked:()=>WIS.Meta.Infinity.has(state,node),isEnabled:()=>state[key]===true,
-        isDisabled:()=>Boolean(getCatchUpStatus().locked),toggle:()=>setPreference(key,!state[key])
+        isDisabled:()=>Boolean(getCatchUpStatus().locked),setEnabled: value => savePreference(key, value)
       })),
       ...["qi", "body", "heart", "soul"].map((key, index) => Object.freeze({
         id: "martial-" + key,
@@ -409,11 +433,13 @@
         isUnlocked: () => state.cultivation.active === "martial" && WIS.Cultivation.Martial.automaticUnlocked(state, key),
         isEnabled: () => Boolean(WIS.Cultivation.Martial.get(state).automation[key]),
         isDisabled: () => Boolean(getCatchUpStatus().locked),
-        toggle: () => {
-          const enabled = !WIS.Cultivation.Martial.get(state).automation[key];
-          if(session)return actionFacade('martial',WIS.Cultivation.Martial).setAutomation(state,key,enabled).then(()=>enabled);
-          WIS.Cultivation.Martial.setAutomation(state,key,enabled);return enabled;
-          
+        setEnabled: enabled => {
+          const martial = WIS.Cultivation.Martial;
+          const previous = martial.get(state).automation[key];
+          return savePreferenceChange(
+            () => actionFacade('martial', martial).setAutomation(state, key, enabled),
+            () => martial.setAutomation(state, key, previous)
+          );
         }
       }))
     ]);
@@ -489,7 +515,8 @@
               if(!definition.isUnlocked() || definition.isDisabled())return;
               const value=input.value.trim(),n=value?WIS.Core.BigNum.parseFinite(value):null;
               if(!n || n.lt(1)){error.textContent='请输入大于或等于 1 的有效倍率。';error.hidden=false;input.setAttribute('aria-invalid','true');return;}
-              await setPreference('treeSuperAutomationMultiplier',String(n));error.hidden=true;input.removeAttribute('aria-invalid');saveState();renderAutomationManager(true);showNotice('超构造进入倍率已保存');
+              if(!await savePreference('treeSuperAutomationMultiplier',String(n)))return;
+              error.hidden=true;input.removeAttribute('aria-invalid');renderAutomationManager(true);showNotice('超构造进入倍率已保存');
             });
             field.append(label,input,apply);copy.append(field,error);
           }
@@ -500,7 +527,8 @@
             for(const [value,label] of [['','关闭'],['immortal','仙道'],['martial','武道']]){const option=document.createElement('option');option.value=value;option.textContent=label;toggle.append(option);}
             toggle.addEventListener('change',async()=>{
               if(!definition.isUnlocked()||definition.isDisabled())return;
-              await setPreference('cultivationAutomationTarget',toggle.value);saveState();renderAutomationManager(true);showNotice('转生后自动选择体系已保存');
+              const saved=await savePreference('cultivationAutomationTarget',toggle.value);
+              renderAutomationManager(true);if(saved)showNotice('转生后自动选择体系已保存');
             });
           }else toggle.type = "button";
           toggle.dataset.automationId = definition.id;
@@ -1035,8 +1063,9 @@
   }
 
   function renderSaveStatus(status=WIS.Core.Save.status()) {
-    byId("save-failure-panel").hidden=!status.unsaved;
-    byId("save-failure-message").textContent=status.message;
+    const releaseFailed=importTransaction?.phase==="release-failed";
+    byId("save-failure-panel").hidden=!status.unsaved&&!releaseFailed;
+    byId("save-failure-message").textContent=releaseFailed?"尚未解除导入冻结，请点击重试保存。":status.message;
   }
 
   function captureExportText() {
@@ -1053,9 +1082,10 @@
 
   let exportSnapshot = null;
   let exportOperationBusy = false;
-  function openSaveExport(text, filename, kind = "save") {
+  function openSaveExport(text, filename, kind = "save", title = "导出存档") {
     if (exportOperationBusy) { WIS.UI.Dialog.open(byId("save-export-dialog")); return; }
     exportSnapshot = {text, filename, kind};
+    byId("save-export-title").textContent = title;
     byId("save-export-text").value = text;
     byId("save-export-text-panel").hidden = true;
     byId("save-export-status").textContent = "已固定当前备份内容。请选择保存、分享或查看完整文本。";
@@ -1063,9 +1093,17 @@
     byId("save-export-generic").hidden = !WIS.UI.NativePlatform?.isNative();
     WIS.UI.Dialog.open(byId("save-export-dialog"));
   }
-  async function exportSave() {
+  async function exportSave({confirmedOnly=false} = {}) {
     if (exportOperationBusy) { WIS.UI.Dialog.open(byId("save-export-dialog")); return; }
-    openSaveExport(session?await session.exportSave():captureExportText(), `WIS-存档-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    try {
+      const confirmed=confirmedOnly && session;
+      const text=confirmed ? session.exportConfirmedSave() : await captureExportText();
+      const label=confirmed ? "最近已确认进度" : "存档";
+      openSaveExport(text, `WIS-${label}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`, "save", "导出"+label);
+    } catch (error) {
+      WIS.Core.Save.diagnose("export", error);
+      safeOperationNotice("存档导出失败，请保留页面并重试。");
+    }
   }
   async function performSaveExport(kind) {
     if (!exportSnapshot || exportOperationBusy) return;
@@ -1184,13 +1222,17 @@
     if(session){
       if(!transaction||transaction!==importTransaction||transaction.committed||transaction.phase==="releasing")return false;
       transaction.phase="releasing";
-      void transaction.ready.then(()=>session.rollbackImport(reason)).finally(()=>{
+      void transaction.ready.then(()=>session.rollbackImport(reason),()=>{}).then(()=>{
         if(importTransaction!==transaction)return;
         importTransaction=null;
         handleOfflineCatchUpStatus(getCatchUpStatus());
-      }).then(()=>{
         applyTheme();markGlobalDirty();markPagesDirty();render({forceGlobal:true,forcePage:true});
-      }).catch(error=>showNotice(error.message,6000));
+        if(reason.startsWith("import-picker-"))showNotice("已取消导入，原进度已恢复。",1800);
+      },error=>{
+        transaction.phase="release-failed";
+        WIS.Core.Save.noteFailure(error,"尚未解除导入冻结，请点击重试保存。");
+        showNotice("尚未解除导入冻结，请点击重试保存。",6000);
+      });
       return true;
     }
     if (!transaction || transaction !== importTransaction || transaction.committed) return false;
@@ -1230,9 +1272,20 @@
       importPickerReturnTimer = null;
       if (!importTransaction || importTransaction.token !== token || importTransaction.phase !== "picking") return;
       if (importInput.files?.length) return;
-      if (rollbackUIImportTransaction(importTransaction, "import-picker-cancel"))
+      if (rollbackUIImportTransaction(importTransaction, "import-picker-cancel") && !session)
         showNotice("已取消导入，原进度已恢复。", 1800);
     }, 1200);
+  }
+
+  function ensureImportedPageUnlocked() {
+    if ((activePage === "upgrades" && !upgradesUnlocked()) ||
+        (activePage === "achievements" && !achievementsUnlocked()) ||
+        (activePage === "cultivation" && !cultivationUnlocked()) ||
+        (activePage === "treasures" && !treasuresUnlocked()) ||
+        (activePage === "challenges" && !challengesUnlocked()) ||
+        (activePage === "statistics" && !statisticsUnlocked())) {
+      switchPage("actions", { deferRender: true });
+    }
   }
 
   async function importSave(file) {
@@ -1269,10 +1322,15 @@
       stage = "install";
       if(session){
         WIS.Core.Save.backup(previous.state,{offlineRecoveryOverride:previous.recovery,capturedAt:transaction.startedAt,preserveExisting:file?.preserveBackup===true});
-        await session.importPrepared(prepared);transaction.committed=true;importTransaction=null;installed=true;
+        const {mirrorSaved}=await session.importPrepared(prepared);
+        transaction.committed=true;importTransaction=null;installed=true;
+        clearOfflineSummaryPresentation();
+        offlineCompletedSummary=null;
+        offlineSummarySeen.clear();
         achievementPresentation.reset();markCostGroupsDirty();markAchievementsDirty();markGlobalDirty();markPagesDirty();applyTheme();
+        ensureImportedPageUnlocked();
         WIS.UI.Dialog.close(byId("settings-dialog"));handleOfflineCatchUpStatus(getCatchUpStatus());render({forceGlobal:true,forcePage:true});
-        showNotice("存档已导入",1400);return;
+        showNotice(mirrorSaved?"存档已导入":"存档已导入，兼容副本尚未确认。请重试保存。",mirrorSaved?1400:6000);return;
       }
       // Validation and migration have no access to the current task queue.
       // Backup must succeed before switching either progress or offline debt.
@@ -1313,14 +1371,7 @@
       stage = "present";
       // --- import transaction ends here; settlement is its own lifecycle ---
       applyTheme();
-      if ((activePage === "upgrades" && !upgradesUnlocked()) ||
-          (activePage === "achievements" && !achievementsUnlocked()) ||
-          (activePage === "cultivation" && !cultivationUnlocked()) ||
-          (activePage === "treasures" && !treasuresUnlocked()) ||
-          (activePage === "challenges" && !challengesUnlocked()) ||
-          (activePage === "statistics" && !statisticsUnlocked())) {
-        switchPage("actions", { deferRender: true });
-      }
+      ensureImportedPageUnlocked();
       // Settings must not stay stacked over the recovery window. Present the
       // lightweight recovery modal before any potentially expensive full page render.
       WIS.UI.Dialog.close(byId("settings-dialog"));
@@ -1375,7 +1426,9 @@
     if (!window.confirm("确定要清空全部游戏进度和个性化设置吗？")) return;
     offlineCompletedSummary = null;
     if(session){
-      try{await session.beginImport();await session.importPrepared({state:freshDefaultState(),offlineRecovery:null});achievementPresentation.reset();activePage="actions";activeCultivationPage="realms";markGlobalDirty();markPagesDirty();applyTheme();switchPage("actions");}
+      try{await session.beginImport();await session.importPrepared({state:freshDefaultState(),offlineRecovery:null});achievementPresentation.reset();activePage="actions";activeCultivationPage="realms";markGlobalDirty();markPagesDirty();applyTheme();switchPage("actions");
+        WIS.UI.Dialog.close(byId("settings-dialog"));
+        showNotice(WIS.Core.Save.status().unsaved?"游戏已重置，存档副本尚未确认。":"游戏已重置");}
       catch(error){showNotice(error.message,6000);}return;
     }
     cancelCatchUp();
@@ -1763,6 +1816,7 @@
       setTextIfChanged(card.querySelector(".achievement-reward strong"),achievement.reward);
       card.hidden = state.hideUnlockedAchievements && achievement.completed;
     });
+    WIS.UI.Cards.updateCatalogGroupCounts(byId("achievement-list"),"成就");
     byId("achievement-unlocked-count").textContent = String(unlockedCount);
     byId("achievement-total-count").textContent = String(achievements.length);
     const filterButton = byId("toggle-achievement-filter");
@@ -1790,12 +1844,13 @@
       const recordedBest = Math.max(0, state.bestQiLayer);
       const projectedBest = active ? Math.max(recordedBest, currentLayer) : recordedBest;
       byId(`${idPrefix}-progress`).textContent = `历史最高：炼气${format(recordedBest, 0)}层${finished ? "（目标已达成）" : ""}`;
+      byId(`${idPrefix}-limit`).hidden = !active;
       byId(`${idPrefix}-limit`).textContent = active
         ? `本轮炼气${format(currentLayer, 0)}层；下一层要求 ${format(qiLayerRequirement(currentLayer + 1))} 法力（不消耗）`
-        : `退出时刷新历史最高层；10万层完成记录只增加一次`;
+        : "";
       byId(`${idPrefix}-reward`).textContent = active
         ? `若现在退出，永久吐纳法力倍率 ×${format(qiChallengeReward(projectedBest))}`
-        : `根据历史最高炼气层，永久吐纳法力倍率 ×${format(qiChallengeReward(recordedBest))}`;
+        : `退出按最高层结算，永久吐纳法力倍率 ×${format(qiChallengeReward(recordedBest))}`;
       button.textContent = active ? "退出挑战" : finished ? "重复挑战（可刷新最高层）" : "开启挑战";
       button.disabled = state.activeChallenge !== null && !active;
       return;
@@ -1868,9 +1923,10 @@
         ? "限制已克服"
         : "限制：正常软上限结算后，追加独立的星球压制软上限";
     } else if (challengeKey === "severSelfCorpse") {
+      setTextIfChanged(byId("self-corpse-formula-coefficient"), IMMORTAL_POWER_CONFIG.daluo.selfCorpseCoefficient.toFixed(2));
       byId(`${idPrefix}-limit`).textContent = completedDisplay
         ? "全部限制已克服"
-        : `法则与法则本源失效；仙灵力额外 ^${formatSmallMultiplier(selfCorpseImmortalPowerLimitExponent(), 3)}；E=1/[1+${IMMORTAL_POWER_CONFIG.daluo.selfCorpseCoefficient.toFixed(2)}×log10(1+I/1e16)]`;
+        : `仙灵力获取额外 ^${formatSmallMultiplier(selfCorpseImmortalPowerLimitExponent(), 3)}`;
     } else {
       byId(`${idPrefix}-limit`).textContent = completedDisplay
         ? "全部限制已克服"
@@ -1964,8 +2020,7 @@
 
   function renderAdditionalResources(published=context.getCommittedRates?.()) {
     const M = WIS.Meta.BigNumbers, X = WIS.Cultivation.Xiuzhen;
-    const big = M.get(state), requirements = M.requirements(state);
-    const bigVisible = big.unlocked || (requirements.cosmic && requirements.achievement);
+    const bigVisible = M.isUnlocked(state);
     setHiddenIfChanged(byId("big-number-resource"), !bigVisible);
     if (bigVisible) {
       const v = M.headerSummary(state);
@@ -1983,13 +2038,15 @@
     // may retain blocking presentation, so remaining debt is also required.
     const recovering=status.pendingGameSeconds>0 && (status.presentation==="blocking" || status.offlinePendingGameSeconds>0);
     const paused = status.phase === "paused";
-    const H=WIS.Meta.HighMultiverse, highestUniverse=H.highestVisible(state);
+    const H=WIS.Meta.HighMultiverse;
+    const highestUniverse=X.tenthStepActive(state) ? "infiniteBoxCoefficient" : H.highestVisible(state);
+    const universeKeys=["universeCoefficient","multiverseCoefficient","infiniteBoxCoefficient",H.key];
     for (const key of [...X.resourceKeys,H.key]) {
-      const visible = key===H.key ? highestUniverse===key : active && (!["universeCoefficient","multiverseCoefficient"].includes(key) || highestUniverse===key)
-        && (n.abilities[key] || n.realm >= ({xianForce:2,yuanForce:3,nieForce:7,universeCoefficient:7,multiverseCoefficient:11}[key]));
+      const visible = universeKeys.includes(key) ? highestUniverse===key || (key===H.key ? gtBN(H.amount(state),ZERO) : gtBN(X.amount(state,key),ZERO)) : active &&
+        (n.abilities[key] || n.realm >= ({xianForce:2,yuanForce:3,nieForce:7}[key]));
       setHiddenIfChanged(byId(key + "-resource"), !visible);
       if (visible) {
-        const stock=key===H.key?H.amount(state):X.amount(state,key);
+        const stock=universeKeys.includes(key)?WIS.Meta.UniverseCoefficients.amount(state,key):X.amount(state,key);
         if(key===H.key)setTextIfChanged(byId("highMultiverseCoefficient-label"),"高阶多元（"+H.symbol(H.get(state).order)+"）");
         setTextIfChanged(byId(key), format(stock));
         const rate = published?.rates?.[key + "PerSecond"] ?? null;
@@ -1999,7 +2056,7 @@
             rateStale:published?.stale,rateStopped:published?.stopped}));
       }
     }
-    setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys.filter(key => !["universeCoefficient","multiverseCoefficient"].includes(key))]
+    setHiddenIfChanged(byId("special-resources"), ["mana", "immortal-power", ...X.resourceKeys.filter(key => !universeKeys.includes(key))]
       .every(key => byId(key + "-resource").hidden));
   }
 
@@ -2017,6 +2074,39 @@
     return globalRateText(rate, status, () => rateText, hint);
   }
 
+  function syncResourceMode() {
+    const button=byId("toggle-resource-panel"),panel=button.closest(".resource-panel");
+    const phone=portraitResources?.matches,expanded=phone?phoneExpanded:desktopExpanded;
+    button.setAttribute("aria-expanded",String(expanded));
+    panel.classList.toggle("resources-focused",!!phone&&!expanded);
+    panel.classList.toggle("resources-collapsed",!phone&&!expanded);
+    setTextIfChanged(byId("resource-panel-toggle-label"),phone?(expanded?"精简 ▴":"全部 ▾"):(expanded?"收起 ▴":"展开 ▾"));
+    renderFocusedResources();
+  }
+
+  function renderFocusedResources(){
+    if(!portraitResources?.matches||phoneExpanded)return;
+    let preferred=[];
+    if(activePage==="cultivation"||activePage==="treasures"){
+      preferred=state.cultivation.active==="martial"?["martial-summary-qi","martial-summary-body"]:
+        ["mana","nieForce","yuanForce","xianForce","immortal-power"];
+    }else if(activePage==="actions"&&["tree-tab","big-number-tab"].some(id=>rawById(id)?.getAttribute("aria-selected")==="true")){
+      preferred=["big-number-dominant","power"];
+    }
+    const next=[];
+    for(const id of [...preferred,"joules","power"]){
+      const value=rawById(id);
+      if(!value||value.closest("[hidden]"))continue;
+      const row=value.closest(".resource-row");
+      if(row&&!next.includes(row))next.push(row);
+      if(next.length===2)break;
+    }
+    if(next.length===focusedRows.length&&next.every((row,i)=>row===focusedRows[i]))return;
+    for(const row of focusedRows)row.classList.remove("focus-resource");
+    for(const row of next)row.classList.add("focus-resource");
+    focusedRows=next;
+  }
+
   function renderGlobal() {
     renderOnlineCompensation();
     const published=context.getCommittedRates?.();
@@ -2031,7 +2121,8 @@
     const thirdStepScale = WIS.Cultivation.Xiuzhen.thirdStepActive(state);
     const fourthStepScale = WIS.Cultivation.Xiuzhen.fourthStepActive(state);
     const highMultiverseScale = WIS.Meta.HighMultiverse.active(state);
-    setTextIfChanged(byId("current-scale"), highMultiverseScale ? "高阶多元" : fourthStepScale ? "多元宇宙" : thirdStepScale ? "单体宇宙" : SCALE_THRESHOLDS[state.highestScaleIndex].name);
+    const infiniteBoxScale = WIS.Cultivation.Xiuzhen.tenthStepActive(state);
+    setTextIfChanged(byId("current-scale"), infiniteBoxScale ? "无限盒子" : highMultiverseScale ? "高阶多元" : fourthStepScale ? "多元宇宙" : thirdStepScale ? "单体宇宙" : SCALE_THRESHOLDS[state.highestScaleIndex].name);
     setHiddenIfChanged(byId("next-scale-progress"), thirdStepScale || highMultiverseScale);
     const nextScale = SCALE_THRESHOLDS[state.highestScaleIndex + 1];
     const nextScaleDetails = nextScale ? scaleRequirementDetails(state.highestScaleIndex + 1, state) : null;
@@ -2521,6 +2612,15 @@
       // The action's cooperative work proves final gain before spending;
       // automatic first previews continue to yield to online debt.
       const trainingBaseReady = syncTrainingPreviewBoundary(byId("conversion-preview"));
+      const first=state.highestScaleIndex===0&&!hasAchievement("powerOne");
+      setHiddenIfChanged(byId("training-goal"),!first);
+      if(first){
+        const amount=WIS.Core.BigNum.min(state.joules,10).toNumber();
+        const meter=byId("training-meter");
+        if(meter.value!==amount)meter.value=amount;
+        const shown=format(state.joules,1);
+        setTextIfChanged(byId("training-goal-value"),(trainingBaseReady?"10":Number(shown)>=10?"<10":shown)+" / 10 J");
+      }
       writeSourcePreview("conversion-preview", "training", false);
       renderTrainingPreviewControls(trainingBaseReady);
     }
@@ -2535,8 +2635,8 @@
     setPreviewText(byId("exercise-preview"), () => `${state.exercisePurchased ? "当前：" : "解锁后："}J 获取 ×${format(state.exercisePurchased ? exercise : exercisePotential, 2)}`);
     setPreviewText(byId("transcendent-preview"), () => `${state.transcendentPurchased ? "当前：" : "解锁后："}战力获取 ×${format(state.transcendentPurchased ? transcendent : transcendentPotential, 2)}`);
     writeSourcePreview("focus-preview", "focus", true);
-    setPreviewText(byId("breathing-method-preview"), () => `${state.breathingMethodPurchased ? "当前：" : "解锁后："}跑步倍率 ×${format(mulBN(1.5, WIS.Cultivation.Martial.abilityMultiplier(state,"kuHai")), 2)}`);
-    setPreviewText(byId("extreme-exercise-preview"), () => `${state.extremeExercisePurchased ? "当前：" : "解锁后："}运动倍率 ×${format(mulBN(1.5, WIS.Cultivation.Martial.abilityMultiplier(state,"mingQuan")), 2)}`);
+    renderBaseMultiplier("breathing-method", "跑步", state.breathingMethodPurchased, "kuHai");
+    renderBaseMultiplier("extreme-exercise", "运动", state.extremeExercisePurchased, "mingQuan");
     }
     if (renderActions) {
       const levelView = actionLevels = actionLevelPresentationSnapshot();
@@ -2570,7 +2670,7 @@
     setHiddenIfChanged(byId("rock-action"), !state.wallUnlocked);
     setHiddenIfChanged(byId("ghost-back-action"), !state.ghostBackPurchased);
     toggleClassIfChanged(byId("ghost-back-action"), "purchased", state.ghostBackActive);
-    setTextIfChanged(byId("ghost-back-description"), WIS.Cultivation.Martial.active(state) && WIS.Cultivation.Martial.get(state).abilities.shenQiao ? "激活时提升战力获取；神桥已取消J获取惩罚。" : "激活时降低J获取，提升战力获取。");
+    setTextIfChanged(byId("ghost-back-description"), WIS.Cultivation.Martial.active(state) && WIS.Cultivation.Martial.get(state).abilities.shenQiao ? "激活时提升战力获取，J 获取不变。" : "激活时降低J获取，提升战力获取。");
     setTextIfChanged(byId("ghost-back-effect"), `激活时：J ×${format(WIS.Power.ScaleLogic.ghostBackJMultiplier(state,true),2)}；战力 ×${format(WIS.Power.ScaleLogic.ghostBackPowerMultiplier(state,true),2)}`);
     setTextIfChanged(byId("ghost-back-state"), state.ghostBackActive ? "当前已激活" : "当前未激活");
     setTextIfChanged(byId("toggle-ghost-back"), state.ghostBackActive ? "关闭" : "激活");
@@ -3109,91 +3209,125 @@
     const currentFiveSpiritStoneCount = fiveSpiritStoneCount();
     setHiddenIfChanged(byId("tian-ni-pearl-treasure"), !hasAchievement("daoFoundation"));
     setTextIfChanged(byId("tian-ni-pearl-count"), `×${format(pearlCount, 0)}`);
-    setTextIfChanged(byId("tian-ni-pearl-chance"), treasureProgressText("tianNiPearl"));
+    renderTreasureProgress(byId("tian-ni-pearl-chance"),"tianNiPearl");
     setTextIfChanged(byId("tian-ni-pearl-effect"), `法力获取 ×${format(WIS.Core.Effects.value("tianNiPearlMana", state), 2)}`);
     setHiddenIfChanged(byId("mysterious-green-bottle-treasure"), !hasAchievement("goldenCore"));
     setTextIfChanged(byId("mysterious-green-bottle-count"), `×${format(greenBottleCount, 0)}`);
-    setTextIfChanged(byId("mysterious-green-bottle-chance"), treasureProgressText("mysteriousGreenBottle"));
+    renderTreasureProgress(byId("mysterious-green-bottle-chance"),"mysteriousGreenBottle");
     setTextIfChanged(byId("mysterious-green-bottle-effect"), `探寻法力获取 ×${format(mysteriousGreenBottleMultiplier(), 2)}`);
     setHiddenIfChanged(byId("fu-bao-treasure"), !hasAchievement("trueScale3"));
     setTextIfChanged(byId("fu-bao-count"), `×${format(currentFuBaoCount, 0)}`);
-    setTextIfChanged(byId("fu-bao-chance"), treasureProgressText("fuBao"));
+    renderTreasureProgress(byId("fu-bao-chance"),"fuBao");
     setTextIfChanged(byId("fu-bao-effect"), `额外法力为探寻基础法力的 ${format(mulBN(fuBaoManaRatio(), 100), 2)}%`);
     setHiddenIfChanged(byId("fitness-membership-card-treasure"), !hasAchievement("scale5"));
     setTextIfChanged(byId("fitness-membership-card-count"), `×${format(membershipCardCount, 0)}`);
-    setTextIfChanged(byId("fitness-membership-card-chance"), treasureProgressText("fitnessMembershipCard"));
+    renderTreasureProgress(byId("fitness-membership-card-chance"),"fitnessMembershipCard");
     setTextIfChanged(byId("fitness-membership-card-effect"), `健身倍率加法 +${format(fitnessMembershipCardFitnessBonus(), 3)}`);
     setHiddenIfChanged(byId("super-lollipop-treasure"), !hasAchievement("scale8") && !gtBN(currentSuperLollipopCount, ZERO));
     setTextIfChanged(byId("super-lollipop-count"), `×${format(currentSuperLollipopCount, 0)}`);
-    setTextIfChanged(byId("super-lollipop-chance"), treasureProgressText("superLollipop"));
+    renderTreasureProgress(byId("super-lollipop-chance"),"superLollipop");
     setTextIfChanged(byId("super-lollipop-effect"), `锻炼来源倍率 ×${format(WIS.Core.Effects.value("superLollipop", state), 2)}`);
     setHiddenIfChanged(byId("sky-crystal-treasure"), !hasAchievement("scale9") && !gtBN(currentSkyCrystalCount, ZERO));
     setTextIfChanged(byId("sky-crystal-count"), `×${format(currentSkyCrystalCount, 0)}`);
-    setTextIfChanged(byId("sky-crystal-chance"), treasureProgressText("skyCrystal"));
+    renderTreasureProgress(byId("sky-crystal-chance"),"skyCrystal");
     setTextIfChanged(byId("sky-crystal-effect"), `打岩来源倍率 ×${format(skyCrystalRockMultiplier(), 2)}`);
     setHiddenIfChanged(byId("cosmic-fiber-treasure"), !hasAchievement("scale13") && !gtBN(currentCosmicFiberCount, ZERO));
     setTextIfChanged(byId("cosmic-fiber-count"), `×${format(currentCosmicFiberCount, 0)}`);
     setTextIfChanged(byId("cosmic-fiber-base-chance"), "");
     setTextIfChanged(byId("cosmic-fiber-decayed-chance"), "");
-    setTextIfChanged(byId("cosmic-fiber-final-chance"), treasureProgressText("cosmicFiber"));
+    renderTreasureProgress(byId("cosmic-fiber-final-chance"),"cosmicFiber");
     setTextIfChanged(byId("cosmic-fiber-effect"), `当前银河视为指数 ^${format(galaxyEffectiveExponent(), 6)}`);
     setHiddenIfChanged(byId("cosmic-will-treasure"), !hasAchievement("scale14") && !gtBN(currentCosmicWillCount, ZERO));
     setTextIfChanged(byId("cosmic-will-count"), `×${format(currentCosmicWillCount, 0)}`);
     setTextIfChanged(byId("cosmic-will-decayed-chance"), "");
-    setTextIfChanged(byId("cosmic-will-final-chance"), treasureProgressText("cosmicWill"));
+    renderTreasureProgress(byId("cosmic-will-final-chance"),"cosmicWill");
     setHiddenIfChanged(byId("xu-tian-ding-treasure"), state.heavenlyTreasureLevel < 1 && !gtBN(currentXuTianDingCount, ZERO));
     setTextIfChanged(byId("xu-tian-ding-count"), `×${format(currentXuTianDingCount, 0)}`);
-    setTextIfChanged(byId("xu-tian-ding-chance"), treasureProgressText("xuTianDing"));
+    renderTreasureProgress(byId("xu-tian-ding-chance"),"xuTianDing");
     setTextIfChanged(byId("xu-tian-ding-effect"), `天材地宝倍率 ×${format(WIS.Core.Effects.value("naturalTreasureMana", state), 3)}`);
     setHiddenIfChanged(byId("ba-ling-chi-treasure"), state.heavenlyTreasureLevel < 2 && !gtBN(currentBaLingChiCount, ZERO));
     setTextIfChanged(byId("ba-ling-chi-count"), `×${format(currentBaLingChiCount, 0)}`);
-    setTextIfChanged(byId("ba-ling-chi-chance"), treasureProgressText("baLingChi"));
+    renderTreasureProgress(byId("ba-ling-chi-chance"),"baLingChi");
     setTextIfChanged(byId("ba-ling-chi-effect"), `健身倍率 ×${format(WIS.Core.Effects.value("baLingChiFitness", state), 3)}`);
     setHiddenIfChanged(byId("wan-yao-fan-treasure"), state.heavenlyTreasureLevel < 3 && !gtBN(currentWanYaoFanCount, ZERO));
     setTextIfChanged(byId("wan-yao-fan-count"), `×${format(currentWanYaoFanCount, 0)}`);
-    setTextIfChanged(byId("wan-yao-fan-chance"), treasureProgressText("wanYaoFan"));
+    renderTreasureProgress(byId("wan-yao-fan-chance"),"wanYaoFan");
     setTextIfChanged(byId("wan-yao-fan-effect"), `法宝来源倍率 ×${format(wanYaoFanMultiplier(), 3)}`);
     setHiddenIfChanged(byId("phantom-heaven-mirror-treasure"), state.mysticHeavenlyTreasureLevel < 1 && !gtBN(currentPhantomHeavenMirrorCount, ZERO));
     setTextIfChanged(byId("phantom-heaven-mirror-count"), `×${format(currentPhantomHeavenMirrorCount, 0)}`);
-    setTextIfChanged(byId("phantom-heaven-mirror-chance"), treasureProgressText("phantomHeavenMirror"));
+    renderTreasureProgress(byId("phantom-heaven-mirror-chance"),"phantomHeavenMirror");
     setTextIfChanged(byId("phantom-heaven-mirror-effect"), `天劫负荷门槛 ×${format(phantomHeavenMirrorLoadMultiplier(), 0)}`);
     setHiddenIfChanged(byId("mystic-heaven-sacred-tree-treasure"), state.mysticHeavenlyTreasureLevel < 2 && !gtBN(currentMysticHeavenSacredTreeCount, ZERO));
     setTextIfChanged(byId("mystic-heaven-sacred-tree-count"), `×${format(currentMysticHeavenSacredTreeCount, 0)}`);
-    setTextIfChanged(byId("mystic-heaven-sacred-tree-chance"), treasureProgressText("mysticHeavenSacredTree"));
+    renderTreasureProgress(byId("mystic-heaven-sacred-tree-chance"),"mysticHeavenSacredTree");
     setTextIfChanged(byId("mystic-heaven-sacred-tree-effect"), `天材地宝上限 +${format(mulBN(currentMysticHeavenSacredTreeCount, 2), 0)}`);
     setHiddenIfChanged(byId("mystic-heaven-spirit-slaying-sword-treasure"), state.mysticHeavenlyTreasureLevel < 3 && !gtBN(currentMysticHeavenSpiritSlayingSwordCount, ZERO));
     setTextIfChanged(byId("mystic-heaven-spirit-slaying-sword-count"), `×${format(currentMysticHeavenSpiritSlayingSwordCount, 0)}`);
-    setTextIfChanged(byId("mystic-heaven-spirit-slaying-sword-chance"), treasureProgressText("mysticHeavenSpiritSlayingSword"));
+    renderTreasureProgress(byId("mystic-heaven-spirit-slaying-sword-chance"),"mysticHeavenSpiritSlayingSword");
     setTextIfChanged(byId("mystic-heaven-spirit-slaying-sword-effect"), `法宝来源 ^${format(mysticHeavenSpiritSlayingSwordExponent(), 3)}`);
     setHiddenIfChanged(byId("five-elements-treasure"), !state.fiveElementsTreasureUnlocked && !gtBN(currentFiveElementsTreasureCount, ZERO));
     setTextIfChanged(byId("five-elements-treasure-count"), `×${format(currentFiveElementsTreasureCount, 0)}`);
-    setTextIfChanged(byId("five-elements-treasure-chance"), treasureProgressText("fiveElementsTreasure"));
+    renderTreasureProgress(byId("five-elements-treasure-chance"),"fiveElementsTreasure");
     setTextIfChanged(byId("five-elements-treasure-effect"), `仙灵力获取 ×${format(applyCelestialFiveDeclineToMultiplier(fiveElementsTreasureMultiplierBeforeDecline()), 3)}`);
     setHiddenIfChanged(byId("immortal-crystal-treasure"), !hasAchievement("ascendImmortal") && !gtBN(currentImmortalCrystalCount, ZERO));
     setTextIfChanged(byId("immortal-crystal-count"), `×${format(currentImmortalCrystalCount, 0)}`);
-    setTextIfChanged(byId("immortal-crystal-chance"), treasureProgressText("immortalCrystal"));
+    renderTreasureProgress(byId("immortal-crystal-chance"),"immortalCrystal");
     setTextIfChanged(byId("immortal-crystal-effect"), `仙灵力倍率 ×${format(immortalCrystalMultiplier(), 6)}`);
     const yuanCrystalCount=WIS.Meta.Treasures.count(state,"yuanCrystal");
     setHiddenIfChanged(byId("yuan-crystal-treasure"),!hasAchievement("yuan") && !gtBN(yuanCrystalCount,ZERO));
     setTextIfChanged(byId("yuan-crystal-count"),`×${format(yuanCrystalCount,0)}`);
-    setTextIfChanged(byId("yuan-crystal-chance"),treasureProgressText("yuanCrystal"));
+    renderTreasureProgress(byId("yuan-crystal-chance"),"yuanCrystal");
     setTextIfChanged(byId("yuan-crystal-effect"),`元力倍率 ×${format(WIS.Cultivation.Xiuzhen.yuanCrystalMultiplier(state),6)}`);
     setHiddenIfChanged(byId("five-spirit-stone-treasure"), !state.fiveSpiritStonePurchased && !gtBN(currentFiveSpiritStoneCount, ZERO));
     setTextIfChanged(byId("five-spirit-stone-count"), `×${format(currentFiveSpiritStoneCount, 0)}`);
-    setTextIfChanged(byId("five-spirit-stone-chance"), treasureProgressText("fiveSpiritStone"));
+    renderTreasureProgress(byId("five-spirit-stone-chance"),"fiveSpiritStone");
     writeSourcePreview("five-spirit-stone-effect", ["fiveSpiritStoneJ", "fiveSpiritStonePower"], false);
     for(const [key,id,name,source,base,ratio,effect,p] of [["emperorImprint","emperor-imprint","帝经","战力","1e18","1000","武道战力独立来源",0.4],["sacredBodyImprint","sacred-body-imprint","圣体","体","1e6","10","体获取",0.25],["godBodyImprint","god-body-imprint","神王体","体","1e6","10","气获取",0.25],["sourceStoneImprint","source-stone-imprint","源石","J","1e19","1000","武道J独立来源",0.4]]){
       const count=WIS.Meta.Treasures.count(state,key);setHiddenIfChanged(byId(id+"-treasure"),!hasAchievement("martialFourPoles")&&!gtBN(count,ZERO));
-      setTextIfChanged(byId(id+"-count"),"×"+format(count,0));setTextIfChanged(byId(id+"-chance"),treasureProgressText(key));setTextIfChanged(byId(id+"-effect"),effect+" ×"+format(WIS.Cultivation.Martial.imprintMultiplier(state,key,p),4));
+      setTextIfChanged(byId(id+"-count"),"×"+format(count,0));renderTreasureProgress(byId(id+"-chance"),key);setTextIfChanged(byId(id+"-effect"),effect+" ×"+format(WIS.Cultivation.Martial.imprintMultiplier(state,key,p),4));
     }
+    const willCount=WIS.Meta.Treasures.count(state,'willImprint');
+    setHiddenIfChanged(byId('will-imprint-treasure'),!hasAchievement('martialSoul')&&!gtBN(willCount,ZERO));
+    setTextIfChanged(byId('will-imprint-count'),'×'+format(willCount,0));
+    setTextIfChanged(byId('will-imprint-effect'),'炼心、神魂兑换效率 ×'+format(WIS.Cultivation.Martial.willMultiplier(state),4));
+    renderTreasureProgress(byId('will-imprint-chance'),'willImprint');
     const lawCount=WIS.Meta.Treasures.count(state,'lawImprint');
     setHiddenIfChanged(byId('law-imprint-treasure'),!hasAchievement('martialEnergyLaw')&&!gtBN(lawCount,ZERO));
     setTextIfChanged(byId('law-imprint-count'),'×'+format(lawCount,0));
-    setTextIfChanged(byId('law-imprint-effect'),'基因源能倍率额外 ×'+format(WIS.Cultivation.Martial.lawMultiplier(state),4)+'（需拥有基因源能）');
-    setTextIfChanged(byId('law-imprint-chance'),treasureProgressText('lawImprint'));
+    setTextIfChanged(byId('law-imprint-effect'),'基因源能倍率额外 ×'+format(WIS.Cultivation.Martial.lawMultiplier(state),4));
+    renderTreasureProgress(byId('law-imprint-chance'),'lawImprint');
     WIS.UI.Cards.updateCatalogGroupCounts(byId("treasure-list"), "宝物");
     }
     if (renderStatistics) {
+    const immortalActive = state.cultivation.active === "immortal";
+    const currentImmortal = immortalActive || state.currentRebirthHighestCultivationRealmLevel > 0 ||
+      gtBN(state.currentRebirthTotalMana, ZERO) || gtBN(state.currentRebirthTotalImmortalPower, ZERO) ||
+      !!WIS.Cultivation.Xiuzhen.statisticsRealmName(state);
+    const historicImmortal = currentImmortal || state.immortalSelectionCount > 0 || state.lifetimeHighestCultivationRealmLevel > 0 ||
+      gtBN(state.lifetimeTotalMana, ZERO) || gtBN(state.lifetimeTotalImmortalPower, ZERO) ||
+      !!WIS.Cultivation.Xiuzhen.statisticsRealmName(state,true);
+    setHiddenIfChanged(byId("statistics-current-immortal"), !currentImmortal);
+    setHiddenIfChanged(byId("statistics-total-immortal"), !historicImmortal);
+    const martial = WIS.Cultivation.Martial, A = WIS.Core.Amount;
+    const history = state.meta.statistics.martialHistory;
+    let hasRun = martial.active(state) || Object.keys(martial.get(state).abilities).length > 0;
+    const display = value => A?.enabled() ? A.project(value) : value;
+    for (const key of martial.resourceKeys) {
+      const run = martial.resourceRecord(state,key);
+      const lifetime = history?.[key] ? martial.resourceRecord(state,key,true) : run;
+      hasRun ||= gtBN(display(run.total),ZERO);
+      setTextIfChanged(byId("statistics-current-highest-"+key),format(display(run.peak)));
+      setTextIfChanged(byId("statistics-current-total-"+key),format(display(run.total)));
+      setTextIfChanged(byId("statistics-highest-"+key),format(display(lifetime.peak)));
+      setTextIfChanged(byId("statistics-total-"+key),format(display(lifetime.total)));
+    }
+    setHiddenIfChanged(byId("statistics-current-martial"), !hasRun);
+    const martialAchievements = Object.keys(state.unlockedAchievements).filter(key => key.startsWith("martial") && state.unlockedAchievements[key]).length;
+    const hasHistoricRecord = hasRun || !!history;
+    setHiddenIfChanged(byId("statistics-total-martial"), !hasHistoricRecord && !martialAchievements);
+    setHiddenIfChanged(byId("statistics-total-martial-table"), !hasHistoricRecord);
+    setHiddenIfChanged(byId("statistics-martial-achievements"), !martialAchievements);
+    setTextIfChanged(byId("statistics-martial-achievement-count"), martialAchievements);
     setTextIfChanged(byId("statistics-highest-j"), format(state.lifetimeHighestJ));
     setTextIfChanged(byId("statistics-highest-power"), format(state.lifetimeHighestPower));
     setTextIfChanged(byId("statistics-highest-scale"), WIS.Cultivation.Xiuzhen.statisticsScaleName(state) || SCALE_THRESHOLDS[state.lifetimeHighestScaleIndex].name);
@@ -3211,7 +3345,7 @@
     setTextIfChanged(byId("statistics-current-total-j"), format(state.currentRebirthTotalJ));
     setTextIfChanged(byId("statistics-current-highest-power"), format(state.currentRebirthHighestPower));
     setTextIfChanged(byId("statistics-current-total-power"), format(state.currentRebirthTotalPower));
-    setTextIfChanged(byId("statistics-current-highest-scale"), SCALE_THRESHOLDS[state.currentRebirthHighestScaleIndex].name);
+    setTextIfChanged(byId("statistics-current-highest-scale"), WIS.Cultivation.Xiuzhen.statisticsScaleName(state, false) || SCALE_THRESHOLDS[state.currentRebirthHighestScaleIndex].name);
     setTextIfChanged(byId("statistics-current-highest-realm"), WIS.Cultivation.Xiuzhen.statisticsRealmName(state) || cultivationRealmName(state.currentRebirthHighestCultivationRealmLevel));
     setTextIfChanged(byId("statistics-current-highest-mana"), format(state.currentRebirthHighestMana));
     setTextIfChanged(byId("statistics-current-total-mana"), format(state.currentRebirthTotalMana));
@@ -3386,8 +3520,8 @@
     xiuzhenPage.render({ page: activeCultivationPage, writePreview: writeSourcePreview });
     martialPage.renderCultivation();
   }
-  function treasureProgressText(key) {
-    return WIS.UI.Treasures.acquisition(key, WIS.Meta.TreasureProgress.view(state, key), format);
+  function renderTreasureProgress(element,key) {
+    WIS.UI.Treasures.renderProgress(element,key, WIS.Meta.TreasureProgress.view(state, key), format);
   }
 
   function renderTreasuresPage() { renderPageContent("treasures"); xiuzhenPage.renderTreasures(); }
@@ -3400,7 +3534,23 @@
     byId("statistics-current-tab").setAttribute("aria-selected", String(showCurrent));
   }
 
-  function renderStatisticsPage() { renderPageContent("statistics"); }
+  function renderBaseMultiplier(id, activity, purchased, ability) {
+    const preview = byId(id+"-preview");
+    setPreviewText(preview, () => {
+      const multiplier = mulBN(1.5,WIS.Cultivation.Martial.abilityMultiplier(state,ability));
+      const base = byId(id+"-upgrade").querySelector(".item-content p");
+      setHiddenIfChanged(base,WIS.Core.BigNum.eq(multiplier,1.5));
+      return (purchased ? "当前：" : "解锁后：") + activity + "倍率 ×" + format(multiplier,2);
+    });
+  }
+
+  function renderStatisticsPage() {
+    renderPageContent("statistics");
+    for (const table of byId("statistics-page").querySelectorAll(".statistics-table")) {
+      const hasLongValue = Array.from(table.querySelectorAll("td b")).some(value => value.textContent.length > 13);
+      toggleClassIfChanged(table,"statistics-long-values",hasLongValue);
+    }
+  }
 
   const pageRenderers = Object.freeze({
     actions: renderActionsPage,
@@ -3455,12 +3605,13 @@
       const reward = rawById("achievement-beyondFractal")?.querySelector(".achievement-reward strong");
       const current = WIS.Meta.Achievements.beyondFractalReward();
       if (reward && reward.textContent !== current) reward.textContent = current;
-      for (const achievement of achievementDefinitions().filter(a=>["greatHeavenlyVenerable","universe","infiniteMultiverse","thickEarth"].includes(a.key))) {
+      for (const achievement of achievementDefinitions().filter(a=>["greatHeavenlyVenerable","universe","infiniteMultiverse","thickEarth","infiniteBox"].includes(a.key))) {
         const row=rawById(`achievement-${achievement.key}`)?.querySelector(".achievement-reward strong");
         if(row)setTextIfChanged(row,achievement.reward);
       }
     }
     martialPage.renderSummary();
+    renderFocusedResources();
     if (rawById("automation-dialog")?.open) renderAutomationManager();
   }
 
@@ -3673,6 +3824,7 @@
       // mutate the session captured by an active import transaction.
       const recoveryControl = event.target?.closest?.("#pause-offline-progress, #retry-offline-progress, #abandon-offline-progress, #convert-offline-progress, #convert-quiet-catch-up, #continue-after-offline, #retry-failed-save");
       if (recoveryControl) {
+        if (recoveryControl.id==='retry-failed-save' && importTransaction?.phase==='release-failed') return;
         if (canChangeRecovery()) return;
         event.preventDefault(); event.stopImmediatePropagation(); return;
       }
@@ -3988,13 +4140,11 @@
     });
     byId("exit-hidden-challenge").addEventListener("click", () => exitChallenge());
     byId("toggle-challenge-filter").addEventListener("click", async () => {
-      await setPreference('hideCompletedChallenges',!state.hideCompletedChallenges);
-      saveState();
+      await savePreference('hideCompletedChallenges', !state.hideCompletedChallenges);
       renderChallenges();
     });
     byId("toggle-achievement-filter").addEventListener("click", async () => {
-      await setPreference('hideUnlockedAchievements',!state.hideUnlockedAchievements);
-      saveState();
+      await savePreference('hideUnlockedAchievements', !state.hideUnlockedAchievements);
       markAchievementsDirty();
       renderAchievements();
     });
@@ -4059,7 +4209,7 @@
 
     if (WIS.UI.NativePlatform?.isNative()) {
       void WIS.UI.NativePlatform.install({
-        notice: safeOperationNotice, saveBeforeLeaving: async()=>{
+        notice: safeOperationNotice, onExitFailed:()=>session?.resumeAfterExitFailure(), saveBeforeLeaving: async()=>{
           if(!session)return saveBeforeLeaving();
           if(importTransaction)return false;
           try{const saved=await saveState({closing:true});return saved===true&&!WIS.Core.Save.status().unsaved;}
@@ -4092,34 +4242,29 @@
       renderAutoCloseSetting();
       WIS.UI.Dialog.open(settingsDialog);
     };
+    syncResourceMode();
+    portraitResources?.addEventListener("change",syncResourceMode);
     byId("toggle-resource-panel").addEventListener("click", () => {
-      const button=byId("toggle-resource-panel");
-      const collapsed=button.getAttribute("aria-expanded") === "true";
-      button.setAttribute("aria-expanded",String(!collapsed));
-      button.closest(".resource-panel").classList.toggle("resources-collapsed",collapsed);
-      byId("resource-panel-toggle-label").textContent=collapsed ? "展开 ▾" : "收起 ▴";
+      if(portraitResources?.matches)phoneExpanded=!phoneExpanded;
+      else desktopExpanded=!desktopExpanded;
+      syncResourceMode();
     });
     byId("open-settings").addEventListener("click", openSettings);
     byId("offline-open-settings").addEventListener("click", openSettings);
     byId("auto-close-offline-toggle").addEventListener("click", async () => {
       if (!canChangePreferences()) { renderAutoCloseSetting(); return; }
-      const previous = state.autoCloseOfflineDialogEnabled;
-      await setPreference('autoCloseOfflineDialogEnabled',previous===false);
-      try { saveState(); } catch (error) {
-        await setPreference('autoCloseOfflineDialogEnabled',previous);
-        showNotice("设置保存失败：" + (error?.message || error), 6000);
-      }
+      await savePreference('autoCloseOfflineDialogEnabled',state.autoCloseOfflineDialogEnabled===false);
       renderAutoCloseSetting();
       handleOfflineCatchUpStatus(getCatchUpStatus());
     });
     byId("pause-offline-progress").addEventListener("click", () => {
       if (canChangeRecovery()) context.pauseCatchUpByPlayer();
     });
-    for (const id of ["convert-offline-progress", "convert-quiet-catch-up"]) byId(id).addEventListener("click", () => {
+    for (const id of ["convert-offline-progress", "convert-quiet-catch-up"]) byId(id).addEventListener("click", async () => {
       if (!canChangeRecovery() || offlineAbandonPending) return;
       offlineAbandonPending = true;
       try {
-        const result = context.convertOfflineToCompensation();
+        const result = await context.convertOfflineToCompensation();
         if (result.converted) {
           offlineCompletedSummary = null;
           closeOfflineProgressDialog();
@@ -4168,17 +4313,16 @@
       const button = event.target.closest("button[data-automation-id]");
       const definition = button ? AUTOMATION_BY_ID.get(button.dataset.automationId) : null;
       if (!definition || !definition.isUnlocked() || definition.isDisabled?.()) return;
-      const enabled = await definition.toggle();
-      saveState();
+      const enabled = !definition.isEnabled();
+      const saved = await definition.setEnabled(enabled);
       renderAutomationManager(true);
-      showNotice(`${definition.name}已${enabled ? "开启" : "关闭"}`);
+      if (saved) showNotice(`${definition.name}已${enabled ? "开启" : "关闭"}`);
     });
     document.querySelectorAll('input[name="theme"]').forEach((input) => {
       input.addEventListener("change", async () => {
         if (!canChangePreferences()) { applyTheme(); return; }
-        await setPreference('theme',input.value==='dark'?'dark':'light');
+        await savePreference('theme',input.value==='dark'?'dark':'light');
         applyTheme();
-        saveState();
       });
     });
     byId("export-save").addEventListener("click", exportSave);
@@ -4197,13 +4341,12 @@
     });
     WIS.Core.Save.subscribeStatus(renderSaveStatus);
     renderSaveStatus();
-    byId("retry-failed-save").addEventListener("click", () => {
+    byId("retry-failed-save").addEventListener("click", async () => {
+      if(importTransaction?.phase==="release-failed"){rollbackUIImportTransaction(importTransaction,"import-picker-retry");return;}
       if (!canChangeRecovery()) return;
-      try {saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
+      try { await saveState(); } catch (error) { WIS.Core.Save.noteFailure(error); }
     });
-    byId("export-unsaved-progress").addEventListener("click", () => {
-      try {exportSave();} catch(error) {WIS.Core.Save.diagnose("export",error);safeOperationNotice("当前进度备份生成失败，请保留页面。");}
-    });
+    byId("export-unsaved-progress").addEventListener("click", () => exportSave({confirmedOnly:true}));
     byId("restore-save-backup").addEventListener("click", () => {
       const text=localStorage.getItem(WIS.Core.Save.backupKey());
       if (!text) { showNotice("还没有导入前备份。"); return; }
@@ -4245,7 +4388,7 @@
         traceImportLifecycle("file-change", { token: importTransaction?.token || null, name: file.name || "" });
         void importSave(file);
       } else if (importTransaction?.phase === "picking") {
-        if (rollbackUIImportTransaction(importTransaction, "import-picker-empty"))
+        if (rollbackUIImportTransaction(importTransaction, "import-picker-empty") && !session)
           showNotice("已取消导入，原进度已恢复。", 1800);
       }
       importInput.value = "";
@@ -4254,7 +4397,7 @@
       if (importTransaction?.phase !== "picking") return;
       window.clearTimeout(importPickerReturnTimer); importPickerReturnTimer = null;
       importPickerAway = false;
-      if (rollbackUIImportTransaction(importTransaction, "import-picker-cancel"))
+      if (rollbackUIImportTransaction(importTransaction, "import-picker-cancel") && !session)
         showNotice("已取消导入，原进度已恢复。", 1800);
     });
     const notePickerReturn = () => {

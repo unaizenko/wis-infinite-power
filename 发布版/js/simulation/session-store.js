@@ -7,13 +7,15 @@ const stateValue=s=>({initial:s.checkpoint?null:s.initial,checkpoint:s.checkpoin
 async function open({name,mode='delta',maxRecords=16,maxBytes=262144}={}){
  if(!name||!['delta','full'].includes(mode)||!Number.isSafeInteger(maxRecords)||maxRecords<1||!Number.isSafeInteger(maxBytes)||maxBytes<1)throw Error('store options');
  const db=await new Promise((resolve,reject)=>{const r=indexedDB.open(name,1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
- let version=0,manifest=null,cache=new Map(),loaded=false,fault=null,legacyLoaded=false;
+ let version=0,manifest=null,cache=new Map(),loaded=false,unavailableSlots=new Set(),fault=null,legacyLoaded=false;
  const metrics={transactions:0,appends:0,checkpoints:0,deltas:0,logicalBytes:0,prepareMs:0,appendPrepareMs:0,transactionMs:0,maxPrepareMs:0,maxSubmitMs:0,aborts:0,exportWrites:0};
  const key=(slot,part)=>'slot/'+slot+'/'+part;
  async function readRows(){return new Promise((resolve,reject)=>{const t=db.transaction('kv','readonly'),s=t.objectStore('kv'),k=s.getAllKeys(),v=s.getAll();t.oncomplete=()=>resolve(new Map(k.result.map((k,i)=>[k,v.result[i]])));t.onabort=()=>reject(t.error||Error('read aborted'));});}
  async function checkBlob(blob,id){if(!validRef(id)||!blob||blob.id!==id||typeof blob.text!=='string'||await hash({id:blob.id,text:blob.text})!==blob.hash)throw Error('saved export missing or corrupt');return {id:blob.id,text:blob.text};}
- async function load(){const rows=await readRows(),root=rows.get('@root');if(!root){if(rows.size)throw Error('orphan records: root manifest missing');version=0;manifest={active:null,epoch:0,slots:[]};cache=new Map();legacyLoaded=false;loaded=true;return empty();}if(root.format!==undefined&&root.format!==2)throw Error('store format');const next={active:root.active,epoch:root.epoch,slots:{}},c=new Map();
-  for(const slot of root.slots){if(!validSlot(slot))throw Error('slot identity');const h=rows.get(key(slot,'head')),base=rows.get(key(slot,'base'));if(!h||!base||h.count<0||h.count>maxRecords||h.bytes>maxBytes||h.baseSerial!==base.serial)throw Error('checkpoint/log bounds');let value=base.value,serial=base.serial,size=0,digest=null;
+ async function load(){const rows=await readRows(),root=rows.get('@root');if(!root){if(rows.size)throw Error('orphan records: root manifest missing');version=0;manifest={active:null,epoch:0,slots:[]};cache=new Map();unavailableSlots=new Set();legacyLoaded=false;loaded=true;return empty();}if(root.format!==undefined&&root.format!==2)throw Error('store format');const next={active:root.active,epoch:root.epoch,slots:{}},c=new Map();
+  if(root.active!==null&&(!validSlot(root.active)||!root.slots.includes(root.active)))throw Error('active slot missing');
+  const unavailable=new Set();
+  async function readSlot(slot){const h=rows.get(key(slot,'head')),base=rows.get(key(slot,'base'));if(!h||!base||h.count<0||h.count>maxRecords||h.bytes>maxBytes||h.baseSerial!==base.serial)throw Error('checkpoint/log bounds');let value=base.value,serial=base.serial,size=0,digest=null;
    if(h.integrity!==undefined&&h.integrity!=='chain-v1')throw Error('unknown integrity format');
    if(h.integrity){digest=await hash(value);if(digest!==base.hash)throw Error('base integrity');}
    for(let i=0;i<h.count;i++){const row=rows.get(key(slot,'log/'+i));if(!row||row.previous!==serial||row.serial!==serial+1)throw Error('redo gap');
@@ -24,6 +26,14 @@ async function open({name,mode='delta',maxRecords=16,maxBytes=262144}={}){
    const row=rows.get(key(slot,'commands'));if(root.format===2&&!row)throw Error('missing command metadata');const commands=commandValue(row?row.value:value);if(row&&await hash(commands)!==row.hash)throw Error('command integrity');const ref=value.checkpoint?.engine?.saveRef||null;if(ref)await checkBlob(rows.get(key(slot,'save')),ref);
    c.set(slot,{head:h,value,text:JSON.stringify(value),commands,commandText:JSON.stringify(commands),saveRef:ref});next.slots[slot]={initial:value.initial,checkpoint:value.checkpoint?JSON.stringify(value.checkpoint):null,revision:value.revision,...D.clone(commands),receipts:D.clone(value.checkpoint?.receipts||{}),saveRef:ref,saveText:null};
   }
+  for(const slot of root.slots){
+   if(!validSlot(slot))throw Error('slot identity');
+   try{await readSlot(slot);}catch(error){
+    if(!root.active||slot===root.active)throw error;
+    unavailable.add(slot);
+   }
+  }
+  unavailableSlots=unavailable;
   version=root.version;manifest={active:root.active,epoch:root.epoch,slots:[...root.slots]};cache=c;legacyLoaded=root.format!==2;loaded=true;return next;
  }
  async function transaction(expected,root,work,queueWrites=false){let written=0;const t0=performance.now();await new Promise((resolve,reject)=>{const t=db.transaction('kv','readwrite'),s=t.objectStore('kv');let why=null,first=true;const put=(value,k)=>{written+=D.bytes(value);const r=s.put(value,k);if(first&&fault==='after-request')r.onsuccess=()=>{why=Error('injected request-success abort');t.abort();};first=false;};
@@ -38,7 +48,7 @@ async function open({name,mode='delta',maxRecords=16,maxBytes=262144}={}){
  async function append({slot,epoch,seq,body}){if(!loaded)throw Error('load required');if(legacyLoaded)throw Error('legacy layout requires write upgrade');const expected=version,start=performance.now(),old=cache.get(slot);if(!validSlot(slot)||!old||manifest.epoch!==epoch)throw Error('stale command owner');if(!Number.isSafeInteger(seq)||seq!==old.commands.nextSeq)throw Error('command sequence');if(D.bytes(body)>2048)throw Error('command too large');const commands=commandValue({nextSeq:seq+1,journal:[...old.commands.journal,{seq,body}]}),text=JSON.stringify(commands),root={format:2,version:expected+1,...manifest,slots:[...manifest.slots]},row={value:commands,hash:await hash(commands,text)};
   metrics.appendPrepareMs+=performance.now()-start;await transaction(expected,root,(_,put)=>put(row,key(slot,'commands')),true);cache.set(slot,{...old,commands,commandText:text});metrics.appends++;return D.clone(commands);
  }
- async function write(next,exported){if(!loaded)throw Error('load required');const expected=version,start=performance.now(),root={format:2,version:expected+1,active:next.active,epoch:next.epoch,slots:Object.keys(next.slots)};
+ async function write(next,exported){if(!loaded)throw Error('load required');const expected=version,start=performance.now(),root={format:2,version:expected+1,active:next.active,epoch:next.epoch,slots:[...new Set([...Object.keys(next.slots),...unavailableSlots])]};
   // Capture all caller-owned inputs before the first async hash.
   const inputs=Object.entries(next.slots).map(([slot,s])=>{if(!validSlot(slot))throw Error('slot identity');return {slot,value:stateValue(s),commands:commandValue(s)};}),exportInput=exported?{slot:exported.slot,blob:{id:exported.blob?.id,text:exported.blob?.text}}:null,changes=[];
   if(exportInput&&!root.slots.includes(exportInput.slot))throw Error('export slot missing');let exportRow=null;
@@ -51,7 +61,7 @@ async function open({name,mode='delta',maxRecords=16,maxBytes=262144}={}){
   }
   const prep=performance.now()-start;metrics.prepareMs+=prep;metrics.maxPrepareMs=Math.max(metrics.maxPrepareMs,prep);
   await transaction(expected,root,(s,put)=>{for(const c of changes){if(c.state){const {head,row,full}=c.state;if(full){put({serial:head.serial,value:c.value},key(c.slot,'base'));for(let i=0;i<(c.old?.head.count||0);i++)s.delete(key(c.slot,'log/'+i));}else put(row,key(c.slot,'log/'+c.old.head.count));put(head,key(c.slot,'head'));}if(c.commandRow)put(c.commandRow,key(c.slot,'commands'));}if(exportRow)put(exportRow,key(exportInput.slot,'save'));for(const [slot,old]of cache)if(!root.slots.includes(slot)){for(const p of ['base','head','commands','save'])s.delete(key(slot,p));for(let i=0;i<old.head.count;i++)s.delete(key(slot,'log/'+i));}});
-  for(const c of changes){cache.set(c.slot,{head:c.state?.head||c.old.head,value:c.value,text:c.text,commands:c.commands,commandText:c.commandText,saveRef:c.saveRef});if(c.state)metrics[c.state.full?'checkpoints':'deltas']++;}for(const slot of [...cache.keys()])if(!root.slots.includes(slot))cache.delete(slot);if(exportRow)metrics.exportWrites++;
+  for(const c of changes){unavailableSlots.delete(c.slot);cache.set(c.slot,{head:c.state?.head||c.old.head,value:c.value,text:c.text,commands:c.commands,commandText:c.commandText,saveRef:c.saveRef});if(c.state)metrics[c.state.full?'checkpoints':'deltas']++;}for(const slot of [...cache.keys()])if(!root.slots.includes(slot))cache.delete(slot);if(exportRow)metrics.exportWrites++;
  }
  // Normal confirmation captures only this immutable wire packet. Other slots
  // and the old cache stay private and untouched until transaction.oncomplete.

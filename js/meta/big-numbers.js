@@ -206,11 +206,12 @@
     return state.meta.bigNumbers?.resources ? state.meta.bigNumbers : normalize(state.meta.bigNumbers);
   }
   function requirements(state) {
-    return { power: B.gte(state.power, "1e100") };
+    const A = WIS.Core.Amount;
+    const power = A?.enabled() ? A.compare(WIS.Core.Resources.readExact("core.power",state),"1e100") >= 0 : B.gte(state.power,"1e100");
+    return { power };
   }
   function isUnlocked(state) {
-    const r = requirements(state);
-    return get(state).unlocked || r.power;
+    return get(state).unlocked || requirements(state).power;
   }
   function syncMilestones(state) {
     if (rankCompare(get(state).tree?.rank??0,3)>=0) {
@@ -226,8 +227,8 @@
     reconcileGCapacity(state);
     continueUnlockedTree(state);
     syncMilestones(state);
-    const n = get(state), r = requirements(state);
-    if (r.power) n.unlocked = true;
+    const n = get(state);
+    if (!n.unlocked && requirements(state).power) n.unlocked = true;
     if (n.beyondFractal && !state.unlockedAchievements.beyondFractal) {
       WIS.Meta.Achievements.record(state, "beyondFractal");
     }

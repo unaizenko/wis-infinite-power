@@ -3,19 +3,12 @@
   const TREASURE_RULES = WIS.Meta.TreasureRules;
 
   const { BN } = WIS.Core.BigNum;
-  const decimalTree = (value, key = "") => {
-    if (key === "immortalApertureCap") return value;
-    if (Array.isArray(value)) return Object.freeze(value.map((entry) => decimalTree(entry)));
-    if (value && typeof value === "object") {
-      return Object.freeze(Object.fromEntries(Object.entries(value).map(([entryKey, entry]) => [entryKey, decimalTree(entry, entryKey)])));
-    }
-    return typeof value === "number" || typeof value === "string" ? BN(value) : value;
-  };
   const decimalRecord = (record) => Object.freeze(Object.fromEntries(
     Object.entries(record).map(([key, value]) => [key, BN(value)])
   ));
 
-  const rawCosts = Object.freeze({
+  // Keep configured prices in their original decimal form through eligibility and payment.
+  const costs = Object.freeze({
     power: Object.freeze({
       gym: 20, exercise: 50, transcendent: 500, focus: 150, breathingMethod: 750,
       extremeExercise: 1000, water: 20000, ghostBrain: 50000, naturalStrength: 10000,
@@ -71,7 +64,6 @@
       immortalApertureCap: 36
     })
   });
-  const costs = decimalTree(rawCosts);
 
   const realms = Object.freeze([
     { key: "nascentSoul", slug: "nascent-soul", name: "元婴", baseCost: 2e7 },
@@ -92,7 +84,7 @@
     ["爆国", 2.092e20], ["爆大陆", 8.368e22], ["地表", 3.2e25],
     ["爆星", 2.24e31], ["恒星", 2.28e40], ["星系", 3e52],
     ["超星系团", 2.565e57], ["宇宙结构", 3e68]
-  ].map(([name, power]) => Object.freeze({ name, power: BN(power) })));
+  ].map(([name, power]) => Object.freeze({ name, power: BN(power), powerLiteral: String(power) })));
 
   const softcaps = Object.freeze([
     ["爆墙", 4184, 0.04, 0.012, 1, "炼气"], ["爆屋", 8368000, 0.055, 0.014, 2, "筑基"],
@@ -106,7 +98,8 @@
 
   const challenges = Object.freeze({
     martialDragon:Object.freeze({name:'化龙',system:'martial',catalogSystem:'武道',martialPrerequisite:'dragonTransform',unlockAchievementKey:'martialDragon',maxCompletions:1,targetMartialAbility:'dragonTransform',targetMartialAbilityLevel:1,resourceName:'仅秘境流能力生效且可购买；保留基础转换',rewardDescription:'化龙九变倍率提升至1+0.03log10(1+体)次方'}),
-    martialSeverDao:Object.freeze({name:'仙三斩道',system:'martial',catalogSystem:'武道',martialPrerequisite:'immortalPlatform',unlockAchievementKey:'martialImmortalPlatform',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='地表').power,resourceName:'J、战力正向获取速率变为sqrt(1+g)-1',rewardDescription:'登仙台指数系数由0.025提高至0.04'}),
+    martialEmperor:Object.freeze({name:'大帝劫',system:'martial',catalogSystem:'武道',martialPrerequisite:'emperorTribulation',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='宇宙结构').powerLiteral,resourceName:'气、体、心、神魂的获取指数为0.75',rewardDescription:'解锁秘境流·5境合一'}),
+    martialSeverDao:Object.freeze({name:'仙三斩道',system:'martial',catalogSystem:'武道',martialPrerequisite:'immortalPlatform',unlockAchievementKey:'martialImmortalPlatform',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='地表').powerLiteral,resourceName:'J、战力正向获取速率变为sqrt(1+g)-1',rewardDescription:'登仙台指数系数由0.025提高至0.04'}),
     martialAutumn: Object.freeze({name:'秋风未动蝉先觉',system:'martial',catalogSystem:'武道',martialPrerequisite:'shenJin',unlockAchievementKey:'martialGodBody',maxCompletions:1,targetMartialBody:20000,targetMartialHeart:2000,targetMartialJ:3.033e16,targetMartialPower:3.033e15,resourceName:'心不再弱化或解除普通J/战力量级软上限；其它心效果保持',rewardDescription:'心获取×50'}),
     martialStealHeaven: Object.freeze({ name:"盗天机", system:"martial", catalogSystem:"武道", martialPrerequisite:"stealHeaven", maxCompletions:1, targetMartialHeart:30, resourceName:"关闭全部心对普通J/战力软上限的解除与弱化", rewardDescription:"依据当前心指数提升气、体获取，指数渐近上限1.15；解锁自动炼心" }),
     martialIntentQi: Object.freeze({ name:"意与气合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialQi:100, targetMartialJ:1e9, resourceName:"禁用气的独立J来源", rewardDescription:"气的独立J来源×3；完成成就·内三合的条件之一" }),
@@ -118,7 +111,7 @@
       system: "immortal", catalogSystem: "仙道", unlockAchievementKey: "qiPathComplete" }),
     yinVoidYangReal: Object.freeze({ name: "阴虚阳实", maxCompletions: 1, targetXiuzhenRealm: 3,
       system: "immortal", catalogSystem: "仙道" }),
-    heavenlyFiveDeclines: Object.freeze({ name: "天人五衰", maxCompletions: 1, targetYuanForce: BN("1e20"), targetJAndPower: BN("3e68"), softcapPressure: .5, system: "immortal", catalogSystem: "仙道" }),
+    heavenlyFiveDeclines: Object.freeze({ name: "天人五衰", maxCompletions: 1, targetYuanForce: "1e20", targetJAndPower: "3e68", softcapPressure: .5, system: "immortal", catalogSystem: "仙道" }),
     innateDeficiency: Object.freeze({ name: "福", maxCompletions: 3, limitExponents: [0.85, 0.7, 0.55], rewardExponents: [1.05, 1.08, 1.15], requiredScaleIndices: [2, 3, 4], resourceName: "J", rewardSourceName: "健身" }),
     powerless: Object.freeze({ name: "禄", maxCompletions: 3, limitExponents: [0.85, 0.72, 0.6], rewardExponents: [1.05, 1.08, 1.12], requiredScaleIndices: [3, 4, 5], resourceName: "战力", rewardSourceName: "锻炼" }),
     longevity: Object.freeze({ name: "寿", maxCompletions: 3, limitExponents: [0.8, 0.75, 0.69], rewardMultipliers: [10, 25, 100], requiredScaleIndices: [4, 5, 6], resourceName: "J与战力", timeToLimitSeconds: 600, unlockAchievementKey: "trueScale4" }),
@@ -173,7 +166,7 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.2.3.4", saveVersion: 76,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.3.0.0", saveVersion: 76,
     closedBatchVersion: 2,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,
@@ -213,8 +206,8 @@
       manaExponent: 0.5,
       realmProgressStep: 0.01,
       manaSuppressionStrength: 0.3,
-      realmCosts: decimalRecord({ goldenImmortal: 1e11, taiyi: 1e16, daluo: 5e20, daoAncestor: 1e26 }),
-      abilityCosts: decimalRecord({
+      realmCosts: Object.freeze({ goldenImmortal: 1e11, taiyi: 1e16, daluo: 5e20, daoAncestor: 1e26 }),
+      abilityCosts: Object.freeze({
         undyingPrimordialSpirit: 4e8,
         xuanImmortalBody: 6.67e8,
         law: 1.2e9,

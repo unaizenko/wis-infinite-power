@@ -11,7 +11,7 @@
     R.bind({state:()=>state,setState,save:()=>host.checkpoint(),render:noop,renderImmediately:noop,switchPage:noop,showNotice:noop,
       showScaleNotice:noop,showAchievementNotice:noop,notifyNewAchievements:noop,resetCultivationPage:noop,
       achievementStates:A.states,cultivationUnlocked:A.cultivationUnlocked,treasuresUnlocked:A.treasuresUnlocked,
-      upgradesUnlocked:A.upgradesUnlocked,format:WIS.UI.Format.number,freshState:S.fresh,updateLifetimeStatistics:statistics,
+      updateScaleProgress:Scale.updateScaleProgress,upgradesUnlocked:A.upgradesUnlocked,format:WIS.UI.Format.number,freshState:S.fresh,updateLifetimeStatistics:statistics,
       checkActiveChallengeCompletion:WIS.Meta.Challenges.checkActiveChallengeCompletion,resetTransientAccumulators:resetTransient,
       cultivationRealmLevel:I.cultivationRealmLevel,minorTribulationPowerExponent:I.minorTribulationPowerExponent,
       celestialDeclineExponent:I.celestialDeclineExponent,grantThreeDeficienciesResetReward:I.grantThreeDeficienciesResetReward,
@@ -19,7 +19,9 @@
         'applyResourceSoftcapDynamicRateOverTime','applyResourceSoftcapProgressive','resourceSoftcapExponent'].map(k=>[k,Scale[k]]))});
     WIS.Core.Resources.bind(()=>state);resetTransient();
     function restore(snapshot) {
-      setState(S.cloneForSimulation(snapshot.domain));
+      const restored = S.cloneForSimulation(snapshot.domain);
+      WIS.Cultivation.Xiuzhen.restoreCheckpointResources(restored);
+      setState(restored);
       WIS.Core.Registries.getActivePower(state)?.restoreTreasureTransient?.(snapshot.powerTransient);
       WIS.Core.Registries.getActiveCultivation(state)?.restoreTreasureTransient?.(snapshot.cultivationTransient);
     }

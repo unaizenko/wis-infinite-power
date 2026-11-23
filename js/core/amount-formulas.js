@@ -217,7 +217,15 @@
         }catch(error){if(!['rank-cost-unresolved','amount-formula-unresolved','amount-unresolved'].includes(error.code))throw error;}
       }
       const endLog=yield ()=>logarithm(A.add(input.value,input.delta),c),signedDifference=c.mul(p,c.sub(endLog,startLog)),difference=sign>0?signedDifference:neg(signedDifference);
-      if(difference.lo<=0n)fail('power increment needs further refinement');
+      if(difference.lo<=0n){
+        // The absolute log enclosures may overlap for two enormous, nearby
+        // stocks. The mean value theorem bounds the increment by d times
+        // the endpoint derivatives, without subtracting their logarithms.
+        const logP=yield ()=>c.log10(sign>0?p:neg(p));
+        const left=c.mul(pm,startLog),right=c.mul(pm,endLog);
+        const bounds={lo:left.lo<right.lo?left.lo:right.lo,hi:left.hi>right.hi?left.hi:right.hi};
+        return yield* fromLog(c.add(c.add(deltaLog,logP),bounds),c,sign);
+      }
       if(difference.lo>17n*c.scale){
         const tiny=difference.lo>BigInt(places+2)*c.scale;
         const correction=tiny?{lo:0n,hi:1n}:yield ()=>c.pow10(neg(difference)),end=c.mul(p,sign>0?endLog:startLog);

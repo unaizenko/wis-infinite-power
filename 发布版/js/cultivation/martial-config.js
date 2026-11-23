@@ -54,6 +54,8 @@
     ['fourPoles','四极','shroud',1,100000,{body:1000000,heart:15000},['daoPalace'],'已解锁的元素化、极意完整正向来源提升至E次方，E=1+0.08h/(10+h)，h=log10(1+体)。']
     ,['dragonTransform','化龙九变','shroud',9,200000,{body:2000000},['fourPoles'],'共9级；体门槛和神魂费用每级翻倍；打岩来源倍率×5^L，挑战·化龙奖励进一步提高该倍率的指数。'],
     ['immortalPlatform','登仙台','shroud',1,200000000,{body:1000000000,heart:100000},['dragonTransform'],'需化龙九变9级；神魂累计转换指数E=1+0.025log10(1+心)，保留库存与衰减；仙三斩道完成后系数提升至0.04。']
+    ,['emperorTribulation','大帝劫','shroud',1,400000000,{},['immortalPlatform'],'永久解锁武道挑战·大帝劫。'],
+    ['fiveRealms','5境合一','shroud',1,500000000,{},[],'完成大帝劫后可购买，根据气、体、心、魂的当前库存每秒获得单体宇宙系数 N。']
   ].map(([key,name,branch,maxLevel,price,requirements,prerequisites,description,group]) => Object.freeze({ key,name,branch,family:branch === "neijia" ? "human" : ["devour","shroud"].includes(branch) ? branch : "golden",maxLevel,price,upgradeResource:upgradeResources[key] || "soul",requirements:Object.freeze(requirements),prerequisites:Object.freeze(prerequisites),description,group,slot:branch === "inner" && key !== "taiXuan" }));
   const balance = Object.freeze({
     absolute:Object.freeze({qi:Object.freeze({threshold:1000,power:.25}),body:Object.freeze({threshold:1000,power:.25}),heart:Object.freeze({threshold:120,power:.25}),soul:Object.freeze({threshold:100,power:.15})}),

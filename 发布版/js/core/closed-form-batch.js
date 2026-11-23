@@ -23,7 +23,25 @@
  // It compares the stored binary values, not their original decimal text.
  function twoSum(a,b){const s=a+b,v=s-a;return [s,(a-(s-v))+(b-v)];}
  function expansionSign(values){let expansion=[];for(const value of values){let carry=value,next=[];for(const term of expansion){const [s,e]=twoSum(carry,term);if(e!==0)next.push(e);carry=s;}if(carry!==0)next.push(carry);expansion=next;}return expansion.length?Math.sign(expansion[expansion.length-1]):0;}
- function compareFunds(record,cost){const c=positive(cost,'cost');if(record.funding.layer===0&&record.acc.layer===0&&c.layer===0)return expansionSign([record.funding.toNumber(),record.acc.toNumber(),-c.toNumber()]);return record.funding.cmp(c);}
+ function compareFunds(record,cost){
+  const c=positive(cost,'cost'),f=record.funding,acc=record.acc;
+  if(f.layer===0&&acc.layer===0&&c.layer===0)return expansionSign([f.toNumber(),acc.toNumber(),-c.toNumber()]);
+  const order=f.cmp(c);
+  if(order===0)return acc.sign;
+  if(acc.sign===0||acc.sign===order)return order;
+  // Subtract the larger of the two like-signed terms first so that exact
+  // cancellation exposes the smaller one, including for layered coordinates.
+  const debit=acc.sign<0,total=debit?f:c,part=debit?c:f,other=acc.abs();
+  const remaining=total.sub(B.max(part,other)),smaller=B.min(part,other);
+  return debit?remaining.cmp(smaller):smaller.cmp(remaining);
+ }
+ // Historical mixed-layer settlements certified only the funding head. This
+ // exception is for already published counts, including zero-cost anchors
+ // carrying debt. New awards always compare both coordinates.
+ function coversPublished(record,cost){
+  return cost.eq(0)||compareFunds(record,cost)>=0||
+   ((record.funding.layer!==0||record.acc.layer!==0||cost.layer!==0)&&record.funding.gte(cost));
+ }
  // Significance is measured in the stored coordinate, before rounded F+i.
  function coordinateSignificance(income,funding){const i=positive(income,'income'),f=positive(funding,'funding');if(i.eq(0))return B.ZERO;if(f.eq(0))return B.ONE;
   if(f.layer===0)return i.div(f);
@@ -47,7 +65,14 @@
    return receipt(false,allowed?1:0,allowed?delta:B.ZERO,allowed?0:1);
   }
   const next=r.funding.add(acc);if(!next.isFinite())error('Funding overflow');
-  if(!next.eq(r.funding)){r.acc=decimal(r.funding.sub(next).add(acc));r.funding=decimal(next);return receipt(true);}
+  if(next.lt(0)){r.acc=decimal(acc);return receipt();}
+  if(!next.eq(r.funding)){
+   let remaining=r.funding.sub(next).add(acc);
+   // If the new income absorbed the old compensation, it still belongs in
+   // the residual when the income is transferred to the funding coordinate.
+   if(!r.acc.eq(0)&&acc.eq(i))remaining=remaining.add(r.acc);
+   r.acc=decimal(remaining);r.funding=decimal(next);return receipt(true);
+  }
   r.acc=decimal(acc);return receipt();
  }
  function log1p(x){x=decimal(x);if(x.lte(-1))error('log1p domain');if(x.abs().lt('1e-5'))return x.mul(B.ONE.sub(x.div(2)).add(x.pow(2).div(3)).sub(x.pow(3).div(4)).add(x.pow(4).div(5)));return x.add(1).ln();}
@@ -70,7 +95,8 @@
   const origin=r.n0,old=B.max(0,prev.sub(origin).div(a).ceil());if(prev.lt(origin))error('External count change requires reanchor');
   const cap=limit==null?null:old.add(positive(limit,'limit').floor()),funds=r.funding,memo=new Map();let calls=0,newton=0,binary=0,correction=0,fallback=false;
   function* cost(m){const key=String(m);if(memo.has(key))return memo.get(key);calls++;const c=yield ()=>positive(model.cost(m),'cost');memo.set(key,c);return c;}
-  const paid=yield* cost(old);if(compareFunds(r,paid)<0)error('Published count exceeds funding');
+  const paid=yield* cost(old);
+  if(!coversPublished(r,paid))error('Published count exceeds funding');
   const adjacent=(v,up)=>{if(v.layer===0&&v.lt(1e12))return v.add(up?1:-1).floor();const bits=new DataView(new ArrayBuffer(8));bits.setFloat64(0,v.mag);bits.setBigUint64(0,bits.getBigUint64(0)+((v.mag>=0)===up?1n:-1n));return B.Decimal.fromComponents(v.sign,v.layer,bits.getFloat64(0)).floor();};
   const representation=m=>{const count=m.lte(old)?prev:B.max(prev,origin.add(a.mul(m))).floor(),batches=count.eq(prev)?old:B.max(old,count.sub(origin).div(a).ceil());return {count:batches.lte(old)?prev:count,m:batches};};
   function output(candidate,spent){solveDiagnostics.calls++;solveDiagnostics.costCalls+=calls;solveDiagnostics.maxCostCalls=Math.max(solveDiagnostics.maxCostCalls,calls);solveDiagnostics.newton+=newton;solveDiagnostics.binary+=binary;solveDiagnostics.correction+=correction;if(fallback)solveDiagnostics.fallbacks=(solveDiagnostics.fallbacks||0)+1;
@@ -136,6 +162,6 @@
   for(let j=0;j<2&&(compareFunds(r,spent)<0||cap!==null&&candidate.m.gt(cap));j++){candidate=representation(B.max(old,adjacent(candidate.count,false).sub(origin).div(a).floor()));spent=yield* cost(candidate.m);}
   return compareFunds(r,spent)>=0&&(cap===null||candidate.m.lte(cap))?output(candidate,spent):output(original,paid);
  }
- function reanchor(record,result,context=record.context){const r=read(record);if(result.batches.eq(0))return r;if(!result.gained.gte(0)||compareFunds(r,result.spent)<0)error('Invalid reanchor');return create({n0:result.count,context,funding:B.max(0,r.funding.sub(result.spent)),acc:r.acc});}
- W.Core.ClosedFormBatch=Object.freeze({diagnostics:()=>({...creditDiagnostics,discardedCoordinate:String(creditDiagnostics.discardedCoordinate),solve:{...solveDiagnostics}}),create,read,credit,solve,reanchor,compareFunds,belowThreshold,coordinateSignificance,twoSum,log1p,expm1,geometric});
+ function reanchor(record,result,context=record.context){const r=read(record);if(result.batches.eq(0))return r;if(!result.gained.gte(0)||(result.gained.eq(0)?!coversPublished(r,result.spent):compareFunds(r,result.spent)<0))error('Invalid reanchor');return create({n0:result.count,context,funding:B.max(0,r.funding.sub(result.spent)),acc:r.acc});}
+ W.Core.ClosedFormBatch=Object.freeze({diagnostics:()=>({...creditDiagnostics,discardedCoordinate:String(creditDiagnostics.discardedCoordinate),solve:{...solveDiagnostics}}),create,read,credit,solve,reanchor,coversPublished,compareFunds,belowThreshold,coordinateSignificance,twoSum,log1p,expm1,geometric});
 }(window.WIS));

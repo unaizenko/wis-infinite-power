@@ -1,17 +1,19 @@
 (function defineXiuzhen(WIS) {
   "use strict";
   const B = WIS.Core.BigNum, L = () => WIS.Core.Amount?.enabled()?WIS.Core.AmountLedger:WIS.Meta.TreasureLedger;
+  const tenthRealm = 17;
   const realms = Object.freeze([
     ["第一步·化神", "mana", "1e50"], ["第一步·婴变", "mana", "1e60"],
     ["第一步·问鼎", "xianForce", "1e8"], ["第二步·窥涅", "yuanForce", "1e5"],
     ["第二步·净涅", "yuanForce", "1e8"], ["第二步·碎涅", "yuanForce", "1e12"],
-    ["第三步·空涅", "yuanForce", "1e24"], ["第三步·空灵", "nieForce", "1e6"],
+    ["第三步·空涅", "yuanForce", "1e24", "C1"], ["第三步·空灵", "nieForce", "1e6"],
     ["第三步·空玄", "nieForce", "1e7"], ["第三步·空劫", "nieForce", "1e11"],
-    ["第四步·踏天", "nieForce", "1e9"],
-    ["第五步", "nieForce", "1e14"], ["第六步", "nieForce", "1e16"],
-    ["第七步", "nieForce", "1e18"], ["第八步", "nieForce", "1e21"], ["第九步", "nieForce", "1e24"]
-  ].map(([name, resource, cost], i) => Object.freeze({ name, resource, cost: B.BN(cost), level: i + 1 })));
-  const abilities = Object.freeze([
+    ["第四步·踏天", "nieForce", "1e9", "C5"],
+    ["第五步", "nieForce", "1e14", "C6"], ["第六步", "nieForce", "1e16"],
+    ["第七步", "nieForce", "1e18"], ["第八步", "nieForce", "1e21"], ["第九步", "nieForce", "1e24"],
+    ["第十步", "nieForce", "1e270", "C8"]
+  ].map(([name, resource, cost, upgrade], i) => Object.freeze({ name, resource, cost, level: i + 1, upgrade })));
+  const abilities = Object.freeze([...[
     ["intent", "意境", 1, "mana", "2e50", "战力获取 ^1.05"],
     ["spirit", "元神", 1, "mana", "5e50", "法力获取 ^1.05"],
     ["xianForce", "仙力", 2, "mana", "2e60", "依据当前仙灵力获得仙力"],
@@ -40,10 +42,14 @@
     ["originMultiverse", "六", 13, "nieForce", "5e16", "根据本源数量，提升高阶多元获取。"],
     ["eternalMultiverse", "七", 14, "nieForce", "5e18", "根据最高高阶多元数量，提升涅力获取。"],
     ["tierNie", "八", 15, "nieForce", "5e21", "根据高阶多元阶位，提升涅力获取。"],
-    ["tierTranscendence", "九", 16, "nieForce", "5e24", "根据高阶多元阶数，提升J、战力获取。"]
-  ].map(([key, name, realm, resource, cost, description]) => Object.freeze({ key, name, realm, resource, cost: B.BN(cost), description })));
-  const resourceKeys = Object.freeze(["xianForce", "yuanForce", "nieForce", "universeCoefficient", "multiverseCoefficient"]);
-  const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N", multiverseCoefficient: "多元宇宙系数N²" });
+    ["tierTranscendence", "九", 16, "nieForce", "5e24", "根据高阶多元阶数，提升J、战力获取。"],
+  ].map(([key, name, realm, resource, cost, description]) => Object.freeze({ key, name, realm, resource, cost, description })),
+    // Keep the payment exact when the displayed Decimal rounds above 5e270.
+    Object.freeze({ key: "huangTian", name: "煌天", realm: tenthRealm, resource: "nieForce", cost: "5e270",
+      description: "根据当前 N^N 库存，将大于 1 的涅力每秒产出提升至更高次幂。" })
+  ]);
+  const resourceKeys = Object.freeze(["xianForce", "yuanForce", "nieForce", "universeCoefficient", "multiverseCoefficient", "infiniteBoxCoefficient"]);
+  const labels = Object.freeze({ mana: "法力", xianForce: "仙力", yuanForce: "元力", nieForce: "涅力", universeCoefficient: "单体宇宙系数N", multiverseCoefficient: "多元宇宙系数N²", infiniteBoxCoefficient: "无限盒子系数 N^N" });
   const entry = () => ({ amount: B.ZERO, residual: [], total: B.ZERO, totalResidual: [],
     spent: B.ZERO, spentResidual: [], peak: B.ZERO });
   const fresh = () => ({ version: 1, entered: false, realm: 0, highestRealm: 0, lifetimeHighestRealm: 0,
@@ -63,11 +69,14 @@
   const rank = value => Math.min(realms.length, Math.max(0, Math.floor(Number(value) || 0)));
   // Statistics are independent of current-run unlock/achievement qualification.
   const lifetimeRealmLevel = n => Math.max(rank(n.lifetimeHighestRealm), rank(n.highestRealm), rank(n.realm), rank(n.history?.realm));
+  const reachedInfiniteBox = state => lifetimeRealmLevel(get(state)) >= tenthRealm;
   // Lifetime scale is a display classification, independent of current-run activity.
-  function statisticsScaleName(state) {
+  function statisticsScaleName(state, lifetime = true) {
+    const n = get(state), level = lifetime ? lifetimeRealmLevel(n) : rank(n.realm);
+    if (level >= tenthRealm) return "无限盒子";
+    if (!lifetime) return null;
     const high = WIS.Meta.HighMultiverse.get(state);
     if (high.order !== '0' || (high.highest?.order ?? '0') !== '0') return '高阶多元';
-    const level = lifetimeRealmLevel(get(state));
     return level >= 11 ? '多元宇宙' : level >= 7 ? '单体宇宙' : null;
   }
   function statisticsRealmName(state, lifetime = false) {
@@ -129,6 +138,17 @@
     n.shengProgress = normalizeSheng(raw.shengProgress);
     return n;
   }
+  // Older durable session checkpoints bypass import normalization.
+  function restoreCheckpointResources(state) {
+    if(state.meta.universeCoefficients)return;
+    const resources = state.cultivation.systems.immortal.xiuzhen?.resources;
+    if (resources && resources.infiniteBoxCoefficient === undefined) {
+      const empty = entry();
+      if (WIS.Core.Amount?.enabled()) empty.peakResidual = [];
+      resources.infiniteBoxCoefficient = empty;
+    }
+    if(resources)installPrepared(state,get(state));
+  }
   // A missing legacy branch is a detached default view, never a query write.
   const get = state => state.cultivation.systems.immortal.xiuzhen || fresh();
   const unlocked = state => (state.challengeCompletions?.mortalTransformation || 0) > 0;
@@ -153,7 +173,7 @@
   function validate(state) {
     const n = state.cultivation.systems.immortal.xiuzhen ||= fresh();
     for (const key of resourceKeys) for (const field of ["amount", "total", "spent"])
-      write(n.resources[key], L().normalize([n.resources[key][field],...(n.resources[key][tailKey(field)]||[])]), field);
+      write(resourceEntry(state,key), L().normalize([resourceEntry(state,key)[field],...(resourceEntry(state,key)[tailKey(field)]||[])]), field);
     const mana = WIS.Core.Resources.prepare(state.cultivation.systems.immortal.resources, "mana", B.ZERO);
     const resources = state.cultivation.systems.immortal.resources;
     const combined = WIS.Core.Resources.ledger().normalize([...WIS.Core.Resources.balance(mana, "mana"), ...n.manaDebitResidual]);
@@ -163,8 +183,11 @@
     n.manaDebitResidual = [];
     return state;
   }
-  function amount(state, key) { return B.BN(get(state).resources[key].amount); }
-  const quantity=(state,key)=>WIS.Core.Amount.field(get(state).resources[key]);
+  const U=()=>WIS.Meta.UniverseCoefficients;
+  const resourceEntry=(s,k)=>U().shared(k)&&s.meta.universeCoefficients ? U().entry(s,k) : get(s).resources[k];
+  function installPrepared(s,n) {U().install(s,n);U().bindLegacyView(s);}
+  function amount(state, key) { return B.BN(resourceEntry(state,key).amount); }
+  const quantity=(state,key)=>WIS.Core.Amount.field(resourceEntry(state,key));
   const fullAmount=(state,key)=>WIS.Core.Amount?.enabled()?quantity(state,key):amount(state,key);
   const isQuantity=value=>WIS.Core.Amount?.enabled()&&WIS.Core.Amount.isAmount(value);
   const divided=(value,divisor)=>isQuantity(value)?WIS.Core.Amount.divide(value,divisor):B.div(value,divisor);
@@ -174,7 +197,7 @@
 
   function availableWords(state, key) {
     return key === "mana" ? WIS.Core.Resources.balance(state.cultivation.systems.immortal.resources, "mana")
-      : words(get(state).resources[key]);
+      : words(resourceEntry(state,key));
   }
   function canSpend(state, key, cost) {
     if(WIS.Core.Amount?.enabled()){const A=WIS.Core.Amount,price=A.from(cost);return !!labels[key]&&A.compare(price,0)>0&&A.compare(A.fromParts(0,availableWords(state,key)),price)>=0;}
@@ -198,7 +221,7 @@
       n.manaDebitResidual = [];
       n.manaSpent = spent.amount; n.manaSpentResidual = spent.residual;
     } else {
-      const e = n.resources[key]; write(e, remaining); write(e, L().add(words(e, "spent"), WIS.Core.Amount?.enabled()?WIS.Core.Amount.words(cost):[cost]), "spent");
+      const e = resourceEntry(state,key); write(e, remaining); write(e, L().add(words(e, "spent"), WIS.Core.Amount?.enabled()?WIS.Core.Amount.words(cost):[cost]), "spent");
     }
     return true;
   }
@@ -207,18 +230,24 @@
     const old = get(state), mana = state.mana, residual = state.manaGainResidual,
       tail = state.cultivation.systems.immortal.resources.manaGainResidualTail;
     const draft=WIS.Core.Amount?.enabled()?WIS.Core.State.createDraft(state):null;
+    const oldLedger=state.meta.universeCoefficients;
+    state.meta.universeCoefficients=Object.fromEntries(U().keys.map(k=>[k,{...resourceEntry(state,k)}]));
     state.cultivation.systems.immortal.xiuzhen = draft?get(draft.state):normalize(old);
-    try { const result = work(get(state));if(draft)state.cultivation.systems.immortal.xiuzhen=draft.finishValue(get(state)); WIS.Core.Effects?.invalidate(); return result; }
-    catch (error) { state.cultivation.systems.immortal.xiuzhen = old; state.mana = mana; state.manaGainResidual = residual; state.cultivation.systems.immortal.resources.manaGainResidualTail = tail; throw error; }
+    try { const result = work(get(state));const next=draft?draft.finishValue(get(state)):get(state);
+      const local={...next.resources};for(const k of U().keys)delete local[k];
+      state.cultivation.systems.immortal.xiuzhen={...next,resources:local};
+      U().bindLegacyView(state);WIS.Core.Effects?.invalidate(); return result; }
+    catch (error) { state.meta.universeCoefficients=oldLedger;state.cultivation.systems.immortal.xiuzhen = old; state.mana = mana; state.manaGainResidual = residual; state.cultivation.systems.immortal.resources.manaGainResidualTail = tail; throw error; }
+  }
+  function breakthroughPrerequisites(state, realm) {
+    return (realm.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0) &&
+      (realm.level < 7 || (state.challengeCompletions?.heavenlyFiveDeclines || 0) > 0) &&
+      (!realm.upgrade || WIS.Meta.Infinity.has(state, realm.upgrade));
   }
   function canBreakthrough(state) {
-    const n = get(state), next = realms[n.realm];
+    const next = realms[get(state).realm];
     return active(state) && unlocked(state) && !sealed(state) && !!next &&
-      (next.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0) &&
-      (next.level < 7 || (state.challengeCompletions?.heavenlyFiveDeclines || 0) > 0) &&
-      (next.level !== 7 || WIS.Meta.Infinity.has(state, "C1")) &&
-      (next.level !== 11 || WIS.Meta.Infinity.has(state, "C5")) &&
-      (next.level !== 12 || WIS.Meta.Infinity.has(state, "C6")) && canSpend(state, next.resource, next.cost);
+      breakthroughPrerequisites(state, next) && canSpend(state, next.resource, next.cost);
   }
   function breakthrough(state, manual = true) {
     if (!canBreakthrough(state)) return false;
@@ -283,6 +312,11 @@
     if (key === "daoWuYa") return daoWuYaExponent(state);
     if (key === "daoYuan") return 2;
     if (key === "originMultiverse") return B.add(1,B.mul(.5,ln1p(oLog())));
+    if (key === "huangTian") {
+      if (!tenthStepActive(state)) return B.ONE;
+      const logStock = log1p10(fullAmount(state, "infiniteBoxCoefficient"));
+      return B.add(1, B.mul(2, B.div(logStock, B.add(2, logStock))));
+    }
     if (["eternalMultiverse","tierNie","tierTranscendence"].includes(key)) {
       const H=WIS.Meta.HighMultiverse;
       if (!H.active(state)) return B.ONE;
@@ -290,9 +324,9 @@
         const best=H.highest(state), l=WIS.Core.Amount?.enabled()?log1p10(WIS.Core.Amount.field(best,'coefficient')):B.log10(B.add(1,best.coefficient));
         // Bounded coefficient term makes every higher tier at least as strong,
         // even when promotion roots an enormous coefficient down near one.
-        return B.pow10(B.add(B.sub(best.order,3),B.div(l,B.add(1,l))));
+        return B.pow10(B.add(B.sub(H.orderValue(best.order),3),B.div(l,B.add(1,l))));
       }
-      const k=H.get(state).order;
+      const k=H.orderValue(H.get(state).order);
       return key === "tierNie" ? B.pow(B.sub(k,1),2) : uncappedExponent(B.mul(.025,B.sub(k,2)),.5);
     }
     if (key === "originBody") return 3;
@@ -308,6 +342,7 @@
   const thirdStepActive = state => active(state) && !sealed(state) && get(state).realm >= 7;
   const fourthStepActive = state => active(state) && !sealed(state) && get(state).realm >= 11;
   const fifthStepActive = state => active(state) && !sealed(state) && get(state).realm >= 12;
+  const tenthStepActive = state => active(state) && !sealed(state) && get(state).realm >= tenthRealm;
   // Globally smooth production and stock decay; no gameplay threshold/cap.
   const compressUniverseRate = rate => B.mul(10,ln1p(ln1p(B.div(rate,10))));
   const universeStockDecay = stock => powerOnePlusRatio(stock,1000,.5);
@@ -319,6 +354,9 @@
     ? B.add(1,B.mul(.5,ln1p(B.div(log1p10(fullAmount(state,"multiverseCoefficient")),2)))) : B.ONE;
   const applyDaoWuYa = (state,gain) => B.gt(gain,1) ? B.pow(gain,daoWuYaExponent(state)) : gain;
   const multiverseRate = state => fourthStepActive(state) ? powerRatio(fullAmount(state,"universeCoefficient"),1000,.5) : B.ZERO;
+  const infiniteBoxRate = state => tenthStepActive(state)
+    ? B.mul(powerRatio(fullAmount(state, "nieForce"), "1e270", .25), logOnePlusRatio(fullAmount(state, "universeCoefficient"), 1000))
+    : B.ZERO;
   function thirdStepRates(state) {
     let nieForce = B.ZERO, universeCoefficient = B.ZERO;
     if (!thirdStepActive(state)) return { nieForce, universeCoefficient, multiverseCoefficient:multiverseRate(state) };
@@ -327,7 +365,9 @@
     nieForce = B.mul(nieForce,B.mul(abilityMultiplier(state,"eternalMultiverse"),abilityMultiplier(state,"tierNie")));
     // The three universe abilities multiply after compression in rates().
     if (has(state,"emptyGate")) universeCoefficient = B.div(powerRatio(fullAmount(state,"nieForce"),"1e4",.25),300);
-    return { nieForce:applyDaoWuYa(state,B.mul(nieForce,immortalAchievementMultiplier(state))), universeCoefficient, multiverseCoefficient:multiverseRate(state) };
+    nieForce = applyDaoWuYa(state, B.mul(nieForce, immortalAchievementMultiplier(state)));
+    if (has(state, "huangTian") && B.gt(nieForce, 1)) nieForce = B.pow(nieForce, abilityMultiplier(state, "huangTian"));
+    return { nieForce, universeCoefficient, multiverseCoefficient:multiverseRate(state) };
   }
   function originProgressGain(state) { return B.mul(B.mul("1e-5",abilityMultiplier(state,"originBody")),abilityMultiplier(state,"kongNieZhang")); }
   function awardOrigin(state, gains) {
@@ -390,7 +430,8 @@
   }
   function rawRates(state) {
     let xianForce = B.ZERO, yuanForce = B.ZERO;
-    if (!has(state, "xianForce") && !has(state, "yuanForce")) return { xianForce, yuanForce, ...thirdStepRates(state) };
+    const infiniteBoxCoefficient = infiniteBoxRate(state);
+    if (!has(state, "xianForce") && !has(state, "yuanForce")) return { xianForce, yuanForce, infiniteBoxCoefficient, ...thirdStepRates(state) };
     const x = fullAmount(state, "xianForce");
     if (has(state, "xianForce")) {
       xianForce = B.mul("2e4", B.add(1, logOnePlusRatio(WIS.Core.Amount?.enabled()?WIS.Core.Resources.readExact('cultivation.immortal.immortalPower',state):state.immortalPower,"1e40")));
@@ -403,13 +444,19 @@
       if (has(state, "worldAura")) yuanForce = B.mul(yuanForce, abilityMultiplier(state, "worldAura"));
     }
     const achievement=immortalAchievementMultiplier(state);
-    return { xianForce:applyDaoWuYa(state,B.mul(xianForce,achievement)), yuanForce:applyDaoWuYa(state,B.mul(B.mul(yuanForce,achievement),yuanCrystalMultiplier(state))), ...thirdStepRates(state) };
+    return { xianForce:applyDaoWuYa(state,B.mul(xianForce,achievement)), yuanForce:applyDaoWuYa(state,B.mul(B.mul(yuanForce,achievement),yuanCrystalMultiplier(state))), infiniteBoxCoefficient, ...thirdStepRates(state) };
   }
   function rates(state) {
     const raw = rawRates(state),A=WIS.Core.Amount,penalized=key=>A?.enabled()?A.project(WIS.Core.Penalties.applyGoogolPenalty(key,fullAmount(state,key),A.from(raw[key]),state)):WIS.Core.Penalties.applyGoogolPenalty(key,amount(state,key),raw[key],state);
+    const achievements = WIS.Meta.Achievements, boxExponent = achievements.infiniteBoxExponent(state);
+    const universe = finalUniverseRate(raw.universeCoefficient,fullAmount(state,"universeCoefficient"),universeGainMultiplier(state));
+    const multiverse = finalUniverseRate(raw.multiverseCoefficient,fullAmount(state,"multiverseCoefficient"));
     return {
       xianForce:penalized('xianForce'),yuanForce:penalized('yuanForce'),
-      nieForce:raw.nieForce, universeCoefficient:finalUniverseRate(raw.universeCoefficient,fullAmount(state,"universeCoefficient"),universeGainMultiplier(state)), multiverseCoefficient:finalUniverseRate(raw.multiverseCoefficient,fullAmount(state,"multiverseCoefficient"))
+      nieForce:raw.nieForce,
+      universeCoefficient:achievements.applyInfiniteBoxReward(universe, boxExponent),
+      multiverseCoefficient:achievements.applyInfiniteBoxReward(multiverse, boxExponent),
+      infiniteBoxCoefficient:raw.infiniteBoxCoefficient
     };
   }
   function intervalSupport(){return WIS.Simulation.LegacySettlementCheckpoints.retired();}
@@ -441,27 +488,27 @@
     if (gains && resourceKeys.some(k => !B.isFiniteBN(gains[k] ?? 0) || B.lt(gains[k] ?? 0, 0)))
       throw Error("修真道新增收益无效，未提交");
     if (!gains || resourceKeys.every(k => B.eq(gains[k] ?? 0, 0))) return get(state);
-    const draft=WIS.Core.Amount?.enabled()?WIS.Core.State.createDraft(state):null,n=draft?get(draft.state):normalize(get(state));
-      for (const k of resourceKeys) prepareResource(n.resources[k],k,gains);
-    return draft?draft.finishValue(n):n;
+    const original=get(state),resources={...original.resources};
+    for(const k of resourceKeys)resources[k]=prepareResource({...resourceEntry(state,k)},k,gains);
+    return {...original,resources};
   }
   function prepareOperation(state,gains){
     const perform=()=>prepare(state,gains);if(!WIS.Core.Amount?.enabled()||!gains)return perform;
     const Q=WIS.Core.Resources,C=WIS.Core.CertifiedRankMath,original=get(state),owner=state.cultivation.systems.immortal,source=owner.xiuzhen,resourceOwner=original.resources,quantityOwner=gains.quantities,repeatOwner=gains.repeat;
-    const gainCurrent=Q.numericInputCurrent(gains,resourceKeys),quantities=resourceKeys.map(k=>quantityOwner?.[k]),quantityChecks=quantities.map(value=>Q.quantityInputCurrent(value)),entries=resourceKeys.map(k=>original.resources[k]),entryChecks=entries.map(e=>Q.numericInputCurrent(e,['amount','residual','total','totalResidual','peak','peakResidual'])),repeats=resourceKeys.map(k=>repeatOwner?.[k]),repeatChecks=repeats.map(row=>row?Q.numericInputCurrent(row,['term','count']):()=>true);
-    const current=()=>state.cultivation.systems.immortal===owner&&owner.xiuzhen===source&&original.resources===resourceOwner&&gains.quantities===quantityOwner&&gains.repeat===repeatOwner&&gainCurrent()&&resourceKeys.every((k,i)=>original.resources[k]===entries[i]&&entryChecks[i]()&&quantityOwner?.[k]===quantities[i]&&quantityChecks[i]()&&repeatOwner?.[k]===repeats[i]&&repeatChecks[i]());
+    const gainCurrent=Q.numericInputCurrent(gains,resourceKeys),quantities=resourceKeys.map(k=>quantityOwner?.[k]),quantityChecks=quantities.map(value=>Q.quantityInputCurrent(value)),entries=resourceKeys.map(k=>resourceEntry(state,k)),entryChecks=entries.map(e=>Q.numericInputCurrent(e,['amount','residual','total','totalResidual','peak','peakResidual'])),repeats=resourceKeys.map(k=>repeatOwner?.[k]),repeatChecks=repeats.map(row=>row?Q.numericInputCurrent(row,['term','count']):()=>true);
+    const current=()=>state.cultivation.systems.immortal===owner&&owner.xiuzhen===source&&original.resources===resourceOwner&&gains.quantities===quantityOwner&&gains.repeat===repeatOwner&&gainCurrent()&&resourceKeys.every((k,i)=>resourceEntry(state,k)===entries[i]&&entryChecks[i]()&&quantityOwner?.[k]===quantities[i]&&quantityChecks[i]()&&repeatOwner?.[k]===repeats[i]&&repeatChecks[i]());
     return Q.privateOperation(state,perform,()=>C.task('xiuzhen-resource-preparation',function*(){
       if(resourceKeys.some(k=>!B.isFiniteBN(gains[k]??0)||B.lt(gains[k]??0,0)))throw Error('修真道新增收益无效，未提交');
       if(resourceKeys.every(k=>B.eq(gains[k]??0,0)))return original;
       const resources={...original.resources};
-      for(const k of resourceKeys)resources[k]=yield ()=>prepareResource({...original.resources[k]},k,gains);
+      for(const k of resourceKeys)resources[k]=yield ()=>prepareResource({...resourceEntry(state,k)},k,gains);
       return {...original,resources};
     }),result=>result,current);
   }
   function commit(state, gains) {
     const n = prepare(state, gains);
     awardOrigin(state,gains);
-    if (n !== get(state)) { state.cultivation.systems.immortal.xiuzhen = n; WIS.Core.Effects?.invalidate(); }
+    if (n !== get(state)) { installPrepared(state,n); WIS.Core.Effects?.invalidate(); }
   }
   // The registry requests deferred values; direct callers retain numeric descriptors.
   function effects(state, { deferValues = false } = {}) {
@@ -507,17 +554,17 @@
       const n = fresh();
       const old = normalize(get(previous));
       n.history = old.history; n.lifetimeHighestRealm = old.lifetimeHighestRealm;
-      state.cultivation.systems.immortal.xiuzhen = n;
+      installPrepared(state,n);
       return;
     }
     if (profile === "scatter") return; // same lower-tier retention as other retained abilities
     const old = get(previous), n = fresh();
     n.history = normalize(old).history; n.highestRealm = old.highestRealm; n.lifetimeHighestRealm = lifetimeRealmLevel(old);
     for (const key of resourceKeys) for (const field of ["total", "totalResidual", "spent", "spentResidual", "peak",...(WIS.Core.Amount?.enabled()?["peakResidual"]:[])])
-      n.resources[key][field] = Array.isArray(old.resources[key][field]) ? old.resources[key][field].slice() : old.resources[key][field]??(field==='peakResidual'?[]:B.ZERO);
+      n.resources[key][field] = Array.isArray(resourceEntry(previous,key)[field]) ? resourceEntry(previous,key)[field].slice() : resourceEntry(previous,key)[field]??(field==='peakResidual'?[]:B.ZERO);
     n.manaSpent = old.manaSpent; n.manaSpentResidual = old.manaSpentResidual.slice();
     if (challengeKey === "yinVoidYangReal" && old.abilities.yuanForce) n.abilities.yuanForce = true;
-    state.cultivation.systems.immortal.xiuzhen = n;
+    installPrepared(state,n);
   }
   function automation(state, kind) {
     const n = get(state), isRealm = kind === "realm";
@@ -525,11 +572,7 @@
       : state.immortalAbilityAutomationEnabled && state.unlockedAchievements?.infantSpirit)) return 0;
     const candidates = isRealm ? realms.map(r => ({ id: "realm-" + r.level, resourceKey: r.resource, cost: r.cost,
         available: unlocked(state) && n.realm === r.level - 1 && n.history.realm >= r.level &&
-          (r.level < 4 || (state.challengeCompletions?.yinVoidYangReal || 0) > 0) &&
-          (r.level < 7 || (state.challengeCompletions?.heavenlyFiveDeclines || 0) > 0) &&
-          (r.level !== 7 || WIS.Meta.Infinity.has(state, "C1")) &&
-          (r.level !== 11 || WIS.Meta.Infinity.has(state, "C5")) &&
-          (r.level !== 12 || WIS.Meta.Infinity.has(state, "C6")), run: () => breakthrough(state, false) }))
+          breakthroughPrerequisites(state, r), run: () => breakthrough(state, false) }))
     : abilities.map(a => ({ id: a.key, resourceKey: a.resource, cost: a.cost,
       available: n.entered && n.realm >= a.realm && !n.abilities[a.key] && !!n.history.abilities[a.key], run: () => buy(state, a.key, false) }));
     if (WIS.Simulation.FixedSegment?.collectCandidates?.("xiuzhen-" + kind,
@@ -545,9 +588,9 @@
     if (next?.run()) changes = 1 + automation(state, kind);
     return changes;
   }
-  WIS.Cultivation.Xiuzhen = Object.freeze({ validate, realms, abilities, resourceKeys, labels, fresh, normalize, get, statisticsRealmName, statisticsScaleName, unlocked, available, active,
+  WIS.Cultivation.Xiuzhen = Object.freeze({ resourceEntry,installPrepared,validate, realms, abilities, resourceKeys, labels, fresh, normalize, restoreCheckpointResources, get, statisticsRealmName, statisticsScaleName, reachedInfiniteBox, unlocked, available, active,
     sealed, qiPathSealed, yinYang, has, amount, quantity,words, availableWords, canSpend, canBreakthrough, breakthrough,
-    canBuy, buy, fifthStepActive, highMultiverseRawRate, fourthStepActive, daoWuYaExponent, applyDaoWuYa, multiverseRate, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, prepareOperation, commit, effects, abilityView, softcapRemoved, reset, automation,
+    canBuy, buy, tenthStepActive, fifthStepActive, highMultiverseRawRate, fourthStepActive, daoWuYaExponent, applyDaoWuYa, multiverseRate, abilityMultiplier, yuanCrystalMultiplier, thirdStepActive, thirdStepRates, originProgressGain, awardOrigin, captureSheng, awardSheng, rawRates, rates, intervalSupport, discreteYuanModel, plan, prepare, prepareOperation, commit, effects, abilityView, softcapRemoved, reset, automation,
     universeGainMultiplier,
     universeStockMultiplier(state,key) { return B.div(1,universeStockDecay(fullAmount(state,key))); },
     spendMana(state, cost) { return transaction(state, () => debit(state, "mana", cost)); },

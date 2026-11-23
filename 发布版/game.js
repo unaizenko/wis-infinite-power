@@ -318,11 +318,11 @@
   const formatGameCalendar = WIS.UI.Format.gameCalendar;
 
   const invalidateOnlineScheduler = () => simulationLoop?.invalidateOnlineScheduler?.();
-  const simulateOfflineProgress = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('simulateOfflineProgress',args):offlineSimulation.simulateOfflineProgress(...args); };
+  const simulateOfflineProgress = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('simulateOfflineProgress',args).then(receipt=>typeof receipt.value==='string'?receipt.value:''):offlineSimulation.simulateOfflineProgress(...args); };
   const cancelCatchUp = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('pauseCatchUpByPlayer',args):offlineSimulation.cancelCatchUp(...args); };
   const abandonCatchUp = (...args) => { invalidateOnlineScheduler(); return session?.active()?session.recovery('abandonCatchUp',args):offlineSimulation.abandonCatchUp(...args); };
   function convertOfflineToCompensation() {
-    if(session?.active())return session.recovery('convertOfflineToCompensation');
+    if(session?.active())return session.recovery('convertOfflineToCompensation').then(receipt=>receipt.value);
     simulationLoop.prepareSave();
     invalidateOnlineScheduler();
     offlineSimulation.sealOnlineTail();
@@ -436,6 +436,7 @@
   }
 
   session=WIS.Simulation.SessionClient.create({
+    onFirstOnlineSettlement:()=>UI.onFirstOnlineSettlement(),
     install(snapshot,tick,rates,owner){const next=session.readonly(WIS.Core.State.cloneForSimulation(snapshot.domain));previewOwners.set(next,owner);setStateDirect(next);WIS.Power.Scale.restoreTreasureTransient(snapshot.powerTransient);WIS.Cultivation.Immortal.restoreTreasureTransient(snapshot.cultivationTransient);WIS.tmp.tick=tick;WIS.tmp.rates=rates;},
     render(){requestRender();scheduleRender(Date.now());},notice:message=>showNotice(message,6000)
   });
@@ -462,7 +463,7 @@
     challengesUnlocked, statisticsUnlocked, hasAchievement, startChallenge: (...args)=>session?session.dispatch({type:'action',group:'challenges',method:'startChallenge',args}):playerAction(startChallenge)(...args), exitChallenge: (...args)=>session?session.dispatch({type:'action',group:'challenges',method:'exitChallenge',args}):playerAction(exitChallenge)(...args), setLastTickAt,
     previewOwner,
     getCommittedRates:()=>session?.active()?session.view().publishedRates:simulationLoop?.getCommittedRates(),
-    onNativeAppState: active => session?.active()?session.nativeActive(active):simulationLoop?.setNativeAppActive(active),
+    onNativeAppState: active => session?session.nativeActive(active):simulationLoop?.setNativeAppActive(active),
     captureForegroundTime: (now = Date.now()) => simulationLoop?.captureForegroundTime?.(now) ?? 0,
     requestDeferredAction:job=>simulationLoop?.requestDeferredAction(job),
     isDeferredActionPending:()=>session?.active()?session.busy():simulationLoop?.isDeferredActionPending?.()===true,
@@ -703,7 +704,8 @@
     applyTheme();
   }else simulationLoop.restoreClosedTime(null);
   initialLoadComplete=true;
-  if(document.hidden){if(session)await session.save({closing:true});else simulationLoop.prepareSave({closing:true});}
+  const startedAway = session ? session.isAway() : document.hidden;
+  if(startedAway){if(session)await session.save({closing:true});else simulationLoop.prepareSave({closing:true});}
   ensureAdvancedRealmAbilityGroups();
   switchPage("actions", { deferRender: true });
   markCostGroupsDirty();
@@ -716,7 +718,7 @@
   // its potentially long promise, and Worker writes retain their durable ACK.
   let initialOfflineReport="";
   try {
-    if(WIS.Core.Save.sessionPolicy().durableRecoveryAllowed)
+    if(WIS.Core.Save.sessionPolicy().durableRecoveryAllowed && !(session && (startedAway || session.isAway())))
       initialOfflineReport=await simulateOfflineProgress(0);
   } catch(error) {
     WIS.Core.Save.noteFailure(error);
@@ -726,14 +728,14 @@
   markCostGroupsDirty();
   requestRender();
   scheduleRender(Date.now());
-  try {await saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
+  try {if (!(session && (startedAway || session.isAway()))) await saveState();} catch(error) {WIS.Core.Save.noteFailure(error);}
   if(!offlineSimulation.isCatchUpPaused()&&!WIS.Core.Save.getLoadError())notifyNewAchievements();
   if(initialOfflineReport&&state.autoCloseOfflineDialogEnabled===false)showNotice(initialOfflineReport,6000);
   // Periodic saves must not accumulate while an earlier save awaits durable
   // confirmation. Manual, closing and import saves retain independent receipts.
   let periodicSavePending=false;
   window.setInterval(async()=>{
-    if(document.hidden||periodicSavePending)return;
+    if(document.hidden||session?.isAway()||periodicSavePending)return;
     periodicSavePending=true;
     try {await persistStateNow({preserveSourceModels:true,captureOnly:true});}
     catch {} // persistStateNow reports the storage failure through Save.

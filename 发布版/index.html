@@ -133,7 +133,7 @@
   }, 500);
 }(window, document));
     </script>
-    <link rel="stylesheet" href="styles.css?v=release-0.2.3.4-20261120" />
+    <link rel="stylesheet" href="styles.css?v=release-0.3.0.0-20261123" />
   </head>
   <body>
     <aside id="boot-status-panel" class="boot-status-panel" role="status" aria-live="polite">
@@ -159,7 +159,7 @@
           <strong>WIS</strong>
           <span>无限战力系统</span>
           <span class="version-actions">
-            <small id="game-version" class="game-version">v0.2.3.4</small>
+            <small id="game-version" class="game-version">v0.3.0.0</small>
             <button id="android-app-open" class="app-download-link" type="button" aria-haspopup="dialog" hidden>下载安卓 App</button>
           </span>
         </div>
@@ -199,6 +199,7 @@
             <div class="resource-value"><strong id="big-number-dominant">0 Y</strong><small id="big-number-rate"></small></div>
           </div>
           <div class="resource-row" id="universeCoefficient-resource" hidden><span>单体宇宙（N）</span><div class="resource-value"><strong id="universeCoefficient">0</strong><small id="universeCoefficient-rate"></small></div></div>
+          <div class="resource-row" id="infiniteBoxCoefficient-resource" hidden><span>无限盒子（N^N）</span><div class="resource-value"><strong id="infiniteBoxCoefficient">0</strong><small id="infiniteBoxCoefficient-rate"></small></div></div>
           <div class="resource-row" id="highMultiverseCoefficient-resource" hidden><span id="highMultiverseCoefficient-label">高阶多元（N³）</span><div class="resource-value"><strong id="highMultiverseCoefficient">0</strong><small id="highMultiverseCoefficient-rate"></small></div></div>
           <div class="resource-row" id="multiverseCoefficient-resource" hidden><span>多元宇宙（N²）</span><div class="resource-value"><strong id="multiverseCoefficient">0</strong><small id="multiverseCoefficient-rate"></small></div></div>
         </div>
@@ -259,10 +260,8 @@
 
         <main class="main-panel">
           <section class="page active" id="actions-page">
-            <div class="page-header">
-              <div>
-                <h1>行动</h1>
-              </div>
+            <div class="page-header action-banner">
+              <h1>行动</h1>
             </div>
 
             <div id="big-number-tabs" class="big-number-tabs" role="tablist" aria-label="行动子界面" hidden>
@@ -271,10 +270,14 @@
               <button id="tree-tab" type="button" role="tab" aria-controls="tree-panel" aria-selected="false" hidden>大数·树</button>
             </div>
             <div class="item-list" id="ordinary-actions-panel" role="tabpanel" aria-labelledby="ordinary-actions-tab">
-              <article class="item-row">
+              <article class="item-row training-row">
                 <div class="item-content">
                   <h2>锻炼</h2>
                   <p>消耗全部 J，提升战力。</p><p class="flavor-text">战力的上限在哪里呢？</p>
+                  <div id="training-goal" hidden>
+                    <label for="training-meter">首次锻炼 <span id="training-goal-value"></span></label>
+                    <progress id="training-meter" max="10" value="0"></progress>
+                  </div>
                 </div>
                 <div class="action-control">
                   <span id="conversion-preview">至少需要 10 J</span>
@@ -777,6 +780,10 @@
               <article class="item-row" id="sacred-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·圣体</h2><p>四极成就解锁；按实际获得体独立累计进度，需求1e6×10^n；体获取×(1+n)^0.25。</p></div><div class="purchase-control"><span id="sacred-body-imprint-count">数量：0</span><small id="sacred-body-imprint-chance">等待计算进度</small><small id="sacred-body-imprint-effect"></small></div></article>
               <article class="item-row" id="god-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·神王体</h2><p>四极成就解锁；按实际获得体独立累计进度，需求1e6×10^n；气获取×(1+n)^0.25。</p></div><div class="purchase-control"><span id="god-body-imprint-count">数量：0</span><small id="god-body-imprint-chance">等待计算进度</small><small id="god-body-imprint-effect"></small></div></article>
               <article class="item-row" id="source-stone-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·源石</h2><p>四极成就解锁；按实际获得J独立累计进度，需求1e19×1000^n；武道J独立来源×(1+n)^0.4。</p></div><div class="purchase-control"><span id="source-stone-imprint-count">数量：0</span><small id="source-stone-imprint-chance">等待计算进度</small><small id="source-stone-imprint-effect"></small></div></article>
+              <article class="item-row" id="will-imprint-treasure" data-catalog-system="武道" hidden>
+                <div class="item-content"><h2>烙印·意志</h2><p>每获得或失去 1 心积累 1 进度。首枚需要 10 进度，此后每枚需求翻倍。</p></div>
+                <div class="purchase-control"><span id="will-imprint-count">数量：0</span><small id="will-imprint-chance">等待计算进度</small><small id="will-imprint-effect">炼心、神魂兑换效率 ×1</small></div>
+              </article>
               <article class="item-row" id="law-imprint-treasure" data-catalog-system="武道" hidden>
                 <div class="item-content"><h2>烙印·法则</h2><p>源能法则成就解锁；实际获得气、体合计积累进度，第n枚需求为100000×2^n，增强基因源能倍率。</p></div>
                 <div class="purchase-control"><span id="law-imprint-count">数量：0</span><small id="law-imprint-chance">等待计算进度</small><small id="law-imprint-effect">基因源能倍率额外 ×1</small></div>
@@ -909,12 +916,13 @@
               </article>
 
               <article class="item-row" id="sever-self-corpse-challenge" data-challenge-key="severSelfCorpse" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效，仙灵力受到自身相关的指数削弱。</p></div>
+                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效，仙灵力获取受压制。</p><details class="card-details"><summary>仙灵力压制公式</summary><p>E = 1 / [1 + c × log10(1 + I / 1e16)]，I 为仙灵力，c = <span id="self-corpse-formula-coefficient"></span>。</p></details></div>
                 <div class="purchase-control"><span id="sever-self-corpse-progress">完成：0/1次</span><small id="sever-self-corpse-limit">限制：法则与法则本源失效；仙灵力额外动态压制</small><small id="sever-self-corpse-target">目标：重新达到大罗</small><small id="sever-self-corpse-reward">奖励：永久取得突破道祖资格</small><button id="toggle-sever-self-corpse" class="primary-button" type="button">开启挑战</button></div>
               </article>
 
               <article class="item-row" id="qi-refining-hundred-thousand-years-challenge" data-challenge-key="qiRefiningHundredThousandYears" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>炼气十万年</h2><p>放弃筑基及以上境界；法力达到层数要求即可突破，不消耗法力。炼气层数强化法力、法力J、法力战力并逐层弱化正常量级软上限。退出时记录历史最高层并提升永久吐纳法力；10万层只记录挑战完成。</p></div>
+                <div class="item-content"><h2>炼气十万年</h2><p>放弃筑基及以上境界。炼气达到 10 万层完成挑战。</p>
+                  <details class="card-details"><summary>突破与结算规则</summary><p>法力达标即可突破，不消耗法力。炼气层数强化法力、法力 J 和法力战力，并逐层弱化正常量级软上限。退出时记录最高层，完成次数只计一次。</p></details></div>
                 <div class="purchase-control">
                   <span id="qi-refining-hundred-thousand-years-progress">最高：炼气1层</span>
                   <small id="qi-refining-hundred-thousand-years-limit">本轮：炼气1层</small>
@@ -965,121 +973,85 @@
           </section>
 
           <section class="page" id="statistics-page">
-            <div class="page-header">
-              <div>
-                <p class="section-label">永久记录</p>
-                <h1>统计</h1>
-              </div>
-              <p>记录本存档曾经达到的最高数值与经过时间。</p>
-            </div>
-
+            <div class="page-header"><h1>统计</h1></div>
             <div class="statistics-tabs" role="tablist" aria-label="统计范围">
               <button id="statistics-total-tab" class="secondary-button" type="button" role="tab" aria-selected="true" aria-controls="statistics-total-panel">总统计</button>
-              <button id="statistics-current-tab" class="secondary-button" type="button" role="tab" aria-selected="false" aria-controls="statistics-current-panel">当前转生统计</button>
+              <button id="statistics-current-tab" class="secondary-button" type="button" role="tab" aria-selected="false" aria-controls="statistics-current-panel">本次转生</button>
             </div>
 
             <div id="statistics-total-panel" role="tabpanel" aria-labelledby="statistics-total-tab">
-            <div class="statistics-grid">
-              <article class="statistics-card">
-                <span>最高J</span>
-                <strong id="statistics-highest-j">0</strong>
-              </article>
-              <article class="statistics-card">
-                <span>最高战力</span>
-                <strong id="statistics-highest-power">0</strong>
-              </article>
-              <article class="statistics-card">
-                <span>最高量级</span>
-                <strong id="statistics-highest-scale">普通人</strong>
-              </article>
-              <article class="statistics-card">
-                <span>游戏累计J</span>
-                <strong id="statistics-total-j">0</strong>
-              </article>
-              <article class="statistics-card">
-                <span>游戏累计战力</span>
-                <strong id="statistics-total-power">0</strong>
-              </article>
-              <article class="statistics-card">
-                <span>最高仙道境界</span>
-                <strong id="statistics-highest-realm">未踏入仙道</strong>
-              </article>
-              <article class="statistics-card">
-                <span>最高法力</span>
-                <strong id="statistics-highest-mana">0</strong>
-              </article>
-              <article class="statistics-card">
-                <span>累计法力</span>
-                <strong id="statistics-total-mana">0</strong>
-              </article>
-              <article class="statistics-card">
-                <span>最高仙灵力</span>
-                <strong id="statistics-highest-immortal-power">0</strong>
-              </article>
-              <article class="statistics-card">
-                <span>累计仙灵力</span>
-                <strong id="statistics-total-immortal-power">0</strong>
-              </article>
-              <article class="statistics-card">
-                <span>选择仙道次数</span>
-                <strong id="statistics-immortal-selections">0</strong>
-              </article>
-              <article class="statistics-card statistics-time-card">
-                <span>游戏时间</span>
-                <strong id="statistics-game-time">0分钟</strong>
-                <small>现实累计 <b id="statistics-real-time">0秒</b>；现实1秒等于游戏内1分钟，按30日/月、12月/年换算。</small>
-              </article>
-            </div>
+              <div class="statistics-summary">
+                <div><span>最高量级</span><strong id="statistics-highest-scale">普通人</strong></div>
+                <div><span>现实累计时间</span><strong id="statistics-real-time">0秒</strong><small>游戏时间 <b id="statistics-game-time">0分钟</b></small></div>
+              </div>
+              <details class="statistics-section" open>
+                <summary><h2>通用资源</h2></summary>
+                <table class="statistics-table" aria-label="通用资源"><thead><tr><th scope="col">资源</th><th scope="col">最高值</th><th scope="col">累计获得</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">J</th><td><small aria-hidden="true">最高值</small><b id="statistics-highest-j">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-total-j">0</b></td></tr>
+                    <tr><th scope="row">战力</th><td><small aria-hidden="true">最高值</small><b id="statistics-highest-power">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-total-power">0</b></td></tr>
+                  </tbody>
+                </table>
+              </details>
+              <details class="statistics-section" id="statistics-total-immortal" hidden>
+                <summary><h2>仙道</h2></summary>
+                <dl class="statistics-facts"><div><dt>最高境界</dt><dd id="statistics-highest-realm">未踏入仙道</dd></div><div><dt>选择次数</dt><dd id="statistics-immortal-selections">0</dd></div></dl>
+                <table class="statistics-table" aria-label="仙道资源"><thead><tr><th scope="col">资源</th><th scope="col">最高值</th><th scope="col">累计获得</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">法力</th><td><small aria-hidden="true">最高值</small><b id="statistics-highest-mana">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-total-mana">0</b></td></tr>
+                    <tr><th scope="row">仙灵力</th><td><small aria-hidden="true">最高值</small><b id="statistics-highest-immortal-power">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-total-immortal-power">0</b></td></tr>
+                  </tbody>
+                </table>
+              </details>
+              <details class="statistics-section" id="statistics-total-martial" hidden>
+                <summary><h2>武道</h2></summary>
+                <dl class="statistics-facts" id="statistics-martial-achievements" hidden><div><dt>已获武道成就</dt><dd id="statistics-martial-achievement-count">0</dd></div></dl>
+                <table class="statistics-table" id="statistics-total-martial-table" aria-label="武道资源"><thead><tr><th scope="col">资源</th><th scope="col">最高值</th><th scope="col">累计获得</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">气</th><td><small aria-hidden="true">最高值</small><b id="statistics-highest-qi">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-total-qi">0</b></td></tr>
+                    <tr><th scope="row">体</th><td><small aria-hidden="true">最高值</small><b id="statistics-highest-body">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-total-body">0</b></td></tr>
+                    <tr><th scope="row">心</th><td><small aria-hidden="true">最高值</small><b id="statistics-highest-heart">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-total-heart">0</b></td></tr>
+                    <tr><th scope="row">神魂</th><td><small aria-hidden="true">最高值</small><b id="statistics-highest-soul">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-total-soul">0</b></td></tr>
+                  </tbody>
+                </table>
+              </details>
             </div>
 
             <div id="statistics-current-panel" role="tabpanel" aria-labelledby="statistics-current-tab" hidden>
-              <div class="statistics-grid">
-                <article class="statistics-card">
-                  <span>最高J</span>
-                  <strong id="statistics-current-highest-j">0</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>累计J</span>
-                  <strong id="statistics-current-total-j">0</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>最高战力</span>
-                  <strong id="statistics-current-highest-power">0</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>累计战力</span>
-                  <strong id="statistics-current-total-power">0</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>最高量级</span>
-                  <strong id="statistics-current-highest-scale">普通人</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>最高修行境界</span>
-                  <strong id="statistics-current-highest-realm">未踏入仙道</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>最高法力</span>
-                  <strong id="statistics-current-highest-mana">0</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>累计法力</span>
-                  <strong id="statistics-current-total-mana">0</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>最高仙灵力</span>
-                  <strong id="statistics-current-highest-immortal-power">0</strong>
-                </article>
-                <article class="statistics-card">
-                  <span>累计仙灵力</span>
-                  <strong id="statistics-current-total-immortal-power">0</strong>
-                </article>
-                <article class="statistics-card statistics-time-card">
-                  <span>当前转生经过时间</span>
-                  <strong id="statistics-current-elapsed-time">0秒</strong>
-                  <small>从最近一次体系转生、挑战转生或无限转生完成后开始计算。</small>
-                </article>
+              <div class="statistics-summary">
+                <div><span>最高量级</span><strong id="statistics-current-highest-scale">普通人</strong></div>
+                <div><span>本次转生用时</span><strong id="statistics-current-elapsed-time">0秒</strong></div>
               </div>
+              <details class="statistics-section" open>
+                <summary><h2>通用资源</h2></summary>
+                <table class="statistics-table" aria-label="通用资源"><thead><tr><th scope="col">资源</th><th scope="col">最高值</th><th scope="col">累计获得</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">J</th><td><small aria-hidden="true">最高值</small><b id="statistics-current-highest-j">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-current-total-j">0</b></td></tr>
+                    <tr><th scope="row">战力</th><td><small aria-hidden="true">最高值</small><b id="statistics-current-highest-power">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-current-total-power">0</b></td></tr>
+                  </tbody>
+                </table>
+              </details>
+              <details class="statistics-section" id="statistics-current-immortal" hidden>
+                <summary><h2>仙道</h2></summary>
+                <dl class="statistics-facts"><div><dt>最高境界</dt><dd id="statistics-current-highest-realm">未踏入仙道</dd></div></dl>
+                <table class="statistics-table" aria-label="仙道资源"><thead><tr><th scope="col">资源</th><th scope="col">最高值</th><th scope="col">累计获得</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">法力</th><td><small aria-hidden="true">最高值</small><b id="statistics-current-highest-mana">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-current-total-mana">0</b></td></tr>
+                    <tr><th scope="row">仙灵力</th><td><small aria-hidden="true">最高值</small><b id="statistics-current-highest-immortal-power">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-current-total-immortal-power">0</b></td></tr>
+                  </tbody>
+                </table>
+              </details>
+              <details class="statistics-section" id="statistics-current-martial" hidden>
+                <summary><h2>武道</h2></summary>
+                <table class="statistics-table" aria-label="武道资源"><thead><tr><th scope="col">资源</th><th scope="col">最高值</th><th scope="col">累计获得</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">气</th><td><small aria-hidden="true">最高值</small><b id="statistics-current-highest-qi">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-current-total-qi">0</b></td></tr>
+                    <tr><th scope="row">体</th><td><small aria-hidden="true">最高值</small><b id="statistics-current-highest-body">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-current-total-body">0</b></td></tr>
+                    <tr><th scope="row">心</th><td><small aria-hidden="true">最高值</small><b id="statistics-current-highest-heart">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-current-total-heart">0</b></td></tr>
+                    <tr><th scope="row">神魂</th><td><small aria-hidden="true">最高值</small><b id="statistics-current-highest-soul">0</b></td><td><small aria-hidden="true">累计获得</small><b id="statistics-current-total-soul">0</b></td></tr>
+                  </tbody>
+                </table>
+              </details>
             </div>
           </section>
         </main>
@@ -1262,112 +1234,112 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" popover="manual" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/vendor/break_eternity.min.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/namespace.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/bignum.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/closed-form-batch.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/stable-product-quotient.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/finite-progress.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/signed-ledger.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/rank.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/rank-math.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/rank-certified-math.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/rank-projection.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/rank-exact.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/rank-g-cost.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/rank-budget.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/rank-basis.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/rank-settlement.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/amount-products.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/amount-ledger.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/amount.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/amount-formulas.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/treasure-rules.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/infinity-config.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/infinity.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/martial-config.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/config.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/big-numbers.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/closed-rank-cost.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/closed-rank-settlement.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/registry.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/formulas.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/penalties.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/integration.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/runtime.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/xiuzhen.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/probability.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/compensation.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/martial-amount.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/martial.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/high-multiverse.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/amount-migration.js?v=release-0.2.3.4-20261120"></script>
-  <script src="js/core/state.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/save.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/resources.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/resources.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/big-number-resources.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/effects.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/sources.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/reset.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/power/scale-logic.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/power/scale.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/immortal-logic.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/immortal.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/martial-system.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/achievements.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/fast-forward.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/treasure-ledger.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/treasures.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/closed-treasures.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/exploration-progress.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/cultivation/closed-natural.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/core/closed-batch-migration.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/meta/challenges.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/automation.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/profiler.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/resource-groups.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/fixed-sources.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/predictor-groups.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/strong-feedback-checkpoint.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/legacy-settlement-checkpoints.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/checkpoint-strategy.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/fixed-segment.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/settlement-limit.js?v=release-0.2.3.4-20261120"></script>
-  <script src="js/simulation/discard-effects.js?v=release-0.2.3.4-20261120"></script>
-  <script src="js/simulation/step.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/offline.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/worker-protocol.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/worker-client.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/offline-worker-bundle.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/online-candidate-worker-bundle.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/online-candidate-worker.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/offline-worker.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/loop.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/math-worker-bundle.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/math-worker.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/pure-math-work.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/source-preview.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/format.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/cards.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/big-numbers.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/xiuzhen.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/treasures.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/infinity.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/martial.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/dialog.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/vendor/qrcode-generator.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/app-distribution.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/native-platform.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/action-view.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/session-delta.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/session-store.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/session-controller.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/session-actions.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/session-worker-bundle.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/simulation/session-client.js?v=release-0.2.3.4-20261120"></script>
-    <script src="js/ui/app.js?v=release-0.2.3.4-20261120"></script>
-    <script src="game.js?v=release-0.2.3.4-20261120"></script>
+    <script src="js/core/build-config.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/vendor/break_eternity.min.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/namespace.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/bignum.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/closed-form-batch.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/stable-product-quotient.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/finite-progress.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/signed-ledger.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/rank.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/rank-math.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/rank-certified-math.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/rank-projection.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/rank-exact.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/rank-g-cost.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/rank-budget.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/rank-basis.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/rank-settlement.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/amount-products.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/amount-ledger.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/amount.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/amount-formulas.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/treasure-rules.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/infinity-config.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/infinity.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/martial-config.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/config.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/big-numbers.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/closed-rank-cost.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/closed-rank-settlement.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/registry.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/formulas.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/penalties.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/integration.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/runtime.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/xiuzhen.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/probability.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/compensation.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/martial-amount.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/martial.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/high-multiverse.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/amount-migration.js?v=release-0.3.0.0-20261123"></script>
+  <script src="js/core/state.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/save.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/resources.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/resources.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/big-number-resources.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/effects.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/sources.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/reset.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/power/scale-logic.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/power/scale.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/immortal-logic.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/immortal.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/martial-system.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/achievements.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/fast-forward.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/treasure-ledger.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/treasures.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/closed-treasures.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/exploration-progress.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/cultivation/closed-natural.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/core/closed-batch-migration.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/meta/challenges.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/automation.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/profiler.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/resource-groups.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/fixed-sources.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/predictor-groups.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/strong-feedback-checkpoint.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/legacy-settlement-checkpoints.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/checkpoint-strategy.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/fixed-segment.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/settlement-limit.js?v=release-0.3.0.0-20261123"></script>
+  <script src="js/simulation/discard-effects.js?v=release-0.3.0.0-20261123"></script>
+  <script src="js/simulation/step.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/offline.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/worker-protocol.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/worker-client.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/offline-worker-bundle.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/online-candidate-worker-bundle.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/online-candidate-worker.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/offline-worker.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/loop.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/math-worker-bundle.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/math-worker.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/pure-math-work.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/source-preview.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/format.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/cards.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/big-numbers.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/xiuzhen.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/treasures.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/infinity.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/martial.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/dialog.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/vendor/qrcode-generator.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/app-distribution.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/native-platform.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/action-view.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/session-delta.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/session-store.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/session-controller.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/session-actions.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/session-worker-bundle.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/simulation/session-client.js?v=release-0.3.0.0-20261123"></script>
+    <script src="js/ui/app.js?v=release-0.3.0.0-20261123"></script>
+    <script src="game.js?v=release-0.3.0.0-20261123"></script>
   </body>
 </html>

@@ -4,7 +4,8 @@
  function create(initial,host){
   const P=W.Simulation.WorkerProtocol,S=W.Core.State,R=W.Core.Runtime,A=W.Simulation.SessionActions,copy=x=>P.decode(P.encode(x));
   let loop,reservation=null,activeAction=null,frozen=initial.frozen===true,saveText=initial.saveText||null;
-  let importHold=null;
+  let importHold=null,onlineSettled=false;
+  let devSpeed=W.Core.Build.enableSpeedControls && [5,20,100].includes(initial.devSpeed) ? initial.devSpeed : 1;
   // Display identity survives clock-only clones, but never a different owner/domain.
   const rateOwners=new WeakMap();let ownerSerial=0,previewActionRevision=0;
   function rateOwner(state){if(!rateOwners.has(state))rateOwners.set(state,{id:++ownerSerial});return rateOwners.get(state);}
@@ -28,7 +29,8 @@
   };
   loop=W.Simulation.Loop.create({
    getState:h.getState,rateIdentity:()=>{const state=h.getState();return [rateOwner(state),state.powerSystem.active,state.cultivation.active,state.activeChallenge];},offline:h.offline,epsilon:1e-10,simulationStepSeconds:.1,onlineSliceBudgetMs:12,maxOnlineStepsPerFrame:8,
-   effectiveDevSpeed:()=>1,isInitialLoadComplete:()=>true,isStateReady:()=>true,
+   onFirstOnlineSettlement(){onlineSettled=true;host.changed();},
+   effectiveDevSpeed:()=>devSpeed,isInitialLoadComplete:()=>true,isStateReady:()=>true,
    requestRender(){host.changed();},flushRender(){},scheduleRender(){},saveState(){host.changed();},
    prepareOnlineWork:prepare,advanceGameStep(...args){const result=h.step.advanceGameStep(...args);reservation=null;publish();return result;},
    onlineStateKey:h.step.onlineStateKey,
@@ -45,13 +47,13 @@
   }
   function publishCompletedAction(){previewActionRevision++;publish();}
   function completeAction(){updateActionProgress(h.getState());publishCompletedAction();}
-  function rebirth(options){
+  function rebirth(options,{finishProgress=false}={}){
    const before=h.snapshot(),recovery=h.offline.getPersistenceSnapshot(),online=loop.snapshot();
    return W.Meta.Infinity.commitRebirth(options,{
     getState:h.getState,capture:()=>({before,recovery,online}),
     cancel(){h.offline.cancelCatchUp();loop.resetAccumulators();},
     install(next){R.setState(next);loop.resetAccumulators({preservePending:W.Core.Reset.preservesContent('infinity',next)&&!W.Meta.Infinity.isInfinityChallenge(next.activeChallenge)});W.Power.Scale.resetTransient();W.Cultivation.Immortal.resetTransient();},
-    save(){host.changed();},
+    save(){if(finishProgress)updateActionProgress(h.getState());host.changed();},
     restore(saved){restore(saved.before);h.offline.restorePersistenceSnapshot(saved.recovery,0,{checkpoint:false});loop.restore(saved.online);}
    });
   }
@@ -125,12 +127,23 @@
    if(!m||typeof m.type!=='string')throw Error('unsupported command');
    if(importHold&&!['importRelease','save'].includes(m.type))throw Error('import session held');
    if(frozen&&!['return','save','freeze'].includes(m.type))throw Error('session frozen');
+   if(m.type==='devSpeed'){
+    if(!W.Core.Build.enableSpeedControls||![1,5,20,100].includes(m.value))throw Error('无效的调试倍率');
+    at(m.at);loop.captureForegroundTime(m.at);devSpeed=m.value;host.changed();return {status:'done'};
+   }
    if(m.type==='clock'){at(m.at);loop.runMainTick();host.changed();return {status:'done'};}
    if(m.type==='save'){at(m.at);loop.prepareSave({captureOnly:true});exportSave();host.changed();return {status:'done'};}
    if(m.type==='freeze'){at(m.at);loop.prepareSave({closing:true,captureOnly:true});frozen=true;exportSave();host.changed();return {status:'done'};}
-   if(m.type==='return'){at(m.at);frozen=false;const seconds=loop.restoreClosedTime(h.offline.getPersistenceSnapshot());host.changed();return {status:'done',seconds};}
+   if(m.type==='return'){at(m.at);if(m.newPage===true)devSpeed=1;frozen=false;const seconds=loop.restoreClosedTime(h.offline.getPersistenceSnapshot());host.changed();return {status:'done',seconds};}
    if(m.type==='importHold'){at(m.at);loop.captureForegroundTime(m.at);importHold=loop.beginImportHold(m.at);if(!importHold)throw Error('import already held');publish();return {status:'done'};}
-   if(m.type==='importRelease'){at(m.at);if(importHold)loop.finishImportHold(importHold.token,{accountElapsed:true,reason:m.reason||'import-cancel'});importHold=null;publish();return {status:'done'};}
+   if(m.type==='importRelease'){
+    at(m.at);
+    if(importHold)loop.finishImportHold(importHold.token,{accountElapsed:true,reason:m.reason||'import-cancel'});
+    importHold=null;
+    // The picker owns time through release. Start the away interval at that same boundary.
+    if(m.away===true){loop.prepareSave({closing:true,captureOnly:true});frozen=true;exportSave();}
+    publish();return {status:'done'};
+   }
    if(m.type==='cancel'){loop.cancelDeferredAction(m.reason||'cancelled');publish();return {status:'done'};}
    if(m.type==='action')return action(m,id);
    if(m.type==='preference'){
@@ -142,7 +155,10 @@
    }
    if(m.type==='rebirth'){
     if(activeAction!==null||h.offline.getCatchUpStatus().locked)throw Error('settlement pending');
-    if(loop.beforePlayerAction()===false)throw Error('settlement pending');rebirth(m.options||{});completeAction();return {status:'done',value:true};
+    if(loop.beforePlayerAction()===false)throw Error('settlement pending');
+    rebirth(m.options||{},{finishProgress:true});
+    publishCompletedAction();
+    return {status:'done',value:true};
    }
    if(m.type==='recovery'){
     const allowed=['simulateOfflineProgress','retryCatchUp','startCatchUp','pauseCatchUpByPlayer','acknowledgeCatchUp','abandonCatchUp','convertOfflineToCompensation'];
@@ -151,7 +167,9 @@
     if(m.method==='convertOfflineToCompensation'){loop.prepareSave();h.offline.sealOnlineTail();}
     const result=h.offline[m.method](...(m.args||[]));
     if(result&&typeof result.then==='function'){result.then(value=>{host.completed(id,'done',typeof value==='string'?value:true);publish();},error=>{host.completed(id,'failed',String(error.message||error));publish();});publish();return {status:'pending'};}
-    publish();return {status:'done',value:typeof result==='boolean'?result:true};
+    publish();
+    if(m.method==='convertOfflineToCompensation')return {status:'done',value:result};
+    return {status:'done',value:typeof result==='boolean'?result:true};
    }
    throw Error('unsupported command');
   }
@@ -164,7 +182,7 @@
     snapshot.domain.core.runtime.timeLedger.pendingContinuousTime=copy(timing.onlineIntervals);
     return {presentationVersion:rateOwner(h.getState()).id+':'+previewActionRevision,snapshot,tick:committed.tick,rates:copy(committed.rates),publishedRates:copy(loop.getCommittedRates()),loop:timing,reservation:copy(reservation),
      recovery:h.offline.getPersistenceSnapshot(),status:h.offline.getCatchUpStatus(),settlement:loop.settlementStatus(),
-     now:host.now(),saveText,frozen,importHeld:!!importHold,pendingAction:activeAction};
+     now:host.now(),onlineSettled,devSpeed,saveText,frozen,importHeld:!!importHold,pendingAction:activeAction};
    },
    getState:h.getState,loop
   });

@@ -50,6 +50,10 @@
     const profile = profiles.get(id);
     if (!profile) throw new Error(`未注册重置配置：${id}`);
     const currentDomain = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(currentState));
+    if(profile.rebirthLevel && !context.heartLossSettled) {
+      const settled=WIS.Cultivation.Martial.prepareHeartLoss(currentDomain);
+      if(settled)currentDomain.meta=settled;
+    }
     const freshDomain = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(createFreshState()));
     const current = WIS.Core.State.toFlat(currentDomain);
     const fresh = WIS.Core.State.toFlat(freshDomain);
@@ -114,7 +118,12 @@
     if(id!=="scatter")result.meta.highMultiverse=WIS.Meta.HighMultiverse.rebirthState(currentDomain);
     // Every rebirth rebuilds the four temporary balances and purchased martial
     // abilities; permanent qualifications remain in the preserved meta branch.
-    if (profile.rebirthLevel) result.cultivation.systems.martial = WIS.Cultivation.Martial.fresh();
+    if (profile.rebirthLevel) {
+      const martial = WIS.Cultivation.Martial;
+      const history = martial.archiveStatistics(currentDomain);
+      if (history) result.meta.statistics.martialHistory = history;
+      result.cultivation.systems.martial = martial.fresh();
+    }
     const normalized = WIS.Core.State.normalizeDomain(WIS.Core.State.toSerializable(result));
     // Match Save.finishMigration at this committed reset boundary.
     WIS.Cultivation.ExplorationProgress?.validate(normalized);
