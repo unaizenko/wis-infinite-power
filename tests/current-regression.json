@@ -33,6 +33,8 @@
     "tests/formula-convergence.test.cjs",
     "tests/scaled-increment.test.cjs",
     "tests/amount-formulas.test.cjs",
+    "tests/googol-boundary-range.test.cjs",
+    "tests/high-multiverse.test.cjs",
     "tests/amount-martial.test.cjs",
     "tests/martial-passive-range.test.cjs",
     "tests/closed-form-batch.test.cjs",

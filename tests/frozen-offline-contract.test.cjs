@@ -54,6 +54,42 @@ cases.push(['missing frozen adapter pauses without replay',async()=>{
  sim.offline.appendCatchUpTask(60,60,{source:'offline',randomMode:'state'});await sim.offline.simulateOfflineProgress(0,0);
  assert.equal(sim.offline.getCatchUpStatus().phase,'paused');assert.equal(sim.offline.getCatchUpStatus().pendingGameSeconds,60);assert.equal(game(W,sim.getState()),before);
 }]);
+cases.push(['completed offline settlement survives a failed online forecast',async()=>{
+ const W=setup(),B=W.Core.BigNum,s=fixture(W),sources=W.Simulation.FixedSources;
+ const seconds=60;
+ let saved,refreshes=0,clockFinishes=0,clockBoundary,completedNotices=0;
+ const api=W.Simulation.Offline;
+ W.Simulation.Offline={...api,create(ctx){return api.create({...ctx,setLastTickAt(now){clockFinishes++;ctx.setLastTickAt(now);clockBoundary=ctx.getState().core.runtime.timeLedger.boundaryAt;}});}};
+ const sim=simulation(W,s,{checkpoint(){
+  saved=JSON.stringify(W.Core.Save.envelope(sim.getState(),true,{offlineRecoveryOverride:sim.offline.getPersistenceSnapshot()}));
+ }});
+ const expected=B.add(s.joules,B.mul(sources.query(sim.getState()).rates.joules,seconds));
+ W.Simulation.FixedSources={...sources,query(state,...args){
+  if(sim.offline.getCatchUpStatus().phase==='completed'){refreshes++;throw Error('injected completion forecast failure');}
+  return sources.query(state,...args);
+ }};
+ sim.offline.subscribeCatchUpStatus(status=>{if(status.phase==='completed')completedNotices++;});
+ sim.offline.appendCatchUpTask(seconds,seconds,{source:'offline',randomMode:'state'});
+ const active=sim.offline.simulateOfflineProgress(0,0);
+ assert.equal(sim.offline.simulateOfflineProgress(0,0),active);
+ let timer;
+ try {
+  const report=await Promise.race([active,new Promise((_,reject)=>{
+   timer=setTimeout(()=>reject(Error('offline completion waiter stranded')),5000);
+  })]);
+  assert.equal(report,sim.offline.getCatchUpStatus().report);assert.ok(report);
+ } finally {clearTimeout(timer);}
+ assert.equal(refreshes,1);assert.equal(clockFinishes,1);assert.equal(completedNotices,1);
+ assert.equal(sim.offline.getCatchUpStatus().clockSuspended,false);
+ assert.equal(sim.offline.getCatchUpStatus().pendingClockSeconds,0);
+ const envelope=JSON.parse(saved),recovered=W.Core.Save.prepare(envelope);
+ assert.equal(envelope.data.core.runtime.timeLedger.boundaryAt,clockBoundary);
+ assert.equal(recovered.offlineRecovery,null);
+ assert.equal(recovered.state.totalElapsedSeconds,s.totalElapsedSeconds+seconds);
+ assert(B.eq(recovered.state.joules,expected));
+ const committed=game(W,sim.getState());await sim.offline.simulateOfflineProgress(0,0);
+ assert.equal(game(W,sim.getState()),committed);
+}]);
 cases.push(['failed checkpoint keeps confirmed assets and debt',async()=>{
  const W=setup(),s=fixture(W,true);let fail=false;
  const sim=simulation(W,s,{checkpoint(){if(fail)throw Error('injected durable-write failure');}}),before=game(W,sim.getState());

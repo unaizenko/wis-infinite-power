@@ -122,3 +122,37 @@ test('tiny power-minus-one keeps the full increment for both small and amplified
   // x=10^-600 and p=10^600: the correctly rounded result is exp(1)-1.
   assert.equal(F.powerOnePlusMinusOne('1e-600','1e600').toNumber(),1.7182818284590453);
 });
+
+test('log ratios retain increments beyond absolute proof precision', () => {
+  const {A,B,F}=setup();
+  const base=A.from('1e100'), above=A.fromParts('1e100',['1e-490']);
+  const expected=B.Decimal.fromComponents(1,1,-590.3622156886995);
+  assert(B.eq(F.logOnePlusRatio('1e-600',1),B.Decimal.fromComponents(1,1,-600.3622156886995)));
+  assert(B.eq(F.logRatio(above,base),expected));
+  assert(B.eq(F.logRatio(base,above),expected.neg()));
+  const work=F.prepareWork('logRatio',[above,base]);
+  while(!work.advance({maximumOperations:1}).done) {}
+  assert(B.eq(work.result(),expected));
+  const capacity=F.capacityDiagnostics().calls;
+  for(const tiny of ['ee-50.71098273716965','eee-20']){
+    const stock=A.fromParts(1,[tiny]);
+    assert(B.eq(F.logOnePlusRatio(tiny,1),B.BN(tiny)));
+    assert(B.eq(F.logRatio(stock,1),B.BN(tiny)));
+    assert(B.eq(F.logRatio(1,stock),B.BN(tiny).neg()));
+  }
+  assert.equal(F.capacityDiagnostics().calls,capacity);
+});
+
+test('power-one-plus ratio retains a subprecision increment amplified by the exponent',()=>{
+  const {A,F}=setup();
+  assert.equal(F.powerOnePlusRatio(A.from('1e-600'),1,'1e600').toNumber(),Math.E);
+});
+
+
+test('exact fractional exponent work resumes with every denominator digit',()=>{
+  const {F}=setup(),order='1'+'0'.repeat(499);
+  const work=F.prepareWork('powerOnePlusMinusOneFraction',['ee499',2,order]);
+  let slices=0;
+  while(!work.advance({maximumOperations:1}).done)assert(++slices<100000);
+  assert.equal(work.result().toNumber(),99);
+});

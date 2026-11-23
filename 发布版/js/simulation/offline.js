@@ -1071,8 +1071,11 @@
 
       function finishCatchUpClock() {
         // Completion (not dismissal of the summary) starts the next online interval.
-        if(presentation==='blocking')context.setLastTickAt?.(Date.now());
-        checkpointCatchUp(presentation==='blocking');
+        try {
+          if (presentation === 'blocking') context.setLastTickAt?.(Date.now());
+        } finally {
+          checkpointCatchUp(presentation === 'blocking');
+        }
         // Prepared recovery installation does not carry tmp caches. Query once
         // at completion, from the installed state, without advancing production.
         const state = getState(), C = WIS.Simulation.Compensation;
@@ -1210,6 +1213,25 @@
         catchUpCompleted = false;
         catchUpPromise = new Promise((resolve) => { catchUpResolver = resolve; });
         const activePromise = catchUpPromise;
+        function finishRun(report, checkpointOnPause = false) {
+          const resolver = catchUpResolver;
+          catchUpInProgress = false;
+          try {
+            if (catchUpCompleted) finishCatchUpClock();
+            else if (checkpointOnPause) checkpointCatchUp();
+          } catch (error) {
+            console.error("WIS catch-up finalization failed.", error);
+          }
+          catchUpPromise = null;
+          catchUpResolver = null;
+          try {
+            publishCatchUpStatus();
+          } catch (error) {
+            console.error("WIS catch-up status publication failed.", error);
+          } finally {
+            resolver?.(report);
+          }
+        }
         checkpointCatchUp(presentation==='blocking');
         publishCatchUpStatus();
         void (async () => {
@@ -1507,7 +1529,6 @@
           const report = completed
             ? formatOfflineProgressReport(catchUpOriginalClockSeconds, catchUpSessionBefore)
             : "";
-          catchUpInProgress = false;
           if (completed) {
             catchUpOriginalProcessedClockSeconds = catchUpOriginalClockSeconds;
             catchUpSessionProcessedClockSeconds = catchUpOriginalClockSeconds;
@@ -1517,13 +1538,8 @@
               catchUpSessionBefore,
               { force: true }
             );
-            finishCatchUpClock();
           }
-          const resolver = catchUpResolver;
-          catchUpPromise = null;
-          catchUpResolver = null;
-          publishCatchUpStatus();
-          if (resolver) resolver(report);
+          finishRun(report);
         })().catch((error) => {
           if (generation !== catchUpGeneration) return;
           if (catchUpTasks.length > 0 || pendingCatchUpSeconds > epsilon) {
@@ -1552,14 +1568,7 @@
             }
             console.error("WIS offline catch-up post-processing failed after settlement completed.", error);
           }
-          const resolver = catchUpResolver;
-          catchUpInProgress = false;
-          catchUpPromise = null;
-          catchUpResolver = null;
-          if (catchUpCompleted) finishCatchUpClock();
-          else checkpointCatchUp();
-          publishCatchUpStatus();
-          if (resolver) resolver("");
+          finishRun("", true);
         });
         return activePromise;
       }

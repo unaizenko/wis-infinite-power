@@ -90,3 +90,15 @@ test('scaled rows reuse only the unchanged factor contribution to coarse numeric
 
 
 test('scalar row keys reuse the exact immutable factor encoding',()=>{const {setup75}=require('./amount-fixture.cjs'),{W,context}=setup75({transformSource(file,source){return file==='js/core/amount-products.js'?`(()=>{const encode=JSON.stringify,hasFactor=v=>Array.isArray(v)&&v.some(p=>Array.isArray(p)&&p[0]==='ee30.12345');JSON.stringify=function(v,...args){if(self.forbidFactorEncoding&&(hasFactor(v)||Array.isArray(v)&&hasFactor(v[1])))throw Error('encoded an unchanged factor key');return encode.call(this,v,...args);};})();`+source:source;}}),A=W.Core.Amount,P=W.Core.AmountProducts,value=A.divide(A.fromParts('ee30.12345',[37]),3);P.wordView(A.wordView(value));context.forbidFactorEncoding=true;const scaled=A.scale(value,.1);context.forbidFactorEncoding=false;assert.equal(A.compare(A.scale(scaled,10),value),0);});
+test('directed tail packing encloses a subresolution tower on either side',()=>{
+  const {W,A}=setup(),P=W.Core.AmountProducts;
+  const retained=['ee40.5','ee39.5','ee38.5','ee37.5','ee36.5'];
+  for(const sign of ['','-']){
+    const original=A.fromParts(0,[...retained,sign+'ee30.5',sign+'eee-20.033094389583788']);
+    const packed=P.compact(A.wordView(original),{force:true});
+    const value=A.fromParts(0,packed.words),loss=A.fromParts(0,packed.errorWords);
+    assert(A.compare(value,original)<=0);
+    assert(A.compare(A.subtract(original,value),loss)<=0);
+    assert(A.compare(loss,0)>0);
+  }
+});

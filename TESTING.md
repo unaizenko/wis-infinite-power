@@ -1,3 +1,7 @@
+## 2026-11-23 大数门槛与离线收尾
+
+运行 `node --test tests/googol-boundary-range.test.cjs tests/martial-passive-range.test.cjs tests/amount-formulas.test.cjs tests/frozen-offline-contract.test.cjs`。古戈尔用例覆盖高层指数、门槛两侧的微小尾项，以及在线推进、离线结算和读档连续性。武道用例覆盖极小心余额与高库存。离线收尾用例注入收益率刷新异常，检查已结算时间、保存回读和重复发奖。
+
 ## 2026-11-23 极小幂差与识海星球
 
 运行 `node --test tests/amount-formulas.test.cjs tests/martial-passive-range.test.cjs`。覆盖微小正数、巨大指数、分片求值、在线产气产体与保存回读。

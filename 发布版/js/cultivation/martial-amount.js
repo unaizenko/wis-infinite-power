@@ -87,8 +87,12 @@
  function thresholds(s,key){const absolute=config.balance.absolute[key],relative=config.balance.relative[key],rows=[{value:q(absolute.threshold),power:absolute.power*M().attenuationFactor(s)}];
   if(relative)rows.push({value:A.add(relative.floor,A.scale(absoluteInvestment(relative.support,stock(s,relative.support)),relative.factor)),power:relative.power*M().attenuationFactor(s)});return rows.sort((a,b)=>A.compare(a.value,b.value));
  }
+ function inverseStock(current,exponent){
+  const inverse=B.div(1,exponent);
+  return inverse.layer>0?q(F.powerWithExponent(current,inverse)):power(current,inverse);
+ }
  function unattenuated(current,investment,exponent){
-  if(!positive(investment))return zero();const unpowered=power(current,B.div(1,exponent)),anchor=A.add(unpowered,1.5),scaled=A.scale(investment,4),root=power(A.add(power(anchor,2),scaled),.5);
+  if(!positive(investment))return zero();const unpowered=inverseStock(current,exponent),anchor=A.add(unpowered,1.5),scaled=A.scale(investment,4),root=power(A.add(power(anchor,2),scaled),.5);
   // At tower precision the radical and numerator can occupy the same
   // coordinate. Use the equivalent difference only when its operands are
   // well separated; otherwise keep the stock-dominated rationalized form.
@@ -99,7 +103,8 @@
  }
  function balanced(s,key,current,investment,exponent,preparedRows=null){const rows=preparedRows||thresholds(s,key);
   return C.task('martial-balanced|'+JSON.stringify([rows,current,investment,exponent]),function*(){
-   const legacy=yield ()=>unattenuated(current,investment,exponent);if(yield ()=>A.compare(A.add(current,legacy),rows[0].value)<=0)return legacy;
+   let legacy;
+   if(yield ()=>A.compare(current,rows[0].value)<0){legacy=yield ()=>unattenuated(current,investment,exponent);if(yield ()=>A.compare(A.add(current,legacy),rows[0].value)<=0)return legacy;}
    let value=q(current),remaining=q(investment),gained=zero(),attenuation=0,coefficient=q(1);const e=B.BN(exponent);
    for(const t of rows){if(yield ()=>A.compare(value,t.value)<0){const delta=yield ()=>A.subtract(t.value,value),part=yield ()=>segment(value,e,attenuation,coefficient),cost=yield ()=>part.cost(delta);
      if(yield ()=>A.compare(remaining,cost)<0){if(!attenuation)return legacy;const gain=yield ()=>solve(part,remaining,delta);return yield ()=>A.add(gained,gain);}
@@ -126,8 +131,11 @@
    return {result,input,exponent,efficiency,investment,current};
   };
   const prepared=yield initial,{result,input,exponent,efficiency,investment,current}=prepared;if(input===undefined)return result;
-  result.efficiency=efficiency;result.heartExponent=exponent;result.investmentQuantity=investment;result.investment=yield ()=>A.project(investment);result.potentialQuantity=yield ()=>A.add(potential(power(current,B.div(1,exponent))),investment);result.potential=yield ()=>A.project(result.potentialQuantity);
-  result.gainQuantity=(yield ()=>positive(input))?yield ()=>balanced(s,key,current,investment,exponent):zero();return yield ()=>{if(m.emperorActive(s))result.gainQuantity=m.emperorGain(result.gainQuantity);result.gain=A.project(result.gainQuantity);result.costs=Object.fromEntries(Object.entries(result.costQuantities).map(([k,v])=>[k,A.project(v)]));result.consumed=result.costs;
+  result.efficiency=efficiency;result.heartExponent=exponent;result.investmentQuantity=investment;result.investment=yield ()=>A.project(investment);result.potentialQuantity=yield ()=>A.add(potential(inverseStock(current,exponent)),investment);result.potential=yield ()=>A.project(result.potentialQuantity);
+  result.gainQuantity=(yield ()=>positive(input))?yield ()=>{
+   const proof=key==='soul'&&A.project(current).layer>=3?integralInputs(s,key,investment,1,1):null;
+   return coarseGainCell(current,exponent,proof,1)??balanced(s,key,current,investment,exponent);
+  }:zero();return yield ()=>{if(m.emperorActive(s))result.gainQuantity=m.emperorGain(result.gainQuantity);result.gain=A.project(result.gainQuantity);result.costs=Object.fromEntries(Object.entries(result.costQuantities).map(([k,v])=>[k,A.project(v)]));result.consumed=result.costs;
   result.allowed=positive(input)&&positive(result.gainQuantity);result.reason=result.allowed?'':'投入不足或没有可表示的收益';result.heartRewards={qi:B.ZERO,body:B.ZERO};return result;};
  }
  function naturalGain(profile,seconds,{frozen=false}={}){
@@ -148,19 +156,119 @@
  function heartRewards(s,n,spent){const rewards={qi:zero(),body:zero()},m=M();if(!m.active(s)||!positive(spent??0))return rewards;const candidate={...s,cultivation:{...s.cultivation,systems:{...s.cultivation.systems,martial:n}}};
   for(const [key,ability]of [['qi','tianMo'],['body','ciHang']])if(m.level(candidate,ability)){const base=A.multiply(A.scale(spent,10),m.acquisitionMultiplier(candidate,key));rewards[key]=m.changShengGain({emperor:m.emperorActive(s),kinds:1,base,current:stock(candidate,key),thresholds:thresholds(candidate,key)},1);}return rewards;
  }
+
+ // At a coarse tower coordinate several distinct powers of the same stock can
+ // round to one Decimal. Compare the integrated cost before projecting those
+ // powers. All exponents below are logarithms in units of log10(anchor).
+ function integralInputs(s,key,source,power,multiplier){
+  const absolute=config.balance.absolute[key],relative=config.balance.relative[key],supportKey=relative?.support;
+  return {source,power,multiplier,absolute,relative,support:supportKey?stock(s,supportKey):null,
+   supportPower:supportKey?config.balance.absolute[supportKey].power:0,attenuation:M().attenuationFactor(s)};
+ }
+ function coarseGainCell(current,exponent,inputs,seconds,instantaneous=false){
+  if(!inputs||!positive(seconds))return null;
+  const anchor=A.project(current);
+  if(anchor.layer<3||anchor.mag<=0)return null;
+  const unit=anchor.log10(),guard=.0001,span=64;
+  function logStock(value){
+   // Resource, source, and support stocks enter as complete amounts. Only use
+   // the scalar logarithm after enclosing the entire quantity around its atom.
+   if(A.compare(value,1)<0)return null;
+   if(A.compare(value,'1e1000')<=0)return 0;
+   const atom=A.project(value);
+   if(A.compare(value,A.scale(atom,'1e-1000'))<0||A.compare(value,A.scale(atom,'1e1000'))>0)return null;
+   const log=atom.log10();
+   if(A.compare(log,A.scale(unit,guard))<0)return 0;
+   const estimate=A.project(A.divide(log,unit)).toNumber();
+   if(!(estimate>=guard&&estimate<=span))return null;
+   if(A.compare(log,A.scale(unit,estimate-guard))<0||A.compare(log,A.scale(unit,estimate+guard))>0)return null;
+   return estimate;
+  }
+  const {source,power:sourcePower,multiplier,absolute,relative,support,supportPower,attenuation}=inputs;
+  const scale=A.multiply(multiplier,seconds);
+  if(A.compare(scale,'1e-100')<0||A.compare(scale,'1e100')>0)return null;
+  const stockLog=logStock(current),sourceLog=logStock(source),exponentLog=logStock(exponent);
+  if(stockLog===null||sourceLog===null||exponentLog===null||exponentLog>guard)return null;
+  const budget=sourcePower*sourceLog, k=B.div(2,exponent).toNumber();
+  // For the configured support potential, the funded threshold is within a
+  // constant factor (less than 10^20) of max(1,support)^(2+supportPower).
+  let thresholdLog=0;
+  if(relative){
+   const supportLog=logStock(max(1,support));if(supportLog===null)return null;
+   thresholdLog=(2+supportPower)*supportLog;
+  }
+  // Logarithm of the stock derivative, excluding constants and 1/exponent.
+  // At stock >= 1 the second power contributes at most 1.5 times the first.
+  function logSlope(v){
+   return (k-1)*v+absolute.power*attenuation*v+
+    (relative?relative.power*attenuation*Math.max(0,v-thresholdLog):0);
+  }
+  const tolerance=.01;
+  if(instantaneous){
+   // Frozen income uses the derivative at the starting stock. For layer >=3
+   // and m>=16, either midpoint in m lies at least 2^-50 away. The derivative
+   // of log10(log10(X)) with respect to m is >= ln(10)*10^15 throughout
+   // that neighborhood. Thus either midpoint changes log10(log10(X)) by
+   // more than log10(64). All X^u with 1/64 < |u| < 64 round to X or 1/X.
+   if(anchor.mag<16)return null;
+   const rateLog=budget-logSlope(stockLog);
+   if(rateLog>1/span+tolerance&&rateLog<span-tolerance)return q(anchor);
+   if(rateLog< -1/span-tolerance&&rateLog> -span+tolerance)return q(anchor.recip());
+   return null;
+  }
+  function costOrder(u){
+   const v=Math.max(stockLog,u);
+   // Integrate over d=X^u, with V=max(start,d). On the last half of
+   // the interval the stock lies in [V/2,2V]. Its first derivative
+   // term gives a lower bound proportional to d*V^(2/e-1)/e. For
+   // the upper bound integrate t^(2/e-1) over the whole interval:
+   // its integral is <= max(4,e)*d*V^(2/e-1), and t>=1 bounds
+   // the second derivative term by 1.5 times the first. Each active
+   // threshold adds max(0,log_X(V/T))*power to either bound.
+   const price=u+logSlope(v);
+   // 0.01 encloses the 0.0001 log probes, the log_X(e) factor, the
+   // configured constants, and binary64 arithmetic for |u|,v <=64.
+   return price<budget-tolerance?-1:price>budget+tolerance?1:0;
+  }
+  const predecessor=previous(current);
+  // Use the actual successor even when the binary64 spacing changes at
+  // an exact power of two. Both gap proofs use complete scaled logs.
+  const bits=new DataView(new ArrayBuffer(8));bits.setFloat64(0,anchor.mag);
+  bits.setBigUint64(0,bits.getBigUint64(0)+1n);
+  const successor=B.Decimal.fromComponents(1,anchor.layer,bits.getFloat64(0));
+  if(A.compare(A.scale(A.project(predecessor).log10(),span),unit)>=0||
+     A.compare(successor.log10(),A.scale(unit,span))<=0)return null;
+  const reciprocal=q(anchor.recip());
+  for(const [lo,hi,value] of [[-span,-1,previous(reciprocal)],[-1,-1/span,reciprocal],
+                               [1/span,1,predecessor],[1,span,q(anchor)]]){
+   if(costOrder(lo)<0&&costOrder(hi)>0)return value;
+  }
+  return null;
+ }
  function capturePassive(s){
   const m=M(),owned={mindPlanet:m.level(s,'mindPlanet'),innerWorld:m.level(s,'innerWorld')};if(!m.active(s)||(!owned.mindPlanet&&!owned.innerWorld))return {};
   const inputs={};if(owned.mindPlanet){const base=A.scale(power(A.add(1,stock(s,'heart')),.5),2*owned.mindPlanet);inputs.qi=base;inputs.body=base;}
   if(owned.innerWorld){const least=min(stock(s,'qi'),stock(s,'body'));inputs.heart=A.scale(least,.5);inputs.soul=A.scale(least,.05);}
   const result={};for(const [key,input]of Object.entries(inputs)){
-   const base=A.multiply(input,m.acquisitionMultiplier(s,key)),current=stock(s,key),exponent=['qi','body'].includes(key)?m.conversionExponent(s):key==='soul'?m.soulExponent(s):B.ONE,rows=thresholds(s,key);
-   let attenuation=0,coefficient=q(1);for(const t of rows)if(A.compare(current,t.value)>0){attenuation+=t.power;coefficient=product([coefficient],[power(t.value,t.power)]);}
-   const rate=!positive(current)&&B.gt(exponent,1)?zero():product([base],[segment(current,exponent,attenuation,coefficient).slope(current)]);
-   result[key]={emperor:m.emperorActive(s),base,current,exponent,thresholds:rows,rate};
+   const acquisition=m.acquisitionMultiplier(s,key),base=A.multiply(input,acquisition),current=stock(s,key),exponent=['qi','body'].includes(key)?m.conversionExponent(s):key==='soul'?m.soulExponent(s):B.ONE,rows=thresholds(s,key);
+   let integralInput;
+   if(A.project(current).layer>=3){
+    const mind=key==='qi'||key==='body';
+    const source=mind?A.add(1,stock(s,'heart')):min(stock(s,'qi'),stock(s,'body'));
+    const factor=mind?2*owned.mindPlanet:key==='heart'?.5:.05;
+    integralInput=integralInputs(s,key,source,mind?.5:1,A.scale(acquisition,factor));
+   }
+   let rate=coarseGainCell(current,exponent,integralInput,1,true);
+   if(rate===null){
+    let attenuation=0,coefficient=q(1);
+    for(const t of rows)if(A.compare(current,t.value)>0){attenuation+=t.power;coefficient=product([coefficient],[power(t.value,t.power)]);}
+    rate=!positive(current)&&B.gt(exponent,1)?zero():product([base],[segment(current,exponent,attenuation,coefficient).slope(current)]);
+   }
+   result[key]={emperor:m.emperorActive(s),base,current,exponent,thresholds:rows,rate,integralInput};
   }return result;
  }
  function passiveGains(profile,seconds,{frozen=false}={}){
-  const result={};for(const key of M().resourceKeys){const p=profile?.[key];result[key]=!p?zero():frozen?A.multiply(p.rate,seconds):balanced(null,key,p.current,A.multiply(p.base,seconds),p.exponent,p.thresholds);
+  const result={};for(const key of M().resourceKeys){const p=profile?.[key];result[key]=!p?zero():frozen?A.multiply(p.rate,seconds):(coarseGainCell(p.current,p.exponent,p.integralInput,seconds)??balanced(null,key,p.current,A.multiply(p.base,seconds),p.exponent,p.thresholds));
    if(p?.emperor && B.gt(seconds,0))result[key]=A.multiply(M().emperorGain(A.divide(result[key],seconds)),seconds);
   }return result;
  }

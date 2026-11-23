@@ -111,3 +111,95 @@ test('Mind Planet settles qi and body after War God and Steal Heaven at late mar
     assert.equal(Amount.compare(M.quantity(loaded,key),M.quantity(after,key)),0);
   }
 });
+
+for (const input of ['ee2050','eee20']) {
+  test('combined late martial stocks retain the direction of integrated gains at '+input, () => {
+    const {W}=setup75({targetSchema:76});
+    const {State,Resources,Amount:A}=W.Core, M=W.Cultivation.Martial;
+    const s=State.fresh();
+    s.cultivation.active='martial';
+    s.challengeCompletions.martialStealHeaven=1;
+    Object.assign(M.get(s).abilities,{mindPlanet:3,innerWorld:1,immortalPlatform:1,warGod:1});
+    for (const key of M.resourceKeys) Resources.replaceExact('cultivation.martial.'+key,input,s);
+    for (let tick=0; tick<2; tick++) {
+      const gains=M.passiveGains(M.capturePassive(s),.1);
+      for (const key of M.resourceKeys) {
+        assert(A.compare(gains[key],0)>0,key);
+        if(key==='soul') assert(A.compare(gains[key],input)>=0,key);
+        else assert(A.compare(gains[key],1)<0,key);
+        if(input==='eee20') assert.equal(A.compare(gains[key],key==='soul'?'eee20':'eee-20'),0,key);
+      }
+      M.awardPassive(s,gains);
+    }
+  });
+}
+
+for (const input of ['ee2050','eee20']) {
+  test('manual soul conversion agrees with the quoted high-stock gain at '+input, () => {
+    const {W}=setup75({targetSchema:76});
+    const {State,Resources,Amount:A}=W.Core, M=W.Cultivation.Martial;
+    const s=State.fresh();
+    s.cultivation.active='martial';
+    Object.assign(M.get(s).abilities,{warGod:1,immortalPlatform:1});
+    for(const key of M.resourceKeys) Resources.replaceExact('cultivation.martial.'+key,input,s);
+    const quote=M.preview(s,'soul');
+    assert(quote.allowed,quote.reason);
+    assert(A.compare(quote.gainQuantity,input)>=0);
+    assert(M.convert(s,'soul'));
+    assert.equal(A.compare(M.quantity(s,'soul'),A.add(input,quote.gainQuantity)),0);
+  });
+}
+
+test('Xiao Li with a tiny surviving heart settles focus online and offline across reload', async () => {
+  const {W}=setup75({targetSchema:76});
+  const {State,Save,Resources:R,Amount:A}=W.Core, M=W.Cultivation.Martial;
+  const start=State.fresh();
+  start.cultivation.active='martial';
+  start.focusPurchased=true;
+  M.get(start).abilities.xiaoLi=1;
+  R.replaceExact('core.joules',1000,start);
+  R.replaceExact('cultivation.martial.heart','1e-600',start);
+  const create=domain=>W.Simulation.OfflineHeadless.create({domain},{checkpoint(){},yield:()=>Promise.resolve()});
+  const reload=domain=>Save.prepare(JSON.parse(JSON.stringify(Save.envelope(domain)))).state;
+  const host=create(start);
+  const power=R.readExact('core.power',host.getState());
+  assert.equal(onlineTick(host).processedSeconds,.1);
+  const online=reload(host.getState()),onlinePower=R.readExact('core.power',online);
+  assert(A.compare(onlinePower,power)>0);
+  assert.equal(A.compare(M.quantity(online,'heart'),'1e-600'),0);
+  const restored=create(online);
+  restored.offline.appendCatchUpTask(1,1,{source:'offline',randomMode:'state'});
+  await restored.offline.simulateOfflineProgress(0,0);
+  const status=restored.offline.getCatchUpStatus(),end=reload(restored.getState());
+  assert.equal(status.phase,'completed');
+  assert.equal(status.pendingGameSeconds,0);
+  assert.equal(end.totalElapsedSeconds,1.1);
+  assert(A.compare(R.readExact('core.power',end),onlinePower)>0);
+  assert.equal(A.compare(M.quantity(end,'heart'),'1e-600'),0);
+  assert.equal(M.level(end,'xiaoLi'),1);
+  assert.equal(W.Core.Effects.getInvalidEffects().length,0,'Xiao Li must evaluate throughout settlement');
+});
+
+test('frozen passive rates round the stock derivative before elapsed time at eee20', () => {
+  const {W}=setup75({targetSchema:76});
+  const {State,Resources:R,Amount:A}=W.Core, M=W.Cultivation.Martial;
+  const s=State.fresh();
+  s.cultivation.active='martial';
+  s.challengeCompletions.martialStealHeaven=1;
+  Object.assign(M.get(s).abilities,{warGod:1,mindPlanet:3,innerWorld:1,immortalPlatform:1});
+  for(const key of M.resourceKeys) R.replaceExact('cultivation.martial.'+key,'eee20',s);
+  const profile=M.capturePassive(s),frozen=M.passiveGains(profile,.1,{frozen:true});
+  for(const key of M.resourceKeys){
+    const derivativeRate=key==='soul'?'eee20':'eee-20';
+    assert.equal(A.compare(profile[key].rate,derivativeRate),0,key);
+    assert.equal(A.compare(frozen[key],A.scale(derivativeRate,.1)),0,key);
+  }
+  // With a small supporting heart the affordable integral falls below the
+  // reciprocal atom, while the nearest derivative still rounds to that atom.
+  R.replaceExact('cultivation.martial.heart',1,s);
+  M.get(s).abilities.innerWorld=0;
+  const lowSupport=M.capturePassive(s);
+  const online=M.passiveGains(lowSupport,1),offline=M.passiveGains(lowSupport,1,{frozen:true});
+  assert.equal(A.compare(offline.qi,'eee-20'),0);
+  assert(A.compare(online.qi,offline.qi)<0);
+});

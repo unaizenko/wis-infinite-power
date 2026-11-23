@@ -155,17 +155,16 @@
   }
   function weaken(raw,order){
     const digits=integerOrder(order);if(digits==='0')return B.ZERO;
-    const k=orderValue(digits);
+
     if(WIS.Core.Amount?.enabled()){
       const A=WIS.Core.Amount,F=WIS.Core.AmountFormulas;
-      if(digits.length<=2048)return F.powerOnePlusMinusOne(A.from(raw),B.div(2,k));
-      const log=F.logOnePlusRatio(A.from(raw),1);
-      return WIS.Core.ClosedFormBatch.expm1(B.div(B.mul(2*Math.LN10,log),k));
+      if(digits.length<=15)return F.powerOnePlusMinusOne(A.from(raw),B.div(2,orderValue(digits)));
+      return F.powerOnePlusMinusOneFraction(raw,2,digits);
     }
     const g=nonnegative(raw);if(B.eq(g,0))return B.ZERO;
     // log1p/expm1 series protect tiny rates and huge orders from cancellation.
     const log=B.lt(g,'1e-5')?B.mul(g,B.add(B.sub(1,B.div(g,2)),B.div(B.mul(g,g),3))):B.BN(B.add(1,g)).ln();
-    const x=B.mul(B.div(2,k),log);
+    const x=B.mul(B.div(2,orderValue(digits)),log);
     const result=B.lt(x,'1e-5')?B.mul(x,B.add(B.add(1,B.div(x,2)),B.div(B.mul(x,x),6))):B.sub(B.BN(x).exp(),1);
     return nonnegative(result);
   }

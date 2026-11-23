@@ -35,6 +35,93 @@
     try{return callback();}finally{leftBoundary=previous;}
   }
 
+  // At this scale the integer part of log10(stock) can itself contain
+  // thousands of digits. Retain the fraction needed to locate the next decade.
+  // Newton from above gives floor(n^(1/10)) by integer arithmetic.
+  function* tenthRoot(n) {
+    let x = 1n << BigInt(Math.ceil(n.toString(2).length / 10));
+    for (;;) {
+      const next = (9n * x + n / x**9n) / 10n;
+      if (next >= x) return x;
+      x = next;
+      yield;
+    }
+  }
+
+  const towerCoordinates = new Map();
+  function* towerDecade(magnitude, places) {
+    const key = magnitude + '|' + places;
+    if (towerCoordinates.has(key)) return towerCoordinates.get(key);
+    const [orderText, decimals = ''] = String(magnitude).split('.');
+    const order = BigInt(orderText), guard = 10n**BigInt(places);
+    const unit = guard * 10n**order, weight = unit**9n;
+    let lo = unit, hi = unit;
+    // Read 0.d1...dn from right to left: each digit contributes a tenth root.
+    for (const digit of [...decimals].reverse()) {
+      const scale = weight * 10n**BigInt(digit);
+      lo = yield* tenthRoot(lo * scale);
+      const n = hi * scale, root = yield* tenthRoot(n);
+      hi = root**10n === n ? root : root + 1n;
+    }
+    const base = lo / (10n * guard) * 10n;
+    const result = {base, lo:lo-base*guard, hi:hi-base*guard};
+    if (towerCoordinates.size >= 8) towerCoordinates.delete(towerCoordinates.keys().next().value);
+    towerCoordinates.set(key,result);
+    return result;
+  }
+
+  function* largeDecade(stock, projected, origin) {
+    const A = WIS.Core.Amount, C = WIS.Core.CertifiedRankMath;
+    const anchor = A.from(projected), relative = yield ()=>A.divide(stock,anchor);
+    // An integral tower is an exact power of 10^10, even when its exponent
+    // cannot be expanded into an Amount literal. Compare the whole remainder
+    // against decimal factors of that anchor to retain both sides of a boundary.
+    const symbolic = projected.layer > 2 || projected.mag >= 4096;
+    if (symbolic && !Number.isInteger(projected.mag)) return null;
+    const relativeLog = log10(A.project(relative)).toNumber();
+    if (!Number.isSafeInteger(Math.floor(relativeLog))) return null;
+    for (const places of [32,80,160,320,512]) {
+      const c = C.context(places);
+      const coordinate = symbolic ? {base:0n,lo:0n,hi:0n} : yield* towerDecade(projected.mag,places);
+      const factor = coordinate.lo===0n && coordinate.hi===0n ? c.fraction(1n) : yield ()=>c.pow10({lo:coordinate.lo,hi:coordinate.hi});
+      const lower = yield ()=>A.multiply(relative,factor.lo+'e-'+places);
+      const upper = yield ()=>A.multiply(relative,factor.hi+'e-'+places);
+      let offset = BigInt(Math.floor(relativeLog / 10))*10n;
+      // The estimate omits the anchor's last decade. Certify both endpoints
+      // against the full stock before accepting the bucket or its left limit.
+      for (let attempt=0;attempt<4;attempt++) {
+        const threshold='1e'+offset, next='1e'+(offset+10n);
+        const lowSide=yield ()=>A.compare(lower,threshold);
+        if(lowSide<0 && (yield ()=>A.compare(upper,threshold))<0){offset-=10n;continue;}
+        if((yield ()=>A.compare(lower,next))>=0){offset+=10n;continue;}
+        if(lowSide<0 || (yield ()=>A.compare(upper,next))>=0)break;
+        const lowerExact=lowSide===0 && (yield ()=>A.compare(upper,threshold))===0;
+        const exponent=coordinate.base+offset;
+        if(symbolic)return {steps:div(log10(projected),10),atBoundary:lowerExact,
+          next:yield ()=>A.multiply(anchor,next)};
+        const count=(exponent-BigInt(origin))/10n;
+        return {count:String(count),steps:BN(String(count)),atBoundary:lowerExact,
+          nextExponent:exponent+10n};
+      }
+    }
+    return null;
+  }
+
+  function googolDecade(stock,projected,origin) {
+    const A=WIS.Core.Amount,C=WIS.Core.CertifiedRankMath;
+    const wide = projected.layer>2 && projected.mag>0 || projected.layer===2 && projected.mag>=512;
+    // Literal decimal exponents already encode their full integer part. Keep
+    // using that exact coordinate, in particular for a computed boundary ±1.
+    if (wide && A.wordView(stock).some(word=>!/^[-+]?\d/.test(word))) {
+      const result=C.withWork(()=>C.task('googol-tower-decade|'+JSON.stringify(A.wordView(stock)),()=>largeDecade(stock,projected,origin)));
+      if(result)return result;
+    }
+    const count=WIS.Core.AmountFormulas.logarithmBucket(stock,origin,10);
+    const exponent=BigInt(origin)+10n*BigInt(count);
+    return {count,steps:BN(count),atBoundary:leftBoundary!==null && A.compare(stock,'1e'+exponent)===0,
+      nextExponent:exponent+10n};
+  }
+
   function googolPenaltyDetails(resource, currentAmount, currentState = WIS.Core.Runtime?.getState?.()) {
     const key = resourceKey(resource);
     const baseQ = CONFIG.resources[key];
@@ -52,11 +139,11 @@
     let penaltyCount=null;
     if(delayed&&whole){
       const origin=thresholdLog10.toNumber();
-      penaltyCount=WIS.Core.AmountFormulas.logarithmBucket(whole,origin,10);
-      let count=BigInt(penaltyCount);
-      if(leftBoundary?.resource===key&&A.compare(whole,leftBoundary.amount)===0&&
-        A.compare(whole,'1e'+String(BigInt(origin)+10n*count))===0&&count>0n)count--;
-      penaltySteps=BN(String(count));
+      const decade=googolDecade(whole,amount,origin);
+      penaltyCount=decade.count;
+      penaltySteps=decade.steps;
+      if(leftBoundary?.resource===key && decade.atBoundary && A.compare(whole,leftBoundary.amount)===0 && gt(penaltySteps,0))
+        penaltySteps=decade.count===undefined ? sub(penaltySteps,1) : BN(String(BigInt(decade.count)-1n));
     }else if(delayed && leftBoundary?.resource===key && (A?.isAmount(leftBoundary.amount)?A.compare(amount,leftBoundary.amount)===0:amount.eq(leftBoundary.amount)) &&
        div(excess,10).eq(penaltySteps))penaltySteps=max(ZERO,sub(penaltySteps,1));
     const evaluatedLog=delayed?add(thresholdLog10,mul(penaltySteps,10)):amountLog10;
@@ -73,8 +160,9 @@
     if(!CONFIG.resources[resourceKey(resource)] || !WIS.Meta.Infinity?.has(currentState,'B6'))return null;
     const A=WIS.Core.Amount;
     if(A?.isAmount(currentAmount)){
-      const amount=A.from(currentAmount),details=googolPenaltyDetails(resource,amount,currentState),origin=thresholdLog10.toNumber();
-      return A.from('1e'+String(BigInt(origin)+10n*(BigInt(details.penaltyCount)+1n)));
+      const amount=A.from(currentAmount);
+      const decade=googolDecade(amount,A.project(amount),thresholdLog10.toNumber());
+      return decade.next || A.from('1e'+decade.nextExponent);
     }
     const exponent=log10(max(CONFIG.threshold,currentAmount));
     const steps=div(max(ZERO,sub(exponent,thresholdLog10)),10).floor();

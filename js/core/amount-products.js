@@ -529,14 +529,34 @@
    for(const places of [80,160,320,512]){
     try{return yield ()=>C.task(key+'|'+places,function*(){
      const c=C.context(places),logs=[];let unit=10n**BigInt(places-tailPolicy.coefficientPlaces);
-     for(const row of group)logs.push(yield ()=>rowLog(row,c));
-     let best=0;for(let i=1;i<logs.length;i++)if(logs[i].lo>logs[best].lo)best=i;
+     let best=-1;
+     for(const row of group){
+      try{
+       const log=yield ()=>rowLog(row,c);
+       if(best<0||log.lo>logs[best].lo)best=logs.length;
+       logs.push(log);
+      }catch(error){
+       if(!error.capacity)throw error;
+       const upper=remoteRowBounds(row,true)?.hi;
+       if(upper==null)throw error;
+       logs.push({upper,error});
+      }
+     }
+     if(best<0)throw logs[0].error;
      const chosen=group[best],basis=canonical({n:1n,d:1n,e:chosen.e+rationalOrder(chosen.n,chosen.d),f:chosen.f}),origin=yield ()=>rowLog(basis,c);
      let lo=0n,hi=0n;
      for(let i=0;i<group.length;i++){
-      const delta=c.sub(logs[i],origin);let interval;
-      if(delta.hi < -BigInt(places+4)*c.scale)interval={lo:0n,hi:1n};
-      else {if(delta.hi>c.scale)throw Object.assign(Error('Tail anchor needs refinement'),{code:'rank-cost-unresolved'});interval=yield ()=>coordinatePower10(c,delta);}
+      const rowLogBound=logs[i];let interval;
+      if(rowLogBound.error){
+       // The absolute logarithm can exceed capacity while its weight relative
+       // to the chosen basis is provably less than one fixed-point unit.
+       if((rowLogBound.upper+BigInt(places+4))*c.scale>=origin.lo)throw rowLogBound.error;
+       interval={lo:0n,hi:1n};
+      }else{
+       const delta=c.sub(rowLogBound,origin);
+       if(delta.hi < -BigInt(places+4)*c.scale)interval={lo:0n,hi:1n};
+       else {if(delta.hi>c.scale)throw Object.assign(Error('Tail anchor needs refinement'),{code:'rank-cost-unresolved'});interval=yield ()=>coordinatePower10(c,delta);}
+      }
       if(signed&&group[i].n<0n){lo-=interval.hi;hi-=interval.lo;}else{lo+=interval.lo;hi+=interval.hi;}
      }
      if(lo<=0n)throw Object.assign(Error('Tail coefficient needs refinement'),{code:'rank-cost-unresolved'});

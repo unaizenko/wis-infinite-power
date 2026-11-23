@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.3.0.1",
-  "versionCode": 30001,
+  "version": "0.3.0.2",
+  "versionCode": 30002,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.1/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.2/wis.apk",
     "mirror": null,
-    "sha256": "546d2f04f3a53bd39aa978ec2e90212bb127eb660db74c7f56f61ed2329ee0a3",
-    "sizeBytes": 6605841
+    "sha256": "cad0eac2a7f92dbebd392ce9ad3a796bbdae02ab5f2d9f675a6a044cb78ef0f2",
+    "sizeBytes": 6618129
   },
-  "notes": "修复武道高进度存档在「识海星球」产气时可能触发公式认证失败，导致结算停滞、无法确认保存的问题。",
-  "publishedAt": "2026-11-23T07:39:52Z"
+  "notes": "修复识海星球、体内世界和神魂兑换在高库存下的结算异常，修正极小余额、古戈尔门槛和超高阶多元收益计算。离线结算完成后可继续保存和推进。",
+  "publishedAt": "2026-11-23T08:58:24Z"
 }
