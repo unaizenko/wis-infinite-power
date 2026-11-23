@@ -1,3 +1,7 @@
+## 2026-11-23 极小幂差与识海星球
+
+运行 `node --test tests/amount-formulas.test.cjs tests/martial-passive-range.test.cjs`。覆盖微小正数、巨大指数、分片求值、在线产气产体与保存回读。
+
 ## 2026-11-23 旧档迁移与武道收益
 
 运行 `node --test tests/emperor-universe.test.cjs tests/martial-will.test.cjs`。r16、r18 合成夹具分别由对应历史版本正式导出，用于验证跨版本导入、再次保存回读、收支尾项与被动神魂收入。五境合一用在线一步和离线一秒检查无限盒子奖励。长生诀实际卡片由 `tests/martial-range-browser.test.cjs` 覆盖。

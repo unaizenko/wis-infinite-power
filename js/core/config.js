@@ -166,7 +166,7 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.3.0.0", saveVersion: 76,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.3.0.1", saveVersion: 76,
     closedBatchVersion: 2,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,

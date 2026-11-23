@@ -111,3 +111,14 @@ test('candidate formula reuse keeps native and coordinate arithmetic contexts se
 test('common super-large monomial factors cancel exactly before logarithm capacity is consulted',()=>{const {W,A,F,B}=setup(),base=A.from('ee3466.9568595935007');for(const coefficient of [2,3,17]){const numerator=A.scale(base,coefficient);assert(B.eq(F.productQuotient([numerator],[base]),coefficient));const work=F.prepareWork('productQuotient',[[numerator],[base]]);while(!work.advance({maximumOperations:1}).done){}assert(B.eq(work.result(),coefficient));}assert(B.eq(F.productQuotient([A.scale(base,3)],[A.scale(base,2)]),'1.5'));});
 test('super-large quotient proof retains positive residuals while cancelling its common scale',()=>{const {A,F,B}=setup(),base='ee3466.9568595935007',numerator=A.fromParts(0,[base+'*2','117664991765912524379189257247013e110791542984','4140466224688269e-14']),denominator=A.from(base);assert(B.eq(F.productQuotient([numerator],[denominator]),2));const work=F.prepareWork('productQuotient',[[numerator],[denominator]]);let turns=0;while(!work.advance({maximumOperations:1}).done)assert(++turns<100000);assert(B.eq(work.result(),2));assert(B.eq(F.productQuotient([numerator],[A.scale(denominator,2)]),1));});
 test('capacity policy is confined to formula boundary; underlying proof still refuses oversized coordinates',()=>{const {W,A,F,B}=setup(),x=A.fromParts('ee3466.9568595935007',[1]);assert(B.eq(F.log10(x),B.log10(A.project(x))));assert.equal(F.capacityDiagnostics().calls,1);assert.throws(()=>W.Core.AmountProducts.logarithm(A.wordView(x),W.Core.CertifiedRankMath.context(32)),e=>e.code==='amount-unresolved');});
+
+test('tiny power-minus-one keeps the full increment for both small and amplified results', () => {
+  const {A,F,B}=setup();
+  const tiny=A.from('ee-50.71098273716965');
+  const work=F.prepareWork('powerOnePlusMinusOne',[tiny,'1.005464480874317']);
+  while(!work.advance({maximumOperations:8}).done) {}
+  assert(B.eq(work.result(),A.project(tiny)));
+  assert(B.eq(F.powerOnePlusMinusOne('1e-600',.5),B.BN('5e-601')));
+  // x=10^-600 and p=10^600: the correctly rounded result is exp(1)-1.
+  assert.equal(F.powerOnePlusMinusOne('1e-600','1e600').toNumber(),1.7182818284590453);
+});

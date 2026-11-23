@@ -1,3 +1,9 @@
+## 0.3.0.1
+
+修复武道高进度存档在「识海星球」产气时可能触发公式认证失败，导致结算停滞、无法确认保存的问题。
+
+[GitHub Release 与 APK](https://github.com/unaizenko/wis-infinite-power/releases/tag/v0.3.0.1)
+
 ## 0.3.0.0
 
 新增武道成就、大帝劫与五境合一，宇宙系数跨体系共享。修复旧档系数迁移与成就补发，更新手机布局和分体系统计。
@@ -53,9 +59,9 @@
 
 游戏仍在持续开发中，目前主要完成了前期量级、强化、成就、仙道境界、部分仙道能力与宝物烙印内容，其他修行体系和后期WIS体系将在后续版本中继续加入。
 
-当前开发版与网页发布版为 `0.2.2.2`，Android versionCode 为 20202；存档 Schema 76 / numericModel 2 / settlementRule 4。本次修复手机吐纳计算时重复点击导致动作取消，并显示计算中状态；旧存档格式与收益公式保持。网页与 APK 发布版关闭调试功能。
+当前开发版与网页发布版为 0.3.0.1，Android 版本代码为 30001。存档格式为 76。
 
-[下载 Android App](https://github.com/unaizenko/wis-infinite-power/releases/download/v0.2.2.2/wis.apk)。App 与网页版存档不互通，可通过导出、导入迁移。
+[下载 Android App](https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.1/wis.apk)。App 与网页版存档不互通，可通过导出、导入迁移。
 
 ## 开发版：离线快进（试用）
 

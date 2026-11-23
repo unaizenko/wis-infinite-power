@@ -34,6 +34,7 @@
     "tests/scaled-increment.test.cjs",
     "tests/amount-formulas.test.cjs",
     "tests/amount-martial.test.cjs",
+    "tests/martial-passive-range.test.cjs",
     "tests/closed-form-batch.test.cjs",
     "tests/closed-form-reentry.test.cjs",
     "tests/amount-fixed-sources.test.cjs",

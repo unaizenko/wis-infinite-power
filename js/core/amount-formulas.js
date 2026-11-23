@@ -99,7 +99,15 @@
     if(A.compare(input.value,0)===0){if(input.q.n<0n)fail('negative power at zero','amount-formula-domain');return {done:true,value:evaluate(capture('power',[input.delta,input.exponent]))};}
   }
   else if(input.operation==='powerWithExponent'){if(A.compare(input.exponentValue,0)===0||A.compare(input.value,1)===0)return {done:true,value:B.ONE};if(A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.exponentValue))return {done:true,value:B.pow(A.project(input.value),A.project(input.exponentValue))};}
-  else if(input.operation==='powerOnePlusMinusOne'){if(input.q.n===0n||A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(input.q.n===input.q.d)return {done:true,value:A.project(input.value)};}
+  else if(input.operation==='powerOnePlusMinusOne'){
+    const sign=A.compare(input.value,0);
+    if(input.q.n===0n||sign===0)return {done:true,value:B.ZERO};
+    if(input.q.n===input.q.d)return {done:true,value:A.project(input.value)};
+    // Below the precision of 1, certify the increment from base 1 directly.
+    // Retain the complete delta and exponent even when p*x is appreciable.
+    if(sign>0&&A.compare(input.value,'1e-16')<0)
+      return {done:true,value:evaluate(capture('powerIncrement',[1,input.value,input.exponent]))};
+  }
   else if(input.operation==='power'||input.operation==='powerRatio'){if(A.compare(input.divisor,0)===0)fail('division by zero','amount-formula-domain');if(input.q.n===input.q.d&&A.compare(input.divisor,1)===0)return {done:true,value:A.project(input.value)};if(input.q.n===0n)return {done:true,value:B.ONE};if(A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.divisor))return {done:true,value:B.pow(B.div(A.project(input.value),A.project(input.divisor)),input.exponent)};}
   else if(input.operation==='logRatio'){if(A.compare(input.value,0)===0||A.compare(input.divisor,0)===0)fail('log ratio requires positive operands','amount-formula-domain');if(A.compare(input.value,input.divisor)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.divisor))return {done:true,value:B.log10(B.div(A.project(input.value),A.project(input.divisor)))};}
   else if(input.operation==='logOnePlusRatio'){if(A.compare(input.divisor,0)===0)fail('division by zero','amount-formula-domain');if(A.compare(input.value,0)===0)return {done:true,value:B.ZERO};if(!hasTail(input.value)&&!hasTail(input.divisor)&&!B.add(1,B.div(A.project(input.value),A.project(input.divisor))).eq(1))return {done:true,value:B.log10(B.add(1,B.div(A.project(input.value),A.project(input.divisor))))};}

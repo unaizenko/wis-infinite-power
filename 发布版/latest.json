@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.3.0.0",
-  "versionCode": 30000,
+  "version": "0.3.0.1",
+  "versionCode": 30001,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.0/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.1/wis.apk",
     "mirror": null,
-    "sha256": "b6c0122d7bac0ec7df18b65c41999c75249ddba993d4b692dc1c82a268c68d95",
+    "sha256": "546d2f04f3a53bd39aa978ec2e90212bb127eb660db74c7f56f61ed2329ee0a3",
     "sizeBytes": 6605841
   },
-  "notes": "新增武道成就、大帝劫与五境合一，宇宙系数跨体系共享。修复旧档迁移与成就补发，优化手机布局和统计页。",
-  "publishedAt": "2026-11-23T05:05:35Z"
+  "notes": "修复武道高进度存档在「识海星球」产气时可能触发公式认证失败，导致结算停滞、无法确认保存的问题。",
+  "publishedAt": "2026-11-23T07:33:12.692Z"
 }
