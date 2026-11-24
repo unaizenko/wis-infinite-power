@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.3.0.2",
-  "versionCode": 30002,
+  "version": "0.3.0.3",
+  "versionCode": 30003,
   "minAndroid": "7.0",
   "apk": {
-    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.2/wis.apk",
+    "primary": "https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.3/wis.apk",
     "mirror": null,
-    "sha256": "cad0eac2a7f92dbebd392ce9ad3a796bbdae02ab5f2d9f675a6a044cb78ef0f2",
+    "sha256": "4306a27ed059cc615b7f8aba0226ff7c9c532354654c756d1131c26ec3ff7de4",
     "sizeBytes": 6618129
   },
-  "notes": "修复识海星球、体内世界和神魂兑换在高库存下的结算异常，修正极小余额、古戈尔门槛和超高阶多元收益计算。离线结算完成后可继续保存和推进。",
-  "publishedAt": "2026-11-23T09:08:47Z"
+  "notes": "修复部分旧武道存档启动时无法恢复进度的问题。改写武道、仙道、宝物、挑战和无限升级的效果说明，让收益、条件和升级变化更易读。",
+  "publishedAt": "2026-11-24T02:52:39Z"
 }

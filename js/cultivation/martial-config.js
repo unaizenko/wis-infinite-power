@@ -20,7 +20,7 @@
     ["innerHarmony", "内三合", "special", 1, 10, { heart: 40 }, [], "解锁三合挑战；全部完成后，炼心可保留部分气、体。"],
     ["reverseArt", "逆练功法", "special", 1, 12, { heart: 60 }, [], "增加可同时修炼的内功名额。"],
     ["innate", "先天", "special", 1, 15, { heart: 120 }, [], "解锁任督二脉挑战；完成后提升气的兑换效率。"],
-    ["changSheng", "神功·长生诀", "shengong", 1, 100, { heart: 120 }, ["innate"], "解锁清空所有内功等级，且内功解锁与付费升级价格乘以10×(当前内功种类数+1)。每秒基础产气为内功种类数的平方。"],
+    ["changSheng", "神功·长生诀", "shengong", 1, 100, { heart: 120 }, ["innate"], "解锁时清空内功等级和龙象修炼进度。此后每秒自然产气，修炼的内功种类越多，产气越快。内功解锁和付费升级的价格从原价的10倍起，每多一种内功就再加10倍原价。"],
     ["tianMo", "神功·天魔策", "shengong", 1, 200, { heart: 200 }, ["innate"], "每消耗1心，基础获得10气。"],
     ["ciHang", "神功·慈航剑典", "shengong", 1, 200, { heart: 200 }, ["innate"], "每实际消耗1心，基础获得10体。"],
     ["geneEnergy", "基因源能", "devour", 9, [200,400,800,1600,3200,6400,12800,25600,51200], { qi:1000,body:1000,heart:120 }, [], "提升气、体获取。"],
@@ -43,17 +43,17 @@
     ["lingXi", "绝技·灵犀一指", "jueji", 1, 8, { heart: 30 }, [], "拥有直感时，根据当前心进一步增强集中来源。", "jueji"],
     ["duoMing", "绝技·夺命十三剑", "jueji", 13, 2, { heart: 30 }, [], "随等级提升杀气来源。", "jueji"],
     ["shenDao", "绝技·神刀斩", "jueji", 1, 12, { heart: 60 }, [], "提升鬼脑来源。", "jueji"]
-    ,['warGod','神功·战神图录','shengong',1,5000,{heart:1000},['changSheng','tianMo','ciHang'],'气、体、心、神魂自身的绝对与相对衰减幂减半；作用于分段累计成本。'],
-    ['shenJin','神劲','neijia',1,3000,{body:10000,heart:1000},['danJin','yiSui'],'需内三合成就；体独立战力来源的基础增长指数由1.25提升至1.50。'],
-    ['mindPlanet','识海星球','devour',3,[1200,3600,10800],{heart:500},['crystalMeditation'],'每秒分别为气、体提供2L√(1+心)基础投入，经获取倍率、累计需求和衰减结算。'],
-    ['lifeCore','命核','devour',1,3000,{body:5000},['geneEnergy'],'需基因源能3级；体独立战力来源乘[1+log10(1+体)]²。'],
-    ['innerWorld','体内世界','devour',1,15000,{qi:50000,body:50000,heart:2000},['mindPlanet','lifeCore'],'需识海星球3级；每秒心/神魂基础投入为0.5/0.05×min(气,体)，经累计需求及衰减；解锁源能法则成就。'],
-    ['divineKingdom','神国','devour',1,80000,{qi:500000,body:500000,heart:10000},['innerWorld'],'全局J、战力获取指数乘1+0.01log10(1+Σlog10(1+四资源))。'],
-    ['otherShore','彼岸','shroud',1,10000,{body:30000},['shenQiao'],'已解锁神速时，其倍率额外乘[1+log10(1+体)]²。'],
-    ['daoPalace','道宫','shroud',1,30000,{qi:150000,heart:3000},['otherShore'],'已解锁的杀意实质、能量循环各自倍率额外乘1+0.5log10²(1+气)。'],
-    ['fourPoles','四极','shroud',1,100000,{body:1000000,heart:15000},['daoPalace'],'已解锁的元素化、极意完整正向来源提升至E次方，E=1+0.08h/(10+h)，h=log10(1+体)。']
-    ,['dragonTransform','化龙九变','shroud',9,200000,{body:2000000},['fourPoles'],'共9级；体门槛和神魂费用每级翻倍；打岩来源倍率×5^L，挑战·化龙奖励进一步提高该倍率的指数。'],
-    ['immortalPlatform','登仙台','shroud',1,200000000,{body:1000000000,heart:100000},['dragonTransform'],'需化龙九变9级；神魂累计转换指数E=1+0.025log10(1+心)，保留库存与衰减；仙三斩道完成后系数提升至0.04。']
+    ,['warGod','神功·战神图录','shengong',1,5000,{heart:1000},['changSheng','tianMo','ciHang'],'武道资源越多，继续获取就越慢。战神图录减轻这种减速，也减轻气、体或心过度领先时的额外减速。'],
+    ['shenJin','神劲','neijia',1,3000,{body:10000,heart:1000},['danJin','yiSui'],'需获得内三合成就。体越多，体带来的战力收益增长越快。'],
+    ['mindPlanet','识海星球','devour',3,[1200,3600,10800],{heart:500},['crystalMeditation'],'每秒自动凝气和锻体。心越多，两者的基础投入越高。升级可同步提高两项投入。'],
+    ['lifeCore','命核','devour',1,3000,{body:5000},['geneEnergy'],'需基因源能3级。体越多，命核对体所产战力的加成越高。'],
+    ['innerWorld','体内世界','devour',1,15000,{qi:50000,body:50000,heart:2000},['mindPlanet','lifeCore'],'需识海星球3级。每秒自动获得心和神魂。气、体之中较少的一项决定基础投入。解锁时获得源能法则成就。'],
+    ['divineKingdom','神国','devour',1,80000,{qi:500000,body:500000,heart:10000},['innerWorld'],'气、体、心、神魂都能增强神国，提高全局J和战力的获取指数。'],
+    ['otherShore','彼岸','shroud',1,10000,{body:30000},['shenQiao'],'体越多，神速的倍率越高。需先解锁神速才能生效。'],
+    ['daoPalace','道宫','shroud',1,30000,{qi:150000,heart:3000},['otherShore'],'气越多，杀意实质和能量循环的倍率越高。各项加成在对应能力解锁后生效。'],
+    ['fourPoles','四极','shroud',1,100000,{body:1000000,heart:15000},['daoPalace'],'体越多，元素化和极意产生的收益加成越强。各项加成在对应能力解锁后生效。']
+    ,['dragonTransform','化龙九变','shroud',9,200000,{body:2000000},['fourPoles'],'每升一级，打岩的基础加成变为上一级的5倍，所需的体和神魂费用也会翻倍。完成化龙挑战后，体还能进一步增强打岩。'],
+    ['immortalPlatform','登仙台','shroud',1,200000000,{body:1000000000,heart:100000},['dragonTransform'],'需化龙九变9级。心越多，炼化神魂时的加成越强。完成仙三斩道挑战可进一步增强这项效果。']
     ,['emperorTribulation','大帝劫','shroud',1,400000000,{},['immortalPlatform'],'永久解锁武道挑战·大帝劫。'],
     ['fiveRealms','5境合一','shroud',1,500000000,{},[],'完成大帝劫后可购买，根据气、体、心、魂的当前库存每秒获得单体宇宙系数 N。']
   ].map(([key,name,branch,maxLevel,price,requirements,prerequisites,description,group]) => Object.freeze({ key,name,branch,family:branch === "neijia" ? "human" : ["devour","shroud"].includes(branch) ? branch : "golden",maxLevel,price,upgradeResource:upgradeResources[key] || "soul",requirements:Object.freeze(requirements),prerequisites:Object.freeze(prerequisites),description,group,slot:branch === "inner" && key !== "taiXuan" }));

@@ -243,7 +243,7 @@
       { key: "tree3", name: "树", description: "完成 TREE(3) 超构造。", reward: "解锁 行动 → 无限", completed: completedAchievement("tree3", WIS.Meta.BigNumbers.rankCompare(state.meta.bigNumbers?.tree?.rank??0,3)>=0) },
       { key: "seventhTree", name: "第七颗树？", description: "抵达 TREE(10)。", reward: "无限点数基础获取增速改为等差数列", completed: completedAchievement("seventhTree", WIS.Meta.BigNumbers.rankCompare(state.meta.bigNumbers?.tree?.rank??0,10)>=0) },
       { key: "trueG1", name: "真G1", description: "首次完成大数挑战·真G1。", reward: "所有分形获取 ×10", completed: hasAchievement("trueG1") },
-      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "G进度需求大于1时取^0.95；小于或等于1时不变", completed: hasAchievement("trueGraham") },
+      { key: "trueGraham", name: "真葛立恒", description: "首次完成大数挑战·真葛立恒。", reward: "降低 G 升阶所需进度。需求超过 1 时降为原需求的 0.95 次方", completed: hasAchievement("trueGraham") },
       { key: "trueTree3", name: "真TREE3", description: "首次完成大数挑战·真TREE3。", reward: "树构造点获取 ×3", completed: hasAchievement("trueTree3") }
     );
 

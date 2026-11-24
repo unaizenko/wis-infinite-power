@@ -1,3 +1,9 @@
+## 0.3.0.3
+
+修复部分旧武道存档启动时无法恢复进度的问题。改写武道、仙道、宝物、挑战和无限升级的效果说明，让收益、条件和升级变化更易读。
+
+[GitHub Release 与 APK](https://github.com/unaizenko/wis-infinite-power/releases/tag/v0.3.0.3)
+
 ## 0.3.0.2
 
 修复识海星球、体内世界和神魂兑换在高库存下的结算异常，修正极小余额、古戈尔门槛和超高阶多元收益计算。离线结算完成后可继续保存和推进。
@@ -65,9 +71,9 @@
 
 游戏仍在持续开发中，目前主要完成了前期量级、强化、成就、仙道境界、部分仙道能力与宝物烙印内容，其他修行体系和后期WIS体系将在后续版本中继续加入。
 
-当前开发版与网页发布版为 0.3.0.2，Android 版本代码为 30002。存档格式为 76。
+当前开发版与网页发布版为 0.3.0.3，Android 版本代码为 30003。存档格式为 76。
 
-[下载 Android App](https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.2/wis.apk)。App 与网页版存档不互通，可通过导出、导入迁移。
+[下载 Android App](https://github.com/unaizenko/wis-infinite-power/releases/download/v0.3.0.3/wis.apk)。App 与网页版存档不互通，可通过导出、导入迁移。
 
 ## 开发版：离线快进（试用）
 

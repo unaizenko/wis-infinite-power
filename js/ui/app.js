@@ -66,7 +66,7 @@
       planetWill: () => `元素化来源 ×${WIS.UI.Format.scientificMultiplier(preview.value)}`,
       starShatter: () => `打岩来源 ×${format(preview.value, 3)}`,
       stellarTreasureSeeking: () => `宝物进度获取 ×${format(preview.value, 3)}`,
-      starSpirit: () => `宝物进度获取 ×${WIS.Core.Config.starEnhancements.starSpirit.perChallengeMultiplier} ^ ${preview.layers}`,
+      starSpirit: () => `宝物进度获取 ×${format(preview.value, 3)}（共 ${preview.layers} 层，每层 ×${WIS.Core.Config.starEnhancements.starSpirit.perChallengeMultiplier}）`,
       supernaturalFire: () => `战力区域 ×${format(preview.value, 3)}（按排除自身后的集中最终实际收益）`
     };
     return prefix + details[id]();
@@ -1766,7 +1766,7 @@
             <article class="item-row" id="undying-primordial-spirit-ability" data-sort-cost="${UNDYING_PRIMORDIAL_SPIRIT_COST}"><div class="item-content"><h2>不灭元神</h2><p>使周天法力来源额外 ^1.03。</p></div><div class="purchase-control"><span id="undying-primordial-spirit-preview">解锁后：周天法力来源 ^1.03</span><small>消耗 ${formatCost(UNDYING_PRIMORDIAL_SPIRIT_COST)} 仙灵力</small><button id="unlock-undying-primordial-spirit" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="immortal-aperture-ability" data-sort-cost="${IMMORTAL_POWER_CONFIG.immortalAperture.baseCost}"><div class="item-content"><h2>仙窍</h2><p>可升36级；每级使仙灵力 ×1.10，每6级额外 ×1.25。</p></div><div class="purchase-control"><span id="immortal-aperture-level">当前：0/36级</span><small id="immortal-aperture-cost">消耗 ${formatCost(IMMORTAL_POWER_CONFIG.immortalAperture.baseCost)} 仙灵力</small><button id="buy-immortal-aperture" class="primary-button" type="button">升级</button></div></article>
             <article class="item-row" id="xuan-immortal-body-ability" data-sort-cost="${XUAN_IMMORTAL_BODY_COST}"><div class="item-content"><h2>玄仙之躯</h2><p>使梵圣真魔功最终独立来源 ^1.40。</p></div><div class="purchase-control"><span id="xuan-immortal-body-preview">解锁后：梵圣真魔功 ^1.40</span><small>消耗 ${formatCost(XUAN_IMMORTAL_BODY_COST)} 仙灵力</small><button id="unlock-xuan-immortal-body" class="primary-button" type="button">解锁</button></div></article>
-            <article class="item-row" id="law-ability" data-sort-cost="${LAW_COST}"><div class="item-content"><h2>法则</h2><p>原始指数由法则之丝、法则亲和强化；随法力提高平滑衰减，极高法力时趋近 ^0.80。</p></div><div class="purchase-control"><span id="law-preview">解锁后：根据法力提高仙灵力</span><small>消耗 ${formatCost(LAW_COST)} 仙灵力</small><button id="unlock-law" class="primary-button" type="button">解锁</button></div></article>` : "";
+            <article class="item-row" id="law-ability" data-sort-cost="${LAW_COST}"><div class="item-content"><h2>法则</h2><p>当前法力越多，法则对仙灵力获取的加成越高。法力极高时，加成的增长指数逐渐接近 0.80。法则之丝与法则亲和可加强此效果。</p></div><div class="purchase-control"><span id="law-preview">解锁后：根据法力提高仙灵力</span><small>消耗 ${formatCost(LAW_COST)} 仙灵力</small><button id="unlock-law" class="primary-button" type="button">解锁</button></div></article>` : "";
       const goldenImmortalAbilities = realm.key === "goldenImmortal" ? `
             <article class="item-row" id="immortal-aperture-ii-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureII}"><div class="item-content"><h2>仙窍Ⅱ</h2><p>将仙窍等级上限由36提高至60。</p></div><div class="purchase-control"><span>仙窍上限 36 → 60</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureII)} 仙灵力</small><button id="unlock-immortal-aperture-ii" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="spirit-domain-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.spiritDomain}"><div class="item-content"><h2>灵域</h2><p>根据当前仙灵力形成独立J来源，正常经过J区域结算。</p></div><div class="purchase-control"><span id="spirit-domain-preview">解锁后：独立来源 +0 J/秒</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.spiritDomain)} 仙灵力</small><button id="unlock-spirit-domain" class="primary-button" type="button">解锁</button></div></article>
@@ -1782,13 +1782,13 @@
             <article class="item-row" id="flawless-jade-body-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.flawlessJadeBody}"><div class="item-content"><h2>无瑕玉体</h2><p>削弱天人五衰50%。</p></div><div class="purchase-control"><span id="flawless-jade-body-preview">五衰损失减半</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.flawlessJadeBody)} 仙灵力</small><button id="unlock-flawless-jade-body" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="spirit-domain-world-transformation-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.spiritDomainWorldTransformation}"><div class="item-content"><h2>灵域化界</h2><p>拥有灵域后，使灵域独立J来源 ×100。</p></div><div class="purchase-control"><span>灵域来源 ×100</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.spiritDomainWorldTransformation)} 仙灵力</small><button id="unlock-spirit-domain-world-transformation" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="immortal-aperture-vi-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureVI}"><div class="item-content"><h2>仙窍Ⅵ</h2><p>拥有仙窍Ⅴ后，将仙窍等级上限由192提高至276。</p></div><div class="purchase-control"><span>仙窍上限 192 → 276</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureVI)} 仙灵力</small><button id="unlock-immortal-aperture-vi" class="primary-button" type="button">解锁</button></div></article>
-            <article class="item-row" id="soul-qualitative-change-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.soulQualitativeChange}"><div class="item-content"><h2>神魂质变</h2><p>吐纳来源倍率 ×[1+(当前仙灵力/1e16)^0.40]；周天仅通过吐纳来源继承一次。</p></div><div class="purchase-control"><span id="soul-qualitative-change-preview">吐纳来源 ×1.000</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.soulQualitativeChange)} 仙灵力</small><button id="unlock-soul-qualitative-change" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="soul-qualitative-change-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.soulQualitativeChange}"><div class="item-content"><h2>神魂质变</h2><p>当前仙灵力越多，吐纳收益越高。持有 1e16 仙灵力时，吐纳收益翻倍。周天也会继承这次提升。</p></div><div class="purchase-control"><span id="soul-qualitative-change-preview">吐纳来源 ×1.000</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.soulQualitativeChange)} 仙灵力</small><button id="unlock-soul-qualitative-change" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="immortal-aperture-vii-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureVII}"><div class="item-content"><h2>仙窍Ⅶ</h2><p>拥有仙窍Ⅵ后，将仙窍等级上限由276提高至360。</p></div><div class="purchase-control"><span>仙窍上限 276 → 360</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.immortalApertureVII)} 仙灵力</small><button id="unlock-immortal-aperture-vii" class="primary-button" type="button">解锁</button></div></article>` : "";
       const daluoAbilities = realm.key === "daluo" ? `
             <article class="item-row" id="trinity-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.trinity}"><div class="item-content"><h2>三位一体</h2><p>根据当前 J 提高仙灵力获取。</p></div><div class="purchase-control"><span id="trinity-preview">解锁后：仙灵力 ×1.000</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.trinity)} 仙灵力</small><button id="unlock-trinity" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="unity-with-dao-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.unityWithDao}"><div class="item-content"><h2>与道合真</h2><p>根据当前仙灵力提供渐近 ^1.025 的仙灵力区域指数。</p></div><div class="purchase-control"><span id="unity-with-dao-preview">解锁后：仙灵力区域 ^1.000</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.unityWithDao)} 仙灵力</small><button id="unlock-unity-with-dao" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="law-origin-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.lawOrigin}"><div class="item-content"><h2>法则本源</h2><p>不改变法则动态指数；使最终法则倍率 ^1.20。</p></div><div class="purchase-control"><span id="law-origin-preview">解锁后：最终法则倍率 ^1.20</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.lawOrigin)} 仙灵力</small><button id="unlock-law-origin" class="primary-button" type="button">解锁</button></div></article>
-            <article class="item-row" id="law-crystal-filament-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.lawCrystalFilament}"><div class="item-content"><h2>法则晶丝</h2><p>根据当前实际法则倍率提高战力区域指数，渐近 ^1.20。</p></div><div class="purchase-control"><span id="law-crystal-filament-preview">当前法则倍率 ×1；y=0.00000；解锁后战力区域 ^1.00000；渐近上限 ^1.20</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.lawCrystalFilament)} 仙灵力</small><button id="unlock-law-crystal-filament" class="primary-button" type="button">解锁</button></div></article>
+            <article class="item-row" id="law-crystal-filament-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.lawCrystalFilament}"><div class="item-content"><h2>法则晶丝</h2><p>法则倍率越高，对战力获取的提升越强，战力区域指数逐渐接近 1.20。</p></div><div class="purchase-control"><span id="law-crystal-filament-preview">当前法则倍率 ×1；解锁后战力区域 ^1.00000；渐近上限 ^1.20</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.lawCrystalFilament)} 仙灵力</small><button id="unlock-law-crystal-filament" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="sever-three-corpses-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.severThreeCorpses}"><div class="item-content"><h2>斩三尸</h2><p>首次购买永久解锁斩恶尸、斩善尸、斩自我尸挑战。</p></div><div class="purchase-control"><span>永久开放斩三尸挑战链</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.severThreeCorpses)} 仙灵力</small><button id="unlock-sever-three-corpses" class="primary-button" type="button">解锁</button></div></article>
             <article class="item-row" id="ultimate-immortal-aperture-ability" data-sort-cost="${ADVANCED_IMMORTAL_ABILITY_COSTS.ultimateImmortalAperture}"><div class="item-content"><h2>终极仙窍</h2><p>拥有仙窍Ⅶ后，将仙窍上限由360提高至1800。</p></div><div class="purchase-control"><span>仙窍上限 360 → 1800</span><small>消耗 ${formatCost(ADVANCED_IMMORTAL_ABILITY_COSTS.ultimateImmortalAperture)} 仙灵力</small><button id="unlock-ultimate-immortal-aperture" class="primary-button" type="button">解锁</button></div></article>` : "";
       return `
@@ -1930,7 +1930,7 @@
         const loss = blackHoleGainLossDetails();
         const jExponent = WIS.Meta.Challenges.blackHoleLimitExponent(state, "joules");
         const powerExponent = WIS.Meta.Challenges.blackHoleLimitExponent(state, "power");
-        byId(`${idPrefix}-limit`).textContent = `当前：J获取 ^${jExponent.toFixed(5)}；战力获取 ^${powerExponent.toFixed(5)}；黑洞吞噬：J损失 ${format(loss.joulesLossOrders, 3)} 数量级，战力损失 ${format(loss.powerLossOrders, 3)} 数量级，L=${format(loss.lossOrders, 3)}，下一量级需求 ×${format(loss.requirementMultiplier, 3)}`;
+        byId(`${idPrefix}-limit`).textContent = `当前：J获取 ^${jExponent.toFixed(5)}；战力获取 ^${powerExponent.toFixed(5)}；黑洞吞噬：J损失 ${format(loss.joulesLossOrders, 3)} 数量级，战力损失 ${format(loss.powerLossOrders, 3)} 数量级，下一量级需求 ×${format(loss.requirementMultiplier, 3)}`;
       } else {
         byId(`${idPrefix}-limit`).textContent = "限制：J与战力从挑战开始便随自身数值提高而降低获取效率；黑洞吞噬的收益会提高当前下一量级需求";
       }
@@ -1950,7 +1950,7 @@
         ? "限制已克服"
         : "限制：正常软上限结算后，追加独立的星球压制软上限";
     } else if (challengeKey === "severSelfCorpse") {
-      setTextIfChanged(byId("self-corpse-formula-coefficient"), IMMORTAL_POWER_CONFIG.daluo.selfCorpseCoefficient.toFixed(2));
+
       byId(`${idPrefix}-limit`).textContent = completedDisplay
         ? "全部限制已克服"
         : `仙灵力获取额外 ^${formatSmallMultiplier(selfCorpseImmortalPowerLimitExponent(), 3)}`;
@@ -3356,7 +3356,7 @@
     const naturalProgress = WIS.Cultivation.ExplorationProgress.view(state);
     const naturalTreasureCap = naturalProgress.cap;
     toggleClassIfChanged(byId("natural-treasure-ability"), "purchased", naturalProgress.atCap);
-    setTextIfChanged(byId("natural-treasure-level"), `当前：${format(state.naturalTreasureLevel, 0)}/${format(naturalTreasureCap, 0)}级；原始倍率 ×${format(naturalTreasureRawManaMultiplier(), 3)}；动态指数 ^${format(naturalTreasureManaDiminishingExponent(), 3)}；实际倍率 ×${format(naturalTreasureManaMultiplier(), 3)}`);
+    setTextIfChanged(byId("natural-treasure-level"), `当前：${format(state.naturalTreasureLevel, 0)}/${format(naturalTreasureCap, 0)}级；法力获取 ×${format(naturalTreasureManaMultiplier(), 3)}`);
     if(naturalProgress.levelResidual.length)byId("natural-treasure-level").textContent+=`；另记等级余量 ${naturalProgress.levelResidual.map(w=>format(WIS.Meta.TreasureLedger.project(w),6)).join(" + ")}`;
     setTextIfChanged(byId("natural-treasure-chance"), naturalProgress.atCap
       ? "已达到等级上限"
@@ -3460,7 +3460,7 @@
     const lawPreviewMultiplier = state.lawUnlocked
       ? lawImmortalPowerMultiplier()
       : lawImmortalPowerPotentialMultiplier();
-    setPreviewText(byId("law-preview"), () => `${state.lawUnlocked ? "当前" : "解锁后"}：原始 ^${lawImmortalPowerExponent().toFixed(2)}；衰减后 ^${format(lawImmortalPowerActualExponent(), 3)}；实际 ×${format(lawPreviewMultiplier, 3)}`);
+    setPreviewText(byId("law-preview"), () => `${state.lawUnlocked ? "当前" : "解锁后"}：仙灵力获取 ×${format(lawPreviewMultiplier, 3)}`);
     writeSourcePreview("spirit-domain-preview", "spiritDomain", true);
     setPreviewText(byId("spirit-capture-return-preview"), () => `${state.spiritCaptureReturnUnlocked ? "当前" : "解锁后"}：仙灵力 ×${format(spiritCaptureReturnMultiplier(), 3)}`);
     setPreviewText(byId("flawless-jade-body-preview"), () => `五衰基础 ^${celestialFiveDeclineBaseExponent().toFixed(3)} → 实际 ^${celestialFiveDeclineExponent().toFixed(3)}`);
@@ -3486,7 +3486,7 @@
     setPreviewText(byId("unity-with-dao-preview"), () => `${state.unityWithDaoUnlocked ? "当前：" : "解锁后："}仙灵力区域 ^${format(unityWithDaoExponent(), 4)}`);
     setPreviewText(byId("law-origin-preview"), () => `${state.lawOriginUnlocked ? "当前：" : "解锁后："}最终法则倍率 ^1.20`);
     const lawCrystalDetails = lawCrystalFilamentDetails();
-    setPreviewText(byId("law-crystal-filament-preview"), () => `当前法则倍率 ×${format(lawCrystalDetails.lawMultiplier)}；y=${format(lawCrystalDetails.magnitude, 5)}；${state.lawCrystalFilamentUnlocked ? "当前" : "解锁后"}战力区域 ^${format(lawCrystalDetails.exponent, 5)}；渐近上限 ^${format(lawCrystalDetails.maximumExponent, 2)}`);
+    setPreviewText(byId("law-crystal-filament-preview"), () => `当前法则倍率 ×${format(lawCrystalDetails.lawMultiplier)}；${state.lawCrystalFilamentUnlocked ? "当前" : "解锁后"}战力区域 ^${format(lawCrystalDetails.exponent, 5)}；渐近上限 ^${format(lawCrystalDetails.maximumExponent, 2)}`);
     setHiddenIfChanged(byId("dao-ancestor-abilities"), !daoAncestorActive());
     if (daoAncestorActive()) {
       setPreviewText(byId("dao-time-law-preview"), () => state.daoTimeLawUnlocked

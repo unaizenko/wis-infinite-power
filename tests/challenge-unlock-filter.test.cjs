@@ -33,7 +33,7 @@ s=R.getState();const loaded=W.Core.Save.prepare(W.Core.Save.envelope(s)).state;a
 for(const profile of ['challenge','infinity'])assert.equal(W.Core.Reset.apply(profile,loaded,S.fresh).hideCompletedChallenges,true);
 const legacy=legacyData(loaded);delete legacy.core.preferences.hideCompletedChallenges;
 assert.equal(W.Core.Save.prepare({schemaVersion:64,data:legacy}).state.hideCompletedChallenges,false);
-assert.equal(W.Core.Config.saveVersion,76);assert.equal(W.Core.Config.gameVersion,'0.3.0.2');
+assert.equal(W.Core.Config.saveVersion,76);assert.equal(W.Core.Config.gameVersion,'0.3.0.3');
 console.log('PASS purchase gates, locked API atomicity, entry/exit, finite/repeatable filter, active exit and preference save/reset compatibility');
 
 

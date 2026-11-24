@@ -97,9 +97,9 @@
   ].map(([name, threshold, strength, growth, removedAtRealm, removedBy]) => Object.freeze({ name, threshold: BN(threshold), strength, growth, removedAtRealm, removedBy })));
 
   const challenges = Object.freeze({
-    martialDragon:Object.freeze({name:'化龙',system:'martial',catalogSystem:'武道',martialPrerequisite:'dragonTransform',unlockAchievementKey:'martialDragon',maxCompletions:1,targetMartialAbility:'dragonTransform',targetMartialAbilityLevel:1,resourceName:'仅秘境流能力生效且可购买；保留基础转换',rewardDescription:'化龙九变倍率提升至1+0.03log10(1+体)次方'}),
-    martialEmperor:Object.freeze({name:'大帝劫',system:'martial',catalogSystem:'武道',martialPrerequisite:'emperorTribulation',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='宇宙结构').powerLiteral,resourceName:'气、体、心、神魂的获取指数为0.75',rewardDescription:'解锁秘境流·5境合一'}),
-    martialSeverDao:Object.freeze({name:'仙三斩道',system:'martial',catalogSystem:'武道',martialPrerequisite:'immortalPlatform',unlockAchievementKey:'martialImmortalPlatform',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='地表').powerLiteral,resourceName:'J、战力正向获取速率变为sqrt(1+g)-1',rewardDescription:'登仙台指数系数由0.025提高至0.04'}),
+    martialDragon:Object.freeze({name:'化龙',system:'martial',catalogSystem:'武道',martialPrerequisite:'dragonTransform',unlockAchievementKey:'martialDragon',maxCompletions:1,targetMartialAbility:'dragonTransform',targetMartialAbilityLevel:1,resourceName:'仅秘境流能力生效且可购买；保留基础转换',rewardDescription:'持有的体越多，化龙九变给打岩的倍率越高'}),
+    martialEmperor:Object.freeze({name:'大帝劫',system:'martial',catalogSystem:'武道',martialPrerequisite:'emperorTribulation',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='宇宙结构').powerLiteral,resourceName:'气、体、心和神魂的获取量受到压制（获取指数 0.75）',rewardDescription:'解锁秘境流·5境合一'}),
+    martialSeverDao:Object.freeze({name:'仙三斩道',system:'martial',catalogSystem:'武道',martialPrerequisite:'immortalPlatform',unlockAchievementKey:'martialImmortalPlatform',maxCompletions:1,targetMartialPower:scales.find(s=>s.name==='地表').powerLiteral,resourceName:'J 和战力的正向获取速率下降，原速率越高，受到的削弱比例越大',rewardDescription:'心对登仙台神魂兑换指数的加成提升 60%'}),
     martialAutumn: Object.freeze({name:'秋风未动蝉先觉',system:'martial',catalogSystem:'武道',martialPrerequisite:'shenJin',unlockAchievementKey:'martialGodBody',maxCompletions:1,targetMartialBody:20000,targetMartialHeart:2000,targetMartialJ:3.033e16,targetMartialPower:3.033e15,resourceName:'心不再弱化或解除普通J/战力量级软上限；其它心效果保持',rewardDescription:'心获取×50'}),
     martialStealHeaven: Object.freeze({ name:"盗天机", system:"martial", catalogSystem:"武道", martialPrerequisite:"stealHeaven", maxCompletions:1, targetMartialHeart:30, resourceName:"关闭全部心对普通J/战力软上限的解除与弱化", rewardDescription:"依据当前心指数提升气、体获取，指数渐近上限1.15；解锁自动炼心" }),
     martialIntentQi: Object.freeze({ name:"意与气合", system:"martial", catalogSystem:"武道", martialPrerequisite:"innerHarmony", maxCompletions:1, targetMartialQi:100, targetMartialJ:1e9, resourceName:"禁用气的独立J来源", rewardDescription:"气的独立J来源×3；完成成就·内三合的条件之一" }),
@@ -166,7 +166,7 @@
   ]);
 
   WIS.Core.Config = Object.freeze({
-    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.3.0.2", saveVersion: 76,
+    saveKey: "wis-infinite-power-save-v2", gameVersion: "0.3.0.3", saveVersion: 76,
     closedBatchVersion: 2,
     costs, realms, scales, softcaps, challenges, scatterRetainedUpgradeTiers, reincarnationRoots, breathingRealms,
     rockBaseLevelCap: 10, minorTribulationBaseTriggerLoad: 150,

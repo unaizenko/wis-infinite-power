@@ -1,7 +1,7 @@
 (function defineInfinityConfig(WIS) {
   'use strict';
   const rows = [
-    ['B1-1','regular','无限宝物',1,[],null,null,'treasure',0,0,'宝物保留上限为 max(999, 999 × 累计获得无限点数)，包含本次收益。'],
+    ['B1-1','regular','无限宝物',1,[],null,null,'treasure',0,0,'转生时按累计获得的无限点数计算宝物保留上限：每点可保留 999 件，最低上限为 999 件。本次收益也计入。'],
     ['B1-2','regular','挑战-1',1,[],null,null,'retainChallenges',0,1,'无限转生保留福、禄、寿、五弊的完成奖励。'],
     ['B2','regular','无限-1',2,['B1-1','B1-2'],null,null,'points',1,0,'无限点数获取 ×2。'],
     ['B3-1','regular','界限突破-1',3,['B2'],null,null,'earlySoftcap',2,0,'削弱恒星及以前的量级软上限30%。'],
@@ -35,8 +35,8 @@
     ['D10','numbers','树构造超越',42,['D9'],null,null,'continuousTreeSuper',9,0,'开启自动进入超构造时，完成当前TREE目标后保持超构造，沿用锁定基础倍率推进下一目标；关闭后完成当前目标便停止，保留构造点、强化及剩余进度。离线期间，已进入的超构造按离线开始时的收益结算；自动开启时可连续升阶，关闭时完成当前目标便停止。'],
     ['D11-1','numbers','超构造推进-1',49,['D10'],null,null,'superTimeBoost',10,0,'根据本次超构造时间提升超构造倍率，退出超构造重置。'],
     ['D11-2','numbers','超构造推进-2',49,['D10'],null,null,'superUpgradeBoost',10,1,'解锁树构造强化4·超构造增幅：每级超构造倍率×1.2。'],
-    ['D11-3','numbers','超构造推进-3',49,['D10'],null,null,'superRankBoost',10,2,'超构造倍率 ×1.2^当前已完成TREE阶位。'],
-    ['D12','numbers','超超分形',500,['D11-1','D11-2','D11-3'],null,null,'superFractalAll',11,0,'G进度速度额外乘以 1 + 0.0001×log10(1+Y) + 0.001×log10(1+Y↑Y) + 0.01×log10(1+Y↑↑Y) + 0.1×log10(1+Y↑↑↑Y)。保留Y↑↑↑↑Y原有加成；在线按每步起点库存计算，离线锁定起点倍率。'],
+    ['D11-3','numbers','超构造推进-3',49,['D10'],null,null,'superRankBoost',10,2,'每完成一阶 TREE，超构造倍率就再乘以 1.2。'],
+    ['D12','numbers','超超分形',500,['D11-1','D11-2','D11-3'],null,null,'superFractalAll',11,0,'除了 Y↑↑↑↑Y，前四种分形库存也会加快 G 进度。相同库存下，每高一阶提供的额外加成为前一阶的 10 倍。离线期间按离线开始时的库存计算。'],
     ['E1','tempo','快速',3,[],null,null,'quick',0,0,'J与战力获取 ×100。'],
     ['E2-1','tempo','在线-1',5,['E1'],'tempo','online','tempoGain',1,0,'J、战力倍率从10000衰减至50，约92分钟衰减至最低。'],
     ['E2-2','tempo','常规-1',5,['E1'],'tempo','steady','tempoGain',1,1,'J与战力固定 ×2000。'],
@@ -73,7 +73,7 @@
       trueGraham:Object.freeze({name:'真葛立恒',maxCompletions:1,infinityUpgrade:'D3',targetG:64,resetBigNumbers:true,catalogSystem:'大数',description:'根据G阶位，增加提升G阶位需求。',achievementKey:'trueGraham',rewardDescription:'解锁成就·真葛立恒'}),
       trueTree3:Object.freeze({name:'真TREE3',maxCompletions:1,infinityUpgrade:'D3',targetTree:3,resetBigNumbers:true,catalogSystem:'大数',description:'超构造阈值提高至原阈值^1.10。',achievementKey:'trueTree3',rewardDescription:'解锁成就·真TREE3'}),
       infinityRing:Object.freeze({name:'圆环之理',maxCompletions:1,infinityUpgrade:'C4',targetXiuzhenRealm:7,catalogSystem:'无限',resetLevel:'infinity',achievementKey:'eternalWitness',description:'保留累计游玩时间，重置无限、成就以外游戏进度，重新抵达单体宇宙。期间可进行普通、体系挑战及转生。',rewardDescription:'获得普通成就·一证永证：无限转生及以下等级转生不再重置体系挑战'}),
-      infinityFast:Object.freeze({name:'快速',maxCompletions:1,infinityUpgrade:'E4',deadlineSeconds:5,requiredScaleIndex:14,catalogSystem:'无限',resetLevel:'infinity',rewardKey:'infinityFast',description:'开启时进行一次无限转生；5秒内抵达宇宙结构，超时失败。',rewardDescription:'宇宙意志的双对数永久提升无限点数获取'})
+      infinityFast:Object.freeze({name:'快速',maxCompletions:1,infinityUpgrade:'E4',deadlineSeconds:5,requiredScaleIndex:14,catalogSystem:'无限',resetLevel:'infinity',rewardKey:'infinityFast',description:'开启时进行一次无限转生；5秒内抵达宇宙结构，超时失败。',rewardDescription:'永久提升无限点数获取。持有的宇宙意志越多，提升越大，但每多一枚带来的加成逐渐减小'})
     })});
 }(window.WIS));
 

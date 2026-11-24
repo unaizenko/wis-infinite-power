@@ -66,7 +66,7 @@
         X.abilities.filter(a => a.realm === r.level).forEach(a => rows.push({ type: "ability", definition: a,
           ...row(group, a.name, a.description, a.cost, a.resource, state => X.buy(state, a.key), "buy-" + a.key) }));
       });
-      const innate=el("p","能力·涅力：突破空涅自动获得。每秒产出（当前元力 / 1e16）^0.25 涅力；灵神、神融天地进一步提升产出。","big-number-note");
+      const innate=el("p","能力·涅力：突破空涅自动获得。持有 1e16 元力时，每秒基础产出 1 涅力。当前元力每增至 16 倍，基础产出就翻倍。灵神和神融天地可进一步提高产出。","big-number-note");
       innate.id="xiuzhen-innate-nie"; $("xiuzhen-ability-group-7").prepend(innate);
       for (const [level,key,name,description] of [
         [11,"taTian","踏天","根据N产出N²。"],

@@ -133,7 +133,7 @@
   }, 500);
 }(window, document));
     </script>
-    <link rel="stylesheet" href="styles.css?v=release-0.3.0.2-20261123" />
+    <link rel="stylesheet" href="styles.css?v=release-0.3.0.3-20261124" />
   </head>
   <body>
     <aside id="boot-status-panel" class="boot-status-panel" role="status" aria-live="polite">
@@ -159,7 +159,7 @@
           <strong>WIS</strong>
           <span>无限战力系统</span>
           <span class="version-actions">
-            <small id="game-version" class="game-version">v0.3.0.2</small>
+            <small id="game-version" class="game-version">v0.3.0.3</small>
             <button id="android-app-open" class="app-download-link" type="button" aria-haspopup="dialog" hidden>下载安卓 App</button>
           </span>
         </div>
@@ -363,7 +363,7 @@
                 <progress id="super-fractal-bar" max="100" value="0" aria-label="超分形进度"></progress>
                 <p id="super-fractal-sources"></p>
                 <div id="graham-milestones" class="graham-milestones" aria-label="Graham里程碑"></div>
-                <small>G1 = 3↑↑↑↑3；G(n+1) = 3↑^(Gn)3。仅记录阶位，不展开真实数值。</small>
+                <small>G1 是 3↑↑↑↑3。之后每升一阶，两个 3 之间的箭头数量等于上一阶的数值。这里显示当前阶位。</small>
               </section>
             </div>
             <div id="tree-panel" class="big-number-panel tree-panel" role="tabpanel" aria-labelledby="tree-tab" hidden>
@@ -609,7 +609,7 @@
                   <details class="upgrade-group" id="dao-ancestor-abilities" hidden>
                     <summary><span><b>道祖</b><small>时间法则、大道归一、道祖威能、天道同化、界域</small></span></summary>
                     <div class="item-list">
-                      <article class="item-row" id="dao-law-unity-ability"><div class="item-content"><h2>大道归一</h2><p>使法则及法则本源结算后的最终法则倍率 ^1.60，不修改法则内部指数。</p></div><div class="purchase-control"><span id="dao-law-unity-preview">解锁后：最终法则倍率 ^1.60</span><small>消耗 1e24 仙灵力</small><button id="unlock-dao-law-unity" class="primary-button" type="button">解锁</button></div></article>
+                      <article class="item-row" id="dao-law-unity-ability"><div class="item-content"><h2>大道归一</h2><p>法则与法则本源生效后，将最终法则倍率提高到原倍率的 1.60 次方。</p></div><div class="purchase-control"><span id="dao-law-unity-preview">解锁后：最终法则倍率 ^1.60</span><small>消耗 1e24 仙灵力</small><button id="unlock-dao-law-unity" class="primary-button" type="button">解锁</button></div></article>
                       <article class="item-row" id="dao-domain-ability"><div class="item-content"><h2>界域</h2><p>根据当前仙灵力提升灵域效果。</p></div><div class="purchase-control"><span id="dao-domain-preview">解锁后：灵域来源获得无上限指数</span><small>消耗 3e24 仙灵力</small><button id="unlock-dao-domain" class="primary-button" type="button">解锁</button></div></article>
                       <article class="item-row" id="dao-power-ability"><div class="item-content"><h2>道祖威能</h2><p>根据当前仙灵力获取战力。</p></div><div class="purchase-control"><span id="dao-power-preview">解锁后：生成独立战力来源</span><small>消耗 1e25 仙灵力</small><button id="unlock-dao-power" class="primary-button" type="button">解锁</button></div></article>
                       <article class="item-row" id="dao-time-law-ability"><div class="item-content"><h2>时间法则</h2><p>按本次转生实际经过时间，无上限指数提升J、战力、法力与仙灵力获取，并在量级软上限前结算。</p></div><div class="purchase-control"><span id="dao-time-law-preview">解锁后：按本次转生时间提升四类资源</span><small>消耗 3e25 仙灵力</small><button id="unlock-dao-time-law" class="primary-button" type="button">解锁</button></div></article>
@@ -757,7 +757,7 @@
               </article>
 
               <article class="item-row" id="mystic-heaven-spirit-slaying-sword-treasure" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>仙道·玄天斩灵剑</h2><p>按新增有效探寻量积累进度获得；法宝来源指数 = 1 + 0.23 × log10(1 + 数量/20)。</p></div>
+                <div class="item-content"><h2>仙道·玄天斩灵剑</h2><p>探寻量增加时积累进度。持剑越多，法宝提供的收益越高，每把剑带来的指数提升逐渐减小。</p></div>
                 <div class="purchase-control"><span id="mystic-heaven-spirit-slaying-sword-count">数量：0</span><small id="mystic-heaven-spirit-slaying-sword-chance">等待计算进度</small><small id="mystic-heaven-spirit-slaying-sword-effect">法宝来源 ^1.000</small></div>
               </article>
 
@@ -776,16 +776,16 @@
                 <div class="purchase-control"><span id="yuan-crystal-count">数量：0</span><small id="yuan-crystal-chance">等待计算进度</small><small id="yuan-crystal-effect">元力倍率 ×1.000</small></div>
               </article>
 
-              <article class="item-row" id="emperor-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·帝经</h2><p>四极成就解锁；按实际获得战力独立累计进度，需求1e18×1000^n；武道战力独立来源×(1+n)^0.4。</p></div><div class="purchase-control"><span id="emperor-imprint-count">数量：0</span><small id="emperor-imprint-chance">等待计算进度</small><small id="emperor-imprint-effect"></small></div></article>
-              <article class="item-row" id="sacred-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·圣体</h2><p>四极成就解锁；按实际获得体独立累计进度，需求1e6×10^n；体获取×(1+n)^0.25。</p></div><div class="purchase-control"><span id="sacred-body-imprint-count">数量：0</span><small id="sacred-body-imprint-chance">等待计算进度</small><small id="sacred-body-imprint-effect"></small></div></article>
-              <article class="item-row" id="god-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·神王体</h2><p>四极成就解锁；按实际获得体独立累计进度，需求1e6×10^n；气获取×(1+n)^0.25。</p></div><div class="purchase-control"><span id="god-body-imprint-count">数量：0</span><small id="god-body-imprint-chance">等待计算进度</small><small id="god-body-imprint-effect"></small></div></article>
-              <article class="item-row" id="source-stone-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·源石</h2><p>四极成就解锁；按实际获得J独立累计进度，需求1e19×1000^n；武道J独立来源×(1+n)^0.4。</p></div><div class="purchase-control"><span id="source-stone-imprint-count">数量：0</span><small id="source-stone-imprint-chance">等待计算进度</small><small id="source-stone-imprint-effect"></small></div></article>
+              <article class="item-row" id="emperor-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·帝经</h2><p>达成「四极」后，实际获得的战力计入进度。首枚需要 1e18 进度，之后每枚需求变为上一枚的 1000 倍。持有越多，武道的独立战力来源越高。</p></div><div class="purchase-control"><span id="emperor-imprint-count">数量：0</span><small id="emperor-imprint-chance">等待计算进度</small><small id="emperor-imprint-effect"></small></div></article>
+              <article class="item-row" id="sacred-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·圣体</h2><p>达成「四极」后，实际获得的体计入进度。首枚需要 1e6 进度，之后每枚需求变为上一枚的 10 倍。持有越多，体获取越高。</p></div><div class="purchase-control"><span id="sacred-body-imprint-count">数量：0</span><small id="sacred-body-imprint-chance">等待计算进度</small><small id="sacred-body-imprint-effect"></small></div></article>
+              <article class="item-row" id="god-body-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·神王体</h2><p>达成「四极」后，实际获得的体计入进度。首枚需要 1e6 进度，之后每枚需求变为上一枚的 10 倍。持有越多，气获取越高。</p></div><div class="purchase-control"><span id="god-body-imprint-count">数量：0</span><small id="god-body-imprint-chance">等待计算进度</small><small id="god-body-imprint-effect"></small></div></article>
+              <article class="item-row" id="source-stone-imprint-treasure" data-catalog-system="武道" hidden><div class="item-content"><h2>烙印·源石</h2><p>达成「四极」后，实际获得的J计入进度。首枚需要 1e19 进度，之后每枚需求变为上一枚的 1000 倍。持有越多，武道的独立 J 来源越高。</p></div><div class="purchase-control"><span id="source-stone-imprint-count">数量：0</span><small id="source-stone-imprint-chance">等待计算进度</small><small id="source-stone-imprint-effect"></small></div></article>
               <article class="item-row" id="will-imprint-treasure" data-catalog-system="武道" hidden>
                 <div class="item-content"><h2>烙印·意志</h2><p>每获得或失去 1 心积累 1 进度。首枚需要 10 进度，此后每枚需求翻倍。</p></div>
                 <div class="purchase-control"><span id="will-imprint-count">数量：0</span><small id="will-imprint-chance">等待计算进度</small><small id="will-imprint-effect">炼心、神魂兑换效率 ×1</small></div>
               </article>
               <article class="item-row" id="law-imprint-treasure" data-catalog-system="武道" hidden>
-                <div class="item-content"><h2>烙印·法则</h2><p>源能法则成就解锁；实际获得气、体合计积累进度，第n枚需求为100000×2^n，增强基因源能倍率。</p></div>
+                <div class="item-content"><h2>烙印·法则</h2><p>达成「源能法则」后，实际获得的气和体合计积累进度。首枚需要 100000 进度，之后每枚需求翻倍。持有越多，基因源能倍率越高。</p></div>
                 <div class="purchase-control"><span id="law-imprint-count">数量：0</span><small id="law-imprint-chance">等待计算进度</small><small id="law-imprint-effect">基因源能倍率额外 ×1</small></div>
               </article>
               <article class="item-row" id="five-spirit-stone-treasure" hidden>
@@ -916,7 +916,7 @@
               </article>
 
               <article class="item-row" id="sever-self-corpse-challenge" data-challenge-key="severSelfCorpse" data-catalog-system="仙道" hidden>
-                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效，仙灵力获取受压制。</p><details class="card-details"><summary>仙灵力压制公式</summary><p>E = 1 / [1 + c × log10(1 + I / 1e16)]，I 为仙灵力，c = <span id="self-corpse-formula-coefficient"></span>。</p></details></div>
+                <div class="item-content"><h2>斩自我尸</h2><p>法则与法则本源失效。持有的仙灵力越多，继续获取仙灵力时受到的压制越强。</p></div>
                 <div class="purchase-control"><span id="sever-self-corpse-progress">完成：0/1次</span><small id="sever-self-corpse-limit">限制：法则与法则本源失效；仙灵力额外动态压制</small><small id="sever-self-corpse-target">目标：重新达到大罗</small><small id="sever-self-corpse-reward">奖励：永久取得突破道祖资格</small><button id="toggle-sever-self-corpse" class="primary-button" type="button">开启挑战</button></div>
               </article>
 
@@ -1234,112 +1234,112 @@
       <strong id="scale-notice-name"></strong>
     </div>
     <div id="notice" popover="manual" role="status" aria-live="polite"></div>
-    <script src="js/core/build-config.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/vendor/break_eternity.min.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/namespace.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/bignum.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/closed-form-batch.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/stable-product-quotient.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/finite-progress.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/signed-ledger.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/rank.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/rank-math.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/rank-certified-math.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/rank-projection.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/rank-exact.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/rank-g-cost.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/rank-budget.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/rank-basis.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/rank-settlement.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/amount-products.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/amount-ledger.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/amount.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/amount-formulas.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/treasure-rules.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/infinity-config.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/infinity.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/martial-config.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/config.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/big-numbers.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/closed-rank-cost.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/closed-rank-settlement.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/registry.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/formulas.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/penalties.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/integration.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/runtime.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/xiuzhen.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/probability.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/compensation.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/martial-amount.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/martial.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/high-multiverse.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/amount-migration.js?v=release-0.3.0.2-20261123"></script>
-  <script src="js/core/state.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/save.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/resources.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/resources.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/big-number-resources.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/effects.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/sources.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/reset.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/power/scale-logic.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/power/scale.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/immortal-logic.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/immortal.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/martial-system.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/achievements.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/fast-forward.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/treasure-ledger.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/treasures.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/closed-treasures.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/exploration-progress.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/cultivation/closed-natural.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/core/closed-batch-migration.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/meta/challenges.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/automation.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/profiler.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/resource-groups.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/fixed-sources.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/predictor-groups.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/strong-feedback-checkpoint.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/legacy-settlement-checkpoints.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/checkpoint-strategy.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/fixed-segment.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/settlement-limit.js?v=release-0.3.0.2-20261123"></script>
-  <script src="js/simulation/discard-effects.js?v=release-0.3.0.2-20261123"></script>
-  <script src="js/simulation/step.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/offline.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/worker-protocol.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/worker-client.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/offline-worker-bundle.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/online-candidate-worker-bundle.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/online-candidate-worker.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/offline-worker.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/loop.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/math-worker-bundle.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/math-worker.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/pure-math-work.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/source-preview.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/format.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/cards.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/big-numbers.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/xiuzhen.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/treasures.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/infinity.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/martial.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/dialog.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/vendor/qrcode-generator.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/app-distribution.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/native-platform.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/action-view.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/session-delta.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/session-store.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/session-controller.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/session-actions.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/session-worker-bundle.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/simulation/session-client.js?v=release-0.3.0.2-20261123"></script>
-    <script src="js/ui/app.js?v=release-0.3.0.2-20261123"></script>
-    <script src="game.js?v=release-0.3.0.2-20261123"></script>
+    <script src="js/core/build-config.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/vendor/break_eternity.min.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/namespace.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/bignum.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/closed-form-batch.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/stable-product-quotient.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/finite-progress.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/signed-ledger.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/rank.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/rank-math.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/rank-certified-math.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/rank-projection.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/rank-exact.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/rank-g-cost.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/rank-budget.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/rank-basis.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/rank-settlement.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/amount-products.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/amount-ledger.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/amount.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/amount-formulas.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/treasure-rules.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/infinity-config.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/infinity.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/martial-config.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/config.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/big-numbers.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/closed-rank-cost.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/closed-rank-settlement.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/registry.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/formulas.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/penalties.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/integration.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/runtime.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/xiuzhen.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/probability.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/compensation.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/martial-amount.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/martial.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/high-multiverse.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/amount-migration.js?v=release-0.3.0.3-20261124"></script>
+  <script src="js/core/state.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/save.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/resources.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/resources.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/big-number-resources.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/effects.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/sources.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/reset.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/power/scale-logic.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/power/scale.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/immortal-logic.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/immortal.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/martial-system.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/achievements.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/fast-forward.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/treasure-ledger.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/treasures.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/closed-treasures.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/exploration-progress.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/cultivation/closed-natural.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/core/closed-batch-migration.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/meta/challenges.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/automation.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/profiler.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/resource-groups.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/fixed-sources.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/predictor-groups.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/strong-feedback-checkpoint.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/legacy-settlement-checkpoints.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/checkpoint-strategy.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/fixed-segment.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/settlement-limit.js?v=release-0.3.0.3-20261124"></script>
+  <script src="js/simulation/discard-effects.js?v=release-0.3.0.3-20261124"></script>
+  <script src="js/simulation/step.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/offline.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/worker-protocol.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/worker-client.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/offline-worker-bundle.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/online-candidate-worker-bundle.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/online-candidate-worker.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/offline-worker.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/loop.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/math-worker-bundle.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/math-worker.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/pure-math-work.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/source-preview.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/format.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/cards.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/big-numbers.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/xiuzhen.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/treasures.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/infinity.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/martial.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/dialog.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/vendor/qrcode-generator.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/app-distribution.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/native-platform.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/action-view.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/session-delta.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/session-store.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/session-controller.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/session-actions.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/session-worker-bundle.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/simulation/session-client.js?v=release-0.3.0.3-20261124"></script>
+    <script src="js/ui/app.js?v=release-0.3.0.3-20261124"></script>
+    <script src="game.js?v=release-0.3.0.3-20261124"></script>
   </body>
 </html>

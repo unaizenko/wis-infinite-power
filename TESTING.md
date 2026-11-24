@@ -1,3 +1,7 @@
+## 2026-11-24 旧武道存档分片迁移
+
+运行 `node --test tests/martial-will.test.cjs`。旧版心账本的相邻高层数及有理数尾项会触发可中断比较。用每片 1、16、256 次操作对照同步迁移，检查心魂成就、库存和迁移标记。
+
 ## 2026-11-23 大数门槛与离线收尾
 
 运行 `node --test tests/googol-boundary-range.test.cjs tests/martial-passive-range.test.cjs tests/amount-formulas.test.cjs tests/frozen-offline-contract.test.cjs`。古戈尔用例覆盖高层指数、门槛两侧的微小尾项，以及在线推进、离线结算和读档连续性。武道用例覆盖极小心余额与高库存。离线收尾用例注入收益率刷新异常，检查已结算时间、保存回读和重复发奖。

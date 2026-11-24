@@ -133,9 +133,9 @@
       const note = el("p", "进入挑战会重置资源与能力；已获得的挑战资格永久保留，可退出后重试。", "martial-note"); challenges.append(note);
       const list = challenges.querySelector(".item-list") || el("div", "", "item-list"); challenges.append(list);
       for (const [key, name, description, reward] of [
-        ['martialDragon','化龙','仅秘境流能力生效且可购买；基础资源转换保留。目标：挑战内解锁化龙九变1级。','化龙九变倍率提升至1+0.03log10(1+体)次方。'],
+        ['martialDragon','化龙','仅秘境流能力生效且可购买；基础资源转换保留。目标：挑战内解锁化龙九变1级。','体越多，化龙九变对打岩的加成越强。'],
         ['martialEmperor','大帝劫','气、体、心、神魂获取指数为0.75。目标：战力达到宇宙结构。','解锁秘境流·5境合一。'],
-        ['martialSeverDao','仙三斩道','J、战力正向获取速率削弱为sqrt(1+g)-1。目标：战力达到地表（'+f(WIS.Core.Config.challenges.martialSeverDao.targetMartialPower)+'）。','登仙台指数系数由0.025提高至0.04。'],
+        ['martialSeverDao','仙三斩道','J和战力获取减慢，原本的收益越高，削弱越明显。目标：战力达到地表（'+f(WIS.Core.Config.challenges.martialSeverDao.targetMartialPower)+'）。','心对登仙台炼化神魂的加成增强。'],
         ['martialAutumn','秋风未动蝉先觉','心不再弱化或解除普通J/战力软上限。目标：体≥20000、心≥2000、J≥3.033e16、战力≥3.033e15。','心获取×50。'],
         ["martialStealHeaven", "盗天机", "挑战中关闭心对正常量级软上限的解除与弱化。目标：当前心达到30。", "按当前心提升气、体获取指数，解锁自动炼心。"],
         ["martialIntentQi", "意与气合", "气提供的J来源停用。目标：当前气≥100，且J≥1e9。", "气的J来源×3。三合挑战全部完成后解锁自动神魂。"],
@@ -191,14 +191,14 @@
       if (!level) return "未解锁";
       if(!M.abilityEnabled(s,key))return "化龙挑战期间禁用";
       if(key==='dragonTransform')return "打岩来源倍率 ×"+f(M.abilityMultiplier(s,key,level));
-      if(key==='fiveRealms')return "四资源各取 log10(1+库存)，乘积除以 10,000。当前 N/秒："+f(M.fiveRealmsRate(s));
-      if(key==='immortalPlatform')return "神魂累计转换指数 "+f(M.abilityMultiplier(s,key,level))+"（作用于累计需求与边际成本，保留衰减）";
-      if(key==='warGod')return '四资源绝对/相对衰减幂×0.5（累计成本生效）';
-      if(key==='shenJin')return '体独立战力来源基础增长指数1.50；解锁见神不坏成就';
-      if(key==='mindPlanet')return '每秒气、体各基础投入 '+f(2*level)+'×√(1+心)，经获取倍率、累计需求及衰减';
-      if(key==='innerWorld')return '每秒心/神魂基础投入0.5/0.05×min(气,体)，经获取倍率、累计需求及衰减';
-      if(key==='divineKingdom')return '全局J、战力获取 ^'+f(M.abilityMultiplier(s,key,level));
-      if(key==='fourPoles')return '元素化、极意完整正向来源 ^'+f(M.abilityMultiplier(s,key,level))+'（需解锁原能力）';
+      if(key==='fiveRealms')return "当前每秒获得的单体宇宙系数 N："+f(M.fiveRealmsRate(s));
+      if(key==='immortalPlatform')return "神魂转换指数 "+f(M.abilityMultiplier(s,key,level));
+      if(key==='warGod')return '库存过高或资源失衡时，减速指数减半';
+      if(key==='shenJin')return '体产生战力的基础指数由1.25升至1.50，解锁见神不坏成就';
+      if(key==='mindPlanet')return '凝气和锻体的基础投入均为1级的 '+f(level)+' 倍，随当前心增加';
+      if(key==='innerWorld')return '按气和体中较少的库存计算。每秒炼心的基础投入为该库存的50%，炼化神魂为5%，气和体均不扣除';
+      if(key==='divineKingdom')return '全局J、战力获取指数 '+f(M.abilityMultiplier(s,key,level));
+      if(key==='fourPoles')return '元素化、极意的收益指数 '+f(M.abilityMultiplier(s,key,level))+'（需解锁原能力）';
       if(key==='otherShore')return '神速倍率额外 ×'+f(M.abilityMultiplier(s,key,level))+'（需解锁神速）';
       if(key==='daoPalace')return '杀意实质、能量循环倍率各额外 ×'+f(M.abilityMultiplier(s,key,level))+'（需解锁原能力）';
       if(key==='lifeCore')return '体独立战力来源 ×'+f(M.abilityMultiplier(s,key,level));

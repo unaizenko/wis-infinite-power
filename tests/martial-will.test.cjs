@@ -90,3 +90,37 @@ test('old recorded resource history grants milestones once without retroactive i
   eq(stock(loaded),0);
   eq(progress(loaded),0);
 });
+
+test('legacy martial achievement migration resumes inside exact lifetime totals', () => {
+  const {Core:{Save,State,Amount}, Cultivation:{Martial}} = require('./helpers/production-numeric-runtime.cjs').loadProductionNumericRuntime().W;
+  const original = Save.envelope(State.fresh());
+  const data = original.data;
+  data.cultivation.active = 'martial';
+  data.cultivation.systems ||= {};
+  data.cultivation.systems.martial = {resources:{}};
+  // Adjacent tower coordinates with a rational remainder require a resumable comparison.
+  const term = '@ratio:1:{"terms":["ee25.23478531338756*1257"],"denominator":"1000"}';
+  const smaller = 'ee25.23478531338755*130';
+  data.cultivation.systems.martial.resources.heart = {
+    amount:'ee25.853164903270084', residual:[term,smaller,'12e1'],
+    peak:'ee25.901587451001465', peakResidual:['120e0'],
+    total:'ee25.901587451001465', totalResidual:[term,'ee25.853164903270084',smaller,'24e1'],
+    spent:'ee25.901587451001465', spentResidual:['120e0']
+  };
+  data.cultivation.systems.martial.resources.soul = {amount:1,total:1,peak:1};
+  delete data.meta.statistics.martialConversionAchievementsVersion;
+  const before = JSON.stringify(original);
+  const reference = Save.prepare(original).state;
+  for (const maximumOperations of [1,16,256]) {
+    const work = Save.prepareWork(original);
+    let slices = 0;
+    while (!work.advance({maximumOperations}).done) assert(++slices < 100000);
+    const loaded = work.result().state;
+    for (const key of ['heart','soul']) {
+      assert.equal(Amount.compare(Martial.quantity(loaded,key), Martial.quantity(reference,key)),0);
+    }
+    assert(loaded.unlockedAchievements.martialHeart && loaded.unlockedAchievements.martialSoul);
+    assert.equal(loaded.meta.statistics.martialConversionAchievementsVersion,1);
+  }
+  assert.equal(JSON.stringify(original),before);
+});

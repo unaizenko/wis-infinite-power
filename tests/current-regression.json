@@ -37,6 +37,7 @@
     "tests/high-multiverse.test.cjs",
     "tests/amount-martial.test.cjs",
     "tests/martial-passive-range.test.cjs",
+    "tests/martial-will.test.cjs",
     "tests/closed-form-batch.test.cjs",
     "tests/closed-form-reentry.test.cjs",
     "tests/amount-fixed-sources.test.cjs",

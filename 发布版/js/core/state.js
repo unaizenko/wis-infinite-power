@@ -1318,8 +1318,9 @@
     if (!source.meta?.statistics?.martialConversionAchievementsVersion) {
       const martial = WIS.Cultivation.Martial;
       for (const [resource,flag] of [['heart','martialHeart'],['soul','martialSoul']]) {
-        const {total} = martial.resourceRecord(domain,resource,true);
-        if (WIS.Core.Amount?.enabled() ? WIS.Core.Amount.compare(total,0)>0 : gt(total,ZERO))
+        const {total} = yield () => martial.resourceRecord(domain,resource,true);
+        const earned = yield () => WIS.Core.Amount?.enabled() ? WIS.Core.Amount.compare(total,0)>0 : gt(total,ZERO);
+        if (earned)
           domain.meta.achievements[flag] = true;
       }
     }
